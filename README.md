@@ -11,3 +11,4 @@ Some background about the effects system can be found in:
 - ["Retrofitting Concurrency onto OCaml"](https://kcsrk.info/papers/drafts/retro-concurrency.pdf) (to appear, PLDI 2021)
 - https://kcsrk.info/ocaml/multicore/2015/05/20/effects-multicore/
 - Effects examples: https://github.com/ocaml-multicore/effects-examples/tree/master/aio
+- [Concurrent System Programming with Effect Handlers"](https://www.repository.cam.ac.uk/bitstream/handle/1810/283239/paper.pdf?sequence=3&isAllowed=y)
