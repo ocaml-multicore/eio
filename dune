@@ -1,0 +1,6 @@
+(library
+ (name eunix)
+ (public_name eunix)
+ (modules eunix zzz)
+ (libraries unix uring bheap logs fmt bigstringaf))
+

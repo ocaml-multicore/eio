@@ -1,0 +1,12 @@
+(library
+  (name eurcp_lib)
+  (modules eurcp_lib)
+  (libraries eunix uring))
+
+(executable
+ (name eurcp)
+ (modules eurcp)
+ (public_name eurcp)
+ (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli eurcp_lib))
+
+
