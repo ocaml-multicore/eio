@@ -61,17 +61,6 @@ let submit_rw_req {uring;io_q;_} ({op; file_offset; fd; buf; len; cur_off; _} as
 (* TODO bind from unixsupport *)
 let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
-let complete_rw_req st ({len; cur_off; action; _} as req) res =
-  match res, len with
-  | 0, _ -> discontinue action End_of_file
-  | n, _ when errno_is_retry n ->
-     submit_rw_req st req
-  | n, Exactly len when n < len - cur_off ->
-     req.cur_off <- req.cur_off + n;
-     submit_rw_req st req
-  | _, Exactly len -> continue action len
-  | n, Upto _ -> continue action n
-
 let enqueue_read st action (file_offset,fd,buf,len) =
   let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action} in
   Logs.debug (fun l -> l "read: submitting call");
@@ -82,46 +71,62 @@ let enqueue_write st action (file_offset,fd,buf,len) =
   Logs.debug (fun l -> l "write: submitting call");
   submit_rw_req st req
  
-let rec wakeup_paused run_q =
-  match Queue.take run_q with
-  | Thread (k, v) ->
-      continue k v;
-      wakeup_paused run_q
-  | exception Queue.Empty -> ()
-
 let submit_pending_io st =
   match Queue.take_opt st.io_q with
   | None -> ()
   | Some req -> submit_rw_req st req
 
+(* Switch control to the next ready continuation.
+   If none is ready, wait until we get an event to wake one and then switch.
+   Returns only if there is nothing to do and no queued operations. *)
 let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) =
   (* This is not a fair scheduler *)
   (* Wakeup any paused fibres *)
-  wakeup_paused run_q;
-  Zzz.restart_threads sleep_q;
-  let num_jobs = Uring.submit uring in
-  st.io_jobs <- st.io_jobs + num_jobs;
-  let timeout = Zzz.select_next sleep_q in
-  Logs.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
-    (match timeout with None -> "inf" | Some v -> string_of_float v));
-  if Queue.length run_q = 0 && Queue.length mem_q = 0 && timeout = None && st.io_jobs = 0 then begin
-    Logs.debug (fun l -> l "schedule: exiting");
-  end else match Uring.wait ?timeout uring with
-  | None -> 
-     Logs.debug (fun l -> l "wait returned none");
-     schedule st (* TODO this is a bad situation to be in, likely fatal *)
-  | Some (runnable, res) -> begin
-     st.io_jobs <- st.io_jobs - 1;
-     submit_pending_io st;
-     match runnable with
-     | Read req -> 
-        Logs.debug (fun l -> l "read returned");
-        complete_rw_req st req res
-     | Write req ->
-        Logs.debug (fun l -> l "write returned");
-        complete_rw_req st req res
-     | Noop -> ()
-  end
+  match Queue.take run_q with
+  | Thread (k, v) -> continue k v               (* We already have a runnable task *)
+  | exception Queue.Empty ->
+    match Zzz.restart_threads sleep_q with
+    | Some k -> continue k ()                   (* A sleeping task is now due *)
+    | None ->
+      let num_jobs = Uring.submit uring in
+      st.io_jobs <- st.io_jobs + num_jobs;
+      let timeout = Zzz.select_next sleep_q in
+      Logs.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
+                     (match timeout with None -> "inf" | Some v -> string_of_float v));
+      assert (Queue.length run_q = 0);
+      if timeout = None && st.io_jobs = 0 then (
+        (* Nothing further can happen at this point.
+           If there are no events in progress but also still no memory available, something has gone wrong! *)
+        assert (Queue.length mem_q = 0);
+        Logs.debug (fun l -> l "schedule: exiting");    (* Nothing left to do *)
+      ) else match Uring.wait ?timeout uring with
+        | None ->
+          assert (timeout <> None);
+          schedule st                                   (* Woken by a timeout, which is now due *)
+        | Some (runnable, res) -> begin
+            st.io_jobs <- st.io_jobs - 1;
+            submit_pending_io st;                       (* If something was waiting for a slot, submit it now. *)
+            match runnable with
+            | Read req -> 
+              Logs.debug (fun l -> l "read returned");
+              complete_rw_req st req res
+            | Write req ->
+              Logs.debug (fun l -> l "write returned");
+              complete_rw_req st req res
+            | Noop -> assert false
+          end
+and complete_rw_req st ({len; cur_off; action; _} as req) res =
+  match res, len with
+  | 0, _ -> discontinue action End_of_file
+  | n, _ when errno_is_retry n ->
+    submit_rw_req st req;
+    schedule st
+  | n, Exactly len when n < len - cur_off ->
+    req.cur_off <- req.cur_off + n;
+    submit_rw_req st req;
+    schedule st
+  | _, Exactly len -> continue action len
+  | n, Upto _ -> continue action n
 
 let enqueue_thread st k x =
   Queue.push (Thread (k, x)) st.run_q
@@ -130,7 +135,9 @@ let alloc_buf st k =
   Logs.debug (fun l -> l "alloc: %d" (Uring.Region.avail st.mem));
   match Uring.Region.alloc st.mem with
   | buf -> continue k buf 
-  | exception Uring.Region.No_space -> Queue.push k st.mem_q
+  | exception Uring.Region.No_space ->
+    Queue.push k st.mem_q;
+    schedule st
 
 let free_buf st buf =
   match Queue.take_opt st.mem_q with
@@ -208,7 +215,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
        enqueue_thread st k ();
        schedule st
     | effect (Sleep d) k ->
-       Zzz.sleep sleep_q d (Some k);
+       Zzz.sleep sleep_q d k;
        schedule st
     | effect (Fork f) k ->
        enqueue_thread st k ();

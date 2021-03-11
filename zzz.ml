@@ -56,7 +56,7 @@ let init () =
 
 let sleep t d k =
   let time = Unix.gettimeofday () +. d in
-  let sleeper = { time; canceled = false; thread = k } in
+  let sleeper = { time; canceled = false; thread = Some k } in
   t.new_sleeps <- sleeper :: t.new_sleeps
 
 let in_the_past t =
@@ -64,15 +64,14 @@ let in_the_past t =
 
 let rec restart_threads ({sleep_queue;_} as st) =
   match SleepQueue.minimum sleep_queue with
-  | exception Binary_heap.Empty -> ()
+  | exception Binary_heap.Empty -> None
   | { canceled = true; _ } ->
       SleepQueue.remove sleep_queue;
       restart_threads st
   | { time; thread; _ } when in_the_past time ->
       SleepQueue.remove sleep_queue;
-      (match thread with Some k -> continue k () | None -> ());
-      restart_threads st
-  | _ -> ()
+      Some (Option.get thread)
+  | _ -> None
 
 let rec get_next_timeout ({sleep_queue; _} as st) =
   match SleepQueue.minimum sleep_queue with
