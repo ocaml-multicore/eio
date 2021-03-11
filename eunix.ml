@@ -75,6 +75,7 @@ type rw_req = {
 type io_job =
   | Noop
   | Read : rw_req -> io_job
+  | Poll_add : (int, [`Exit_scheduler]) continuation -> io_job
   | Write : rw_req -> io_job
 
 type runnable =
@@ -84,14 +85,15 @@ type runnable =
 type t = {
   uring: io_job Uring.t;
   mem: Uring.Region.t;
-  io_q: rw_req Queue.t;     (* waiting for room on [uring] *)
+  io_q: (t -> unit) Queue.t;     (* waiting for room on [uring] *)
   mem_q : (Uring.Region.chunk, [`Exit_scheduler]) continuation Queue.t;
   run_q : runnable Queue.t;
   sleep_q: Zzz.t;
   mutable io_jobs: int;
 }
 
-let submit_rw_req {uring;io_q;_} ({op; file_offset; fd; buf; len; cur_off; _} as req) =
+let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; _} as req) =
+  let {uring;io_q;_} = st in
   let off = Uring.Region.to_offset buf + cur_off in
   let len = match len with Exactly l | Upto l -> l in
   let len = len - cur_off in
@@ -101,8 +103,7 @@ let submit_rw_req {uring;io_q;_} ({op; file_offset; fd; buf; len; cur_off; _} as
     |`W -> Uring.write uring ?file_offset fd off len (Write req)
   in
   if not subm then (* wait until an sqe is available *)
-    Queue.push req io_q
-
+    Queue.push (fun st -> submit_rw_req st req) io_q
 
 (* TODO bind from unixsupport *)
 let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
@@ -112,6 +113,12 @@ let enqueue_read st action (file_offset,fd,buf,len) =
   Log.debug (fun l -> l "read: submitting call");
   submit_rw_req st req
 
+let rec enqueue_poll_add st action fd poll_mask =
+  Logs.debug (fun l -> l "poll_add: submitting call");
+  let subm = Uring.poll_add st.uring fd poll_mask (Poll_add action) in
+  if not subm then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_poll_add st action fd poll_mask) st.io_q
+
 let enqueue_write st action (file_offset,fd,buf,len) =
   let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action} in
   Log.debug (fun l -> l "write: submitting call");
@@ -120,7 +127,7 @@ let enqueue_write st action (file_offset,fd,buf,len) =
 let submit_pending_io st =
   match Queue.take_opt st.io_q with
   | None -> ()
-  | Some req -> submit_rw_req st req
+  | Some fn -> fn st
 
 (* Switch control to the next ready continuation.
    If none is ready, wait until we get an event to wake one and then switch.
@@ -161,6 +168,9 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
             | Write req ->
               Log.debug (fun l -> l "write returned");
               complete_rw_req st req res
+            | Poll_add k ->
+              Logs.debug (fun l -> l "poll_add returned");
+              continue k res
             | Noop -> assert false
           end
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
@@ -223,6 +233,20 @@ let read_upto ?file_offset fd buf len =
   else
     res
 
+effect EPoll_add : Unix.file_descr * Uring.Poll_mask.t -> int
+
+let await_readable fd =
+  let res = perform (EPoll_add (fd, Uring.Poll_mask.(pollin + pollerr))) in
+  Logs.debug (fun l -> l "await_readable: woken up");
+  if res < 0 then
+    raise (Failure (Fmt.strf "await_readable %d" res)) (* FIXME Unix_error *)
+
+let await_writable fd =
+  let res = perform (EPoll_add (fd, Uring.Poll_mask.(pollout + pollerr))) in
+  Logs.debug (fun l -> l "await_writable: woken up");
+  if res < 0 then
+    raise (Failure (Fmt.strf "await_writable %d" res)) (* FIXME Unix_error *)
+
 effect EWrite : (int option * Unix.file_descr * Uring.Region.chunk * amount) -> int
 
 let write ?file_offset fd buf len =
@@ -255,6 +279,9 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | () -> schedule st
     | effect (ERead args) k ->
       enqueue_read st k args;
+      schedule st
+    | effect (EPoll_add (fd, poll_mask)) k ->
+      enqueue_poll_add st k fd poll_mask;
       schedule st
     | effect (EWrite args) k ->
       enqueue_write st k args;

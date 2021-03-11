@@ -74,6 +74,12 @@ val read_exactly : ?file_offset:int -> Unix.file_descr -> Uring.Region.chunk -> 
 
 val write : ?file_offset:int -> Unix.file_descr -> Uring.Region.chunk -> int -> unit
 
+val await_readable : Unix.file_descr -> unit
+(** [await_readable fd] blocks until [fd] is readable (or has an error). *)
+
+val await_writable : Unix.file_descr -> unit
+(** [await_writable fd] blocks until [fd] is writable (or has an error). *)
+
 (** {1 Main Loop} *)
 
 val run : ?queue_depth:int -> ?block_size:int -> (unit -> unit) -> unit

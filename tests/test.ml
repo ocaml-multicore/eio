@@ -41,11 +41,48 @@ let test_promise_exn () =
   | `Cant_happen -> assert false
   | exception (Failure msg) -> Alcotest.(check string) "Await result" msg "test"
 
+let read_one_byte r =
+  Eunix.fork (fun () ->
+      Eunix.await_readable r;
+      let b = Bytes.create 1 in
+      let got = Unix.read r b 0 1 in
+      assert (got = 1);
+      Bytes.to_string b
+    )
+
+let test_poll_add () =
+  Eunix.run @@ fun () ->
+  let r, w = Unix.pipe () in
+  let thread = read_one_byte r in
+  Eunix.yield ();
+  Eunix.await_writable w;
+  let sent = Unix.write w (Bytes.of_string "!") 0 1 in
+  assert (sent = 1);
+  let result = Eunix.Promise.await thread in
+  Alcotest.(check string) "Received data" "!" result
+
+let test_poll_add_busy () =
+  Eunix.run ~queue_depth:1 @@ fun () ->
+  let r, w = Unix.pipe () in
+  let a = read_one_byte r in
+  let b = read_one_byte r in
+  Eunix.yield ();
+  let sent = Unix.write w (Bytes.of_string "!!") 0 2 in
+  assert (sent = 2);
+  let a = Eunix.Promise.await a in
+  Alcotest.(check string) "Received data" "!" a;
+  let b = Eunix.Promise.await b in
+  Alcotest.(check string) "Received data" "!" b
+
 let () =
   let open Alcotest in
   run "eioio" [
-    "simple", [
+    "promise", [
       test_case "promise"      `Quick test_promise;
       test_case "promise_exn"  `Quick test_promise_exn;
+    ];
+    "io", [
+      test_case "poll_add"      `Quick test_poll_add;
+      test_case "poll_add_busy" `Quick test_poll_add_busy;
     ];
   ]
