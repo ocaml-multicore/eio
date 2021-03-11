@@ -127,10 +127,10 @@ let alloc_buf st k =
   | buf -> continue k buf 
   | exception Uring.Region.No_space -> Queue.push k st.mem_q
 
-let free_buf st _ buf =
+let free_buf st buf =
   match Queue.take_opt st.mem_q with
   | None -> Uring.Region.free buf
-  | Some k -> continue k buf
+  | Some k -> enqueue_thread st k buf
 
 effect Sleep : float -> unit
 let sleep d =
@@ -203,7 +203,8 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect Alloc k ->
        alloc_buf st k
     | effect (Free buf) k ->
-       free_buf st k buf
+       free_buf st buf;
+       continue k ()
    in
    fork main;
    Logs.debug (fun l -> l "exit")
