@@ -6,7 +6,9 @@
 (executable
  (name eurcp)
  (modules eurcp)
- (public_name eurcp)
  (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli eurcp_lib))
 
-
+(executable
+ (name basic_eunix)
+ (modules basic_eunix)
+ (libraries logs.fmt fmt.tty eurcp_lib))
