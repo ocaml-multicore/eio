@@ -14,16 +14,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+type amount = Exactly of int | Upto of int
+
 type rw_req = {
   op: [`R|`W];
   file_offset: int option;
   fd: Unix.file_descr;
-  len: int;
+  len: amount;
   buf: Uring.Region.chunk;
   mutable cur_off: int;
   action: (int, unit) continuation;
 }
 
+(* Type of user-data attached to jobs. *)
 type io_job =
 | Noop
 | Read : rw_req -> io_job
@@ -44,6 +47,7 @@ type t = {
 
 let submit_rw_req {uring;io_q;_} ({op; file_offset; fd; buf; len; cur_off; _} as req) =
   let off = Uring.Region.to_offset buf + cur_off in
+  let len = match len with Exactly l | Upto l -> l in
   let len = len - cur_off in
   let subm =
     match op with
@@ -58,14 +62,15 @@ let submit_rw_req {uring;io_q;_} ({op; file_offset; fd; buf; len; cur_off; _} as
 let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
 let complete_rw_req st ({len; cur_off; action; _} as req) res =
-  match res with
-  | 0 -> discontinue action (Failure "end of file") (* TODO expose EOF exception *)
-  | n when errno_is_retry n ->
+  match res, len with
+  | 0, _ -> discontinue action End_of_file
+  | n, _ when errno_is_retry n ->
      submit_rw_req st req
-  | n when n < len - cur_off ->
+  | n, Exactly len when n < len - cur_off ->
      req.cur_off <- req.cur_off + n;
      submit_rw_req st req
-  | _ -> continue action len
+  | _, Exactly len -> continue action len
+  | n, Upto _ -> continue action n
 
 let enqueue_read st action (file_offset,fd,buf,len) =
   let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action} in
@@ -144,18 +149,26 @@ effect Yield : unit
 let yield () =
   perform Yield
 
-effect ERead : (int option * Unix.file_descr * Uring.Region.chunk * int) -> int
+effect ERead : (int option * Unix.file_descr * Uring.Region.chunk * amount) -> int
  
-let read ?file_offset fd buf len =
-  let res = perform (ERead (file_offset, fd, buf, len)) in
-  Logs.debug (fun l -> l "read: woken up after read");
+let read_exactly ?file_offset fd buf len =
+  let res = perform (ERead (file_offset, fd, buf, Exactly len)) in
+  Logs.debug (fun l -> l "read_exactly: woken up after read");
   if res < 0 then
     raise (Failure (Fmt.strf "read %d" res)) (* FIXME Unix_error *)
 
-effect EWrite : (int option * Unix.file_descr * Uring.Region.chunk * int) -> int
+let read_upto ?file_offset fd buf len =
+  let res = perform (ERead (file_offset, fd, buf, Upto len)) in
+  Logs.debug (fun l -> l "read_upto: woken up after read");
+  if res < 0 then
+    raise (Failure (Fmt.strf "read %d" res)) (* FIXME Unix_error *)
+  else
+    res
+
+effect EWrite : (int option * Unix.file_descr * Uring.Region.chunk * amount) -> int
 
 let write ?file_offset fd buf len =
-  let res = perform (EWrite (file_offset, fd, buf, len)) in
+  let res = perform (EWrite (file_offset, fd, buf, Exactly len)) in
   Logs.debug (fun l -> l "write: woken up after read");
   if res < 0 then
     raise (Failure (Fmt.strf "write %d" res)) (* FIXME Unix_error *)

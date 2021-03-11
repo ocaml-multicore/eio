@@ -30,7 +30,18 @@ val alloc : unit -> Uring.Region.chunk
 val free : Uring.Region.chunk -> unit
 
 (** {1 File manipulation functions} *)
-val read : ?file_offset:int -> Unix.file_descr -> Uring.Region.chunk -> int -> unit
+
+val read_upto : ?file_offset:int -> Unix.file_descr -> Uring.Region.chunk -> int -> int
+(** [read_upto fd chunk len] reads at most [len] bytes from [fd],
+    returning as soon as some data is available.
+    @param file_offset Read from the given position in [fd] (default: 0).
+    @raise End_of_file Raised if all data has already been read. *)
+
+val read_exactly : ?file_offset:int -> Unix.file_descr -> Uring.Region.chunk -> int -> unit
+(** [read_exactly fd chunk len] reads exactly [len] bytes from [fd],
+    performing multiple read operations if necessary.
+    @param file_offset Read from the given position in [fd] (default: 0).
+    @raise End_of_file Raised if the stream ends before [len] bytes have been read. *)
 
 val write : ?file_offset:int -> Unix.file_descr -> Uring.Region.chunk -> int -> unit
 
