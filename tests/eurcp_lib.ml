@@ -5,7 +5,7 @@ module U = Eunix
 let read_then_write_chunk infd outfd file_offset len =
   let buf = U.alloc () in
   Logs.debug (fun l -> l "r/w start %d (%d)" file_offset len);
-  U.read ~file_offset infd buf len;
+  U.read_exactly ~file_offset infd buf len;
   U.write ~file_offset outfd buf len;
   Logs.debug (fun l -> l "r/w done  %d (%d)" file_offset len);
   U.free buf
