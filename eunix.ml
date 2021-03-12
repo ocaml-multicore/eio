@@ -14,6 +14,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+let src = Logs.Src.create "eunix" ~doc:"Effect-based IO system"
+module Log = (val Logs.src_log src : Logs.LOG)
+
 type amount = Exactly of int | Upto of int
 
 type rw_req = {
@@ -28,9 +31,9 @@ type rw_req = {
 
 (* Type of user-data attached to jobs. *)
 type io_job =
-| Noop
-| Read : rw_req -> io_job
-| Write : rw_req -> io_job
+  | Noop
+  | Read : rw_req -> io_job
+  | Write : rw_req -> io_job
 
 type runnable =
   | Thread : ('a, [`Exit_scheduler]) continuation * 'a -> runnable
@@ -63,14 +66,14 @@ let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
 let enqueue_read st action (file_offset,fd,buf,len) =
   let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action} in
-  Logs.debug (fun l -> l "read: submitting call");
+  Log.debug (fun l -> l "read: submitting call");
   submit_rw_req st req
 
 let enqueue_write st action (file_offset,fd,buf,len) =
   let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action} in
-  Logs.debug (fun l -> l "write: submitting call");
+  Log.debug (fun l -> l "write: submitting call");
   submit_rw_req st req
- 
+
 let submit_pending_io st =
   match Queue.take_opt st.io_q with
   | None -> ()
@@ -91,14 +94,14 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
       let num_jobs = Uring.submit uring in
       st.io_jobs <- st.io_jobs + num_jobs;
       let timeout = Zzz.select_next sleep_q in
-      Logs.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
-                     (match timeout with None -> "inf" | Some v -> string_of_float v));
+      Log.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
+                    (match timeout with None -> "inf" | Some v -> string_of_float v));
       assert (Queue.length run_q = 0);
       if timeout = None && st.io_jobs = 0 then (
         (* Nothing further can happen at this point.
            If there are no events in progress but also still no memory available, something has gone wrong! *)
         assert (Queue.length mem_q = 0);
-        Logs.debug (fun l -> l "schedule: exiting");    (* Nothing left to do *)
+        Log.debug (fun l -> l "schedule: exiting");    (* Nothing left to do *)
         `Exit_scheduler
       ) else match Uring.wait ?timeout uring with
         | None ->
@@ -109,10 +112,10 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
             submit_pending_io st;                       (* If something was waiting for a slot, submit it now. *)
             match runnable with
             | Read req -> 
-              Logs.debug (fun l -> l "read returned");
+              Log.debug (fun l -> l "read returned");
               complete_rw_req st req res
             | Write req ->
-              Logs.debug (fun l -> l "write returned");
+              Log.debug (fun l -> l "write returned");
               complete_rw_req st req res
             | Noop -> assert false
           end
@@ -133,7 +136,7 @@ let enqueue_thread st k x =
   Queue.push (Thread (k, x)) st.run_q
 
 let alloc_buf st k =
-  Logs.debug (fun l -> l "alloc: %d" (Uring.Region.avail st.mem));
+  Log.debug (fun l -> l "alloc: %d" (Uring.Region.avail st.mem));
   match Uring.Region.alloc st.mem with
   | buf -> continue k buf 
   | exception Uring.Region.No_space ->
@@ -158,16 +161,16 @@ let yield () =
   perform Yield
 
 effect ERead : (int option * Unix.file_descr * Uring.Region.chunk * amount) -> int
- 
+
 let read_exactly ?file_offset fd buf len =
   let res = perform (ERead (file_offset, fd, buf, Exactly len)) in
-  Logs.debug (fun l -> l "read_exactly: woken up after read");
+  Log.debug (fun l -> l "read_exactly: woken up after read");
   if res < 0 then
     raise (Failure (Fmt.strf "read %d" res)) (* FIXME Unix_error *)
 
 let read_upto ?file_offset fd buf len =
   let res = perform (ERead (file_offset, fd, buf, Upto len)) in
-  Logs.debug (fun l -> l "read_upto: woken up after read");
+  Log.debug (fun l -> l "read_upto: woken up after read");
   if res < 0 then
     raise (Failure (Fmt.strf "read %d" res)) (* FIXME Unix_error *)
   else
@@ -177,7 +180,7 @@ effect EWrite : (int option * Unix.file_descr * Uring.Region.chunk * amount) -> 
 
 let write ?file_offset fd buf len =
   let res = perform (EWrite (file_offset, fd, buf, Exactly len)) in
-  Logs.debug (fun l -> l "write: woken up after read");
+  Log.debug (fun l -> l "write: woken up after read");
   if res < 0 then
     raise (Failure (Fmt.strf "write %d" res)) (* FIXME Unix_error *)
 
@@ -188,7 +191,7 @@ effect Free : Uring.Region.chunk -> unit
 let free buf = perform (Free buf)
 
 let run ?(queue_depth=64) ?(block_size=4096) main =
-  Logs.debug (fun l -> l "starting run");
+  Log.debug (fun l -> l "starting run");
   (* TODO unify this allocation API around baregion/uring *)
   let fixed_buf_len = block_size * queue_depth in
   let uring = Uring.create ~fixed_buf_len ~queue_depth ~default:Noop () in
@@ -199,33 +202,33 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
   let st = { mem; uring; run_q; io_q; mem_q; sleep_q; io_jobs = 0 } in
-  Logs.debug (fun l -> l "starting main thread");
+  Log.debug (fun l -> l "starting main thread");
   let rec fork fn =
     match fn () with
     | () -> schedule st
     | exception exn ->
-       Logs.err (fun l -> l "exn: %a" Fmt.exn exn);
-       schedule st
+      Log.err (fun l -> l "exn: %a" Fmt.exn exn);
+      schedule st
     | effect (ERead args) k ->
-       enqueue_read st k args;
-       schedule st
+      enqueue_read st k args;
+      schedule st
     | effect (EWrite args) k ->
-       enqueue_write st k args;
-       schedule st
+      enqueue_write st k args;
+      schedule st
     | effect Yield k ->
-       enqueue_thread st k ();
-       schedule st
+      enqueue_thread st k ();
+      schedule st
     | effect (Sleep d) k ->
-       Zzz.sleep sleep_q d k;
-       schedule st
+      Zzz.sleep sleep_q d k;
+      schedule st
     | effect (Fork f) k ->
-       enqueue_thread st k ();
-       fork f
+      enqueue_thread st k ();
+      fork f
     | effect Alloc k ->
-       alloc_buf st k
+      alloc_buf st k
     | effect (Free buf) k ->
-       free_buf st buf;
-       continue k ()
-   in
-   let `Exit_scheduler = fork main in
-   Logs.debug (fun l -> l "exit")
+      free_buf st buf;
+      continue k ()
+  in
+  let `Exit_scheduler = fork main in
+  Log.debug (fun l -> l "exit")
