@@ -12,3 +12,8 @@
  (name basic_eunix)
  (modules basic_eunix)
  (libraries logs.fmt fmt.tty eurcp_lib))
+
+(test
+ (name test)
+ (modules test)
+ (libraries alcotest eunix uring))

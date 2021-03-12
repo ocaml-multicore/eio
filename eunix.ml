@@ -17,6 +17,48 @@
 let src = Logs.Src.create "eunix" ~doc:"Effect-based IO system"
 module Log = (val Logs.src_log src : Logs.LOG)
 
+module Promise = struct
+  type 'a state =
+    | Unresolved of ((('a, exn) result -> unit) Queue.t)
+    | Fulfilled of 'a
+    | Broken of exn
+
+  type 'a t = 'a state ref
+
+  type 'a u = 'a t
+
+  effect Await : 'a t -> 'a
+
+  let create () =
+    let t = ref (Unresolved (Queue.create ())) in
+    t, t
+
+  let await t =
+    perform (Await t)
+
+  let fulfill t v =
+    match !t with
+    | Broken ex -> Fmt.failwith "Can't fulfill already-broken promise: %a" Fmt.exn ex
+    | Fulfilled _ -> Fmt.failwith "Can't fulfill already-fulfilled promise"
+    | Unresolved q ->
+      t := Fulfilled v;
+      Queue.iter (fun f -> f (Ok v)) q
+
+  let break t ex =
+    match !t with
+    | Broken orig -> Fmt.failwith "Can't break already-broken promise: %a -> %a" Fmt.exn orig Fmt.exn ex
+    | Fulfilled _ -> Fmt.failwith "Can't break already-fulfilled promise (with %a)" Fmt.exn ex
+    | Unresolved q ->
+      t := Broken ex;
+      Queue.iter (fun f -> f (Error ex)) q
+
+  let state t =
+    match !t with
+    | Unresolved _ -> `Unresolved
+    | Fulfilled x -> `Fulfilled x
+    | Broken ex -> `Broken ex
+end
+
 type amount = Exactly of int | Upto of int
 
 type rw_req = {
@@ -37,6 +79,7 @@ type io_job =
 
 type runnable =
   | Thread : ('a, [`Exit_scheduler]) continuation * 'a -> runnable
+  | Failed_thread : ('a, [`Exit_scheduler]) continuation * exn -> runnable
 
 type t = {
   uring: io_job Uring.t;
@@ -87,6 +130,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* Wakeup any paused fibres *)
   match Queue.take run_q with
   | Thread (k, v) -> continue k v               (* We already have a runnable task *)
+  | Failed_thread (k, ex) -> discontinue k ex
   | exception Queue.Empty ->
     match Zzz.restart_threads sleep_q with
     | Some k -> continue k ()                   (* A sleeping task is now due *)
@@ -135,6 +179,9 @@ and complete_rw_req st ({len; cur_off; action; _} as req) res =
 let enqueue_thread st k x =
   Queue.push (Thread (k, x)) st.run_q
 
+let enqueue_failed_thread st k ex =
+  Queue.push (Failed_thread (k, ex)) st.run_q
+
 let alloc_buf st k =
   Log.debug (fun l -> l "alloc: %d" (Uring.Region.avail st.mem));
   match Uring.Region.alloc st.mem with
@@ -152,7 +199,7 @@ effect Sleep : float -> unit
 let sleep d =
   perform (Sleep d)
 
-effect Fork  : (unit -> unit) -> unit
+effect Fork  : (unit -> 'a) -> 'a Promise.t
 let fork f =
   perform (Fork f)
 
@@ -206,9 +253,6 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   let rec fork fn =
     match fn () with
     | () -> schedule st
-    | exception exn ->
-      Log.err (fun l -> l "exn: %a" Fmt.exn exn);
-      schedule st
     | effect (ERead args) k ->
       enqueue_read st k args;
       schedule st
@@ -221,9 +265,28 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (Sleep d) k ->
       Zzz.sleep sleep_q d k;
       schedule st
+    | effect (Promise.Await p) k ->
+      begin match !p with
+        | Fulfilled v -> continue k v
+        | Broken ex -> discontinue k ex
+        | Unresolved q ->
+          let when_resolved = function
+            | Ok v -> enqueue_thread st k v
+            | Error ex -> enqueue_failed_thread st k ex
+          in
+          Queue.add when_resolved q;
+          schedule st
+      end
     | effect (Fork f) k ->
-      enqueue_thread st k ();
-      fork f
+      let promise, resolver = Promise.create () in
+      enqueue_thread st k promise;
+      fork (fun () ->
+          match f () with
+          | x -> Promise.fulfill resolver x
+          | exception ex ->
+            Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
+            Promise.break resolver ex
+        )
     | effect Alloc k ->
       alloc_buf st k
     | effect (Free buf) k ->
