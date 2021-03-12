@@ -23,7 +23,7 @@ type rw_req = {
   len: amount;
   buf: Uring.Region.chunk;
   mutable cur_off: int;
-  action: (int, unit) continuation;
+  action: (int, [`Exit_scheduler]) continuation;
 }
 
 (* Type of user-data attached to jobs. *)
@@ -33,13 +33,13 @@ type io_job =
 | Write : rw_req -> io_job
 
 type runnable =
-| Thread : ('a, unit) continuation * 'a -> runnable
+  | Thread : ('a, [`Exit_scheduler]) continuation * 'a -> runnable
 
 type t = {
   uring: io_job Uring.t;
   mem: Uring.Region.t;
   io_q: rw_req Queue.t;     (* waiting for room on [uring] *)
-  mem_q : (Uring.Region.chunk, unit) continuation Queue.t;
+  mem_q : (Uring.Region.chunk, [`Exit_scheduler]) continuation Queue.t;
   run_q : runnable Queue.t;
   sleep_q: Zzz.t;
   mutable io_jobs: int;
@@ -79,7 +79,7 @@ let submit_pending_io st =
 (* Switch control to the next ready continuation.
    If none is ready, wait until we get an event to wake one and then switch.
    Returns only if there is nothing to do and no queued operations. *)
-let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) =
+let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* This is not a fair scheduler *)
   (* Wakeup any paused fibres *)
   match Queue.take run_q with
@@ -99,6 +99,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) =
            If there are no events in progress but also still no memory available, something has gone wrong! *)
         assert (Queue.length mem_q = 0);
         Logs.debug (fun l -> l "schedule: exiting");    (* Nothing left to do *)
+        `Exit_scheduler
       ) else match Uring.wait ?timeout uring with
         | None ->
           assert (timeout <> None);
@@ -226,5 +227,5 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
        free_buf st buf;
        continue k ()
    in
-   fork main;
+   let `Exit_scheduler = fork main in
    Logs.debug (fun l -> l "exit")

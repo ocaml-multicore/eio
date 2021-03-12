@@ -26,7 +26,7 @@
 type sleep = {
   time : float;
   mutable canceled : bool;
-  thread : (unit, unit) continuation option;
+  thread : (unit, [`Exit_scheduler]) continuation option;
 }
 
 module SleepQueue =
