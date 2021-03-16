@@ -1,2 +1,2 @@
 all:
-	dune build @runtest @install
+	dune build @runtest @all

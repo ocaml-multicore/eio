@@ -17,48 +17,6 @@
 let src = Logs.Src.create "eunix" ~doc:"Effect-based IO system"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-module Promise = struct
-  type 'a state =
-    | Unresolved of ((('a, exn) result -> unit) Queue.t)
-    | Fulfilled of 'a
-    | Broken of exn
-
-  type 'a t = 'a state ref
-
-  type 'a u = 'a t
-
-  effect Await : 'a t -> 'a
-
-  let create () =
-    let t = ref (Unresolved (Queue.create ())) in
-    t, t
-
-  let await t =
-    perform (Await t)
-
-  let fulfill t v =
-    match !t with
-    | Broken ex -> Fmt.failwith "Can't fulfill already-broken promise: %a" Fmt.exn ex
-    | Fulfilled _ -> Fmt.failwith "Can't fulfill already-fulfilled promise"
-    | Unresolved q ->
-      t := Fulfilled v;
-      Queue.iter (fun f -> f (Ok v)) q
-
-  let break t ex =
-    match !t with
-    | Broken orig -> Fmt.failwith "Can't break already-broken promise: %a -> %a" Fmt.exn orig Fmt.exn ex
-    | Fulfilled _ -> Fmt.failwith "Can't break already-fulfilled promise (with %a)" Fmt.exn ex
-    | Unresolved q ->
-      t := Broken ex;
-      Queue.iter (fun f -> f (Error ex)) q
-
-  let state t =
-    match !t with
-    | Unresolved _ -> `Unresolved
-    | Fulfilled x -> `Fulfilled x
-    | Broken ex -> `Broken ex
-end
-
 type amount = Exactly of int | Upto of int
 
 type rw_req = {
@@ -292,18 +250,13 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (Sleep d) k ->
       Zzz.sleep sleep_q d k;
       schedule st
-    | effect (Promise.Await p) k ->
-      begin match !p with
-        | Fulfilled v -> continue k v
-        | Broken ex -> discontinue k ex
-        | Unresolved q ->
-          let when_resolved = function
-            | Ok v -> enqueue_thread st k v
-            | Error ex -> enqueue_failed_thread st k ex
-          in
-          Queue.add when_resolved q;
-          schedule st
-      end
+    | effect (Promise.Await q) k ->
+      let when_resolved = function
+        | Ok v -> enqueue_thread st k v
+        | Error ex -> enqueue_failed_thread st k ex
+      in
+      Promise.add_waiter q when_resolved;
+      schedule st
     | effect (Fork f) k ->
       let promise, resolver = Promise.create () in
       enqueue_thread st k promise;
