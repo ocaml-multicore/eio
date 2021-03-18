@@ -22,10 +22,32 @@ let () = Sys.(set_signal sigpipe Signal_ignore)
 
 type amount = Exactly of int | Upto of int
 
+module FD = struct
+  type t = {
+    mutable fd : [`Open of Unix.file_descr | `Closed]
+  }
+
+  let get op = function
+    | { fd = `Open fd } -> fd
+    | { fd = `Closed } -> invalid_arg (op ^ ": file descriptor used after calling close!")
+
+  let of_unix fd = { fd = `Open fd }
+  let to_unix = get "to_unix"
+
+  let is_open = function
+    | { fd = `Open _ } -> true
+    | { fd = `Closed } -> false
+
+  let close t =
+    let fd = get "close" t in
+    t.fd <- `Closed;
+    Unix.close fd
+end
+
 type rw_req = {
   op: [`R|`W];
   file_offset: int option;
-  fd: Unix.file_descr;
+  fd: FD.t;
   len: amount;
   buf: Uring.Region.chunk;
   mutable cur_off: int;
@@ -54,6 +76,7 @@ type t = {
 }
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; _} as req) =
+  let fd = FD.get "submit_rw_req" fd in
   let {uring;io_q;_} = st in
   let off = Uring.Region.to_offset buf + cur_off in
   let len = match len with Exactly l | Upto l -> l in
@@ -76,7 +99,7 @@ let enqueue_read st action (file_offset,fd,buf,len) =
 
 let rec enqueue_poll_add st action fd poll_mask =
   Logs.debug (fun l -> l "poll_add: submitting call");
-  let subm = Uring.poll_add st.uring fd poll_mask (Poll_add action) in
+  let subm = Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Poll_add action) in
   if not subm then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_poll_add st action fd poll_mask) st.io_q
 
@@ -178,7 +201,7 @@ effect Yield : unit
 let yield () =
   perform Yield
 
-effect ERead : (int option * Unix.file_descr * Uring.Region.chunk * amount) -> int
+effect ERead : (int option * FD.t * Uring.Region.chunk * amount) -> int
 
 let read_exactly ?file_offset fd buf len =
   let res = perform (ERead (file_offset, fd, buf, Exactly len)) in
@@ -194,7 +217,7 @@ let read_upto ?file_offset fd buf len =
   else
     res
 
-effect EPoll_add : Unix.file_descr * Uring.Poll_mask.t -> int
+effect EPoll_add : FD.t * Uring.Poll_mask.t -> int
 
 let await_readable fd =
   let res = perform (EPoll_add (fd, Uring.Poll_mask.(pollin + pollerr))) in
@@ -208,7 +231,7 @@ let await_writable fd =
   if res < 0 then
     raise (Failure (Fmt.strf "await_writable %d" res)) (* FIXME Unix_error *)
 
-effect EWrite : (int option * Unix.file_descr * Uring.Region.chunk * amount) -> int
+effect EWrite : (int option * FD.t * Uring.Region.chunk * amount) -> int
 
 let write ?file_offset fd buf len =
   let res = perform (EWrite (file_offset, fd, buf, Exactly len)) in
@@ -221,6 +244,20 @@ let alloc () = perform Alloc
 
 effect Free : Uring.Region.chunk -> unit
 let free buf = perform (Free buf)
+
+let openfile path flags mode =
+  FD.of_unix (Unix.openfile path flags mode)
+
+let fstat fd =
+  Unix.fstat (FD.get "fstat" fd)
+
+let shutdown socket command =
+  Unix.shutdown (FD.get "shutdown" socket) command
+
+let accept socket =
+  await_readable socket;
+  let conn, addr = Unix.accept ~cloexec:true (FD.get "accept" socket) in
+  FD.of_unix conn, addr
 
 let run ?(queue_depth=64) ?(block_size=4096) main =
   Log.debug (fun l -> l "starting run");

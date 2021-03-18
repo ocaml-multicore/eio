@@ -49,7 +49,7 @@ let test_promise_exn () =
 
 let read_one_byte r =
   Eunix.fork (fun () ->
-      Eunix.await_readable r;
+      Eunix.await_readable (Eunix.FD.of_unix r);
       let b = Bytes.create 1 in
       let got = Unix.read r b 0 1 in
       assert (got = 1);
@@ -61,7 +61,7 @@ let test_poll_add () =
   let r, w = Unix.pipe () in
   let thread = read_one_byte r in
   Eunix.yield ();
-  Eunix.await_writable w;
+  Eunix.await_writable (Eunix.FD.of_unix w);
   let sent = Unix.write w (Bytes.of_string "!") 0 1 in
   assert (sent = 1);
   let result = Promise.await thread in
