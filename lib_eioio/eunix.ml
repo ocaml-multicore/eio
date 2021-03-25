@@ -160,9 +160,13 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res, len with
   | 0, _ -> discontinue action End_of_file
-  | n, _ when errno_is_retry n ->
-    submit_rw_req st req;
-    schedule st
+  | e, _ when e < 0 ->
+    if errno_is_retry e then (
+      submit_rw_req st req;
+      schedule st
+    ) else (
+      continue action e
+    )
   | n, Exactly len when n < len - cur_off ->
     req.cur_off <- req.cur_off + n;
     submit_rw_req st req;
