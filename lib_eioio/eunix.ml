@@ -17,6 +17,9 @@
 let src = Logs.Src.create "eunix" ~doc:"Effect-based IO system"
 module Log = (val Logs.src_log src : Logs.LOG)
 
+(* SIGPIPE makes no sense in a modern application. *)
+let () = Sys.(set_signal sigpipe Signal_ignore)
+
 type amount = Exactly of int | Upto of int
 
 type rw_req = {
