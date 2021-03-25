@@ -211,13 +211,13 @@ let read_exactly ?file_offset fd buf len =
   let res = perform (ERead (file_offset, fd, buf, Exactly len)) in
   Log.debug (fun l -> l "read_exactly: woken up after read");
   if res < 0 then
-    raise (Failure (Fmt.strf "read %d" res)) (* FIXME Unix_error *)
+    raise (Unix.Unix_error (Uring.error_of_errno res, "read_exactly", ""))
 
 let read_upto ?file_offset fd buf len =
   let res = perform (ERead (file_offset, fd, buf, Upto len)) in
   Log.debug (fun l -> l "read_upto: woken up after read");
   if res < 0 then
-    raise (Failure (Fmt.strf "read %d" res)) (* FIXME Unix_error *)
+    raise (Unix.Unix_error (Uring.error_of_errno res, "read_upto", ""))
   else
     res
 
@@ -227,13 +227,13 @@ let await_readable fd =
   let res = perform (EPoll_add (fd, Uring.Poll_mask.(pollin + pollerr))) in
   Logs.debug (fun l -> l "await_readable: woken up");
   if res < 0 then
-    raise (Failure (Fmt.strf "await_readable %d" res)) (* FIXME Unix_error *)
+    raise (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
 
 let await_writable fd =
   let res = perform (EPoll_add (fd, Uring.Poll_mask.(pollout + pollerr))) in
   Logs.debug (fun l -> l "await_writable: woken up");
   if res < 0 then
-    raise (Failure (Fmt.strf "await_writable %d" res)) (* FIXME Unix_error *)
+    raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
 
 effect EWrite : (int option * FD.t * Uring.Region.chunk * amount) -> int
 
@@ -241,7 +241,7 @@ let write ?file_offset fd buf len =
   let res = perform (EWrite (file_offset, fd, buf, Exactly len)) in
   Log.debug (fun l -> l "write: woken up after read");
   if res < 0 then
-    raise (Failure (Fmt.strf "write %d" res)) (* FIXME Unix_error *)
+    raise (Unix.Unix_error (Uring.error_of_errno res, "write", ""))
 
 effect Alloc : Uring.Region.chunk
 let alloc () = perform Alloc
