@@ -80,12 +80,29 @@ let test_poll_add_busy () =
   let b = Promise.await b in
   Alcotest.(check string) "Received data" "!" b
 
+let test_fork_detach () =
+  Eunix.run ~queue_depth:1 @@ fun () ->
+  let i = ref 0 in
+  Eunix.fork_detach (fun () -> incr i) ~on_error:raise;
+  Alcotest.(check int) "Forked code ran" 1 !i;
+  let p1, r1 = Promise.create () in
+  let p2, r2 = Promise.create () in
+  Eunix.fork_detach (fun () -> Promise.await p1; incr i; raise Exit) ~on_error:(Promise.fulfill r2);
+  Alcotest.(check int) "Forked code waiting" 1 !i;
+  Promise.fulfill r1 ();
+  let result = Promise.await p2 in
+  Alcotest.(check int) "Forked code ran" 2 !i;
+  Alcotest.(check bool) "Error handled" true (result = Exit)
+
 let () =
   let open Alcotest in
   run "eioio" [
     "promise", [
       test_case "promise"      `Quick test_promise;
       test_case "promise_exn"  `Quick test_promise_exn;
+    ];
+    "fork", [
+      test_case "fork_detach"  `Quick test_fork_detach;
     ];
     "io", [
       test_case "poll_add"      `Quick test_poll_add;
