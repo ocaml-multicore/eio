@@ -12,3 +12,4 @@ Some background about the effects system can be found in:
 - https://kcsrk.info/ocaml/multicore/2015/05/20/effects-multicore/
 - Effects examples: https://github.com/ocaml-multicore/effects-examples/tree/master/aio
 - [Concurrent System Programming with Effect Handlers](https://www.repository.cam.ac.uk/bitstream/handle/1810/283239/paper.pdf?sequence=3&isAllowed=y)
+- [Asynchronous effect based IO using effect handlers](https://github.com/kayceesrk/ocaml-aeio)
