@@ -22,6 +22,8 @@ let () = Sys.(set_signal sigpipe Signal_ignore)
 
 type amount = Exactly of int | Upto of int
 
+effect Close : Unix.file_descr -> int
+
 module FD = struct
   type t = {
     mutable fd : [`Open of Unix.file_descr | `Closed]
@@ -41,7 +43,10 @@ module FD = struct
   let close t =
     let fd = get "close" t in
     t.fd <- `Closed;
-    Unix.close fd
+    let res = perform (Close fd) in
+    Logs.debug (fun l -> l "close: woken up");
+    if res < 0 then
+      raise (Unix.Unix_error (Uring.error_of_errno res, "close", ""))
 end
 
 type rw_req = {
@@ -59,6 +64,7 @@ type io_job =
   | Noop
   | Read : rw_req -> io_job
   | Poll_add : (int, [`Exit_scheduler]) continuation -> io_job
+  | Close : (int, [`Exit_scheduler]) continuation -> io_job
   | Write : rw_req -> io_job
 
 type runnable =
@@ -102,6 +108,12 @@ let rec enqueue_poll_add st action fd poll_mask =
   let subm = Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Poll_add action) in
   if not subm then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_poll_add st action fd poll_mask) st.io_q
+
+let rec enqueue_close st action fd =
+  Logs.debug (fun l -> l "close: submitting call");
+  let subm = Uring.close st.uring fd (Close action) in
+  if not subm then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_close st action fd) st.io_q
 
 let enqueue_write st action (file_offset,fd,buf,len) =
   let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action} in
@@ -154,6 +166,9 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
               complete_rw_req st req res
             | Poll_add k ->
               Logs.debug (fun l -> l "poll_add returned");
+              continue k res
+            | Close k ->
+              Logs.debug (fun l -> l "close returned");
               continue k res
             | Noop -> assert false
           end
@@ -288,6 +303,9 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       schedule st
     | effect (EPoll_add (fd, poll_mask)) k ->
       enqueue_poll_add st k fd poll_mask;
+      schedule st
+    | effect (Close fd) k ->
+      enqueue_close st k fd;
       schedule st
     | effect (EWrite args) k ->
       enqueue_write st k args;
