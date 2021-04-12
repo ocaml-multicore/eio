@@ -1,4 +1,5 @@
 (library
  (name promise)
  (public_name promise)
+ (libraries ctf)
  (flags (:standard -w -50)))

@@ -9,6 +9,7 @@ homepage: "https://github.com/ocaml-multicore/eioio"
 bug-reports: "https://github.com/ocaml-multicore/eioio/issues"
 depends: [
   "dune" {>= "2.7"}
+  "alcotest" {>= "1.4.0" & with-test}
   "odoc" {with-doc}
 ]
 build: [
