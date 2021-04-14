@@ -44,7 +44,7 @@ module FD = struct
     let fd = get "close" t in
     t.fd <- `Closed;
     let res = perform (Close fd) in
-    Logs.debug (fun l -> l "close: woken up");
+    Log.debug (fun l -> l "close: woken up");
     if res < 0 then
       raise (Unix.Unix_error (Uring.error_of_errno res, "close", ""))
 end
@@ -104,13 +104,13 @@ let enqueue_read st action (file_offset,fd,buf,len) =
   submit_rw_req st req
 
 let rec enqueue_poll_add st action fd poll_mask =
-  Logs.debug (fun l -> l "poll_add: submitting call");
+  Log.debug (fun l -> l "poll_add: submitting call");
   let subm = Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Poll_add action) in
   if not subm then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_poll_add st action fd poll_mask) st.io_q
 
 let rec enqueue_close st action fd =
-  Logs.debug (fun l -> l "close: submitting call");
+  Log.debug (fun l -> l "close: submitting call");
   let subm = Uring.close st.uring fd (Close action) in
   if not subm then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_close st action fd) st.io_q
@@ -165,10 +165,10 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
               Log.debug (fun l -> l "write returned");
               complete_rw_req st req res
             | Poll_add k ->
-              Logs.debug (fun l -> l "poll_add returned");
+              Log.debug (fun l -> l "poll_add returned");
               continue k res
             | Close k ->
-              Logs.debug (fun l -> l "close returned");
+              Log.debug (fun l -> l "close returned");
               continue k res
             | Noop -> assert false
           end
@@ -244,13 +244,13 @@ effect EPoll_add : FD.t * Uring.Poll_mask.t -> int
 
 let await_readable fd =
   let res = perform (EPoll_add (fd, Uring.Poll_mask.(pollin + pollerr))) in
-  Logs.debug (fun l -> l "await_readable: woken up");
+  Log.debug (fun l -> l "await_readable: woken up");
   if res < 0 then
     raise (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
 
 let await_writable fd =
   let res = perform (EPoll_add (fd, Uring.Poll_mask.(pollout + pollerr))) in
-  Logs.debug (fun l -> l "await_writable: woken up");
+  Log.debug (fun l -> l "await_writable: woken up");
   if res < 0 then
     raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
 
