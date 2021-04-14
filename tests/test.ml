@@ -14,29 +14,35 @@ let state t =
        | `Fulfilled x -> Fmt.pf f "fulfilled:%a" (Alcotest.pp t) x
     )
 
+let get_state p =
+  match Promise.state p with
+  | Unresolved _ -> `Unresolved
+  | Broken ex -> `Broken ex
+  | Fulfilled x -> `Fulfilled x
+
 let test_promise () =
   Eunix.run @@ fun () ->
   let p, r = Promise.create () in
-  Alcotest.(check (state string)) "Initially unresolved" (Promise.state p) `Unresolved;
+  Alcotest.(check (state string)) "Initially unresolved" (get_state p) `Unresolved;
   let thread = Eunix.fork (fun () -> Promise.await p) in
   Promise.fulfill r "ok";
-  Alcotest.(check (state string)) "Resolved OK" (Promise.state p) (`Fulfilled "ok");
-  Alcotest.(check (state string)) "Thread unresolved" (Promise.state thread) `Unresolved;
+  Alcotest.(check (state string)) "Resolved OK" (get_state p) (`Fulfilled "ok");
+  Alcotest.(check (state string)) "Thread unresolved" (get_state thread) `Unresolved;
   yield ();
-  Alcotest.(check (state string)) "Thread resolved" (Promise.state thread) @@ `Fulfilled "ok";
+  Alcotest.(check (state string)) "Thread resolved" (get_state thread) @@ `Fulfilled "ok";
   let result = Promise.await thread in
   Alcotest.(check string) "Await result" result "ok"
 
 let test_promise_exn () =
   Eunix.run @@ fun () ->
   let p, r = Promise.create () in
-  Alcotest.(check (state reject)) "Initially unresolved" (Promise.state p) `Unresolved;
+  Alcotest.(check (state reject)) "Initially unresolved" (get_state p) `Unresolved;
   let thread = Eunix.fork (fun () -> Promise.await p) in
   Promise.break r (Failure "test");
-  Alcotest.(check (state reject)) "Broken" (Promise.state p) @@ `Broken (Failure "test");
-  Alcotest.(check (state reject)) "Thread unresolved" (Promise.state thread) `Unresolved;
+  Alcotest.(check (state reject)) "Broken" (get_state p) @@ `Broken (Failure "test");
+  Alcotest.(check (state reject)) "Thread unresolved" (get_state thread) `Unresolved;
   yield ();
-  Alcotest.(check (state reject)) "Thread broken" (Promise.state thread) @@ `Broken (Failure "test");
+  Alcotest.(check (state reject)) "Thread broken" (get_state thread) @@ `Broken (Failure "test");
   match Promise.await thread with
   | `Cant_happen -> assert false
   | exception (Failure msg) -> Alcotest.(check string) "Await result" msg "test"
@@ -58,7 +64,7 @@ let test_poll_add () =
   Eunix.await_writable w;
   let sent = Unix.write w (Bytes.of_string "!") 0 1 in
   assert (sent = 1);
-  let result = Eunix.Promise.await thread in
+  let result = Promise.await thread in
   Alcotest.(check string) "Received data" "!" result
 
 let test_poll_add_busy () =
@@ -69,9 +75,9 @@ let test_poll_add_busy () =
   Eunix.yield ();
   let sent = Unix.write w (Bytes.of_string "!!") 0 2 in
   assert (sent = 2);
-  let a = Eunix.Promise.await a in
+  let a = Promise.await a in
   Alcotest.(check string) "Received data" "!" a;
-  let b = Eunix.Promise.await b in
+  let b = Promise.await b in
   Alcotest.(check string) "Received data" "!" b
 
 let () =

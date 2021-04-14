@@ -16,33 +16,6 @@
 
 type t
 
-module Promise : sig
-  type 'a t
-  (** An ['a t] is a promise for a value of type ['a]. *)
-
-  type 'a u
-  (** An ['a u] is a resolver for a promise of type ['a]. *)
-
-  val create : unit -> 'a t * 'a u
-  (** [create ()] is a fresh promise/resolver pair.
-      The promise is initially unresolved. *)
-
-  val await : 'a t -> 'a
-  (** [await t] blocks until [t] is resolved.
-      If [t] is already resolved then this returns immediately.
-      If [t] is broken, it raises the exception. *)
-
-  val fulfill : 'a u -> 'a -> unit
-  (** [fulfill u v] successfully resolves [u]'s promise with the value [v].
-      Any threads waiting for the result will be added to the run queue. *)
-
-  val break : 'a u -> exn -> unit
-  (** [break u ex] resolves [u]'s promise with the exception [ex].
-      Any threads waiting for the result will be added to the run queue. *)
-
-  val state : 'a t -> [ `Fulfilled of 'a | `Broken of exn | `Unresolved ]
-end
-
 (** {1 Fibre functions} *)
 
 val fork : (unit -> 'a) -> 'a Promise.t

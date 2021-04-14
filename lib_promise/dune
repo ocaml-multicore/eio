@@ -1,0 +1,4 @@
+(library
+ (name promise)
+ (public_name promise)
+ (flags (:standard -w -50)))

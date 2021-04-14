@@ -18,7 +18,7 @@ let copy_file infd outfd insize block_size =
        let len = min block_size remaining in
        let thread = U.fork (fun () -> read_then_write_chunk infd outfd file_offset len) in
        copy_block (file_offset + len);
-       U.Promise.await thread
+       Promise.await thread
   in
   copy_block 0
 
