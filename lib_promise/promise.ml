@@ -45,5 +45,10 @@ let break t ex =
 
 let state t = t.state
 
+let is_resolved t =
+  match t.state with
+  | Fulfilled _ | Broken _ -> true
+  | Unresolved _ -> false
+
 let add_waiter waiters cb =
   Queue.add cb waiters

@@ -30,6 +30,9 @@ type 'a state =
 
 val state : 'a t -> 'a state
 
+val is_resolved : 'a t -> bool
+(** [is_resolved t] is [true] iff [state t] is [Fulfilled] or [Broken]. *)
+
 (** {2 Provider API} *)
 
 val add_waiter : 'a waiters -> (('a, exn) result -> unit) -> unit
