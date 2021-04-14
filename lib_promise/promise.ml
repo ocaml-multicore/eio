@@ -18,6 +18,12 @@ let create () =
   let t = { state } in
   t, t
 
+let fulfilled x =
+  { state = Fulfilled x }
+
+let broken ex =
+  { state = Broken ex }
+
 let await t =
   match t.state with
   | Fulfilled x -> x

@@ -21,6 +21,12 @@ val break : 'a u -> exn -> unit
 (** [break u ex] resolves [u]'s promise with the exception [ex].
     Any threads waiting for the result will be added to the run queue. *)
 
+val fulfilled : 'a -> 'a t
+(** [fulfilled x] is a promise that is already fulfulled with result [x]. *)
+
+val broken : exn -> 'a t
+(** [broken x] is a promise that is already broken with exception [ex]. *)
+
 type 'a waiters
 
 type 'a state =
