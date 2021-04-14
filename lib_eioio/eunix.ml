@@ -201,6 +201,10 @@ effect Fork  : (unit -> 'a) -> 'a Promise.t
 let fork f =
   perform (Fork f)
 
+effect Fork_detach  : (unit -> unit) * (exn -> unit) -> unit
+let fork_detach f ~on_error =
+  perform (Fork_detach (f, on_error))
+
 effect Yield : unit
 let yield () =
   perform Yield
@@ -239,7 +243,7 @@ effect EWrite : (int option * FD.t * Uring.Region.chunk * amount) -> int
 
 let write ?file_offset fd buf len =
   let res = perform (EWrite (file_offset, fd, buf, Exactly len)) in
-  Log.debug (fun l -> l "write: woken up after read");
+  Log.debug (fun l -> l "write: woken up after write");
   if res < 0 then
     raise (Unix.Unix_error (Uring.error_of_errno res, "write", ""))
 
@@ -311,6 +315,9 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
             Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
             Promise.break resolver ex
         )
+    | effect (Fork_detach (f, on_error)) k ->
+      enqueue_thread st k ();
+      fork (fun () -> try f () with ex -> on_error ex)
     | effect Alloc k ->
       alloc_buf st k
     | effect (Free buf) k ->
