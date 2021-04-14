@@ -9,8 +9,7 @@ let setup_log level =
 
 let () =
   setup_log (Some Logs.Debug);
-  (* TODO expose openfile from euring *)
-  let fd = Unix.(handle_unix_error (openfile "test.txt" [O_RDONLY]) 0) in
+  let fd = Unix.handle_unix_error (Eunix.openfile "test.txt" Unix.[O_RDONLY]) 0 in
   run (fun () ->
     let buf = alloc () in
     let _ = read_exactly fd buf 5 in
