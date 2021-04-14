@@ -13,6 +13,10 @@ val await : 'a t -> 'a
     If [t] is already resolved then this returns immediately.
     If [t] is broken, it raises the exception. *)
 
+val await_result : 'a t -> ('a, exn) result
+(** [await_result t] is like [await t], but returns [Error ex] if [t] is broken
+    instead of raising an exception. *)
+
 val fulfill : 'a u -> 'a -> unit
 (** [fulfill u v] successfully resolves [u]'s promise with the value [v].
     Any threads waiting for the result will be added to the run queue. *)
@@ -20,6 +24,10 @@ val fulfill : 'a u -> 'a -> unit
 val break : 'a u -> exn -> unit
 (** [break u ex] resolves [u]'s promise with the exception [ex].
     Any threads waiting for the result will be added to the run queue. *)
+
+val resolve : 'a t -> ('a, exn) result -> unit
+(** [resolve t (Ok x)] is [fulfill t x] and
+    [resolve t (Error ex)] is [break t ex]. *)
 
 val fulfilled : 'a -> 'a t
 (** [fulfilled x] is a promise that is already fulfulled with result [x]. *)

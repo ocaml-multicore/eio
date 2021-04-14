@@ -31,6 +31,11 @@ let await t =
   | Unresolved q ->
     perform (Await q)
 
+let await_result t =
+  match await t with
+  | x -> Ok x
+  | exception ex -> Error ex
+
 let fulfill t v =
   match t.state with
   | Broken ex -> invalid_arg ("Can't fulfill already-broken promise: " ^ Printexc.to_string ex)
@@ -48,6 +53,10 @@ let break t ex =
   | Unresolved q ->
     t.state <- Broken ex;
     Queue.iter (fun f -> f (Error ex)) q
+
+let resolve t = function
+  | Ok x -> fulfill t x
+  | Error ex -> break t ex
 
 let state t = t.state
 
