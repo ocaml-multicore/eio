@@ -4,7 +4,7 @@ type 'a t
 type 'a u
 (** An ['a u] is a resolver for a promise of type ['a]. *)
 
-val create : unit -> 'a t * 'a u
+val create : ?label:string -> unit -> 'a t * 'a u
 (** [create ()] is a fresh promise/resolver pair.
     The promise is initially unresolved. *)
 
@@ -51,6 +51,9 @@ val is_resolved : 'a t -> bool
 
 val add_waiter : 'a waiters -> (('a, exn) result -> unit) -> unit
 
-effect Await : 'a waiters -> 'a
+effect Await : Ctf.id * 'a waiters -> 'a
 (** Performed when the user calls [await] on an unresolved promise.
-    The handler should add itself to the list of waiters and block until its callback is invoked. *)
+    The handler should add itself to the list of waiters and block until its callback is invoked.
+    The ID is used for tracing. *)
+
+val id : _ t -> Ctf.id

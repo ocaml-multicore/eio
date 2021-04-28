@@ -1,5 +1,4 @@
 (library
  (name eunix)
  (public_name eunix)
- (modules eunix zzz)
- (libraries promise unix uring bheap logs fmt bigstringaf))
+ (libraries promise unix uring bheap logs fmt bigstringaf ctf))

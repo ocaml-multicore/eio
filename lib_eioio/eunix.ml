@@ -22,6 +22,8 @@ let () = Sys.(set_signal sigpipe Signal_ignore)
 
 type amount = Exactly of int | Upto of int
 
+let system_thread = Ctf.mint_id ()
+
 effect Close : Unix.file_descr -> int
 
 module FD = struct
@@ -56,26 +58,26 @@ type rw_req = {
   len: amount;
   buf: Uring.Region.chunk;
   mutable cur_off: int;
-  action: (int, [`Exit_scheduler]) continuation;
+  action: int Suspended.t;
 }
 
 (* Type of user-data attached to jobs. *)
 type io_job =
   | Noop
   | Read : rw_req -> io_job
-  | Poll_add : (int, [`Exit_scheduler]) continuation -> io_job
-  | Close : (int, [`Exit_scheduler]) continuation -> io_job
+  | Poll_add : int Suspended.t -> io_job
+  | Close : int Suspended.t -> io_job
   | Write : rw_req -> io_job
 
 type runnable =
-  | Thread : ('a, [`Exit_scheduler]) continuation * 'a -> runnable
-  | Failed_thread : ('a, [`Exit_scheduler]) continuation * exn -> runnable
+  | Thread : 'a Suspended.t * 'a -> runnable
+  | Failed_thread : 'a Suspended.t * exn -> runnable
 
 type t = {
   uring: io_job Uring.t;
   mem: Uring.Region.t;
   io_q: (t -> unit) Queue.t;     (* waiting for room on [uring] *)
-  mem_q : (Uring.Region.chunk, [`Exit_scheduler]) continuation Queue.t;
+  mem_q : Uring.Region.chunk Suspended.t Queue.t;
   run_q : runnable Queue.t;
   sleep_q: Zzz.t;
   mutable io_jobs: int;
@@ -92,8 +94,11 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; _} as req) =
     |`R -> Uring.read uring ?file_offset fd off len (Read req)
     |`W -> Uring.write uring ?file_offset fd off len (Write req)
   in
-  if not subm then (* wait until an sqe is available *)
+  if not subm then (
+    Ctf.label "await-sqe";
+    (* wait until an sqe is available *)
     Queue.push (fun st -> submit_rw_req st req) io_q
+  )
 
 (* TODO bind from unixsupport *)
 let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
@@ -101,16 +106,19 @@ let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 let enqueue_read st action (file_offset,fd,buf,len) =
   let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action} in
   Log.debug (fun l -> l "read: submitting call");
+  Ctf.label "read";
   submit_rw_req st req
 
 let rec enqueue_poll_add st action fd poll_mask =
   Log.debug (fun l -> l "poll_add: submitting call");
+  Ctf.label "poll_add";
   let subm = Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Poll_add action) in
   if not subm then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_poll_add st action fd poll_mask) st.io_q
 
 let rec enqueue_close st action fd =
   Log.debug (fun l -> l "close: submitting call");
+  Ctf.label "close";
   let subm = Uring.close st.uring fd (Close action) in
   if not subm then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_close st action fd) st.io_q
@@ -118,12 +126,15 @@ let rec enqueue_close st action fd =
 let enqueue_write st action (file_offset,fd,buf,len) =
   let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action} in
   Log.debug (fun l -> l "write: submitting call");
+  Ctf.label "write";
   submit_rw_req st req
 
 let submit_pending_io st =
   match Queue.take_opt st.io_q with
   | None -> ()
-  | Some fn -> fn st
+  | Some fn ->
+    Ctf.label "submit_pending_io";
+    fn st
 
 (* Switch control to the next ready continuation.
    If none is ready, wait until we get an event to wake one and then switch.
@@ -132,11 +143,11 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* This is not a fair scheduler *)
   (* Wakeup any paused fibres *)
   match Queue.take run_q with
-  | Thread (k, v) -> continue k v               (* We already have a runnable task *)
-  | Failed_thread (k, ex) -> discontinue k ex
+  | Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
+  | Failed_thread (k, ex) -> Suspended.discontinue k ex
   | exception Queue.Empty ->
     match Zzz.restart_threads sleep_q with
-    | Some k -> continue k ()                   (* A sleeping task is now due *)
+    | Some k -> Suspended.continue k ()                   (* A sleeping task is now due *)
     | None ->
       let num_jobs = Uring.submit uring in
       st.io_jobs <- st.io_jobs + num_jobs;
@@ -150,7 +161,11 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
         assert (Queue.length mem_q = 0);
         Log.debug (fun l -> l "schedule: exiting");    (* Nothing left to do *)
         `Exit_scheduler
-      ) else match Uring.wait ?timeout uring with
+      ) else (
+        Ctf.(note_hiatus Wait_for_work);
+        let result = Uring.wait ?timeout uring in
+        Ctf.note_resume system_thread;
+        match result with
         | None ->
           assert (timeout <> None);
           schedule st                                   (* Woken by a timeout, which is now due *)
@@ -166,28 +181,29 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
               complete_rw_req st req res
             | Poll_add k ->
               Log.debug (fun l -> l "poll_add returned");
-              continue k res
+              Suspended.continue k res
             | Close k ->
               Log.debug (fun l -> l "close returned");
-              continue k res
+              Suspended.continue k res
             | Noop -> assert false
           end
+      )
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res, len with
-  | 0, _ -> discontinue action End_of_file
+  | 0, _ -> Suspended.discontinue action End_of_file
   | e, _ when e < 0 ->
     if errno_is_retry e then (
       submit_rw_req st req;
       schedule st
     ) else (
-      continue action e
+      Suspended.continue action e
     )
   | n, Exactly len when n < len - cur_off ->
     req.cur_off <- req.cur_off + n;
     submit_rw_req st req;
     schedule st
-  | _, Exactly len -> continue action len
-  | n, Upto _ -> continue action n
+  | _, Exactly len -> Suspended.continue action len
+  | n, Upto _ -> Suspended.continue action n
 
 let enqueue_thread st k x =
   Queue.push (Thread (k, x)) st.run_q
@@ -198,7 +214,7 @@ let enqueue_failed_thread st k ex =
 let alloc_buf st k =
   Log.debug (fun l -> l "alloc: %d" (Uring.Region.avail st.mem));
   match Uring.Region.alloc st.mem with
-  | buf -> continue k buf 
+  | buf -> Suspended.continue k buf 
   | exception Uring.Region.No_space ->
     Queue.push k st.mem_q;
     schedule st
@@ -279,6 +295,7 @@ let shutdown socket command =
 
 let accept socket =
   await_readable socket;
+  Ctf.label "accept";
   let conn, addr = Unix.accept ~cloexec:true (FD.get "accept" socket) in
   FD.of_unix conn, addr
 
@@ -295,38 +312,53 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   let mem_q = Queue.create () in
   let st = { mem; uring; run_q; io_q; mem_q; sleep_q; io_jobs = 0 } in
   Log.debug (fun l -> l "starting main thread");
-  let rec fork fn =
+  let rec fork ~tid fn =
+    Ctf.note_switch tid;
     match fn () with
     | () -> schedule st
     | effect (ERead args) k ->
+      let k = { Suspended.k; tid } in
       enqueue_read st k args;
       schedule st
     | effect (EPoll_add (fd, poll_mask)) k ->
+      let k = { Suspended.k; tid } in
       enqueue_poll_add st k fd poll_mask;
       schedule st
     | effect (Close fd) k ->
+      let k = { Suspended.k; tid } in
       enqueue_close st k fd;
       schedule st
     | effect (EWrite args) k ->
+      let k = { Suspended.k; tid } in
       enqueue_write st k args;
       schedule st
     | effect Yield k ->
+      let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       schedule st
     | effect (Sleep d) k ->
+      let k = { Suspended.k; tid } in
       Zzz.sleep sleep_q d k;
       schedule st
-    | effect (Promise.Await q) k ->
+    | effect (Promise.Await (pid, q)) k ->
+      let k = { Suspended.k; tid } in
       let when_resolved = function
-        | Ok v -> enqueue_thread st k v
-        | Error ex -> enqueue_failed_thread st k ex
+        | Ok v ->
+          Ctf.note_read ~reader:tid pid;
+          enqueue_thread st k v
+        | Error ex ->
+          Ctf.note_read ~reader:tid pid;
+          enqueue_failed_thread st k ex
       in
       Promise.add_waiter q when_resolved;
       schedule st
     | effect (Fork f) k ->
+      let k = { Suspended.k; tid } in
       let promise, resolver = Promise.create () in
       enqueue_thread st k promise;
-      fork (fun () ->
+      fork
+        ~tid:(Promise.id promise)
+        (fun () ->
           match f () with
           | x -> Promise.fulfill resolver x
           | exception ex ->
@@ -334,13 +366,25 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
             Promise.break resolver ex
         )
     | effect (Fork_detach (f, on_error)) k ->
+      let k = { Suspended.k; tid } in
       enqueue_thread st k ();
-      fork (fun () -> try f () with ex -> on_error ex)
+      let child = Ctf.note_fork () in
+      Ctf.note_switch child;
+      fork ~tid:child (fun () ->
+          match f () with
+          | () ->
+            Ctf.note_resolved child ~ex:None
+          | exception ex ->
+            on_error ex;
+            Ctf.note_resolved child ~ex:(Some ex)
+        )
     | effect Alloc k ->
+      let k = { Suspended.k; tid } in
       alloc_buf st k
     | effect (Free buf) k ->
+      let k = { Suspended.k; tid } in
       free_buf st buf;
-      continue k ()
+      Suspended.continue k ()
   in
-  let `Exit_scheduler = fork main in
+  let `Exit_scheduler = fork main ~tid:(Ctf.mint_id ()) in
   Log.debug (fun l -> l "exit")
