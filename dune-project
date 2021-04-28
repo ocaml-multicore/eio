@@ -7,10 +7,12 @@
 (maintainers "anil@recoil.org")
 (package
  (name eunix)
- (synopsis "effect-based direct-style IO for OCaml")
+ (synopsis "Effect-based direct-style IO for OCaml.")
  (description
   "An effect-based IO implementation for multicore OCaml with fibres.")
  (depends
+  (ctf (= :version))
+  (promise (= :version))
   (alcotest (and (>= 1.4.0) :with-test))
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
@@ -18,13 +20,14 @@
   (bheap (>= 2.0.0))))
 (package
  (name promise)
- (synopsis "effect-based promises")
+ (synopsis "Effect-based promises.")
  (description "An effect-based implementation of promises.")
  (depends
-   (alcotest (and (>= 1.4.0) :with-test))))
+  (ctf (= :version))
+  (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name ctf)
- (synopsis "CTF tracing")
+ (synopsis "CTF tracing.")
  (description "Trace IO events.")
  (depends
   (alcotest (and (>= 1.4.0) :with-test))

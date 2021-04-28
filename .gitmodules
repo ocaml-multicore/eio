@@ -1,0 +1,3 @@
+[submodule "ocaml-uring"]
+	path = ocaml-uring
+	url = https://github.com/ocaml-multicore/ocaml-uring.git
