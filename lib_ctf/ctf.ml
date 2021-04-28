@@ -360,7 +360,7 @@ let note_fork () =
     | None -> ()
     | Some log -> Control.note_created log child Task
   end;
-  new_current
+  child
 
 let note_created ?label id ty =
   match !Control.event_log with
