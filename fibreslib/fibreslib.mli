@@ -70,8 +70,41 @@ module Fibre : sig
       The current task remains runnable, but goes to the back of the queue. *)
 end
 
+(** A counting semaphore for use within a single domain.
+    The API is based on OCaml's [Semaphore.Counting]. *)
+module Semaphore : sig
+  type t
+  (** The type of counting semaphores. *)
+
+  val make : int -> t
+  (** [make n] returns a new counting semaphore, with initial value [n].
+      The initial value [n] must be nonnegative.
+      @raise Invalid_argument if [n < 0] *)
+
+  val release : t -> unit
+  (** [release t] increments the value of semaphore [t].
+      If other fibres are waiting on [t], the one that has been waiting the longest is resumed.
+      @raise Sys_error if the value of the semaphore would overflow [max_int] *)
+
+  val acquire : t -> unit
+  (** [acquire t] blocks the calling fibre until the value of semaphore [t]
+      is not zero, then atomically decrements the value of [t] and returns. *)
+
+  val get_value : t -> int
+  (** [get_value t] returns the current value of semaphore [t]. *)
+end
+
 (** API for use by the scheduler implementation. *)
 module Fibre_impl : sig
+  module Waiters : sig
+    type 'a t
+    (** A queue of callbacks waiting for a value of type ['a]. *)
+
+    val add_waiter : 'a t -> (('a, exn) result -> unit) -> unit
+    (** [add_waiter t fn] adds [fn] to the queue of callbacks to be invoked when the wait is over.
+        [fn] will typically add some saved continuation to the runqueue. *)
+  end
+
   module Effects : sig
     effect Await : Ctf.id * 'a Waiters.t -> 'a
     (** Performed when a fibre must be suspended (e.g. because it called {!Promise.await} on an unresolved promise).
@@ -87,6 +120,4 @@ module Fibre_impl : sig
     effect Yield : unit
     (** See {!Fibre.yield} *)
   end
-
-  module Waiters = Waiters
 end
