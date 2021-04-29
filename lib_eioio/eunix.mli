@@ -14,6 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Fibreslib
+
 type t
 
 (** Wrap [Unix.file_descr] to track whether it has been closed. *)

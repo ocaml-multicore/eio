@@ -1,5 +1,5 @@
 (library
- (name promise)
- (public_name promise)
+ (name fibreslib)
+ (public_name fibreslib)
  (libraries ctf)
  (flags (:standard -w -50)))

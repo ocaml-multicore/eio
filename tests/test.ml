@@ -1,4 +1,5 @@
 open Eunix
+open Fibreslib
 
 let () =
   Logs.(set_level ~all:true (Some Debug));
