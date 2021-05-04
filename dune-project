@@ -10,6 +10,7 @@
  (synopsis "Effect-based direct-style IO for OCaml.")
  (description
   "An effect-based IO implementation for multicore OCaml with fibres.")
+ (conflicts (ocaml-variants (= "4.12.0+domains")))
  (depends
   (ctf (= :version))
   (promise (= :version))
@@ -17,6 +18,7 @@
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
   (bigstringaf (>= 0.7.0))
+  uring
   (bheap (>= 2.0.0))))
 (package
  (name promise)
