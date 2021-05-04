@@ -53,7 +53,7 @@ end
 
 type rw_req = {
   op: [`R|`W];
-  file_offset: int option;
+  file_offset: Optint.Int63.t option;
   fd: FD.t;
   len: amount;
   buf: Uring.Region.chunk;
@@ -169,22 +169,22 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
         | None ->
           assert (timeout <> None);
           schedule st                                   (* Woken by a timeout, which is now due *)
-        | Some (runnable, res) -> begin
+        | Some { data = runnable; result } -> begin
             st.io_jobs <- st.io_jobs - 1;
             submit_pending_io st;                       (* If something was waiting for a slot, submit it now. *)
             match runnable with
             | Read req -> 
               Log.debug (fun l -> l "read returned");
-              complete_rw_req st req res
+              complete_rw_req st req result
             | Write req ->
               Log.debug (fun l -> l "write returned");
-              complete_rw_req st req res
+              complete_rw_req st req result
             | Poll_add k ->
               Log.debug (fun l -> l "poll_add returned");
-              Suspended.continue k res
+              Suspended.continue k result
             | Close k ->
               Log.debug (fun l -> l "close returned");
-              Suspended.continue k res
+              Suspended.continue k result
             | Noop -> assert false
           end
       )
@@ -240,7 +240,7 @@ effect Yield : unit
 let yield () =
   perform Yield
 
-effect ERead : (int option * FD.t * Uring.Region.chunk * amount) -> int
+effect ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int
 
 let read_exactly ?file_offset fd buf len =
   let res = perform (ERead (file_offset, fd, buf, Exactly len)) in
@@ -270,7 +270,7 @@ let await_writable fd =
   if res < 0 then
     raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
 
-effect EWrite : (int option * FD.t * Uring.Region.chunk * amount) -> int
+effect EWrite : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int
 
 let write ?file_offset fd buf len =
   let res = perform (EWrite (file_offset, fd, buf, Exactly len)) in

@@ -66,19 +66,19 @@ val free : Uring.Region.chunk -> unit
 val openfile : string -> Unix.open_flag list -> int -> FD.t
 (** Like {!Unix.open_file}. *)
 
-val read_upto : ?file_offset:int -> FD.t -> Uring.Region.chunk -> int -> int
+val read_upto : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> int
 (** [read_upto fd chunk len] reads at most [len] bytes from [fd],
     returning as soon as some data is available.
     @param file_offset Read from the given position in [fd] (default: 0).
     @raise End_of_file Raised if all data has already been read. *)
 
-val read_exactly : ?file_offset:int -> FD.t -> Uring.Region.chunk -> int -> unit
+val read_exactly : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
 (** [read_exactly fd chunk len] reads exactly [len] bytes from [fd],
     performing multiple read operations if necessary.
     @param file_offset Read from the given position in [fd] (default: 0).
     @raise End_of_file Raised if the stream ends before [len] bytes have been read. *)
 
-val write : ?file_offset:int -> FD.t -> Uring.Region.chunk -> int -> unit
+val write : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
 (** [write fd buf len] writes exactly [len] bytes from [buf] to [fd].
     It blocks until the OS confirms the write is done,
     and resubmits automatically if the OS doesn't write all of it at once. *)
