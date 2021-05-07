@@ -14,8 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-open Fibreslib
-
 type t
 
 (** Wrap [Unix.file_descr] to track whether it has been closed. *)
@@ -39,20 +37,7 @@ module FD : sig
       @raise Invalid_arg if [t] is closed. *)
 end
 
-(** {1 Fibre functions} *)
-
-val fork : (unit -> 'a) -> 'a Promise.t
-(** [fork fn] starts running [fn ()] and returns a promise for its result. *)
-
-val fork_detach : (unit -> unit) -> on_error:(exn -> unit) -> unit
-(** [fork_detach fn ~on_error] runs [fn ()] in a new fibre, but does not
-    wait for it to finish.
-    If the fibre raises an exception, [on_error] is called to handle it.
-    [on_error] must not itself raise an exception. *)
-
-val yield : unit -> unit
-(** [yield ()] asks the scheduler to switch to the next runnable task.
-    The current task remains runnable, but goes to the back of the queue. *)
+(** {1 Time functions} *)
 
 val sleep : float -> unit
 (** [sleep s] blocks until (at least) [s] seconds have passed. *)

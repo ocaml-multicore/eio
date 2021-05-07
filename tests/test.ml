@@ -1,4 +1,3 @@
-open Eunix
 open Fibreslib
 
 let () =
@@ -25,11 +24,11 @@ let test_promise () =
   Eunix.run @@ fun () ->
   let p, r = Promise.create () in
   Alcotest.(check (state string)) "Initially unresolved" (get_state p) `Unresolved;
-  let thread = Eunix.fork (fun () -> Promise.await p) in
+  let thread = Fibre.fork (fun () -> Promise.await p) in
   Promise.fulfill r "ok";
   Alcotest.(check (state string)) "Resolved OK" (get_state p) (`Fulfilled "ok");
   Alcotest.(check (state string)) "Thread unresolved" (get_state thread) `Unresolved;
-  yield ();
+  Fibre.yield ();
   Alcotest.(check (state string)) "Thread resolved" (get_state thread) @@ `Fulfilled "ok";
   let result = Promise.await thread in
   Alcotest.(check string) "Await result" result "ok"
@@ -38,18 +37,18 @@ let test_promise_exn () =
   Eunix.run @@ fun () ->
   let p, r = Promise.create () in
   Alcotest.(check (state reject)) "Initially unresolved" (get_state p) `Unresolved;
-  let thread = Eunix.fork (fun () -> Promise.await p) in
+  let thread = Fibre.fork (fun () -> Promise.await p) in
   Promise.break r (Failure "test");
   Alcotest.(check (state reject)) "Broken" (get_state p) @@ `Broken (Failure "test");
   Alcotest.(check (state reject)) "Thread unresolved" (get_state thread) `Unresolved;
-  yield ();
+  Fibre.yield ();
   Alcotest.(check (state reject)) "Thread broken" (get_state thread) @@ `Broken (Failure "test");
   match Promise.await thread with
   | `Cant_happen -> assert false
   | exception (Failure msg) -> Alcotest.(check string) "Await result" msg "test"
 
 let read_one_byte r =
-  Eunix.fork (fun () ->
+  Fibre.fork (fun () ->
       Eunix.await_readable (Eunix.FD.of_unix r);
       let b = Bytes.create 1 in
       let got = Unix.read r b 0 1 in
@@ -61,7 +60,7 @@ let test_poll_add () =
   Eunix.run @@ fun () ->
   let r, w = Unix.pipe () in
   let thread = read_one_byte r in
-  Eunix.yield ();
+  Fibre.yield ();
   Eunix.await_writable (Eunix.FD.of_unix w);
   let sent = Unix.write w (Bytes.of_string "!") 0 1 in
   assert (sent = 1);
@@ -73,7 +72,7 @@ let test_poll_add_busy () =
   let r, w = Unix.pipe () in
   let a = read_one_byte r in
   let b = read_one_byte r in
-  Eunix.yield ();
+  Fibre.yield ();
   let sent = Unix.write w (Bytes.of_string "!!") 0 2 in
   assert (sent = 2);
   let a = Promise.await a in
@@ -84,11 +83,11 @@ let test_poll_add_busy () =
 let test_fork_detach () =
   Eunix.run ~queue_depth:1 @@ fun () ->
   let i = ref 0 in
-  Eunix.fork_detach (fun () -> incr i) ~on_error:raise;
+  Fibre.fork_detach (fun () -> incr i) ~on_error:raise;
   Alcotest.(check int) "Forked code ran" 1 !i;
   let p1, r1 = Promise.create () in
   let p2, r2 = Promise.create () in
-  Eunix.fork_detach (fun () -> Promise.await p1; incr i; raise Exit) ~on_error:(Promise.fulfill r2);
+  Fibre.fork_detach (fun () -> Promise.await p1; incr i; raise Exit) ~on_error:(Promise.fulfill r2);
   Alcotest.(check int) "Forked code waiting" 1 !i;
   Promise.fulfill r1 ();
   let result = Promise.await p2 in
