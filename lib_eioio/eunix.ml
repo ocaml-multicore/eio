@@ -322,7 +322,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       enqueue_write st k args;
       schedule st
-    | effect Fibre.Yield k ->
+    | effect Fibre_impl.Effects.Yield k ->
       let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       schedule st
@@ -330,7 +330,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       Zzz.sleep sleep_q d k;
       schedule st
-    | effect (Promise.Await (pid, q)) k ->
+    | effect (Fibre_impl.Effects.Await (pid, q)) k ->
       let k = { Suspended.k; tid } in
       let when_resolved = function
         | Ok v ->
@@ -340,14 +340,16 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
           Ctf.note_read ~reader:tid pid;
           enqueue_failed_thread st k ex
       in
-      Promise.add_waiter q when_resolved;
+      Fibre_impl.Waiters.add_waiter q when_resolved;
       schedule st
-    | effect (Fibre.Fork f) k ->
+    | effect (Fibre_impl.Effects.Fork f) k ->
       let k = { Suspended.k; tid } in
-      let promise, resolver = Promise.create () in
+      let id = Ctf.mint_id () in
+      Ctf.note_created id Ctf.Task;
+      let promise, resolver = Promise.create_with_id id in
       enqueue_thread st k promise;
       fork
-        ~tid:(Promise.id promise)
+        ~tid:id
         (fun () ->
           match f () with
           | x -> Promise.fulfill resolver x
@@ -355,7 +357,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
             Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
             Promise.break resolver ex
         )
-    | effect (Fibre.Fork_detach (f, on_error)) k ->
+    | effect (Fibre_impl.Effects.Fork_detach (f, on_error)) k ->
       let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       let child = Ctf.note_fork () in

@@ -1,7 +1,5 @@
-type 'a waiters = (('a, exn) result -> unit) Queue.t
-
 type 'a state =
-  | Unresolved of 'a waiters
+  | Unresolved of 'a Waiters.t
   | Fulfilled of 'a
   | Broken of exn
 
@@ -12,13 +10,18 @@ type 'a t = {
 
 type 'a u = 'a t
 
-effect Await : Ctf.id * 'a waiters -> 'a
+type 'a waiters = 'a Waiters.t
+
+effect Await : Ctf.id * 'a Waiters.t -> 'a
+
+let create_with_id id =
+  let t = { id; state = Unresolved (Waiters.create ()) } in
+  t, t
 
 let create ?label () =
   let id = Ctf.mint_id () in
   Ctf.note_created ?label id Ctf.Task;
-  let t = { id; state = Unresolved (Queue.create ()) } in
-  t, t
+  create_with_id id
 
 let fulfilled x =
   let id = Ctf.mint_id () in
@@ -54,7 +57,7 @@ let fulfill t v =
   | Unresolved q ->
     Ctf.note_resolved t.id ~ex:None;
     t.state <- Fulfilled v;
-    Queue.iter (fun f -> f (Ok v)) q
+    Waiters.wake_all q (Ok v)
 
 let break t ex =
   match t.state with
@@ -65,7 +68,7 @@ let break t ex =
   | Unresolved q ->
     Ctf.note_resolved t.id ~ex:(Some ex);
     t.state <- Broken ex;
-    Queue.iter (fun f -> f (Error ex)) q
+    Waiters.wake_all q (Error ex)
 
 let resolve t = function
   | Ok x -> fulfill t x
@@ -78,6 +81,3 @@ let is_resolved t =
   match t.state with
   | Fulfilled _ | Broken _ -> true
   | Unresolved _ -> false
-
-let add_waiter waiters cb =
-  Queue.add cb waiters
