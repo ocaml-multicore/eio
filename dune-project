@@ -13,7 +13,7 @@
  (conflicts (ocaml-variants (= "4.12.0+domains")))
  (depends
   (ctf (= :version))
-  (promise (= :version))
+  (fibreslib (= :version))
   (alcotest (and (>= 1.4.0) :with-test))
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
@@ -21,9 +21,9 @@
   uring
   (bheap (>= 2.0.0))))
 (package
- (name promise)
- (synopsis "Effect-based promises.")
- (description "An effect-based implementation of promises.")
+ (name fibreslib)
+ (synopsis "Effect-based synchronisation primitives.")
+ (description "An effect-based API for promises and other synchronisation primitives.")
  (depends
   (ctf (= :version))
   (alcotest (and (>= 1.4.0) :with-test))))

@@ -17,6 +17,8 @@
 let src = Logs.Src.create "eunix" ~doc:"Effect-based IO system"
 module Log = (val Logs.src_log src : Logs.LOG)
 
+open Fibreslib
+
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)
 
@@ -228,18 +230,6 @@ effect Sleep : float -> unit
 let sleep d =
   perform (Sleep d)
 
-effect Fork  : (unit -> 'a) -> 'a Promise.t
-let fork f =
-  perform (Fork f)
-
-effect Fork_detach  : (unit -> unit) * (exn -> unit) -> unit
-let fork_detach f ~on_error =
-  perform (Fork_detach (f, on_error))
-
-effect Yield : unit
-let yield () =
-  perform Yield
-
 effect ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int
 
 let read_exactly ?file_offset fd buf len =
@@ -332,7 +322,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       enqueue_write st k args;
       schedule st
-    | effect Yield k ->
+    | effect Fibre_impl.Effects.Yield k ->
       let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       schedule st
@@ -340,7 +330,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       Zzz.sleep sleep_q d k;
       schedule st
-    | effect (Promise.Await (pid, q)) k ->
+    | effect (Fibre_impl.Effects.Await (pid, q)) k ->
       let k = { Suspended.k; tid } in
       let when_resolved = function
         | Ok v ->
@@ -350,14 +340,16 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
           Ctf.note_read ~reader:tid pid;
           enqueue_failed_thread st k ex
       in
-      Promise.add_waiter q when_resolved;
+      Fibre_impl.Waiters.add_waiter q when_resolved;
       schedule st
-    | effect (Fork f) k ->
+    | effect (Fibre_impl.Effects.Fork f) k ->
       let k = { Suspended.k; tid } in
-      let promise, resolver = Promise.create () in
+      let id = Ctf.mint_id () in
+      Ctf.note_created id Ctf.Task;
+      let promise, resolver = Promise.create_with_id id in
       enqueue_thread st k promise;
       fork
-        ~tid:(Promise.id promise)
+        ~tid:id
         (fun () ->
           match f () with
           | x -> Promise.fulfill resolver x
@@ -365,7 +357,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
             Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
             Promise.break resolver ex
         )
-    | effect (Fork_detach (f, on_error)) k ->
+    | effect (Fibre_impl.Effects.Fork_detach (f, on_error)) k ->
       let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       let child = Ctf.note_fork () in
