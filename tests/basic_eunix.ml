@@ -11,7 +11,7 @@ let setup_log level =
 let () =
   setup_log (Some Logs.Debug);
   let fd = Unix.handle_unix_error (Eunix.openfile "test.txt" Unix.[O_RDONLY]) 0 in
-  run (fun () ->
+  run (fun _stdenv ->
     let buf = alloc () in
     let _ = read_exactly fd buf 5 in
     print_endline (Uring.Region.to_string ~len:5 buf);
@@ -19,7 +19,7 @@ let () =
     print_endline (Uring.Region.to_string ~len:3 buf);
     free buf;
   );
-  run (fun () ->
+  run (fun _stdenv ->
     let buf = alloc () in
     let _ = read_exactly fd buf 5 in
     Logs.debug (fun l -> l "sleeping at %f" (Unix.gettimeofday ()));

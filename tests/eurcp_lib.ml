@@ -36,7 +36,7 @@ let run_cp block_size queue_depth infile outfile () =
                  Int63.pp insize
                  queue_depth
                  block_size);
-  U.run ~queue_depth ~block_size (fun () ->
+  U.run ~queue_depth ~block_size (fun _stdenv ->
       copy_file infd outfd insize block_size;
       Logs.debug (fun l -> l "eurcp: done");
       Eunix.FD.close outfd;

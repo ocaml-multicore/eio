@@ -6,15 +6,24 @@
 (authors "Anil Madhavapeddy" "Thomas Leonard")
 (maintainers "anil@recoil.org")
 (package
- (name eunix)
- (synopsis "Effect-based direct-style IO for OCaml.")
+ (name eio)
+ (synopsis "Effect-based direct-style IO API for OCaml.")
  (description
-  "An effect-based IO implementation for multicore OCaml with fibres.")
+  "An effect-based IO API for multicore OCaml with fibres.")
+ (depends
+  (ctf (= :version))
+  (alcotest (and (>= 1.4.0) :with-test))))
+(package
+ (name eunix)
+ (synopsis "Eio implementation for Linux using io-uring.")
+ (description
+   "An eio implementation for Linux using io-uring.")
  (conflicts (ocaml-variants (= "4.12.0+domains")))
  (depends
   (ctf (= :version))
   (fibreslib (= :version))
   (alcotest (and (>= 1.4.0) :with-test))
+  (mdx :with-test)
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
   (bigstringaf (>= 0.7.0))
@@ -37,3 +46,4 @@
   (ocplib-endian (>= 1.1))
   (mtime (>= 1.2.0))
   (cstruct (>= 6.0.0))))
+(using mdx 0.1)

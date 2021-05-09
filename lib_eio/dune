@@ -1,0 +1,4 @@
+(library
+  (name eio)
+  (public_name eio)
+  (libraries cstruct))

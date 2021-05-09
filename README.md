@@ -6,6 +6,74 @@ stack for multicore OCaml.
 The library is very much a work-in-progress, so this is an
 unreleased repository.
 
+## Motivation
+
+The `Unix` library provided with OCaml uses blocking IO operations, and is not well suited to concurrent programs such as network services or interactive applications.
+For many years, the solution to this has been libraries such as Lwt and Async, which provide a monadic interface.
+These libraries allow writing code as if there were multiple threads of execution, each with their own stack, but the stacks are simulated using the heap.
+
+The multicore version of OCaml adds support for "effects", removing the need for monadic code here.
+Using effects brings several advantages:
+
+1. It is faster, because no heap allocations are needed to simulate a stack.
+2. Concurrent code can be written in the same style as plain non-concurrent code.
+3. Because a real stack is used, backtraces from exceptions work as expected.
+4. Other features of the language (such as `try ... with ...`) can be used in concurrent code.
+
+In addition, modern operating systems provide high-performance alternatives to the old Unix `select` call.
+For example, Linux's io-uring system has applications write the operations they want to perform to a ring buffer,
+which Linux handles asynchronously.
+
+Due to this, we anticipate many OCaml users will want to rewrite their IO code at some point,
+once effects have been merged into the the official version of OCaml.
+It would be very beneficial if we could use this opportunity to standardise on a single concurrency API for OCaml.
+
+This project is therefore exploring what this new API should look like by building an effects-based IO library and
+then using it to create or port larger applications.
+
+The API is expected to change a great deal over the next year or so.
+If you are looking for a stable library for your application, you should continue using Lwt or Async for now.
+However, if you'd like to help with these experiments, please get in touch!
+
+At present, Linux with io-uring is the only backend available.
+It is able to run a web-server with good performance, but most features are still missing.
+
+## Structure of the code
+
+- `fibreslib` provides concurrency primitives (promises, semaphores, etc).
+- `eio` provides a high-level, cross-platform OS API.
+- `eunix` provides a Linux io-uring backend for these APIs,
+  plus a low-level API that can be used directly (in non-portable code).
+- `ctf` provides tracing support.
+
+## Getting started
+
+Here's a slightly complicated way of writing a greeting to stdout:
+
+```ocaml
+# #require "eunix";;
+
+# let main stdenv =
+    let src = Eio.Source.of_string "Hello, world!\n" in
+    let dst = Eio.Stdenv.stdout stdenv in
+    Eio.Sink.write dst ~src;;
+val main : < stdout : Eio.Sink.t; .. > -> unit = <fun>
+
+# Eunix.run main;;
+- : unit = ()
+# (* prints "Hello, world!" *)
+```
+
+Note that:
+
+- The program provides its `main` function to `Eunix.run` (which runs the main event loop).
+
+- The `stdenv` argument represents the standard environment of a Unix process, allowing it to interact with the outside world.
+
+- A `main` function will typically start by extracting from `stdenv` whatever things the program will need.
+
+- The type of the `main` function here tells us that this program only interacts via `stdout`.
+
 ## Tracing
 
 The library can write traces in CTF format, showing when threads (fibres) are created, when they run, and how they interact.

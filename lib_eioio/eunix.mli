@@ -48,6 +48,9 @@ val alloc : unit -> Uring.Region.chunk
 
 val free : Uring.Region.chunk -> unit
 
+val with_chunk : (Uring.Region.chunk -> 'a) -> 'a
+(** [with_chunk fn] runs [fn chunk] with a freshly allocated chunk and then frees it. *)
+
 (** {1 File manipulation functions} *)
 
 val openfile : string -> Unix.open_flag list -> int -> FD.t
@@ -89,7 +92,31 @@ val accept : FD.t -> (FD.t * Unix.sockaddr)
 val shutdown : FD.t -> Unix.shutdown_command -> unit
 (** Like {!Unix.shutdown}. *)
 
+(** {1 Eio API} *)
+
+module Objects : sig
+  (** [source fd] is an Eio source that reads from [fd]. *)
+  class source : FD.t -> object
+    inherit Eio.Source.t
+    method read_into : Cstruct.t -> int
+    method fd : FD.t
+    method close : unit
+  end
+
+  (** [sink fd] is an Eio sink that writes to [fd]. *)
+  class sink : FD.t -> object
+    inherit Eio.Sink.t
+    method write : #Eio.Source.t -> unit
+    method fd : FD.t
+    method close : unit
+  end
+end
+
+val pipe : unit -> Objects.source * Objects.sink
+(** [pipe ()] is a source-sink pair [(r, w)], where data written to [w] can be read from [r].
+    It is implemented as a Unix pipe. *)
+
 (** {1 Main Loop} *)
 
-val run : ?queue_depth:int -> ?block_size:int -> (unit -> unit) -> unit
+val run : ?queue_depth:int -> ?block_size:int -> (Eio.Stdenv.t -> unit) -> unit
 (** FIXME queue_depth and block_size should be in a handler and not the mainloop *)
