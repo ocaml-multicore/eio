@@ -45,6 +45,7 @@ module FD = struct
     | { fd = `Closed } -> false
 
   let close t =
+    Ctf.label "close";
     let fd = get "close" t in
     t.fd <- `Closed;
     let res = perform (Close fd) in
@@ -274,6 +275,11 @@ let alloc () = perform Alloc
 effect Free : Uring.Region.chunk -> unit
 let free buf = perform (Free buf)
 
+let with_chunk fn =
+  let chunk = alloc () in
+  Fun.protect ~finally:(fun () -> free chunk) @@ fun () ->
+  fn chunk
+
 let openfile path flags mode =
   FD.of_unix (Unix.openfile path flags mode)
 
@@ -289,8 +295,82 @@ let accept socket =
   let conn, addr = Unix.accept ~cloexec:true (FD.get "accept" socket) in
   FD.of_unix conn, addr
 
+module Objects = struct
+  type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
+
+  (* When copying between a source with an FD and a sink with an FD, we can share the chunk
+     and avoid copying. *)
+  let fast_copy ~src ~dst =
+    with_chunk @@ fun chunk ->
+    let chunk_size = Uring.Region.length chunk in
+    try
+      while true do
+        let got = read_upto src chunk chunk_size in
+        write dst chunk got
+      done
+    with End_of_file -> ()
+
+  class source fd = object
+    inherit Eio.Source.t as super
+
+    method fd = fd
+    method close = FD.close fd
+
+    method! probe : type a. a Eio.Generic.ty -> a option = function
+      | FD -> Some fd
+      | x -> super#probe x
+
+    method read_into buf =
+      (* Inefficient copying fallback *)
+      with_chunk @@ fun chunk ->
+      let chunk_cs = Cstruct.of_bigarray (Uring.Region.to_bigstring chunk) in
+      let max_len = min (Cstruct.length buf) (Cstruct.length chunk_cs) in
+      let got = read_upto fd chunk max_len in
+      Cstruct.blit chunk_cs 0 buf 0 got;
+      got
+  end
+
+  class sink fd = object
+    inherit Eio.Sink.t
+
+    method fd = fd
+    method close = FD.close fd
+
+    method write src =
+      match Eio.Generic.probe src FD with
+      | Some src -> fast_copy ~src ~dst:fd
+      | None ->
+        (* Inefficient copying fallback *)
+        with_chunk @@ fun chunk ->
+        let chunk_cs = Cstruct.of_bigarray (Uring.Region.to_bigstring chunk) in
+        try
+          while true do
+            let got = Eio.Source.read_into src chunk_cs in
+            write fd chunk got
+          done
+        with End_of_file -> ()
+  end
+
+  let stdenv () =
+    let stdin = lazy (new source (FD.of_unix Unix.stdin)) in
+    let stdout = lazy (new sink (FD.of_unix Unix.stdout)) in
+    let stderr = lazy (new sink (FD.of_unix Unix.stderr)) in
+    object (_ : Eio.Stdenv.t)
+      method stdin = (Lazy.force stdin :> Eio.Source.t)
+      method stdout = (Lazy.force stdout :> Eio.Sink.t)
+      method stderr = (Lazy.force stderr :> Eio.Sink.t)
+    end
+end
+
+let pipe () =
+  let r, w = Unix.pipe () in
+  let r = new Objects.source (FD.of_unix r) in
+  let w = new Objects.sink (FD.of_unix w) in
+  r, w
+
 let run ?(queue_depth=64) ?(block_size=4096) main =
   Log.debug (fun l -> l "starting run");
+  let stdenv = Objects.stdenv () in
   (* TODO unify this allocation API around baregion/uring *)
   let fixed_buf_len = block_size * queue_depth in
   let uring = Uring.create ~fixed_buf_len ~queue_depth ~default:Noop () in
@@ -351,11 +431,11 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       fork
         ~tid:id
         (fun () ->
-          match f () with
-          | x -> Promise.fulfill resolver x
-          | exception ex ->
-            Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
-            Promise.break resolver ex
+           match f () with
+           | x -> Promise.fulfill resolver x
+           | exception ex ->
+             Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
+             Promise.break resolver ex
         )
     | effect (Fibre_impl.Effects.Fork_detach (f, on_error)) k ->
       let k = { Suspended.k; tid } in
@@ -378,5 +458,5 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       free_buf st buf;
       Suspended.continue k ()
   in
-  let `Exit_scheduler = fork main ~tid:(Ctf.mint_id ()) in
+  let `Exit_scheduler = fork (fun () -> main stdenv) ~tid:(Ctf.mint_id ()) in
   Log.debug (fun l -> l "exit")

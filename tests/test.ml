@@ -21,7 +21,7 @@ let get_state p =
   | Fulfilled x -> `Fulfilled x
 
 let test_promise () =
-  Eunix.run @@ fun () ->
+  Eunix.run @@ fun _stdenv ->
   let p, r = Promise.create () in
   Alcotest.(check (state string)) "Initially unresolved" (get_state p) `Unresolved;
   let thread = Fibre.fork (fun () -> Promise.await p) in
@@ -34,7 +34,7 @@ let test_promise () =
   Alcotest.(check string) "Await result" result "ok"
 
 let test_promise_exn () =
-  Eunix.run @@ fun () ->
+  Eunix.run @@ fun _stdenv ->
   let p, r = Promise.create () in
   Alcotest.(check (state reject)) "Initially unresolved" (get_state p) `Unresolved;
   let thread = Fibre.fork (fun () -> Promise.await p) in
@@ -57,7 +57,7 @@ let read_one_byte r =
     )
 
 let test_poll_add () =
-  Eunix.run @@ fun () ->
+  Eunix.run @@ fun _stdenv ->
   let r, w = Unix.pipe () in
   let thread = read_one_byte r in
   Fibre.yield ();
@@ -68,7 +68,7 @@ let test_poll_add () =
   Alcotest.(check string) "Received data" "!" result
 
 let test_poll_add_busy () =
-  Eunix.run ~queue_depth:1 @@ fun () ->
+  Eunix.run ~queue_depth:1 @@ fun _stdenv ->
   let r, w = Unix.pipe () in
   let a = read_one_byte r in
   let b = read_one_byte r in
@@ -81,7 +81,7 @@ let test_poll_add_busy () =
   Alcotest.(check string) "Received data" "!" b
 
 let test_fork_detach () =
-  Eunix.run ~queue_depth:1 @@ fun () ->
+  Eunix.run ~queue_depth:1 @@ fun _stdenv ->
   let i = ref 0 in
   Fibre.fork_detach (fun () -> incr i) ~on_error:raise;
   Alcotest.(check int) "Forked code ran" 1 !i;
@@ -95,7 +95,7 @@ let test_fork_detach () =
   Alcotest.(check bool) "Error handled" true (result = Exit)
 
 let test_semaphore () =
-  Eunix.run ~queue_depth:1 @@ fun () ->
+  Eunix.run ~queue_depth:1 @@ fun _stdenv ->
   let running = ref 0 in
   let sem = Semaphore.make 2 in
   let a = Fibre.fork (fun () -> Ctf.label "a"; Semaphore.acquire sem; incr running) in
@@ -122,7 +122,7 @@ let test_semaphore () =
   Semaphore.release sem
 
 let test_semaphore_no_waiter () =
-  Eunix.run ~queue_depth:2 @@ fun () ->
+  Eunix.run ~queue_depth:2 @@ fun _stdenv ->
   let sem = Semaphore.make 0 in
   Semaphore.release sem;        (* Release with free-counter *)
   Alcotest.(check int) "Initial config" 1 (Semaphore.get_value sem);
@@ -133,6 +133,38 @@ let test_semaphore_no_waiter () =
   Alcotest.(check int) "Now b running" 0 (Semaphore.get_value sem);
   Semaphore.release sem;        (* Release with an empty wait-queue *)
   Alcotest.(check int) "Finished" 1 (Semaphore.get_value sem)
+
+(* Write a string to a pipe and read it out again. *)
+let test_copy () =
+  Eunix.run ~queue_depth:2 @@ fun _stdenv ->
+  let msg = "Hello!" in
+  let from_pipe, to_pipe = Eunix.pipe () in
+  let buffer = Buffer.create 20 in
+  let copy_thread = Fibre.fork (fun () -> Eio.Sink.write (Eio.Sink.of_buffer buffer) ~src:from_pipe) in
+  Eio.Sink.write to_pipe ~src:(Eio.Source.of_string msg);
+  Eio.Sink.write to_pipe ~src:(Eio.Source.of_string msg);
+  to_pipe#close;
+  Promise.await copy_thread;
+  Alcotest.(check string) "Copy correct" (msg ^ msg) (Buffer.contents buffer);
+  from_pipe#close
+
+(* Write a string via 2 pipes. The copy from the 1st to 2nd pipe will be optimised and so tests a different code-path. *)
+let test_direct_copy () =
+  Eunix.run ~queue_depth:4 @@ fun _stdenv ->
+  let msg = "Hello!" in
+  let from_pipe1, to_pipe1 = Eunix.pipe () in
+  let from_pipe2, to_pipe2 = Eunix.pipe () in
+  let buffer = Buffer.create 20 in
+  let to_output = Eio.Sink.of_buffer buffer in
+  let copy_thread1 = Fibre.fork (fun () -> Ctf.label "copy1"; Eio.Sink.write ~src:from_pipe1 to_pipe2; to_pipe2#close) in
+  let copy_thread2 = Fibre.fork (fun () -> Ctf.label "copy2"; Eio.Sink.write ~src:from_pipe2 to_output) in
+  Eio.Sink.write to_pipe1 ~src:(Eio.Source.of_string msg);
+  to_pipe1#close;
+  Promise.await copy_thread1;
+  Promise.await copy_thread2;
+  Alcotest.(check string) "Copy correct" msg (Buffer.contents buffer);
+  from_pipe1#close;
+  from_pipe2#close
 
 let () =
   let open Alcotest in
@@ -149,6 +181,8 @@ let () =
       test_case "fork_detach"  `Quick test_fork_detach;
     ];
     "io", [
+      test_case "copy"          `Quick test_copy;
+      test_case "direct_copy"   `Quick test_direct_copy;
       test_case "poll_add"      `Quick test_poll_add;
       test_case "poll_add_busy" `Quick test_poll_add_busy;
     ];
