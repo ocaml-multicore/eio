@@ -12,25 +12,23 @@ type 'a u = 'a t
 
 type 'a waiters = 'a Waiters.t
 
-effect Await : Ctf.id * 'a Waiters.t -> 'a
-
 let create_with_id id =
   let t = { id; state = Unresolved (Waiters.create ()) } in
   t, t
 
 let create ?label () =
   let id = Ctf.mint_id () in
-  Ctf.note_created ?label id Ctf.Task;
+  Ctf.note_created ?label id Ctf.Promise;
   create_with_id id
 
 let fulfilled x =
   let id = Ctf.mint_id () in
-  Ctf.note_created id Ctf.Task;
+  Ctf.note_created id Ctf.Promise;
   { id; state = Fulfilled x }
 
 let broken ex =
   let id = Ctf.mint_id () in
-  Ctf.note_created id Ctf.Task;
+  Ctf.note_created id Ctf.Promise;
   { id; state = Broken ex }
 
 let await t =
@@ -43,7 +41,7 @@ let await t =
     raise ex
   | Unresolved q ->
     Ctf.note_try_read t.id;
-    perform (Await (t.id, q))
+    Waiters.await q t.id
 
 let await_result t =
   match await t with

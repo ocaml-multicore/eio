@@ -43,6 +43,8 @@ type event =
   | On_any
   | Ignore_result
   | Async
+  | Promise
+  | Semaphore
 (** Types of threads or other recorded objects. *)
 
 val mint_id : unit -> id
@@ -75,8 +77,9 @@ val note_resolved : id -> ex:exn option -> unit
 (** [note_resolved id ~ex] records that [id] is now resolved.
     If [ex = None] then [id] was successful, otherwise it failed with exception [ex]. *)
 
-val note_signal : src:id -> dst:id -> unit
-(** [note_signal ~src dst] records that [src] signalled [dst]. *)
+val note_signal : ?src:id -> id -> unit
+(** [note_signal ~src dst] records that [dst] was signalled.
+    @param src The thread sending the signal (default is the current thread). *)
 
 (** {2 Controlling tracing} *)
 

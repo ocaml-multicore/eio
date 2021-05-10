@@ -94,12 +94,56 @@ let test_fork_detach () =
   Alcotest.(check int) "Forked code ran" 2 !i;
   Alcotest.(check bool) "Error handled" true (result = Exit)
 
+let test_semaphore () =
+  Eunix.run ~queue_depth:1 @@ fun () ->
+  let running = ref 0 in
+  let sem = Semaphore.make 2 in
+  let a = Fibre.fork (fun () -> Ctf.label "a"; Semaphore.acquire sem; incr running) in
+  let b = Fibre.fork (fun () -> Ctf.label "b"; Semaphore.acquire sem; incr running) in
+  let c = Fibre.fork (fun () -> Ctf.label "c"; Semaphore.acquire sem; incr running) in
+  let d = Fibre.fork (fun () -> Ctf.label "d"; Semaphore.acquire sem; incr running) in
+  Alcotest.(check int) "Two running" 2 !running;
+  Promise.await a;
+  Promise.await b;
+  (* a finishes and c starts *)
+  decr running;
+  Semaphore.release sem;
+  Alcotest.(check int) "One finished " 1 !running;
+  Fibre.yield ();
+  Alcotest.(check int) "Two running again" 2 !running;
+  Promise.await c;
+  (* b finishes and d starts *)
+  decr running;
+  Semaphore.release sem;
+  Promise.await d;
+  decr running;
+  Semaphore.release sem;
+  decr running;
+  Semaphore.release sem
+
+let test_semaphore_no_waiter () =
+  Eunix.run ~queue_depth:2 @@ fun () ->
+  let sem = Semaphore.make 0 in
+  Semaphore.release sem;        (* Release with free-counter *)
+  Alcotest.(check int) "Initial config" 1 (Semaphore.get_value sem);
+  Fibre.fork_detach (fun () -> Ctf.label "a"; Semaphore.acquire sem) ~on_error:raise;
+  Fibre.fork_detach (fun () -> Ctf.label "b"; Semaphore.acquire sem) ~on_error:raise;
+  Alcotest.(check int) "A running" 0 (Semaphore.get_value sem);
+  Semaphore.release sem;        (* Release with a non-empty wait-queue *)
+  Alcotest.(check int) "Now b running" 0 (Semaphore.get_value sem);
+  Semaphore.release sem;        (* Release with an empty wait-queue *)
+  Alcotest.(check int) "Finished" 1 (Semaphore.get_value sem)
+
 let () =
   let open Alcotest in
   run "eioio" [
     "promise", [
       test_case "promise"      `Quick test_promise;
       test_case "promise_exn"  `Quick test_promise_exn;
+    ];
+    "semaphore", [
+      test_case "semaphore"    `Quick test_semaphore;
+      test_case "no-waiter"    `Quick test_semaphore_no_waiter;
     ];
     "fork", [
       test_case "fork_detach"  `Quick test_fork_detach;

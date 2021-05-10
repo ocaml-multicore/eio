@@ -38,6 +38,8 @@ type event =
   | On_any
   | Ignore_result
   | Async
+  | Promise
+  | Semaphore
 
 type log_buffer = (char, int8_unsigned_elt, c_layout) Array1.t
 
@@ -74,6 +76,8 @@ let int_of_thread_type t =
   | On_any -> 12
   | Ignore_result -> 13
   | Async -> 14
+  | Promise -> 15
+  | Semaphore -> 16
 
 module Packet = struct
   let magic = 0xc1fc1fc1l
@@ -169,10 +173,11 @@ module Control = struct
   let op_increase = 6
   let op_switch = 7
   (* let op_gc = 8 *)
-  let op_signal = 9
+  (* let op_old_signal = 9 *)
   let op_try_read = 10
   let op_counter_value = 11
   let op_read_later = 12
+  let op_signal = 13
 
   let write64 log v i =
     EndianBigstring.LittleEndian.set_int64 log i v;
@@ -405,10 +410,16 @@ let note_resolved id ~ex =
   | None -> ()
   | Some log -> Control.note_resolved log id ~ex
 
-let note_signal ~src ~dst =
+let note_signal ?src dst =
   match !Control.event_log with
   | None -> ()
-  | Some log -> Control.note_signal ~src log dst
+  | Some log ->
+    let src =
+      match src with
+      | None -> !current_thread
+      | Some x -> x
+    in
+    Control.note_signal ~src log dst
 
 let note_increase counter amount =
   match !Control.event_log with
