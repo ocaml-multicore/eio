@@ -1,4 +1,4 @@
-(lang dune 2.7)
+(lang dune 2.8)
 (name eunix)
 (generate_opam_files true)
 (source (github ocaml-multicore/eioio))
@@ -7,7 +7,7 @@
 (maintainers "anil@recoil.org")
 (package
  (name eio)
- (synopsis "Effect-based direct-style IO API for OCaml.")
+ (synopsis "Effect-based direct-style IO API for OCaml")
  (description
   "An effect-based IO API for multicore OCaml with fibres.")
  (depends
@@ -15,14 +15,16 @@
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name eunix)
- (synopsis "Eio implementation for Linux using io-uring.")
+ (synopsis "Eio implementation for Linux using io-uring")
  (description
    "An eio implementation for Linux using io-uring.")
  (conflicts (ocaml-variants (= "4.12.0+domains")))
  (depends
   (ctf (= :version))
   (fibreslib (= :version))
+  (eio (= :version))
   (alcotest (and (>= 1.4.0) :with-test))
+  (ppx_expect :with-test)
   (mdx :with-test)
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
@@ -31,14 +33,15 @@
   (bheap (>= 2.0.0))))
 (package
  (name fibreslib)
- (synopsis "Effect-based synchronisation primitives.")
+ (synopsis "Effect-based synchronisation primitives")
  (description "An effect-based API for promises and other synchronisation primitives.")
  (depends
   (ctf (= :version))
+  lwt-dllist
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name ctf)
- (synopsis "CTF tracing.")
+ (synopsis "CTF tracing")
  (description "Trace IO events.")
  (depends
   (alcotest (and (>= 1.4.0) :with-test))

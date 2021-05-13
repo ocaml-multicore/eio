@@ -14,13 +14,13 @@ let read_then_write_chunk infd outfd file_offset len =
   U.free buf
 
 let copy_file infd outfd insize block_size =
+  Switch.top @@ fun sw ->
   let rec copy_block file_offset =
     let remaining = Int63.(sub insize file_offset) in
     if remaining <> Int63.zero then (
       let len = Int63.to_int (min (Int63.of_int block_size) remaining) in
-      let thread = Fibre.fork (fun () -> read_then_write_chunk infd outfd file_offset len) in
-      copy_block Int63.(add file_offset (of_int len));
-      Promise.await thread
+      Fibre.fork_ignore ~sw (fun () -> read_then_write_chunk infd outfd file_offset len);
+      copy_block Int63.(add file_offset (of_int len))
     )
   in
   copy_block Int63.zero
