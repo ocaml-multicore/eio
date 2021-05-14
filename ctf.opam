@@ -5,8 +5,8 @@ description: "Trace IO events."
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy" "Thomas Leonard"]
 license: "ISC"
-homepage: "https://github.com/ocaml-multicore/eioio"
-bug-reports: "https://github.com/ocaml-multicore/eioio/issues"
+homepage: "https://github.com/ocaml-multicore/eio"
+bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "2.8"}
   "alcotest" {>= "1.4.0" & with-test}
@@ -30,4 +30,4 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-dev-repo: "git+https://github.com/ocaml-multicore/eioio.git"
+dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
