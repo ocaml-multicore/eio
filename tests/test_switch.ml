@@ -253,3 +253,10 @@ let%expect_test "sub_return" =
     (Failure "Child error")
     x = 0
     ok |}]
+
+let%expect_test "deadlock" =
+  run (fun sw ->
+      let p, _ = Promise.create () in
+      Promise.await ~sw p
+    );
+  [%expect {| Deadlock detected: no events scheduled but main function hasn't returned |}]
