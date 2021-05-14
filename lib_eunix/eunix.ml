@@ -470,5 +470,11 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       free_buf st buf;
       Suspended.continue k ()
   in
-  let `Exit_scheduler = fork (fun () -> main stdenv) ~tid:(Ctf.mint_id ()) in
+  let main_done = ref false in
+  let `Exit_scheduler = fork ~tid:(Ctf.mint_id ()) (fun () ->
+      Fun.protect (fun () -> main stdenv)
+        ~finally:(fun () -> main_done := true)
+  ) in
+  if not !main_done then
+    failwith "Deadlock detected: no events scheduled but main function hasn't returned";
   Log.debug (fun l -> l "exit")
