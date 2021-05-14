@@ -1,7 +1,7 @@
 (lang dune 2.8)
 (name eunix)
 (generate_opam_files true)
-(source (github ocaml-multicore/eioio))
+(source (github ocaml-multicore/eio))
 (license ISC)
 (authors "Anil Madhavapeddy" "Thomas Leonard")
 (maintainers "anil@recoil.org")

@@ -1,4 +1,4 @@
-# eioio -- effects based parallel IO for OCaml
+# eio -- effects based parallel IO for OCaml
 
 This library implements an effects-based direct-style IO
 stack for multicore OCaml.
@@ -73,8 +73,8 @@ opam switch create 4.12.0+domains+effects --packages=ocaml-variants.4.12.0+domai
 Then you'll need to install this library (and `utop` if you want to try it interactively):
 
 ```
-git clone --recursive https://github.com/ocaml-multicore/eioio.git
-cd eioio
+git clone --recursive https://github.com/ocaml-multicore/eio.git
+cd eio
 opam pin -yn ./ocaml-uring
 opam pin -yn .
 opam depext -i eunix utop
