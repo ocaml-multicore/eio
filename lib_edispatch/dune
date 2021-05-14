@@ -1,0 +1,6 @@
+(library
+ (name edispatch)
+ (enabled_if
+  (= %{system} macosx))
+ (public_name edispatch)
+ (libraries eio fibreslib ctf dispatch logs fmt))

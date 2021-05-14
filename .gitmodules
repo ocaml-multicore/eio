@@ -1,3 +1,6 @@
 [submodule "ocaml-uring"]
 	path = ocaml-uring
 	url = https://github.com/ocaml-multicore/ocaml-uring.git
+[submodule "ocaml-dispatch"]
+	path = ocaml-dispatch
+	url = https://github.com/patricoferris/ocaml-dispatch.git

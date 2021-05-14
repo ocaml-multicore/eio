@@ -1,4 +1,6 @@
 (library
  (name eunix)
+ (enabled_if
+  (= %{system} linux))
  (public_name eunix)
  (libraries eio unix psq logs fmt bigstringaf ctf optint))
