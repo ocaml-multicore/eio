@@ -1,9 +1,9 @@
 type 'a t
 
+type waiter = unit -> unit
+
 val create : unit -> 'a t
-val add_waiter : 'a t -> (('a, exn) result -> unit) -> unit
+val add_waiter : 'a t -> (('a, exn) result -> unit) -> waiter
 val wake_all : 'a t -> ('a, exn) result -> unit
 val wake_one : 'a t -> ('a, exn) result -> [`Ok | `Queue_empty]
-val await : 'a t -> Ctf.id -> 'a
-
-effect Await : Ctf.id * 'a t -> 'a
+val remove_waiter : waiter -> unit

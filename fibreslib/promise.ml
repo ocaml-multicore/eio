@@ -31,7 +31,8 @@ let broken ex =
   Ctf.note_created id Ctf.Promise;
   { id; state = Broken ex }
 
-let await t =
+let await ?sw t =
+  Option.iter Switch.check sw;
   match t.state with
   | Fulfilled x ->
     Ctf.note_read t.id;
@@ -41,12 +42,16 @@ let await t =
     raise ex
   | Unresolved q ->
     Ctf.note_try_read t.id;
-    Waiters.await q t.id
+    Switch.await ?sw q t.id
 
-let await_result t =
-  match await t with
-  | x -> Ok x
-  | exception ex -> Error ex
+let await_result ?sw t =
+  match await ?sw t with
+  | x ->
+    Option.iter Switch.check sw;
+    Ok x
+  | exception ex ->
+    Option.iter Switch.check sw;
+    Error ex
 
 let fulfill t v =
   match t.state with

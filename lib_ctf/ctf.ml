@@ -40,6 +40,7 @@ type event =
   | Async
   | Promise
   | Semaphore
+  | Switch
 
 type log_buffer = (char, int8_unsigned_elt, c_layout) Array1.t
 
@@ -78,6 +79,7 @@ let int_of_thread_type t =
   | Async -> 14
   | Promise -> 15
   | Semaphore -> 16
+  | Switch -> 17
 
 module Packet = struct
   let magic = 0xc1fc1fc1l

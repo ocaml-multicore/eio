@@ -410,9 +410,12 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       Zzz.sleep sleep_q d k;
       schedule st
-    | effect (Fibre_impl.Effects.Await (pid, q)) k ->
+    | effect (Fibre_impl.Effects.Await (sw, pid, q)) k ->
       let k = { Suspended.k; tid } in
-      let when_resolved = function
+      let waiters = Queue.create () in
+      let when_resolved r =
+        Queue.iter Fibre_impl.Waiters.remove_waiter waiters;
+        match r with
         | Ok v ->
           Ctf.note_read ~reader:tid pid;
           enqueue_thread st k v
@@ -420,9 +423,15 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
           Ctf.note_read ~reader:tid pid;
           enqueue_failed_thread st k ex
       in
-      Fibre_impl.Waiters.add_waiter q when_resolved;
+      let cancel ex = when_resolved (Error ex) in
+      sw |> Option.iter (fun sw ->
+          let cancel_waiter = Fibre_impl.Switch.add_cancel_hook sw cancel in
+          Queue.add cancel_waiter waiters;
+        );
+      let resolved_waiter = Fibre_impl.Waiters.add_waiter q when_resolved in
+      Queue.add resolved_waiter waiters;
       schedule st
-    | effect (Fibre_impl.Effects.Fork f) k ->
+    | effect (Fibre_impl.Effects.Fork (sw, exn_turn_off, f)) k ->
       let k = { Suspended.k; tid } in
       let id = Ctf.mint_id () in
       Ctf.note_created id Ctf.Task;
@@ -431,23 +440,26 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       fork
         ~tid:id
         (fun () ->
+           Fibre_impl.Switch.with_op sw @@ fun () ->
            match f () with
            | x -> Promise.fulfill resolver x
            | exception ex ->
              Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
+             if exn_turn_off then Switch.turn_off sw ex;
              Promise.break resolver ex
         )
-    | effect (Fibre_impl.Effects.Fork_detach (f, on_error)) k ->
+    | effect (Fibre_impl.Effects.Fork_ignore (sw, f)) k ->
       let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       let child = Ctf.note_fork () in
       Ctf.note_switch child;
       fork ~tid:child (fun () ->
+          Fibre_impl.Switch.with_op sw @@ fun () ->
           match f () with
           | () ->
             Ctf.note_resolved child ~ex:None
           | exception ex ->
-            on_error ex;
+            Switch.turn_off sw ex;
             Ctf.note_resolved child ~ex:(Some ex)
         )
     | effect Alloc k ->

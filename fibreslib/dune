@@ -1,5 +1,5 @@
 (library
  (name fibreslib)
  (public_name fibreslib)
- (libraries ctf)
+ (libraries ctf lwt-dllist)
  (flags (:standard -w -50)))

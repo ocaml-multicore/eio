@@ -31,7 +31,7 @@ let rec acquire t =
   match t.state with
   | Waiting q ->
     Ctf.note_try_read t.id;
-    Waiters.await q t.id
+    Switch.await q t.id
   | Free 0 ->
     t.state <- Waiting (Waiters.create ());
     acquire t
