@@ -1,3 +1,10 @@
+# Setting up the environment
+
+```ocaml
+# #require "eunix";;
+```
+
+```ocaml
 open Fibreslib
 
 let run fn =
@@ -7,101 +14,140 @@ let run fn =
     print_endline "ok"
   with Failure msg ->
     print_endline msg
+```
 
-let%expect_test "simple" =
-  run (fun _sw ->
+# Test cases
+
+A very basic example:
+
+```ocaml
+# run (fun _sw ->
       traceln "Running"
     );
-  [%expect {|
-    Running
-    ok |}]
+Running
+ok
+- : unit = ()
+```
 
-let%expect_test "turn_off" =
-  run (fun sw ->
-      traceln "Running";
-      Switch.turn_off sw (Failure "Cancel");
-      traceln "Clean up"
-    );
-  [%expect {|
-    Running
-    Clean up
-    Cancel |}]
+Turning off a switch still allows you to perform clean-up operations:
 
-let%expect_test "both_pass" =
-  run (fun sw ->
-      Fibre.both ~sw
-        (fun () -> for i = 1 to 2 do traceln "i = %d" i; Fibre.yield ~sw () done)
-        (fun () -> for j = 1 to 2 do traceln "j = %d" j; Fibre.yield ~sw () done)
-    );
-  [%expect {|
-    i = 1
-    j = 1
-    i = 2
-    j = 2
-    ok |}]
+```ocaml
+# run (fun sw ->
+    traceln "Running";
+    Switch.turn_off sw (Failure "Cancel");
+    traceln "Clean up"
+  );
+Running
+Clean up
+Cancel
+- : unit = ()
+```
 
-let%expect_test "both1" =
-  run (fun sw ->
+`Fibre.both`, both fibres pass:
+
+```ocaml
+# run (fun sw ->
+    Fibre.both ~sw
+      (fun () -> for i = 1 to 2 do traceln "i = %d" i; Fibre.yield ~sw () done)
+      (fun () -> for j = 1 to 2 do traceln "j = %d" j; Fibre.yield ~sw () done)
+  );
+i = 1
+j = 1
+i = 2
+j = 2
+ok
+- : unit = ()
+```
+
+`Fibre.both`, only 1st succeeds:
+
+```ocaml
+# run (fun sw ->
       Fibre.both ~sw
         (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield ~sw () done)
         (fun () -> failwith "Failed")
-    );
-  [%expect {|
-    i = 1
-    Failed |}]
+    )
+i = 1
+Failed
+- : unit = ()
+```
 
-let%expect_test "both2" =
-  run (fun sw ->
+`Fibre.both`, only 2nd succeeds:
+
+```ocaml
+# run (fun sw ->
       Fibre.both ~sw
         (fun () -> Fibre.yield ~sw (); failwith "Failed")
         (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield ~sw () done)
-    );
-  [%expect {|
-    i = 1
-    Failed |}]
+    )
+i = 1
+Failed
+- : unit = ()
+```
 
-let%expect_test "both3" =
-  run (fun sw ->
+`Fibre.both`, first fails but the other doesn't stop:
+
+```ocaml
+# run (fun sw ->
       Fibre.both ~sw (fun () -> failwith "Failed") ignore;
       traceln "Not reached"
-    );
-  [%expect {| Failed |}]
+    )
+Failed
+- : unit = ()
+```
 
-let%expect_test "both4" =
-  run (fun sw ->
+`Fibre.both`, second fails but the other doesn't stop:
+
+```ocaml
+# run (fun sw ->
       Fibre.both ~sw ignore (fun () -> failwith "Failed");
       traceln "not reached"
-    );
-  [%expect {| Failed |}]
+    )
+Failed
+- : unit = ()
+```
 
-let%expect_test "both_double_failure" =
-  run (fun sw ->
+`Fibre.both`, both fibres fail:
+
+```ocaml
+# run (fun sw ->
       Fibre.both ~sw
         (fun () -> failwith "Failed 1")
         (fun () -> failwith "Failed 2")
-    );
-  [%expect {|
-    Failed 1 |}]
+    )
+Failed 1
+- : unit = ()
+```
 
-let%expect_test "initial fail" =
-  run (fun sw ->
+The switch is already turned off when we try to fork. The new fibre doesn't start:
+
+```ocaml
+# run (fun sw ->
       Switch.turn_off sw (Failure "Cancel");
       Fibre.fork_ignore ~sw (fun () -> traceln "Not reached");
       traceln "Also not reached"
-    );
-  [%expect {| Cancel |}]
+    )
+Cancel
+- : unit = ()
+```
 
-let%expect_test "switch_over" =
-  let x = ref None in
-  run (fun sw -> x := Some sw);
-  [%expect "ok"];
-  let sw = Option.get !x in
-  try Switch.check sw; assert false
-  with Invalid_argument msg -> print_endline msg;
-  [%expect {| Switch finished! |}]
+You can't use a switch after leaving its scope:
 
-let%expect_test "cancel" =
-  run (fun sw ->
+```ocaml
+# let sw =
+    let x = ref None in
+    run (fun sw -> x := Some sw);
+    Option.get !x
+ok
+val sw : Switch.t = <abstr>
+# Switch.check sw
+Exception: Invalid_argument "Switch finished!".
+```
+
+Turning off a switch runs the cancel callbacks, unless they've been removed by then:
+
+```ocaml
+# run (fun sw ->
       let h1 = Fibre_impl.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 1") in
       let h2 = Fibre_impl.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 2") in
       let h3 = Fibre_impl.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 3") in
@@ -111,28 +157,31 @@ let%expect_test "cancel" =
       Fibre_impl.Waiters.remove_waiter h1;
       Fibre_impl.Waiters.remove_waiter h3;
       Fibre_impl.Waiters.remove_waiter h4
-    );
-  [%expect {|
-    Cancel 3
-    Cancel 1
-    Cancel 4
-    Cancelled |}]
+    )
+Cancel 3
+Cancel 1
+Cancel 4
+Cancelled
+- : unit = ()
+```
 
-(* Wait for either a promise or a switch; switch cancelled first. *)
-let%expect_test "cancel_waiting_1" =
-  run (fun sw ->
+Wait for either a promise or a switch; switch cancelled first:
+```ocaml
+# run (fun sw ->
       let p, r = Promise.create () in
       Fibre.fork_ignore ~sw (fun () -> traceln "Waiting"; Promise.await ~sw p; traceln "Resolved");
       Switch.turn_off sw (Failure "Cancelled");
       Promise.fulfill r ()
-    );
-  [%expect {|
-    Waiting
-    Cancelled |}]
+    )
+Waiting
+Cancelled
+- : unit = ()
+```
 
-(* Wait for either a promise or a switch; promise resolves first. *)
-let%expect_test "cancel_waiting_2" =
-  run (fun sw ->
+Wait for either a promise or a switch; promise resolves first:
+
+```ocaml
+# run (fun sw ->
       let p, r = Promise.create () in
       Fibre.fork_ignore ~sw (fun () -> traceln "Waiting"; Promise.await ~sw p; traceln "Resolved");
       Promise.fulfill r ();
@@ -140,57 +189,65 @@ let%expect_test "cancel_waiting_2" =
       traceln "Now cancelling...";
       Switch.turn_off sw (Failure "Cancelled")
     );
-  [%expect {|
-    Waiting
-    Resolved
-    Now cancelling...
-    Cancelled |}]
+Waiting
+Resolved
+Now cancelling...
+Cancelled
+- : unit = ()
+```
 
-(* Wait for either a promise or a switch; switch cancelled first. Result version. *)
-let%expect_test "cancel_waiting_1_result" =
-  run (fun sw ->
+Wait for either a promise or a switch; switch cancelled first. Result version.
+
+```ocaml
+# run (fun sw ->
       let p, r = Promise.create () in
       Fibre.fork_ignore ~sw (fun () -> traceln "Waiting"; ignore (Promise.await_result ~sw p); traceln "Resolved");
       Switch.turn_off sw (Failure "Cancelled");
       Promise.fulfill r ()
     );
-  [%expect {|
-    Waiting
-    Cancelled |}]
+Waiting
+Cancelled
+- : unit = ()
+```
 
-(* Wait for either a promise or a switch; promise resolves first but switch off without yielding. *)
-let%expect_test "cancel_waiting_2_result" =
-  run (fun sw ->
+Wait for either a promise or a switch; promise resolves first but switch off without yielding:
+
+```ocaml
+# run (fun sw ->
       let p, r = Promise.create () in
       Fibre.fork_ignore ~sw (fun () -> traceln "Waiting"; ignore (Promise.await_result ~sw p); traceln "Resolved");
       Promise.fulfill r ();
       traceln "Now cancelling...";
       Switch.turn_off sw (Failure "Cancelled")
-    );
-  [%expect {|
-    Waiting
-    Now cancelling...
-    Cancelled |}]
+    )
+Waiting
+Now cancelling...
+Cancelled
+- : unit = ()
+```
 
-(* Child switches are cancelled when the parent is cancelled. *)
-let%expect_test "sub_parent_off" =
-  run (fun sw ->
+Child switches are cancelled when the parent is cancelled:
+
+```ocaml
+# run (fun sw ->
       let p, _ = Promise.create () in
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
       Fibre.fork_sub_ignore ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await ~sw p);
       Fibre.fork_sub_ignore ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await ~sw p);
       Switch.turn_off sw (Failure "Cancel parent")
-    );
-  [%expect {|
-    Child 1
-    Child 2
-    child: (Failure "Cancel parent")
-    child: (Failure "Cancel parent")
-    Cancel parent |}]
+    )
+Child 1
+Child 2
+child: Failure("Cancel parent")
+child: Failure("Cancel parent")
+Cancel parent
+- : unit = ()
+```
 
-(* A child can fail independently of the parent. *)
-let%expect_test "sub_child_off" =
-  run (fun sw ->
+A child can fail independently of the parent:
+
+```ocaml
+# run (fun sw ->
       let p1, r1 = Promise.create () in
       let p2, r2 = Promise.create () in
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
@@ -200,17 +257,19 @@ let%expect_test "sub_child_off" =
       Promise.fulfill r2 ();
       Fibre.yield ~sw ();
       traceln "Parent fibre is still running"
-    );
-  [%expect {|
-    Child 1
-    Child 2
-    child: (Failure "Child error")
-    Parent fibre is still running
-    ok |}]
+    )
+Child 1
+Child 2
+child: Failure("Child error")
+Parent fibre is still running
+ok
+- : unit = ()
+```
 
-(* A child can be cancelled independently of the parent. *)
-let%expect_test "sub_child_cancel" =
-  run (fun sw ->
+A child can be cancelled independently of the parent:
+
+```ocaml
+# run (fun sw ->
       let p, _ = Promise.create () in
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
       let child = ref None in
@@ -223,40 +282,50 @@ let%expect_test "sub_child_cancel" =
       Fibre.yield ~sw ();
       traceln "Parent fibre is still running"
     );
-  [%expect {|
-    Child 1
-    child: (Failure "Cancel child")
-    Parent fibre is still running
-    ok |}]
+Child 1
+child: Failure("Cancel child")
+Parent fibre is still running
+ok
+- : unit = ()
+```
 
-(* A child error handle raises. *)
-let%expect_test "sub_escape" =
-  run (fun sw ->
+A child error handle raises:
+
+```ocaml
+# run (fun sw ->
       let p, r = Promise.create () in
       let on_error = raise in
       Fibre.fork_sub_ignore ~sw ~on_error (fun sw -> traceln "Child"; Promise.await ~sw p);
       Promise.break r (Failure "Child error escapes");
       Fibre.yield ~sw ();
       traceln "Not reached"
-    );
-  [%expect {|
-    Child
-    Child error escapes |}]
+    )
+Child
+Child error escapes
+- : unit = ()
+```
 
-let%expect_test "sub_return" =
-  run (fun sw ->
+A child error handler deals with the exception:
+
+```ocaml
+# run (fun sw ->
       let print ex = traceln "%s" (Printexc.to_string ex); 0 in
       let x = Switch.sub ~sw ~on_error:print (fun _sw -> failwith "Child error") in
       traceln "x = %d" x
-    );
-  [%expect {|
-    (Failure "Child error")
-    x = 0
-    ok |}]
+    )
+Failure("Child error")
+x = 0
+ok
+- : unit = ()
+```
 
-let%expect_test "deadlock" =
-  run (fun sw ->
+The system deadlocks. The scheduler detects and reports this:
+
+```ocaml
+# run (fun sw ->
       let p, _ = Promise.create () in
       Promise.await ~sw p
-    );
-  [%expect {| Deadlock detected: no events scheduled but main function hasn't returned |}]
+    )
+Deadlock detected: no events scheduled but main function hasn't returned
+- : unit = ()
+```

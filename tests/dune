@@ -13,14 +13,9 @@
  (modules basic_eunix)
  (libraries logs.fmt fmt.tty eurcp_lib))
 
-(library
-  (name eio_expect_tests)
-  (optional) ; Otherwise, dune tries to build this even when not running tests
-  (package eunix)
-  (modules test_switch)
-  (inline_tests)
-  (preprocess (pps ppx_expect))
-  (libraries eunix))
+(mdx
+  (packages eunix)
+  (files test_switch.md))
 
 (test
  (name test)
