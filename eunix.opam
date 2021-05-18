@@ -9,6 +9,7 @@ homepage: "https://github.com/ocaml-multicore/eio"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "2.8"}
+  "ocaml-variants" {= "4.12.0+domains+effects"}
   "ctf" {= version}
   "fibreslib" {= version}
   "eio" {= version}
@@ -20,9 +21,6 @@ depends: [
   "uring"
   "bheap" {>= "2.0.0"}
   "odoc" {with-doc}
-]
-conflicts: [
-  "ocaml-variants" {= "4.12.0+domains"}
 ]
 build: [
   ["dune" "subst"] {dev}
