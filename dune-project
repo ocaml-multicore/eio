@@ -24,7 +24,6 @@
   (fibreslib (= :version))
   (eio (= :version))
   (alcotest (and (>= 1.4.0) :with-test))
-  (ppx_expect :with-test)
   (mdx :with-test)
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
