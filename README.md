@@ -17,6 +17,7 @@ unreleased repository.
 * [Fibres](#fibres)
 * [Tracing](#tracing)
 * [Switches, errors and cancellation](#switches-errors-and-cancellation)
+* [Performance](#performance)
 * [Further reading](#further-reading)
 
 <!-- vim-markdown-toc -->
@@ -101,8 +102,8 @@ To run it, we use `Eunix.run` to run the event loop and call it from there:
 ```ocaml
 # Eunix.run @@ fun env ->
   main ~stdout:(Eio.Stdenv.stdout env);;
+Hello, world!
 - : unit = ()
-# (* prints "Hello, world!" *)
 ```
 
 Note that:
@@ -260,6 +261,57 @@ Turning off the parent switch will also turn off the child switch, but turning o
 For example, a web-server might use one switch for the whole server and then create one sub-switch for each incoming connection.
 This allows you to end all fibres handling a single connection by turning off that connection's switch,
 or to exit the whole application using the top-level switch:
+
+## Performance
+
+As mentioned above, Eio allows you to supply your own implementations of its abstract interfaces.
+This is in contrast to OCaml's `Unix` module, for example, which only operates on OS file descriptors.
+You might wonder what the performance impact of this is.
+Here's a simple implementation of `cat` using OCaml's `Unix` module:
+
+```ocaml
+# let () =
+    let buf = Bytes.create 4096 in
+    let rec copy () =
+      match input stdin buf 0 4096 with
+      | 0 -> ()
+      | got ->
+        output stdout buf 0 got;
+        copy ()
+    in
+    copy ()
+```
+
+And here is the equivalent using Eio:
+
+```ocaml
+# let () =
+    Eunix.run @@ fun env ->
+    let src = Eio.Stdenv.stdin env in
+    let dst = Eio.Stdenv.stdout env in
+    Eio.Sink.write dst ~src
+```
+
+Testing on a fresh 10G file with [pv](https://www.ivarch.com/programs/pv.shtml) on my machine gives:
+
+```
+$ truncate -s 10G dummy
+
+$ cat_ocaml_unix.exe < dummy | pv >/dev/null
+10.0GiB 0:00:04 [2.33GiB/s]
+
+$ cat                < dummy | pv >/dev/null
+10.0GiB 0:00:04 [2.42GiB/s]
+
+$ cat_ocaml_eio.exe  < dummy | pv >/dev/null
+10.0GiB 0:00:03 [3.01GiB/s]
+```
+
+`Eio.Sink.write` first calls the `probe` method on the `src` object.
+Discovering that `src` is a Unix file descriptor, it switches to a faster code path optimised for that case.
+On my machine, this code path uses the Linux-specific `splice` system call for maximum performance.
+
+Note that not all cases are well optimised yet, but the idea is for each backend to choose the most efficient way to implement the operation.
 
 ## Further reading
 
