@@ -73,6 +73,12 @@ val write : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> 
     It blocks until the OS confirms the write is done,
     and resubmits automatically if the OS doesn't write all of it at once. *)
 
+val splice : FD.t -> dst:FD.t -> len:int -> int
+(** [splice src ~dst ~len] attempts to copy up to [len] bytes of data from [src] to [dst].
+    @return The number of bytes copied.
+    @raise End_of_file [src] is at the end of the file.
+    @raise Unix.Unix_error(EINVAL, "splice", _) if splice is not supported for these FDs. *)
+
 val await_readable : FD.t -> unit
 (** [await_readable fd] blocks until [fd] is readable (or has an error). *)
 

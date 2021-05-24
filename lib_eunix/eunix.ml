@@ -69,6 +69,7 @@ type io_job =
   | Noop
   | Read : rw_req -> io_job
   | Poll_add : int Suspended.t -> io_job
+  | Splice : int Suspended.t -> io_job
   | Close : int Suspended.t -> io_job
   | Write : rw_req -> io_job
 
@@ -132,6 +133,13 @@ let enqueue_write st action (file_offset,fd,buf,len) =
   Ctf.label "write";
   submit_rw_req st req
 
+let rec enqueue_splice st action ~src ~dst ~len =
+  Log.debug (fun l -> l "splice: submitting call");
+  Ctf.label "splice";
+  let subm = Uring.splice st.uring (Splice action) ~src:(FD.get "splice" src) ~dst:(FD.get "splice" dst) ~len in
+  if not subm then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_splice st action ~src ~dst ~len) st.io_q
+
 let submit_pending_io st =
   match Queue.take_opt st.io_q with
   | None -> ()
@@ -184,6 +192,9 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
               complete_rw_req st req result
             | Poll_add k ->
               Log.debug (fun l -> l "poll_add returned");
+              Suspended.continue k result
+            | Splice k ->
+              Log.debug (fun l -> l "splice returned");
               Suspended.continue k result
             | Close k ->
               Log.debug (fun l -> l "close returned");
@@ -275,6 +286,13 @@ let alloc () = perform Alloc
 effect Free : Uring.Region.chunk -> unit
 let free buf = perform (Free buf)
 
+effect Splice : FD.t * FD.t * int -> int
+let splice src ~dst ~len =
+  let res = perform (Splice (src, dst, len)) in
+  if res > 0 then res
+  else if res = 0 then raise End_of_file
+  else raise (Unix.Unix_error (Uring.error_of_errno res, "splice", ""))
+
 let with_chunk fn =
   let chunk = alloc () in
   Fun.protect ~finally:(fun () -> free chunk) @@ fun () ->
@@ -310,6 +328,17 @@ module Objects = struct
       done
     with End_of_file -> ()
 
+  (* Try a fast copy using splice. If the FDs don't support that, switch to copying. *)
+  let fast_copy_try_splice ~src ~dst =
+    try
+      while true do
+        let _ : int = splice src ~dst ~len:max_int in
+        ()
+      done
+    with
+    | End_of_file -> ()
+    | Unix.Unix_error (Unix.EINVAL, "splice", _) -> fast_copy ~src ~dst
+
   class source fd = object
     inherit Eio.Source.t as super
 
@@ -338,7 +367,7 @@ module Objects = struct
 
     method write src =
       match Eio.Generic.probe src FD with
-      | Some src -> fast_copy ~src ~dst:fd
+      | Some src -> fast_copy_try_splice ~src ~dst:fd
       | None ->
         (* Inefficient copying fallback *)
         with_chunk @@ fun chunk ->
@@ -401,6 +430,10 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (EWrite args) k ->
       let k = { Suspended.k; tid } in
       enqueue_write st k args;
+      schedule st
+    | effect (Splice (src, dst, len)) k ->
+      let k = { Suspended.k; tid } in
+      enqueue_splice st k ~src ~dst ~len;
       schedule st
     | effect Fibre_impl.Effects.Yield k ->
       let k = { Suspended.k; tid } in
