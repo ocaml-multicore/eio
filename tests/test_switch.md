@@ -12,8 +12,9 @@ let run fn =
     Eunix.run @@ fun _e ->
     Switch.top fn;
     print_endline "ok"
-  with Failure msg ->
-    print_endline msg
+  with
+  | Failure msg -> print_endline msg
+  | ex -> print_endline (Printexc.to_string ex)
 ```
 
 # Test cases
@@ -115,7 +116,10 @@ Failed
         (fun () -> failwith "Failed 1")
         (fun () -> failwith "Failed 2")
     )
-Failed 1
+Multiple exceptions:
+Failure("Failed 1")
+and
+Failure("Failed 2")
 - : unit = ()
 ```
 
@@ -125,8 +129,9 @@ The switch is already turned off when we try to fork. The new fibre doesn't star
 # run (fun sw ->
       Switch.turn_off sw (Failure "Cancel");
       Fibre.fork_ignore ~sw (fun () -> traceln "Not reached");
-      traceln "Also not reached"
+      traceln "Main continues"
     )
+Main continues
 Cancel
 - : unit = ()
 ```

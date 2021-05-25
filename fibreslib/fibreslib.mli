@@ -4,11 +4,19 @@ module Switch : sig
   (** A switch controls a group of fibres.
       Once a switch is turned off, all activities in that context should cancel themselves. *)
 
+  exception Multiple_exceptions of exn list
+
+  exception Cancelled of exn
+  (** [Cancelled ex] indicates that the switch was turned off with exception [ex].
+      It is usually not necessary to report a [Cancelled] exception to the user,
+      as the original problem will be handled elsewhere. *)
+
   val top : (t -> 'a) -> 'a
   (** [top fn] runs [fn] with a fresh top-level switch (initially on).
       When [fn] exits, [top] waits for all operations registered with the switch to finish
       (it does not turn the switch off itself).
-      If the switch is turned off before it returns, [top] re-raises the switch's exception. *)
+      If the switch is turned off before it returns, [top] re-raises the switch's exception(s).
+      @raise Multiple_exceptions If [turn_off] is called more than once. *)
 
   val sub : sw:t -> on_error:(exn -> 'a) -> (t -> 'a) -> 'a
   (** [sub ~sw ~on_error fn] is like [top fn], but the new switch is a child of [sw], so that
@@ -18,12 +26,15 @@ module Switch : sig
       errors, you can use [~on_error:raise]. *)
 
   val check : t -> unit
-  (** [check t] checks that [t] is still on. If not, it raises the switch's exception. *)
+  (** [check t] checks that [t] is still on.
+      @raise Cancelled If the switch is off. *)
 
   val turn_off : t -> exn -> unit
   (** [turn_off t ex] turns off [t], with reason [ex].
       It returns immediately, without waiting for the shutdown actions to complete.
-      If [t] is already off then this has no effect. *)
+      If [t] is already off then [ex] is added to the list of exceptions (unless
+      [ex] is [Cancelled] or identical to the original exception, in which case
+      it is ignored). *)
 end
 
 module Promise : sig
@@ -94,7 +105,8 @@ module Fibre : sig
   val fork_ignore : sw:Switch.t -> (unit -> unit) -> unit
   (** [fork_ignore ~sw fn] runs [fn ()] in a new fibre, but does not wait for it to complete.
       The new fibre is attached to [sw] (which can't finish until the fibre ends).
-      If the fibre raises an exception, [sw] is turned off. *)
+      If the fibre raises an exception, [sw] is turned off.
+      If [sw] is already off then [fn] fails immediately, but the calling thread continues. *)
 
   val fork_sub_ignore : sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
   (** [fork_sub_ignore ~sw ~on_error fn] is like [fork_ignore], but it creates a new sub-switch for the fibre.
