@@ -116,6 +116,12 @@ module Objects : sig
     method fd : FD.t
     method close : unit
   end
+
+  type stdenv = <
+    stdin  : source;
+    stdout : sink;
+    stderr : sink;
+  >
 end
 
 val pipe : unit -> Objects.source * Objects.sink
@@ -124,5 +130,5 @@ val pipe : unit -> Objects.source * Objects.sink
 
 (** {1 Main Loop} *)
 
-val run : ?queue_depth:int -> ?block_size:int -> (Eio.Stdenv.t -> unit) -> unit
+val run : ?queue_depth:int -> ?block_size:int -> (Objects.stdenv -> unit) -> unit
 (** FIXME queue_depth and block_size should be in a handler and not the mainloop *)

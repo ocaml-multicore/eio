@@ -380,14 +380,20 @@ module Objects = struct
         with End_of_file -> ()
   end
 
+  type stdenv = <
+    stdin  : source;
+    stdout : sink;
+    stderr : sink;
+  >
+
   let stdenv () =
     let stdin = lazy (new source (FD.of_unix Unix.stdin)) in
     let stdout = lazy (new sink (FD.of_unix Unix.stdout)) in
     let stderr = lazy (new sink (FD.of_unix Unix.stderr)) in
-    object (_ : Eio.Stdenv.t)
-      method stdin = (Lazy.force stdin :> Eio.Source.t)
-      method stdout = (Lazy.force stdout :> Eio.Sink.t)
-      method stderr = (Lazy.force stderr :> Eio.Sink.t)
+    object (_ : stdenv)
+      method stdin  = Lazy.force stdin
+      method stdout = Lazy.force stdout
+      method stderr = Lazy.force stderr
     end
 end
 

@@ -60,6 +60,7 @@ It is able to run a web-server with good performance, but most features are stil
 - `eio` provides a high-level, cross-platform OS API.
 - `eunix` provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
+- `eio_main` selects an appropriate backend (e.g. `eunix`), depending on your platform.
 - `ctf` provides tracing support.
 
 ## Getting started
@@ -78,14 +79,14 @@ git clone --recursive https://github.com/ocaml-multicore/eio.git
 cd eio
 opam pin -yn ./ocaml-uring
 opam pin -yn .
-opam depext -i eunix utop
+opam depext -i eio_main utop
 ```
 
-To try out the examples interactively, run `utop` and `require` the `eunix` library.
+To try out the examples interactively, run `utop` and `require` the `eio_main` library.
 It is also convenient to open the `Fibreslib` module:
 
 ```ocaml
-# #require "eunix";;
+# #require "eio_main";;
 # open Fibreslib;;
 ```
 
@@ -97,10 +98,10 @@ let main ~stdout =
   Eio.Sink.write stdout ~src
 ```
 
-To run it, we use `Eunix.run` to run the event loop and call it from there:
+To run it, we use `Eio_main.run` to run the event loop and call it from there:
 
 ```ocaml
-# Eunix.run @@ fun env ->
+# Eio_main.run @@ fun env ->
   main ~stdout:(Eio.Stdenv.stdout env);;
 Hello, world!
 - : unit = ()
@@ -113,13 +114,16 @@ Note that:
 
 - The type of the `main` function here tells us that this program only interacts via `stdout`.
 
+- `Eio_main.run` automatically calls the appropriate run function for your platform.
+  For example, on Linux this will call `Eunix.run`. For non-portable code you can use the platform-specific library directly.
+
 ## Testing with mocks
 
 Because external resources are provided to `main` as arguments, we can easily replace them with mocks for testing.
 e.g.
 
 ```ocaml
-# Eunix.run @@ fun _env ->
+# Eio_main.run @@ fun _env ->
   let buffer = Buffer.create 20 in
   main ~stdout:(Eio.Sink.of_buffer buffer);
   traceln "Main would print %S" (Buffer.contents buffer);;
@@ -135,7 +139,7 @@ so let's make a little wrapper to simplify future examples:
 
 ```ocaml
 let run fn =
-  Eunix.run @@ fun _ ->
+  Eio_main.run @@ fun _ ->
   try fn ()
   with Failure msg -> traceln "Error: %s" msg
 ```
@@ -286,7 +290,7 @@ And here is the equivalent using Eio:
 
 ```ocaml
 # let () =
-    Eunix.run @@ fun env ->
+    Eio_main.run @@ fun env ->
     let src = Eio.Stdenv.stdin env in
     let dst = Eio.Stdenv.stdout env in
     Eio.Sink.write dst ~src
