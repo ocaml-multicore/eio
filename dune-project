@@ -48,4 +48,11 @@
   (ocplib-endian (>= 1.1))
   (mtime (>= 1.2.0))
   (cstruct (>= 6.0.0))))
+(package
+ (name eio_main)
+ (synopsis "Effect-based direct-style IO mainloop for OCaml")
+ (description
+  "Selects an appropriate Eio backend for the current platform.")
+ (depends
+  (eunix (= :version))))
 (using mdx 0.1)
