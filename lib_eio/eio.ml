@@ -1,3 +1,5 @@
+open Fibreslib
+
 (** A base class for objects that can be queried at runtime for extra features. *)
 module Generic = struct
   type 'a ty = ..
@@ -61,6 +63,8 @@ module Flow = struct
   (** [write src] writes data from [src] until end-of-file. *)
   let write (t : #write) ~src = t#write src
 
+  let write_string t s = write t ~src:(string_source s)
+
   (** Consumer base class. *)
   class virtual sink = object (_ : #Generic.t)
     method probe _ = None
@@ -89,15 +93,48 @@ module Flow = struct
   end
 end
 
+module Network = struct
+  module Listening_socket = struct
+    class virtual t = object
+      method virtual listen : int -> unit
+      method virtual accept_sub :
+        sw:Switch.t ->
+        on_error:(exn -> unit) ->
+        (sw:Switch.t -> <Flow.two_way; Flow.close> -> Unix.sockaddr -> unit) ->
+        unit
+    end
+
+    let listen (t : #t) = t#listen
+
+    (** [accept t fn] waits for a new connection to [t] and then runs [fn ~sw flow client_addr] in a new fibre,
+        created with [Fibre.fork_sub_ignore]. *)
+    let accept_sub (t : #t) = t#accept_sub
+  end
+
+  class virtual t = object
+    method virtual bind : reuse_addr:bool -> Unix.sockaddr -> Listening_socket.t
+    method virtual connect : Unix.sockaddr -> <Flow.two_way; Flow.close>
+  end
+
+  (** [bind ~sw t addr] is a new listening socket bound to local address [addr]. *)
+  let bind ?(reuse_addr=false) (t:#t) = t#bind ~reuse_addr
+
+  (** [connect t addr] is a new socket connected to remote address [addr]. *)
+  let connect (t:#t) = t#connect
+end
+
 (** The standard environment of a process. *)
 module Stdenv = struct
   type t = <
     stdin  : Flow.source;
     stdout : Flow.sink;
     stderr : Flow.sink;
+    network : Network.t;
   >
 
   let stdin  (t : <stdin  : #Flow.source; ..>) = t#stdin
   let stdout (t : <stdout : #Flow.sink;   ..>) = t#stdout
   let stderr (t : <stderr : #Flow.sink;   ..>) = t#stderr
+
+  let network (t : <network : #Network.t; ..>) = t#network
 end
