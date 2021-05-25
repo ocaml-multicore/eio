@@ -487,8 +487,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let child = Ctf.note_fork () in
       Ctf.note_switch child;
       fork ~tid:child (fun () ->
-          Fibre_impl.Switch.with_op sw @@ fun () ->
-          match f () with
+          match Fibre_impl.Switch.with_op sw f with
           | () ->
             Ctf.note_resolved child ~ex:None
           | exception ex ->
