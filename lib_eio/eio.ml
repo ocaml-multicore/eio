@@ -70,15 +70,13 @@ end
 
 (** The standard environment of a process. *)
 module Stdenv = struct
-  type stdin  = < stdin  : Source.t >
-  type stdout = < stdout : Sink.t >
-  type stderr = < stderr : Sink.t >
+  type t = <
+    stdin  : Source.t;
+    stdout : Sink.t;
+    stderr : Sink.t;
+  >
 
-  type stdio = < stdin; stdout; stderr >
-
-  type t = < stdio >
-
-  let stdin  (t : <stdin ; ..>) = t#stdin
-  let stdout (t : <stdout; ..>) = t#stdout
-  let stderr (t : <stderr; ..>) = t#stderr
+  let stdin  (t : <stdin  : #Source.t; ..>) = t#stdin
+  let stdout (t : <stdout : #Sink.t;   ..>) = t#stdout
+  let stderr (t : <stderr : #Sink.t;   ..>) = t#stderr
 end
