@@ -153,14 +153,14 @@ let test_copy () =
   let from_pipe, to_pipe = Eunix.pipe () in
   let buffer = Buffer.create 20 in
   Fibre.both ~sw
-    (fun () -> Eio.Sink.write (Eio.Sink.of_buffer buffer) ~src:from_pipe)
+    (fun () -> Eio.Flow.write (Eio.Flow.buffer_sink buffer) ~src:from_pipe)
     (fun () ->
-       Eio.Sink.write to_pipe ~src:(Eio.Source.of_string msg);
-       Eio.Sink.write to_pipe ~src:(Eio.Source.of_string msg);
-       to_pipe#close;
+       Eio.Flow.write to_pipe ~src:(Eio.Flow.string_source msg);
+       Eio.Flow.write to_pipe ~src:(Eio.Flow.string_source msg);
+       Eio.Flow.close to_pipe
     );
   Alcotest.(check string) "Copy correct" (msg ^ msg) (Buffer.contents buffer);
-  from_pipe#close
+  Eio.Flow.close from_pipe
 
 (* Write a string via 2 pipes. The copy from the 1st to 2nd pipe will be optimised and so tests a different code-path. *)
 let test_direct_copy () =
@@ -169,16 +169,16 @@ let test_direct_copy () =
   let from_pipe1, to_pipe1 = Eunix.pipe () in
   let from_pipe2, to_pipe2 = Eunix.pipe () in
   let buffer = Buffer.create 20 in
-  let to_output = Eio.Sink.of_buffer buffer in
+  let to_output = Eio.Flow.buffer_sink buffer in
   Switch.top (fun sw ->
-      Fibre.fork_ignore ~sw (fun () -> Ctf.label "copy1"; Eio.Sink.write ~src:from_pipe1 to_pipe2; to_pipe2#close);
-      Fibre.fork_ignore ~sw (fun () -> Ctf.label "copy2"; Eio.Sink.write ~src:from_pipe2 to_output);
-      Eio.Sink.write to_pipe1 ~src:(Eio.Source.of_string msg);
-      to_pipe1#close;
+      Fibre.fork_ignore ~sw (fun () -> Ctf.label "copy1"; Eio.Flow.write ~src:from_pipe1 to_pipe2; Eio.Flow.close to_pipe2);
+      Fibre.fork_ignore ~sw (fun () -> Ctf.label "copy2"; Eio.Flow.write ~src:from_pipe2 to_output);
+      Eio.Flow.write to_pipe1 ~src:(Eio.Flow.string_source msg);
+      Eio.Flow.close to_pipe1;
     );
   Alcotest.(check string) "Copy correct" msg (Buffer.contents buffer);
-  from_pipe1#close;
-  from_pipe2#close
+  Eio.Flow.close from_pipe1;
+  Eio.Flow.close from_pipe2
 
 let () =
   let open Alcotest in

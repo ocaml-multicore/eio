@@ -101,21 +101,8 @@ val shutdown : FD.t -> Unix.shutdown_command -> unit
 (** {1 Eio API} *)
 
 module Objects : sig
-  (** [source fd] is an Eio source that reads from [fd]. *)
-  class source : FD.t -> object
-    inherit Eio.Source.t
-    method read_into : Cstruct.t -> int
-    method fd : FD.t
-    method close : unit
-  end
-
-  (** [sink fd] is an Eio sink that writes to [fd]. *)
-  class sink : FD.t -> object
-    inherit Eio.Sink.t
-    method write : #Eio.Source.t -> unit
-    method fd : FD.t
-    method close : unit
-  end
+  type source = < Eio.Flow.source; Eio.Flow.close; fd : FD.t >
+  type sink   = < Eio.Flow.sink  ; Eio.Flow.close; fd : FD.t >
 
   type stdenv = <
     stdin  : source;
