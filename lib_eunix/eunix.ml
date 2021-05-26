@@ -30,19 +30,30 @@ effect Close : Unix.file_descr -> int
 
 module FD = struct
   type t = {
+    seekable : bool;
     mutable fd : [`Open of Unix.file_descr | `Closed]
   }
 
   let get op = function
-    | { fd = `Open fd } -> fd
-    | { fd = `Closed } -> invalid_arg (op ^ ": file descriptor used after calling close!")
+    | { fd = `Open fd; _ } -> fd
+    | { fd = `Closed ; _ } -> invalid_arg (op ^ ": file descriptor used after calling close!")
 
-  let of_unix fd = { fd = `Open fd }
+  let of_unix ?seekable fd =
+    let seekable =
+      match seekable with
+      | Some x -> x
+      | None ->
+        match Unix.lseek fd 0 Unix.SEEK_CUR with
+        | (_ : int) -> true
+        | exception Unix.Unix_error(Unix.ESPIPE, "lseek", "") -> false
+    in
+    { seekable; fd = `Open fd }
+
   let to_unix = get "to_unix"
 
   let is_open = function
-    | { fd = `Open _ } -> true
-    | { fd = `Closed } -> false
+    | { fd = `Open _; _ } -> true
+    | { fd = `Closed; _ } -> false
 
   let close t =
     Ctf.label "close";
@@ -52,11 +63,14 @@ module FD = struct
     Log.debug (fun l -> l "close: woken up");
     if res < 0 then
       raise (Unix.Unix_error (Uring.error_of_errno res, "close", ""))
+
+  let uring_file_offset t =
+    if t.seekable then Optint.Int63.minus_one else Optint.Int63.zero
 end
 
 type rw_req = {
   op: [`R|`W];
-  file_offset: Optint.Int63.t option;
+  file_offset: Optint.Int63.t;
   fd: FD.t;
   len: amount;
   buf: Uring.Region.chunk;
@@ -95,8 +109,8 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; _} as req) =
   let len = len - cur_off in
   let subm =
     match op with
-    |`R -> Uring.read uring ?file_offset fd off len (Read req)
-    |`W -> Uring.write uring ?file_offset fd off len (Write req)
+    |`R -> Uring.read uring ~file_offset fd off len (Read req)
+    |`W -> Uring.write uring ~file_offset fd off len (Write req)
   in
   if not subm then (
     Ctf.label "await-sqe";
@@ -108,6 +122,11 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; _} as req) =
 let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
 let enqueue_read st action (file_offset,fd,buf,len) =
+  let file_offset =
+    match file_offset with
+    | Some x -> x
+    | None -> FD.uring_file_offset fd
+  in
   let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action} in
   Log.debug (fun l -> l "read: submitting call");
   Ctf.label "read";
@@ -128,6 +147,11 @@ let rec enqueue_close st action fd =
     Queue.push (fun st -> enqueue_close st action fd) st.io_q
 
 let enqueue_write st action (file_offset,fd,buf,len) =
+  let file_offset =
+    match file_offset with
+    | Some x -> x
+    | None -> FD.uring_file_offset fd
+  in
   let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action} in
   Log.debug (fun l -> l "write: submitting call");
   Ctf.label "write";

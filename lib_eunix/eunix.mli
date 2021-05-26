@@ -27,9 +27,12 @@ module FD : sig
   (** [close t] closes [t].
       @raise Invalid_arg if [t] is already closed. *)
 
-  val of_unix : Unix.file_descr -> t
+  val of_unix : ?seekable:bool -> Unix.file_descr -> t
   (** [of_unix fd] wraps [fd] as an open file descriptor.
-      This is unsafe if [fd] is closed directly (before or after wrapping it). *)
+      This is unsafe if [fd] is closed directly (before or after wrapping it).
+      @param seekable If true, we pass [-1] as the file offset, to use the current offset.
+                      If false, pass [0] as the file offset, which is needed for sockets.
+                      If unset, we try a seek and see if that succeeds. *)
 
   val to_unix : t -> Unix.file_descr
   (** [to_unix t] returns the wrapped descriptor.
