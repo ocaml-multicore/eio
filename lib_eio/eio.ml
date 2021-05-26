@@ -3,31 +3,44 @@ module Generic = struct
   type 'a ty = ..
   (** An ['a ty] is a query for a feature of type ['a]. *)
 
-  class t = object
-    method probe : 'a. 'a ty -> 'a option = fun _ -> None
+  class type t = object
+    method probe : 'a. 'a ty -> 'a option
   end
 
   let probe (t : #t) ty = t#probe ty
 end
 
-(** Producers of byte-streams. *)
-module Source = struct
-  class virtual t = object
-    inherit Generic.t
-
-    method virtual read_into : Cstruct.t -> int
-    (** [read_into buf] reads one or more bytes into [buf].
-        It returns the number of bytes written (which may be less than the
-        buffer size even if there is more data to be read).
-        [buf] must not be zero-length.
-        @raise End_of_file if there is no more data to read *)
+(** Byte streams. *)
+module Flow = struct
+  class type close = object
+    method close : unit
   end
 
-  let read_into (t : #t) buf = t#read_into buf
+  let close (t : #close) = t#close
 
-  let of_string s =
+  class virtual read = object
+    method virtual read_into : Cstruct.t -> int
+  end
+
+  (** [read_into buf] reads one or more bytes into [buf].
+      It returns the number of bytes written (which may be less than the
+      buffer size even if there is more data to be read).
+      [buf] must not be zero-length.
+      @raise End_of_file if there is no more data to read *)
+  let read_into (t : #read) buf =
+    let got = t#read_into buf in
+    assert (got > 0);
+    got
+
+  (** Producer base class. *)
+  class virtual source = object (_ : #Generic.t)
+    method probe _ = None
+    inherit read
+  end
+
+  let string_source s : source =
     object
-      inherit t
+      inherit source
 
       val mutable data = Cstruct.of_string s
 
@@ -40,22 +53,23 @@ module Source = struct
           data <- Cstruct.shift data len;
           len
     end
-end
 
-(** Consumers of byte-streams. *)
-module Sink = struct
-  class virtual t = object
-    inherit Generic.t
-
-    method virtual write : 'a. (#Source.t as 'a) -> unit
-    (** [write src] writes data from [src] until end-of-file. *)
+  class virtual write = object
+    method virtual write : 'a. (#source as 'a) -> unit
   end
 
-  let write (t : #t) ~src = t#write src
+  (** [write src] writes data from [src] until end-of-file. *)
+  let write (t : #write) ~src = t#write src
 
-  let of_buffer b =
+  (** Consumer base class. *)
+  class virtual sink = object (_ : #Generic.t)
+    method probe _ = None
+    inherit write
+  end
+
+  let buffer_sink b =
     object
-      inherit t
+      inherit sink
 
       method write src =
         let buf = Cstruct.create 4096 in
@@ -66,17 +80,24 @@ module Sink = struct
           done
         with End_of_file -> ()
     end
+
+  (** Bidirectional stream base class. *)
+  class virtual two_way = object (_ : #Generic.t)
+    method probe _ = None
+    inherit read
+    inherit write
+  end
 end
 
 (** The standard environment of a process. *)
 module Stdenv = struct
   type t = <
-    stdin  : Source.t;
-    stdout : Sink.t;
-    stderr : Sink.t;
+    stdin  : Flow.source;
+    stdout : Flow.sink;
+    stderr : Flow.sink;
   >
 
-  let stdin  (t : <stdin  : #Source.t; ..>) = t#stdin
-  let stdout (t : <stdout : #Sink.t;   ..>) = t#stdout
-  let stderr (t : <stderr : #Sink.t;   ..>) = t#stderr
+  let stdin  (t : <stdin  : #Flow.source; ..>) = t#stdin
+  let stdout (t : <stdout : #Flow.sink;   ..>) = t#stdout
+  let stderr (t : <stderr : #Flow.sink;   ..>) = t#stderr
 end

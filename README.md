@@ -94,8 +94,8 @@ Here's a slightly complicated way of writing a greeting to stdout:
 
 ```ocaml
 let main ~stdout =
-  let src = Eio.Source.of_string "Hello, world!\n" in
-  Eio.Sink.write stdout ~src
+  let src = Eio.Flow.string_source "Hello, world!\n" in
+  Eio.Flow.write stdout ~src
 ```
 
 To run it, we use `Eio_main.run` to run the event loop and call it from there:
@@ -125,7 +125,7 @@ e.g.
 ```ocaml
 # Eio_main.run @@ fun _env ->
   let buffer = Buffer.create 20 in
-  main ~stdout:(Eio.Sink.of_buffer buffer);
+  main ~stdout:(Eio.Flow.buffer_sink buffer);
   traceln "Main would print %S" (Buffer.contents buffer);;
 Main would print "Hello, world!\n"
 - : unit = ()
@@ -293,7 +293,7 @@ And here is the equivalent using Eio:
     Eio_main.run @@ fun env ->
     let src = Eio.Stdenv.stdin env in
     let dst = Eio.Stdenv.stdout env in
-    Eio.Sink.write dst ~src
+    Eio.Flow.write dst ~src
 ```
 
 Testing on a fresh 10G file with [pv](https://www.ivarch.com/programs/pv.shtml) on my machine gives:
@@ -311,7 +311,7 @@ $ cat_ocaml_eio.exe  < dummy | pv >/dev/null
 10.0GiB 0:00:03 [3.01GiB/s]
 ```
 
-`Eio.Sink.write` first calls the `probe` method on the `src` object.
+`Eio.Flow.write` first calls the `probe` method on the `src` object.
 Discovering that `src` is a Unix file descriptor, it switches to a faster code path optimised for that case.
 On my machine, this code path uses the Linux-specific `splice` system call for maximum performance.
 

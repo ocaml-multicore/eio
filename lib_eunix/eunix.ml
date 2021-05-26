@@ -316,6 +316,9 @@ let accept socket =
 module Objects = struct
   type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
 
+  type source = < Eio.Flow.source; Eio.Flow.close; fd : FD.t >
+  type sink   = < Eio.Flow.sink  ; Eio.Flow.close; fd : FD.t >
+
   (* When copying between a source with an FD and a sink with an FD, we can share the chunk
      and avoid copying. *)
   let fast_copy ~src ~dst =
@@ -339,15 +342,13 @@ module Objects = struct
     | End_of_file -> ()
     | Unix.Unix_error (Unix.EINVAL, "splice", _) -> fast_copy ~src ~dst
 
-  class source fd = object
-    inherit Eio.Source.t as super
-
+  let flow fd = object (_ : <source; sink; ..>)
     method fd = fd
     method close = FD.close fd
 
-    method! probe : type a. a Eio.Generic.ty -> a option = function
+    method probe : type a. a Eio.Generic.ty -> a option = function
       | FD -> Some fd
-      | x -> super#probe x
+      | _ -> None
 
     method read_into buf =
       (* Inefficient copying fallback *)
@@ -357,13 +358,6 @@ module Objects = struct
       let got = read_upto fd chunk max_len in
       Cstruct.blit chunk_cs 0 buf 0 got;
       got
-  end
-
-  class sink fd = object
-    inherit Eio.Sink.t
-
-    method fd = fd
-    method close = FD.close fd
 
     method write src =
       match Eio.Generic.probe src FD with
@@ -374,11 +368,14 @@ module Objects = struct
         let chunk_cs = Cstruct.of_bigarray (Uring.Region.to_bigstring chunk) in
         try
           while true do
-            let got = Eio.Source.read_into src chunk_cs in
+            let got = Eio.Flow.read_into src chunk_cs in
             write fd chunk got
           done
         with End_of_file -> ()
   end
+
+  let source fd = (flow fd :> source)
+  let sink   fd = (flow fd :> sink)
 
   type stdenv = <
     stdin  : source;
@@ -387,9 +384,9 @@ module Objects = struct
   >
 
   let stdenv () =
-    let stdin = lazy (new source (FD.of_unix Unix.stdin)) in
-    let stdout = lazy (new sink (FD.of_unix Unix.stdout)) in
-    let stderr = lazy (new sink (FD.of_unix Unix.stderr)) in
+    let stdin = lazy (source (FD.of_unix Unix.stdin)) in
+    let stdout = lazy (sink (FD.of_unix Unix.stdout)) in
+    let stderr = lazy (sink (FD.of_unix Unix.stderr)) in
     object (_ : stdenv)
       method stdin  = Lazy.force stdin
       method stdout = Lazy.force stdout
@@ -399,8 +396,8 @@ end
 
 let pipe () =
   let r, w = Unix.pipe () in
-  let r = new Objects.source (FD.of_unix r) in
-  let w = new Objects.sink (FD.of_unix w) in
+  let r = Objects.source (FD.of_unix r) in
+  let w = Objects.sink (FD.of_unix w) in
   r, w
 
 let run ?(queue_depth=64) ?(block_size=4096) main =
