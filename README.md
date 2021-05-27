@@ -17,8 +17,10 @@ unreleased repository.
 * [Fibres](#fibres)
 * [Tracing](#tracing)
 * [Switches, errors and cancellation](#switches-errors-and-cancellation)
+* [Design note: results vs exceptions](#design-note-results-vs-exceptions)
 * [Performance](#performance)
 * [Networking](#networking)
+* [Design note: object capabilities](#design-note-object-capabilities)
 * [Further reading](#further-reading)
 
 <!-- vim-markdown-toc -->
@@ -265,7 +267,19 @@ Turning off the parent switch will also turn off the child switch, but turning o
 
 For example, a web-server might use one switch for the whole server and then create one sub-switch for each incoming connection.
 This allows you to end all fibres handling a single connection by turning off that connection's switch,
-or to exit the whole application using the top-level switch:
+or to exit the whole application using the top-level switch.
+
+## Design note: results vs exceptions
+
+The OCaml standard library uses exceptions to report errors in most cases.
+Many libraries instead use the `result` type, which has the advantage of tracking the possible errors in the type system.
+However, using `result` is slower, as it requires more allocations, and explicit code to propagate errors.
+
+As part of the effects work, OCaml is expected to gain a [typed effects][] extension to the type system,
+allowing it to track both effects and exceptions statically.
+In anticipation of this, the Eio library prefers to use exceptions in most cases,
+reserving the use of `result` for cases where the caller is likely to want to handle the problem immediately
+rather than propagate it.
 
 ## Performance
 
@@ -377,6 +391,49 @@ Server received: "Hello from client"
 - : unit = ()
 ```
 
+## Design note: object capabilities
+
+The `Eio` high-level API follows the principles of the [Object-capability model][] (ocaps).
+In this model, having a reference to an "object" (which could be a function or closure) grants permission to use it.
+The only ways to get a reference are to create a new object, or to be passed an existing reference by another object.
+For A to pass a reference B to another object C, A requires access (i.e. references) to both B and C.
+In particular, for B to get a reference to C there must be a path in the reference graph between them
+on which all objects allow it.
+
+This is all just standard programming practice, really, except that it disallows patterns that break this model:
+
+- Global variables are not permitted. Otherwise, B could store itself in a global variable and C could collect it.
+- Modules that use C code or the OS to provide the effect of globals are also not permitted.
+
+For example, OCaml's `Unix` module provides access to the network and filesystem to any code that wants it.
+By contrast, an Eio module that wants such access must receive it explicitly.
+
+Consider the network example in the previous section.
+Imagine this is a large program and we want to know:
+
+1. Does this program modify the filesystem?
+2. Does this program send telemetry data over the network?
+
+In an ocap language, we don't have to read the entire code-base to find the answers:
+
+- All authority starts at the (privileged) `run` function with the `env` parameter,
+  so we must check this code.
+- We see that only `env`'s network access is used, so we know this program doesn't access the filesystem,
+  answering question 1 immediately.
+- To check whether telemetry is sent, we need to follow the `network` authority as it is passed to `main`.
+- `main` uses `network` to open a listening socket on the loopback interface, which it passes to `run_server`.
+  `run_server` does not get the full `network` access, so we probably don't need to read that code
+  (we might want to check whether we granted other parties access to this port on our loopback network).
+- `run_client` does get `network`, so we do need to read that.
+  We could make that code easier to audit by passing it `(fun () -> Eio.Network.connect network addr)` instead of `network`.
+  Then we could see that `run_client` could only connect to our loopback address.
+
+Since OCaml is not an ocap language, code can ignore Eio and use the non-ocap APIs directly.
+Therefore, this cannot be used as a security mechanism.
+However, it still makes non-malicious code easier to understand and test,
+and may allow for an ocap extension to the language in the future.
+See [Emily][] for a previous attempt at this.
+
 ## Further reading
 
 Some background about the effects system can be found in:
@@ -389,3 +446,6 @@ Some background about the effects system can be found in:
 
 [mirage-trace-viewer]: https://github.com/talex5/mirage-trace-viewer
 [structured concurrency]: https://en.wikipedia.org/wiki/Structured_concurrency
+[typed effects]: https://www.janestreet.com/tech-talks/effective-programming/
+[Object-capability model]: https://en.wikipedia.org/wiki/Object-capability_model
+[Emily]: https://www.hpl.hp.com/techreports/2006/HPL-2006-116.pdf
