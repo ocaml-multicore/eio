@@ -18,6 +18,7 @@ unreleased repository.
 * [Tracing](#tracing)
 * [Switches, errors and cancellation](#switches-errors-and-cancellation)
 * [Performance](#performance)
+* [Networking](#networking)
 * [Further reading](#further-reading)
 
 <!-- vim-markdown-toc -->
@@ -139,8 +140,8 @@ so let's make a little wrapper to simplify future examples:
 
 ```ocaml
 let run fn =
-  Eio_main.run @@ fun _ ->
-  try fn ()
+  Eio_main.run @@ fun env ->
+  try fn env
   with Failure msg -> traceln "Error: %s" msg
 ```
 
@@ -149,7 +150,7 @@ let run fn =
 Here's an example running two threads of execution (fibres) concurrently:
 
 ```ocaml
-let main () =
+let main _env =
   Switch.top @@ fun sw ->
   Fibre.both ~sw
     (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield ~sw () done)
@@ -213,7 +214,7 @@ This is a form of [structured concurrency][].
 Here's what happens if one of the two threads above fails:
 
 ```ocaml
-# run @@ fun () ->
+# run @@ fun _env ->
   Switch.top @@ fun sw ->
   Fibre.both ~sw
     (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield ~sw () done)
@@ -239,7 +240,7 @@ Any operation that can be cancelled should take a `~sw` argument.
 Switches can also be used to wait for threads even when there isn't an error. e.g.
 
 ```ocaml
-# run @@ fun () ->
+# run @@ fun _env ->
   Switch.top (fun sw ->
     Fibre.fork_ignore ~sw (fun () -> for i = 1 to 3 do traceln "i = %d" i; Fibre.yield ~sw () done);
     traceln "First thread forked";
@@ -316,6 +317,65 @@ Discovering that `src` is a Unix file descriptor, it switches to a faster code p
 On my machine, this code path uses the Linux-specific `splice` system call for maximum performance.
 
 Note that not all cases are well optimised yet, but the idea is for each backend to choose the most efficient way to implement the operation.
+
+## Networking
+
+Eio provides a simple high-level API for networking.
+Here is a client that connects to address `addr` using `network` and sends a message:
+
+```ocaml
+let run_client ~network ~addr =
+  traceln "Connecting to server...";
+  let flow = Eio.Network.connect network addr in
+  Eio.Flow.write_string flow "Hello from client";
+  Eio.Flow.close flow
+```
+
+Here is a server that listens on `socket` and handles a single connection by reading a message:
+
+```ocaml
+let run_server ~sw socket =
+  Eio.Network.Listening_socket.accept_sub socket ~sw (fun ~sw flow _addr ->
+    traceln "Server accepted connection from client";
+    let b = Buffer.create 100 in
+    let buf = Eio.Flow.buffer_sink b in
+    Eio.Flow.write buf ~src:flow;
+    traceln "Server received: %S" (Buffer.contents b);
+    Eio.Flow.close flow
+  ) ~on_error:(fun ex -> traceln "Error handling connection: %s" (Printexc.to_string ex));
+  traceln "(normally we'd loop and accept more connections here)"
+```
+
+Notes:
+
+- `accept_sub` handles the connection in a new fibre, with its own sub-switch.
+- Normally, a server would call `accept_sub` in a loop to handle multiple connections.
+
+We can test them in a single process using `Fibre.both`:
+
+```ocaml
+let main ~network ~addr =
+  Switch.top @@ fun sw ->
+  let server = Eio.Network.bind network ~reuse_addr:true addr in
+  Eio.Network.Listening_socket.listen server 5;
+  traceln "Server ready...";
+  Fibre.both ~sw
+    (fun () -> run_server ~sw server)
+    (fun () -> run_client ~network ~addr)
+```
+
+```ocaml
+# run @@ fun env ->
+  main
+    ~network:(Eio.Stdenv.network env)
+    ~addr:Unix.(ADDR_INET (inet_addr_loopback, 8080))
+Server ready...
+Connecting to server...
+Server accepted connection from client
+(normally we'd loop and accept more connections here)
+Server received: "Hello from client"
+- : unit = ()
+```
 
 ## Further reading
 

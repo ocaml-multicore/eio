@@ -12,6 +12,7 @@
   "An effect-based IO API for multicore OCaml with fibres.")
  (depends
   (ctf (= :version))
+  (fibreslib (= :version))
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name eunix)

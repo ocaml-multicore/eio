@@ -30,19 +30,30 @@ effect Close : Unix.file_descr -> int
 
 module FD = struct
   type t = {
+    seekable : bool;
     mutable fd : [`Open of Unix.file_descr | `Closed]
   }
 
   let get op = function
-    | { fd = `Open fd } -> fd
-    | { fd = `Closed } -> invalid_arg (op ^ ": file descriptor used after calling close!")
+    | { fd = `Open fd; _ } -> fd
+    | { fd = `Closed ; _ } -> invalid_arg (op ^ ": file descriptor used after calling close!")
 
-  let of_unix fd = { fd = `Open fd }
+  let of_unix ?seekable fd =
+    let seekable =
+      match seekable with
+      | Some x -> x
+      | None ->
+        match Unix.lseek fd 0 Unix.SEEK_CUR with
+        | (_ : int) -> true
+        | exception Unix.Unix_error(Unix.ESPIPE, "lseek", "") -> false
+    in
+    { seekable; fd = `Open fd }
+
   let to_unix = get "to_unix"
 
   let is_open = function
-    | { fd = `Open _ } -> true
-    | { fd = `Closed } -> false
+    | { fd = `Open _; _ } -> true
+    | { fd = `Closed; _ } -> false
 
   let close t =
     Ctf.label "close";
@@ -52,11 +63,14 @@ module FD = struct
     Log.debug (fun l -> l "close: woken up");
     if res < 0 then
       raise (Unix.Unix_error (Uring.error_of_errno res, "close", ""))
+
+  let uring_file_offset t =
+    if t.seekable then Optint.Int63.minus_one else Optint.Int63.zero
 end
 
 type rw_req = {
   op: [`R|`W];
-  file_offset: Optint.Int63.t option;
+  file_offset: Optint.Int63.t;
   fd: FD.t;
   len: amount;
   buf: Uring.Region.chunk;
@@ -66,10 +80,10 @@ type rw_req = {
 
 (* Type of user-data attached to jobs. *)
 type io_job =
-  | Noop
   | Read : rw_req -> io_job
   | Poll_add : int Suspended.t -> io_job
   | Splice : int Suspended.t -> io_job
+  | Connect : int Suspended.t -> io_job
   | Close : int Suspended.t -> io_job
   | Write : rw_req -> io_job
 
@@ -95,8 +109,8 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; _} as req) =
   let len = len - cur_off in
   let subm =
     match op with
-    |`R -> Uring.read uring ?file_offset fd off len (Read req)
-    |`W -> Uring.write uring ?file_offset fd off len (Write req)
+    |`R -> Uring.read uring ~file_offset fd off len (Read req)
+    |`W -> Uring.write uring ~file_offset fd off len (Write req)
   in
   if not subm then (
     Ctf.label "await-sqe";
@@ -108,6 +122,11 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; _} as req) =
 let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
 let enqueue_read st action (file_offset,fd,buf,len) =
+  let file_offset =
+    match file_offset with
+    | Some x -> x
+    | None -> FD.uring_file_offset fd
+  in
   let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action} in
   Log.debug (fun l -> l "read: submitting call");
   Ctf.label "read";
@@ -128,6 +147,11 @@ let rec enqueue_close st action fd =
     Queue.push (fun st -> enqueue_close st action fd) st.io_q
 
 let enqueue_write st action (file_offset,fd,buf,len) =
+  let file_offset =
+    match file_offset with
+    | Some x -> x
+    | None -> FD.uring_file_offset fd
+  in
   let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action} in
   Log.debug (fun l -> l "write: submitting call");
   Ctf.label "write";
@@ -139,6 +163,13 @@ let rec enqueue_splice st action ~src ~dst ~len =
   let subm = Uring.splice st.uring (Splice action) ~src:(FD.get "splice" src) ~dst:(FD.get "splice" dst) ~len in
   if not subm then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_splice st action ~src ~dst ~len) st.io_q
+
+let rec enqueue_connect st action fd addr =
+  Log.debug (fun l -> l "connect: submitting call");
+  Ctf.label "connect";
+  let subm = Uring.connect st.uring (FD.get "connect" fd) addr (Connect action) in
+  if not subm then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_connect st action fd addr) st.io_q
 
 let submit_pending_io st =
   match Queue.take_opt st.io_q with
@@ -196,10 +227,12 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
             | Splice k ->
               Log.debug (fun l -> l "splice returned");
               Suspended.continue k result
+            | Connect k ->
+              Log.debug (fun l -> l "connect returned");
+              Suspended.continue k result
             | Close k ->
               Log.debug (fun l -> l "close returned");
               Suspended.continue k result
-            | Noop -> assert false
           end
       )
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
@@ -293,6 +326,11 @@ let splice src ~dst ~len =
   else if res = 0 then raise End_of_file
   else raise (Unix.Unix_error (Uring.error_of_errno res, "splice", ""))
 
+effect Connect : FD.t * Unix.sockaddr -> int
+let connect fd addr =
+  let res = perform (Connect (fd, addr)) in
+  if res < 0 then raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
+
 let with_chunk fn =
   let chunk = alloc () in
   Fun.protect ~finally:(fun () -> free chunk) @@ fun () ->
@@ -311,7 +349,7 @@ let accept socket =
   await_readable socket;
   Ctf.label "accept";
   let conn, addr = Unix.accept ~cloexec:true (FD.get "accept" socket) in
-  FD.of_unix conn, addr
+  FD.of_unix ~seekable:false conn, addr
 
 module Objects = struct
   type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
@@ -377,10 +415,41 @@ module Objects = struct
   let source fd = (flow fd :> source)
   let sink   fd = (flow fd :> sink)
 
+  let listening_socket fd = object
+    inherit Eio.Network.Listening_socket.t
+
+    method listen n = Unix.listen (FD.get "listen" fd) n
+
+    method accept_sub ~sw ~on_error fn =
+      let client, client_addr = accept fd in
+      Fibre.fork_sub_ignore ~sw ~on_error (fun sw ->
+          fn ~sw (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr
+        )
+  end
+
+  let network = object
+    inherit Eio.Network.t
+
+    method bind ~reuse_addr addr =
+      let sock_unix = Unix.(socket PF_INET SOCK_STREAM 0) in
+      if reuse_addr then
+        Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+      let sock = FD.of_unix ~seekable:false sock_unix in
+      Unix.bind sock_unix addr;
+      listening_socket sock
+
+    method connect addr =
+      let sock_unix = Unix.(socket PF_INET SOCK_STREAM 0) in
+      let sock = FD.of_unix ~seekable:false sock_unix in
+      connect sock addr;
+      (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
+  end
+
   type stdenv = <
     stdin  : source;
     stdout : sink;
     stderr : sink;
+    network : Eio.Network.t;
   >
 
   let stdenv () =
@@ -391,13 +460,14 @@ module Objects = struct
       method stdin  = Lazy.force stdin
       method stdout = Lazy.force stdout
       method stderr = Lazy.force stderr
+      method network = network
     end
 end
 
 let pipe () =
   let r, w = Unix.pipe () in
-  let r = Objects.source (FD.of_unix r) in
-  let w = Objects.sink (FD.of_unix w) in
+  let r = Objects.source (FD.of_unix ~seekable:false r) in
+  let w = Objects.sink (FD.of_unix ~seekable:false w) in
   r, w
 
 let run ?(queue_depth=64) ?(block_size=4096) main =
@@ -405,7 +475,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   let stdenv = Objects.stdenv () in
   (* TODO unify this allocation API around baregion/uring *)
   let fixed_buf_len = block_size * queue_depth in
-  let uring = Uring.create ~fixed_buf_len ~queue_depth ~default:Noop () in
+  let uring = Uring.create ~fixed_buf_len ~queue_depth () in
   let buf = Uring.buf uring in 
   let mem = Uring.Region.init ~block_size buf queue_depth in
   let run_q = Queue.create () in
@@ -437,6 +507,10 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (Splice (src, dst, len)) k ->
       let k = { Suspended.k; tid } in
       enqueue_splice st k ~src ~dst ~len;
+      schedule st
+    | effect (Connect (fd, addr)) k ->
+      let k = { Suspended.k; tid } in
+      enqueue_connect st k fd addr;
       schedule st
     | effect Fibre_impl.Effects.Yield k ->
       let k = { Suspended.k; tid } in
