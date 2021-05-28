@@ -18,7 +18,8 @@ type t = {
   mutable state : state;
   mutable fibres : int;
   mutable extra_exceptions : exn list;
-  waiter : unit Waiters.t;
+  on_release : (unit -> unit) Lwt_dllist.t;
+  waiter : unit Waiters.t;              (* The main [top]/[sub] function may wait here for fibres to finish. *)
 }
 
 effect Await : t option * Ctf.id * 'a Waiters.t -> 'a
@@ -31,6 +32,11 @@ let check t =
   | On _ -> ()
   | Off ex -> raise (Cancelled ex)
   | Finished -> invalid_arg "Switch finished!"
+
+let is_finished t =
+  match t.state with
+  | Finished -> true
+  | On _ | Off _ -> false
 
 let turn_off t ex =
   match t.state with
@@ -69,11 +75,27 @@ let with_op t fn =
           Waiters.wake_all t.waiter (Ok ())
       )
 
-let await_idle t =
+let rec await_idle t =
+  (* Wait for fibres to finish: *)
   while t.fibres > 0 do
     Ctf.note_try_read t.id;
     await t.waiter t.id
-  done
+  done;
+  (* Call on_release handlers: *)
+  let queue = Lwt_dllist.create () in
+  Lwt_dllist.transfer_l t.on_release queue;
+  let rec release () =
+    match Lwt_dllist.take_opt_r queue with
+    | None when t.fibres = 0 && Lwt_dllist.is_empty t.on_release -> ()
+    | None -> await_idle t
+    | Some fn ->
+      begin
+        try fn () with
+        | ex -> turn_off t ex
+      end;
+      release ()
+  in
+  release ()
 
 let raise_with_extras t ex =
   match t.extra_exceptions with
@@ -90,6 +112,7 @@ let top fn =
     fibres = 0;
     extra_exceptions = [];
     waiter = Waiters.create ();
+    on_release = Lwt_dllist.create ();
   } in
   match fn t with
   | v ->
@@ -119,18 +142,48 @@ let top fn =
       t.state <- Finished;
       raise_with_extras t ex
 
-let sub ~sw ~on_error fn =
-  let w = ref ignore in
-  match
-    top (fun child ->
-        w := add_cancel_hook sw (turn_off child);
-        try fn child
-        with ex -> turn_off child ex; raise ex
-      )
-  with
-  | v ->
-    Waiters.remove_waiter !w;
-    v
-  | exception ex ->
-    Waiters.remove_waiter !w;
-    on_error ex
+let on_release_cancellable t fn =
+  match t.state with
+  | Finished ->
+    fn ();
+    invalid_arg "Switch finished!"
+  | On _ | Off _ ->
+    let node = Lwt_dllist.add_r fn t.on_release in
+    (fun () -> Lwt_dllist.remove node)
+
+let on_release t fn =
+  match t.state with
+  | Finished ->
+    fn ();
+    invalid_arg "Switch finished!"
+  | On _ | Off _ ->
+    let _ : _ Lwt_dllist.node = Lwt_dllist.add_r fn t.on_release in
+    ()
+
+let sub ?on_release:release ~sw ~on_error fn =
+  match sw.state with
+  | Finished ->
+    (* Can't create child switch. Run release hooks immediately. *)
+    Option.iter (fun f -> f ()) release;
+    invalid_arg "Switch finished!"
+  | Off ex ->
+    (* Can't create child switch. Run release hooks immediately. *)
+    Option.iter (fun f -> f ()) release;
+    raise (Cancelled ex)
+  | On _ ->
+    with_op sw @@ fun () ->
+    let w = ref ignore in
+    match
+      top (fun child ->
+          w := add_cancel_hook sw (turn_off child);
+          Option.iter (on_release child) release;
+          try fn child
+          with ex -> turn_off child ex; raise ex
+        )
+    with
+    | v ->
+      Waiters.remove_waiter !w;
+      v
+    | exception ex ->
+      Waiters.remove_waiter !w;
+      on_error ex

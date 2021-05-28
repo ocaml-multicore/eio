@@ -338,12 +338,16 @@ Eio provides a simple high-level API for networking.
 Here is a client that connects to address `addr` using `network` and sends a message:
 
 ```ocaml
-let run_client ~network ~addr =
+let run_client ~sw ~network ~addr =
   traceln "Connecting to server...";
-  let flow = Eio.Network.connect network addr in
+  let flow = Eio.Network.connect ~sw network addr in
   Eio.Flow.write_string flow "Hello from client";
   Eio.Flow.close flow
 ```
+
+Note: The `flow` is attached to `sw` and will be closed automatically when it finishes.
+      The explicit `close` here just ensures it is closed promptly,
+      rather than waiting for the server to finish too.
 
 Here is a server that listens on `socket` and handles a single connection by reading a message:
 
@@ -354,8 +358,7 @@ let run_server ~sw socket =
     let b = Buffer.create 100 in
     let buf = Eio.Flow.buffer_sink b in
     Eio.Flow.write buf ~src:flow;
-    traceln "Server received: %S" (Buffer.contents b);
-    Eio.Flow.close flow
+    traceln "Server received: %S" (Buffer.contents b)
   ) ~on_error:(fun ex -> traceln "Error handling connection: %s" (Printexc.to_string ex));
   traceln "(normally we'd loop and accept more connections here)"
 ```
@@ -364,18 +367,19 @@ Notes:
 
 - `accept_sub` handles the connection in a new fibre, with its own sub-switch.
 - Normally, a server would call `accept_sub` in a loop to handle multiple connections.
+- When the child switch created by `accept_sub` finishes, `flow` is closed automatically.
 
 We can test them in a single process using `Fibre.both`:
 
 ```ocaml
 let main ~network ~addr =
   Switch.top @@ fun sw ->
-  let server = Eio.Network.bind network ~reuse_addr:true addr in
+  let server = Eio.Network.bind network ~sw ~reuse_addr:true addr in
   Eio.Network.Listening_socket.listen server 5;
   traceln "Server ready...";
   Fibre.both ~sw
     (fun () -> run_server ~sw server)
-    (fun () -> run_client ~network ~addr)
+    (fun () -> run_client ~sw ~network ~addr)
 ```
 
 ```ocaml

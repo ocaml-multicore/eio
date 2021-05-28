@@ -18,12 +18,14 @@ module Switch : sig
       If the switch is turned off before it returns, [top] re-raises the switch's exception(s).
       @raise Multiple_exceptions If [turn_off] is called more than once. *)
 
-  val sub : sw:t -> on_error:(exn -> 'a) -> (t -> 'a) -> 'a
+  val sub : ?on_release:(unit -> unit) -> sw:t -> on_error:(exn -> 'a) -> (t -> 'a) -> 'a
   (** [sub ~sw ~on_error fn] is like [top fn], but the new switch is a child of [sw], so that
       cancelling [sw] also cancels the child (but not the other way around).
       If [fn] raises an exception then it is passed to [on_error].
       If you only want to use [sub] to wait for a group of threads to finish, but not to contain
-      errors, you can use [~on_error:raise]. *)
+      errors, you can use [~on_error:raise].
+      @param on_release Register this function with [Switch.on_release sub] once the sub-switch is created.
+                        If creating the sub-switch fails, run it immediately. *)
 
   val check : t -> unit
   (** [check t] checks that [t] is still on.
@@ -35,6 +37,21 @@ module Switch : sig
       If [t] is already off then [ex] is added to the list of exceptions (unless
       [ex] is [Cancelled] or identical to the original exception, in which case
       it is ignored). *)
+
+  val on_release : t -> (unit -> unit) -> unit
+  (** [on_release t fn] registers [fn] to be called once [t]'s main function has returned
+      and all fibres have finished.
+      If [fn] raises an exception, it is passed to [turn_off].
+      Release handlers are run in LIFO order, in series.
+      If you want to allow other release handlers to run concurrently, you can start the release
+      operation and then call [on_release] again from within [fn] to register a function to await the result.
+      This will be added to a fresh batch of handlers, run after the original set have finished.
+      Note that [fn] must work even if the switch has been turned off,
+      so using [sub t] or similar within [fn] is usually a bad idea. *)
+
+  val on_release_cancellable : t -> (unit -> unit) -> (unit -> unit)
+  (** Like [on_release], but returns a function that can be called to remove the handler.
+      Calling this more than once has no effect. *)
 end
 
 module Promise : sig
@@ -108,7 +125,7 @@ module Fibre : sig
       If the fibre raises an exception, [sw] is turned off.
       If [sw] is already off then [fn] fails immediately, but the calling thread continues. *)
 
-  val fork_sub_ignore : sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
+  val fork_sub_ignore : ?on_release:(unit -> unit) -> sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
   (** [fork_sub_ignore ~sw ~on_error fn] is like [fork_ignore], but it creates a new sub-switch for the fibre.
       This means that you can cancel the child switch without cancelling the parent.
       This is a convenience function for running {!Switch.sub} inside a {!fork_ignore}. *)
@@ -182,10 +199,6 @@ module Fibre_impl : sig
   module Switch : sig
     type t = Switch.t
 
-    val with_op : t -> (unit -> 'a) -> 'a
-    (** [with_op t fn] prevents [t] from finishing while [fn] is running.
-        If [t] is already turned off, [fn] does not run and the exception is raised instead. *)
-
     val add_cancel_hook : t -> (exn -> unit) -> Waiters.waiter
     (** [add_cancel_hook t cancel] registers shutdown function [cancel] with [t].
         When [t] is turned off, [cancel] is called.
@@ -202,10 +215,10 @@ module Fibre_impl : sig
         The effect handler should add itself to the list of waiters and block until its callback is invoked.
         The ID is used for tracing. *)
 
-    effect Fork : Switch.t * bool * (unit -> 'a) -> 'a Promise.t
+    effect Fork : (unit -> 'a) -> 'a Promise.t
     (** See {!Fibre.fork} *)
 
-    effect Fork_ignore  : Switch.t * (unit -> unit) -> unit
+    effect Fork_ignore  : (unit -> unit) -> unit
     (** See {!Fibre.fork_ignore} *)
 
     effect Yield : unit

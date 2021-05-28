@@ -125,19 +125,22 @@ module Network = struct
     let listen (t : #t) = t#listen
 
     (** [accept t fn] waits for a new connection to [t] and then runs [fn ~sw flow client_addr] in a new fibre,
-        created with [Fibre.fork_sub_ignore]. *)
+        created with [Fibre.fork_sub_ignore].
+        [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
     let accept_sub (t : #t) = t#accept_sub
   end
 
   class virtual t = object
-    method virtual bind : reuse_addr:bool -> Unix.sockaddr -> Listening_socket.t
-    method virtual connect : Unix.sockaddr -> <Flow.two_way; Flow.close>
+    method virtual bind : reuse_addr:bool -> sw:Switch.t -> Unix.sockaddr -> Listening_socket.t
+    method virtual connect : sw:Switch.t -> Unix.sockaddr -> <Flow.two_way; Flow.close>
   end
 
-  (** [bind ~sw t addr] is a new listening socket bound to local address [addr]. *)
+  (** [bind ~sw t addr] is a new listening socket bound to local address [addr].
+      The new socket will be closed when [sw] finishes, unless closed manually first. *)
   let bind ?(reuse_addr=false) (t:#t) = t#bind ~reuse_addr
 
-  (** [connect t addr] is a new socket connected to remote address [addr]. *)
+  (** [connect t ~sw addr] is a new socket connected to remote address [addr].
+      The new socket will be closed when [sw] finishes, unless closed manually first. *)
   let connect (t:#t) = t#connect
 end
 

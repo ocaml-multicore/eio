@@ -31,25 +31,13 @@ effect Close : Unix.file_descr -> int
 module FD = struct
   type t = {
     seekable : bool;
+    mutable release_hook : unit -> unit;        (* Call this on close to remove switch's [on_release] hook. *)
     mutable fd : [`Open of Unix.file_descr | `Closed]
   }
 
   let get op = function
     | { fd = `Open fd; _ } -> fd
     | { fd = `Closed ; _ } -> invalid_arg (op ^ ": file descriptor used after calling close!")
-
-  let of_unix ?seekable fd =
-    let seekable =
-      match seekable with
-      | Some x -> x
-      | None ->
-        match Unix.lseek fd 0 Unix.SEEK_CUR with
-        | (_ : int) -> true
-        | exception Unix.Unix_error(Unix.ESPIPE, "lseek", "") -> false
-    in
-    { seekable; fd = `Open fd }
-
-  let to_unix = get "to_unix"
 
   let is_open = function
     | { fd = `Open _; _ } -> true
@@ -59,10 +47,29 @@ module FD = struct
     Ctf.label "close";
     let fd = get "close" t in
     t.fd <- `Closed;
+    t.release_hook ();
     let res = perform (Close fd) in
     Log.debug (fun l -> l "close: woken up");
     if res < 0 then
       raise (Unix.Unix_error (Uring.error_of_errno res, "close", ""))
+
+  let ensure_closed t =
+    if is_open t then close t
+
+  let is_seekable fd =
+    match Unix.lseek fd 0 Unix.SEEK_CUR with
+    | (_ : int) -> true
+    | exception Unix.Unix_error(Unix.ESPIPE, "lseek", "") -> false
+
+  let to_unix = get "to_unix"
+
+  let of_unix_no_hook ~seekable fd =
+    { seekable; fd = `Open fd; release_hook = ignore }
+
+  let of_unix ~sw ~seekable fd =
+    let t = of_unix_no_hook ~seekable fd in
+    t.release_hook <- Switch.on_release_cancellable sw (fun () -> close t);
+    t
 
   let uring_file_offset t =
     if t.seekable then Optint.Int63.minus_one else Optint.Int63.zero
@@ -336,8 +343,9 @@ let with_chunk fn =
   Fun.protect ~finally:(fun () -> free chunk) @@ fun () ->
   fn chunk
 
-let openfile path flags mode =
-  FD.of_unix (Unix.openfile path flags mode)
+let openfile ~sw path flags mode =
+  let fd = Unix.openfile path flags mode in
+  FD.of_unix ~sw ~seekable:(FD.is_seekable fd) fd
 
 let fstat fd =
   Unix.fstat (FD.get "fstat" fd)
@@ -349,7 +357,7 @@ let accept socket =
   await_readable socket;
   Ctf.label "accept";
   let conn, addr = Unix.accept ~cloexec:true (FD.get "accept" socket) in
-  FD.of_unix ~seekable:false conn, addr
+  FD.of_unix_no_hook ~seekable:false conn, addr
 
 module Objects = struct
   type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
@@ -432,25 +440,25 @@ module Objects = struct
 
     method accept_sub ~sw ~on_error fn =
       let client, client_addr = accept fd in
-      Fibre.fork_sub_ignore ~sw ~on_error (fun sw ->
-          fn ~sw (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr
-        )
+      Fibre.fork_sub_ignore ~sw ~on_error
+        (fun sw -> fn ~sw (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr)
+        ~on_release:(fun () -> FD.ensure_closed client)
   end
 
   let network = object
     inherit Eio.Network.t
 
-    method bind ~reuse_addr addr =
+    method bind ~reuse_addr ~sw addr =
       let sock_unix = Unix.(socket PF_INET SOCK_STREAM 0) in
       if reuse_addr then
         Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
-      let sock = FD.of_unix ~seekable:false sock_unix in
+      let sock = FD.of_unix ~sw ~seekable:false sock_unix in
       Unix.bind sock_unix addr;
       listening_socket sock
 
-    method connect addr =
+    method connect ~sw addr =
       let sock_unix = Unix.(socket PF_INET SOCK_STREAM 0) in
-      let sock = FD.of_unix ~seekable:false sock_unix in
+      let sock = FD.of_unix ~sw ~seekable:false sock_unix in
       connect sock addr;
       (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
   end
@@ -463,9 +471,10 @@ module Objects = struct
   >
 
   let stdenv () =
-    let stdin = lazy (source (FD.of_unix Unix.stdin)) in
-    let stdout = lazy (sink (FD.of_unix Unix.stdout)) in
-    let stderr = lazy (sink (FD.of_unix Unix.stderr)) in
+    let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) fd in
+    let stdin = lazy (source (of_unix Unix.stdin)) in
+    let stdout = lazy (sink (of_unix Unix.stdout)) in
+    let stderr = lazy (sink (of_unix Unix.stderr)) in
     object (_ : stdenv)
       method stdin  = Lazy.force stdin
       method stdout = Lazy.force stdout
@@ -474,10 +483,10 @@ module Objects = struct
     end
 end
 
-let pipe () =
+let pipe sw =
   let r, w = Unix.pipe () in
-  let r = Objects.source (FD.of_unix ~seekable:false r) in
-  let w = Objects.sink (FD.of_unix ~seekable:false w) in
+  let r = Objects.source (FD.of_unix ~sw ~seekable:false r) in
+  let w = Objects.sink (FD.of_unix ~sw ~seekable:false w) in
   r, w
 
 let run ?(queue_depth=64) ?(block_size=4096) main =
@@ -551,7 +560,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let resolved_waiter = Fibre_impl.Waiters.add_waiter q when_resolved in
       Queue.add resolved_waiter waiters;
       schedule st
-    | effect (Fibre_impl.Effects.Fork (sw, exn_turn_off, f)) k ->
+    | effect (Fibre_impl.Effects.Fork f) k ->
       let k = { Suspended.k; tid } in
       let id = Ctf.mint_id () in
       Ctf.note_created id Ctf.Task;
@@ -560,25 +569,22 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       fork
         ~tid:id
         (fun () ->
-           Fibre_impl.Switch.with_op sw @@ fun () ->
            match f () with
            | x -> Promise.fulfill resolver x
            | exception ex ->
              Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
-             if exn_turn_off then Switch.turn_off sw ex;
              Promise.break resolver ex
         )
-    | effect (Fibre_impl.Effects.Fork_ignore (sw, f)) k ->
+    | effect (Fibre_impl.Effects.Fork_ignore f) k ->
       let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       let child = Ctf.note_fork () in
       Ctf.note_switch child;
       fork ~tid:child (fun () ->
-          match Fibre_impl.Switch.with_op sw f with
+          match f () with
           | () ->
             Ctf.note_resolved child ~ex:None
           | exception ex ->
-            Switch.turn_off sw ex;
             Ctf.note_resolved child ~ex:(Some ex)
         )
     | effect Alloc k ->

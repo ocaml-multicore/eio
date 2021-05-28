@@ -26,9 +26,11 @@ let copy_file infd outfd insize block_size =
   copy_block Int63.zero
 
 let run_cp block_size queue_depth infile outfile () =
+  U.run ~queue_depth ~block_size @@ fun _stdenv ->
+  Switch.top @@ fun sw ->
   let open Unix in
-  let infd = Eunix.openfile infile [O_RDONLY] 0 in
-  let outfd = Eunix.openfile outfile [O_WRONLY; O_CREAT; O_TRUNC] 0o644 in
+  let infd = Eunix.openfile ~sw infile [O_RDONLY] 0 in
+  let outfd = Eunix.openfile ~sw outfile [O_WRONLY; O_CREAT; O_TRUNC] 0o644 in
   let insize = Eunix.fstat infd |> fun {st_size; _} -> Int63.of_int st_size in
   Logs.debug (fun l -> l "eurcp: %s -> %s size %a queue %d bs %d"
                  infile
@@ -36,9 +38,5 @@ let run_cp block_size queue_depth infile outfile () =
                  Int63.pp insize
                  queue_depth
                  block_size);
-  U.run ~queue_depth ~block_size (fun _stdenv ->
-      copy_file infd outfd insize block_size;
-      Logs.debug (fun l -> l "eurcp: done");
-      Eunix.FD.close outfd;
-      Eunix.FD.close infd
-    )
+  copy_file infd outfd insize block_size;
+  Logs.debug (fun l -> l "eurcp: done")
