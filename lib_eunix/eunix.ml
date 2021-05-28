@@ -410,6 +410,9 @@ module Objects = struct
             write fd chunk got
           done
         with End_of_file -> ()
+
+    method shutdown cmd =
+      Unix.shutdown (FD.get "shutdown" fd) cmd
   end
 
   let source fd = (flow fd :> source)
@@ -417,6 +420,8 @@ module Objects = struct
 
   let listening_socket fd = object
     inherit Eio.Network.Listening_socket.t
+
+    method close = FD.close fd
 
     method listen n = Unix.listen (FD.get "listen" fd) n
 
