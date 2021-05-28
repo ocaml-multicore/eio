@@ -354,8 +354,13 @@ let accept socket =
 module Objects = struct
   type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
 
-  type source = < Eio.Flow.source; Eio.Flow.close; fd : FD.t >
-  type sink   = < Eio.Flow.sink  ; Eio.Flow.close; fd : FD.t >
+  type has_fd = < fd : FD.t >
+  type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
+  type sink   = < Eio.Flow.sink  ; Eio.Flow.close; has_fd >
+
+  let get_fd (t : <has_fd; ..>) = t#fd
+
+  let get_fd_opt t = Eio.Generic.probe t FD
 
   (* When copying between a source with an FD and a sink with an FD, we can share the chunk
      and avoid copying. *)
@@ -398,7 +403,7 @@ module Objects = struct
       got
 
     method write src =
-      match Eio.Generic.probe src FD with
+      match get_fd_opt src with
       | Some src -> fast_copy_try_splice ~src ~dst:fd
       | None ->
         (* Inefficient copying fallback *)

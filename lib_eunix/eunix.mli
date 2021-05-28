@@ -107,8 +107,9 @@ val shutdown : FD.t -> Unix.shutdown_command -> unit
 (** {1 Eio API} *)
 
 module Objects : sig
-  type source = < Eio.Flow.source; Eio.Flow.close; fd : FD.t >
-  type sink   = < Eio.Flow.sink  ; Eio.Flow.close; fd : FD.t >
+  type has_fd = < fd : FD.t >
+  type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
+  type sink   = < Eio.Flow.sink  ; Eio.Flow.close; has_fd >
 
   type stdenv = <
     stdin  : source;
@@ -116,6 +117,9 @@ module Objects : sig
     stderr : sink;
     network : Eio.Network.t;
   >
+
+  val get_fd : <has_fd; ..> -> FD.t
+  val get_fd_opt : #Eio.Generic.t -> FD.t option
 end
 
 val pipe : unit -> Objects.source * Objects.sink
