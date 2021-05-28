@@ -56,6 +56,19 @@ module Flow = struct
           len
     end
 
+  let cstruct_source data : source =
+    object
+      val mutable data = data
+
+      inherit source
+
+      method read_into dst =
+        let avail, src = Cstruct.fillv ~dst ~src:data in
+        if avail = 0 then raise End_of_file;
+        data <- src;
+        avail
+    end
+
   class virtual write = object
     method virtual write : 'a. (#source as 'a) -> unit
   end
@@ -90,12 +103,17 @@ module Flow = struct
     method probe _ = None
     inherit read
     inherit write
+
+    method virtual shutdown : Unix.shutdown_command -> unit
   end
+
+  let shutdown (t : #two_way) = t#shutdown
 end
 
 module Network = struct
   module Listening_socket = struct
     class virtual t = object
+      method virtual close : unit
       method virtual listen : int -> unit
       method virtual accept_sub :
         sw:Switch.t ->
