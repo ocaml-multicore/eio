@@ -51,9 +51,10 @@ let test_promise_exn () =
 
 let read_one_byte ~sw r =
   Fibre.fork ~sw ~exn_turn_off:true (fun () ->
-      Eunix.await_readable (Eunix.FD.of_unix r);
+      let r = Option.get (Eunix.Objects.get_fd_opt r) in
+      Eunix.await_readable r;
       let b = Bytes.create 1 in
-      let got = Unix.read r b 0 1 in
+      let got = Unix.read (Eunix.FD.to_unix r) b 0 1 in
       assert (got = 1);
       Bytes.to_string b
     )
@@ -61,11 +62,12 @@ let read_one_byte ~sw r =
 let test_poll_add () =
   Eunix.run @@ fun _stdenv ->
   Switch.top @@ fun sw ->
-  let r, w = Unix.pipe () in
+  let r, w = Eunix.pipe sw in
   let thread = read_one_byte ~sw r in
   Fibre.yield ();
-  Eunix.await_writable (Eunix.FD.of_unix w);
-  let sent = Unix.write w (Bytes.of_string "!") 0 1 in
+  let w = Option.get (Eunix.Objects.get_fd_opt w) in
+  Eunix.await_writable w;
+  let sent = Unix.write (Eunix.FD.to_unix w) (Bytes.of_string "!") 0 1 in
   assert (sent = 1);
   let result = Promise.await thread in
   Alcotest.(check string) "Received data" "!" result
@@ -73,10 +75,11 @@ let test_poll_add () =
 let test_poll_add_busy () =
   Eunix.run ~queue_depth:1 @@ fun _stdenv ->
   Switch.top @@ fun sw ->
-  let r, w = Unix.pipe () in
+  let r, w = Eunix.pipe sw in
   let a = read_one_byte ~sw r in
   let b = read_one_byte ~sw r in
   Fibre.yield ();
+  let w = Option.get (Eunix.Objects.get_fd_opt w) |> Eunix.FD.to_unix in
   let sent = Unix.write w (Bytes.of_string "!!") 0 2 in
   assert (sent = 2);
   let a = Promise.await a in
@@ -150,7 +153,7 @@ let test_copy () =
   Eunix.run ~queue_depth:2 @@ fun _stdenv ->
   Switch.top @@ fun sw ->
   let msg = "Hello!" in
-  let from_pipe, to_pipe = Eunix.pipe () in
+  let from_pipe, to_pipe = Eunix.pipe sw in
   let buffer = Buffer.create 20 in
   Fibre.both ~sw
     (fun () -> Eio.Flow.write (Eio.Flow.buffer_sink buffer) ~src:from_pipe)
@@ -165,9 +168,10 @@ let test_copy () =
 (* Write a string via 2 pipes. The copy from the 1st to 2nd pipe will be optimised and so tests a different code-path. *)
 let test_direct_copy () =
   Eunix.run ~queue_depth:4 @@ fun _stdenv ->
+  Switch.top @@ fun sw ->
   let msg = "Hello!" in
-  let from_pipe1, to_pipe1 = Eunix.pipe () in
-  let from_pipe2, to_pipe2 = Eunix.pipe () in
+  let from_pipe1, to_pipe1 = Eunix.pipe sw in
+  let from_pipe2, to_pipe2 = Eunix.pipe sw in
   let buffer = Buffer.create 20 in
   let to_output = Eio.Flow.buffer_sink buffer in
   Switch.top (fun sw ->

@@ -14,6 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+open Fibreslib
+
 type t
 
 (** Wrap [Unix.file_descr] to track whether it has been closed. *)
@@ -27,12 +29,12 @@ module FD : sig
   (** [close t] closes [t].
       @raise Invalid_arg if [t] is already closed. *)
 
-  val of_unix : ?seekable:bool -> Unix.file_descr -> t
-  (** [of_unix fd] wraps [fd] as an open file descriptor.
+  val of_unix : sw:Switch.t -> seekable:bool -> Unix.file_descr -> t
+  (** [of_unix ~sw ~seekable fd] wraps [fd] as an open file descriptor.
       This is unsafe if [fd] is closed directly (before or after wrapping it).
+      @param sw The FD is closed when [sw] is released, if not closed manually first.
       @param seekable If true, we pass [-1] as the file offset, to use the current offset.
-                      If false, pass [0] as the file offset, which is needed for sockets.
-                      If unset, we try a seek and see if that succeeds. *)
+                      If false, pass [0] as the file offset, which is needed for sockets. *)
 
   val to_unix : t -> Unix.file_descr
   (** [to_unix t] returns the wrapped descriptor.
@@ -56,7 +58,7 @@ val with_chunk : (Uring.Region.chunk -> 'a) -> 'a
 
 (** {1 File manipulation functions} *)
 
-val openfile : string -> Unix.open_flag list -> int -> FD.t
+val openfile : sw:Switch.t -> string -> Unix.open_flag list -> int -> FD.t
 (** Like {!Unix.open_file}. *)
 
 val read_upto : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> int
@@ -122,8 +124,8 @@ module Objects : sig
   val get_fd_opt : #Eio.Generic.t -> FD.t option
 end
 
-val pipe : unit -> Objects.source * Objects.sink
-(** [pipe ()] is a source-sink pair [(r, w)], where data written to [w] can be read from [r].
+val pipe : Switch.t -> Objects.source * Objects.sink
+(** [pipe sw] is a source-sink pair [(r, w)], where data written to [w] can be read from [r].
     It is implemented as a Unix pipe. *)
 
 (** {1 Main Loop} *)

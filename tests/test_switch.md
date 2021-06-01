@@ -7,7 +7,7 @@
 ```ocaml
 open Fibreslib
 
-let run fn =
+let run (fn : Switch.t -> unit) =
   try
     Eunix.run @@ fun _e ->
     Switch.top fn;
@@ -332,5 +332,148 @@ The system deadlocks. The scheduler detects and reports this:
       Promise.await ~sw p
     )
 Deadlock detected: no events scheduled but main function hasn't returned
+- : unit = ()
+```
+
+# Release handlers
+
+Release on success:
+
+```ocaml
+# run (fun sw ->
+    Switch.on_release sw (fun () -> traceln "release 1");
+    Switch.on_release sw (fun () -> traceln "release 2");
+  )
+release 2
+release 1
+ok
+- : unit = ()
+```
+
+Release on error:
+
+```ocaml
+# run (fun sw ->
+    Switch.on_release sw (fun () -> traceln "release 1");
+    Switch.on_release sw (fun () -> traceln "release 2");
+    failwith "Test error"
+  )
+release 2
+release 1
+Test error
+- : unit = ()
+```
+
+A release operation itself fails:
+
+```ocaml
+# run (fun sw ->
+    Switch.on_release sw (fun () -> traceln "release 1"; failwith "failure 1");
+    Switch.on_release sw (fun () -> traceln "release 2");
+    Switch.on_release sw (fun () -> traceln "release 3"; failwith "failure 3");
+  )
+release 3
+release 2
+release 1
+Multiple exceptions:
+Failure("failure 3")
+and
+Failure("failure 1")
+- : unit = ()
+```
+
+Using switch from inside release handler:
+
+```ocaml
+# run (fun sw ->
+    Switch.on_release sw (fun () ->
+      Fibre.fork_ignore ~sw (fun () ->
+        traceln "Starting release 1";
+        Fibre.yield ();
+        traceln "Finished release 1"
+      );
+    );
+    Switch.on_release sw (fun () ->
+      Fibre.fork_ignore ~sw (fun () ->
+        Switch.on_release sw (fun () -> traceln "Late release");
+        traceln "Starting release 2";
+        Fibre.yield ();
+        traceln "Finished release 2"
+      );
+    );
+    traceln "Main fibre done"
+  )
+Main fibre done
+Starting release 2
+Starting release 1
+Finished release 2
+Finished release 1
+Late release
+ok
+- : unit = ()
+```
+
+# Releasing with `fork_sub_ignore`
+
+```ocaml
+let fork_sub_ignore_resource sw =
+  traceln "Allocate resource";
+  Fibre.fork_sub_ignore ~sw ~on_error:raise
+    ~on_release:(fun () -> traceln "Free resource")
+    (fun _sw -> traceln "Child fibre running")
+```
+
+We release when `fork_sub_ignore` returns:
+
+```ocaml
+# run (fun sw ->
+    fork_sub_ignore_resource sw
+  )
+Allocate resource
+Child fibre running
+Free resource
+ok
+- : unit = ()
+```
+
+We release when `fork_sub_ignore` fails due to parent switch being already off:
+
+```ocaml
+# run (fun sw ->
+    Switch.turn_off sw (Failure "Switch already off");
+    fork_sub_ignore_resource sw
+  )
+Allocate resource
+Free resource
+Switch already off
+- : unit = ()
+```
+
+We release when `fork_sub_ignore` fails due to parent switch being invalid:
+
+```ocaml
+# run (fun sw ->
+    let copy = ref sw in
+    Switch.sub ~sw ~on_error:raise (fun sub -> copy := sub);
+    fork_sub_ignore_resource !copy
+  )
+Allocate resource
+Free resource
+Invalid_argument("Switch finished!")
+- : unit = ()
+```
+
+We release when `fork_sub_ignore`'s switch is turned off while running:
+
+```ocaml
+# run (fun sw ->
+    traceln "Allocate resource";
+    Fibre.fork_sub_ignore ~sw ~on_error:raise
+      ~on_release:(fun () -> traceln "Free resource")
+      (fun _sw -> failwith "Simulated error")
+  )
+Allocate resource
+Free resource
+Simulated error
 - : unit = ()
 ```
