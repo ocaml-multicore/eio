@@ -111,6 +111,16 @@ module Flow = struct
 end
 
 module Network = struct
+  module Sockaddr = struct
+    type t = Unix.sockaddr
+
+    let pp f = function
+      | Unix.ADDR_UNIX path ->
+        Format.fprintf f "unix:%s" path
+      | Unix.ADDR_INET (addr, port) ->
+        Format.fprintf f "inet:%s:%d" (Unix.string_of_inet_addr addr) port
+  end
+
   module Listening_socket = struct
     class virtual t = object
       method virtual close : unit
@@ -118,7 +128,7 @@ module Network = struct
       method virtual accept_sub :
         sw:Switch.t ->
         on_error:(exn -> unit) ->
-        (sw:Switch.t -> <Flow.two_way; Flow.close> -> Unix.sockaddr -> unit) ->
+        (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
         unit
     end
 
@@ -131,8 +141,8 @@ module Network = struct
   end
 
   class virtual t = object
-    method virtual bind : reuse_addr:bool -> sw:Switch.t -> Unix.sockaddr -> Listening_socket.t
-    method virtual connect : sw:Switch.t -> Unix.sockaddr -> <Flow.two_way; Flow.close>
+    method virtual bind : reuse_addr:bool -> sw:Switch.t -> Sockaddr.t -> Listening_socket.t
+    method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   end
 
   (** [bind ~sw t addr] is a new listening socket bound to local address [addr].

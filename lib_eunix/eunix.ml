@@ -91,6 +91,7 @@ type io_job =
   | Poll_add : int Suspended.t -> io_job
   | Splice : int Suspended.t -> io_job
   | Connect : int Suspended.t -> io_job
+  | Accept : int Suspended.t -> io_job
   | Close : int Suspended.t -> io_job
   | Write : rw_req -> io_job
 
@@ -178,6 +179,13 @@ let rec enqueue_connect st action fd addr =
   if not subm then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_connect st action fd addr) st.io_q
 
+let rec enqueue_accept st action fd client_addr =
+  Log.debug (fun l -> l "accept: submitting call");
+  Ctf.label "accept";
+  let subm = Uring.accept st.uring (FD.get "accept" fd) client_addr (Accept action) in
+  if not subm then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_accept st action fd client_addr) st.io_q
+
 let submit_pending_io st =
   match Queue.take_opt st.io_q with
   | None -> ()
@@ -236,6 +244,9 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
               Suspended.continue k result
             | Connect k ->
               Log.debug (fun l -> l "connect returned");
+              Suspended.continue k result
+            | Accept k ->
+              Log.debug (fun l -> l "accept returned");
               Suspended.continue k result
             | Close k ->
               Log.debug (fun l -> l "close returned");
@@ -353,11 +364,18 @@ let fstat fd =
 let shutdown socket command =
   Unix.shutdown (FD.get "shutdown" socket) command
 
+effect Accept : FD.t * Uring.Sockaddr.t -> int
 let accept socket =
-  await_readable socket;
   Ctf.label "accept";
-  let conn, addr = Unix.accept ~cloexec:true (FD.get "accept" socket) in
-  FD.of_unix_no_hook ~seekable:false conn, addr
+  let client_addr = Uring.Sockaddr.create () in
+  let res = perform (Accept (socket, client_addr)) in
+  if res < 0 then raise (Unix.Unix_error (Uring.error_of_errno res, "accept", ""))
+  else (
+    let unix : Unix.file_descr = Obj.magic res in
+    let fd = FD.of_unix_no_hook ~seekable:false unix in
+    let addr = Uring.Sockaddr.get client_addr in
+    fd, addr
+  )
 
 module Objects = struct
   type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
@@ -530,6 +548,10 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (Connect (fd, addr)) k ->
       let k = { Suspended.k; tid } in
       enqueue_connect st k fd addr;
+      schedule st
+    | effect (Accept (fd, client_addr)) k ->
+      let k = { Suspended.k; tid } in
+      enqueue_accept st k fd client_addr;
       schedule st
     | effect Fibre_impl.Effects.Yield k ->
       let k = { Suspended.k; tid } in
