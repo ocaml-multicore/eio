@@ -206,53 +206,58 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
     match Zzz.restart_threads sleep_q with
     | Some k -> Suspended.continue k ()                   (* A sleeping task is now due *)
     | None ->
-      let num_jobs = Uring.submit uring in
-      st.io_jobs <- st.io_jobs + num_jobs;
-      let timeout = Zzz.select_next sleep_q in
-      Log.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
-                    (match timeout with None -> "inf" | Some v -> string_of_float v));
-      assert (Queue.length run_q = 0);
-      if timeout = None && st.io_jobs = 0 then (
-        (* Nothing further can happen at this point.
-           If there are no events in progress but also still no memory available, something has gone wrong! *)
-        assert (Queue.length mem_q = 0);
-        Log.debug (fun l -> l "schedule: exiting");    (* Nothing left to do *)
-        `Exit_scheduler
-      ) else (
-        Ctf.(note_hiatus Wait_for_work);
-        let result = Uring.wait ?timeout uring in
-        Ctf.note_resume system_thread;
-        match result with
-        | None ->
-          assert (timeout <> None);
-          schedule st                                   (* Woken by a timeout, which is now due *)
-        | Some { data = runnable; result } -> begin
-            st.io_jobs <- st.io_jobs - 1;
-            submit_pending_io st;                       (* If something was waiting for a slot, submit it now. *)
-            match runnable with
-            | Read req -> 
-              Log.debug (fun l -> l "read returned");
-              complete_rw_req st req result
-            | Write req ->
-              Log.debug (fun l -> l "write returned");
-              complete_rw_req st req result
-            | Poll_add k ->
-              Log.debug (fun l -> l "poll_add returned");
-              Suspended.continue k result
-            | Splice k ->
-              Log.debug (fun l -> l "splice returned");
-              Suspended.continue k result
-            | Connect k ->
-              Log.debug (fun l -> l "connect returned");
-              Suspended.continue k result
-            | Accept k ->
-              Log.debug (fun l -> l "accept returned");
-              Suspended.continue k result
-            | Close k ->
-              Log.debug (fun l -> l "close returned");
-              Suspended.continue k result
-          end
-      )
+      (* Handle any pending events before submitting. This is faster. *)
+      match Uring.peek uring with
+      | Some { data = runnable; result } -> handle_complete st ~runnable result
+      | None ->
+        let num_jobs = Uring.submit uring in
+        st.io_jobs <- st.io_jobs + num_jobs;
+        let timeout = Zzz.select_next sleep_q in
+        Log.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
+                      (match timeout with None -> "inf" | Some v -> string_of_float v));
+        assert (Queue.length run_q = 0);
+        if timeout = None && st.io_jobs = 0 then (
+          (* Nothing further can happen at this point.
+             If there are no events in progress but also still no memory available, something has gone wrong! *)
+          assert (Queue.length mem_q = 0);
+          Log.debug (fun l -> l "schedule: exiting");    (* Nothing left to do *)
+          `Exit_scheduler
+        ) else (
+          Ctf.(note_hiatus Wait_for_work);
+          let result = Uring.wait ?timeout uring in
+          Ctf.note_resume system_thread;
+          match result with
+          | None ->
+            assert (timeout <> None);
+            schedule st                                   (* Woken by a timeout, which is now due *)
+          | Some { data = runnable; result } ->
+            handle_complete st ~runnable result
+        )
+and handle_complete st ~runnable result =
+  st.io_jobs <- st.io_jobs - 1;
+  submit_pending_io st;                       (* If something was waiting for a slot, submit it now. *)
+  match runnable with
+  | Read req ->
+    Log.debug (fun l -> l "read returned");
+    complete_rw_req st req result
+  | Write req ->
+    Log.debug (fun l -> l "write returned");
+    complete_rw_req st req result
+  | Poll_add k ->
+    Log.debug (fun l -> l "poll_add returned");
+    Suspended.continue k result
+  | Splice k ->
+    Log.debug (fun l -> l "splice returned");
+    Suspended.continue k result
+  | Connect k ->
+    Log.debug (fun l -> l "connect returned");
+    Suspended.continue k result
+  | Accept k ->
+    Log.debug (fun l -> l "accept returned");
+    Suspended.continue k result
+  | Close k ->
+    Log.debug (fun l -> l "close returned");
+    Suspended.continue k result
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res, len with
   | 0, _ -> Suspended.discontinue action End_of_file
@@ -613,9 +618,8 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       alloc_buf st k
     | effect (Free buf) k ->
-      let k = { Suspended.k; tid } in
       free_buf st buf;
-      Suspended.continue k ()
+      continue k ()
   in
   let main_done = ref false in
   let `Exit_scheduler = fork ~tid:(Ctf.mint_id ()) (fun () ->
