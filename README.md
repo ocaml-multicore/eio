@@ -93,12 +93,11 @@ It is also convenient to open the `Fibreslib` module:
 # open Fibreslib;;
 ```
 
-Here's a slightly complicated way of writing a greeting to stdout:
+This function writes a greeting to stdout:
 
 ```ocaml
 let main ~stdout =
-  let src = Eio.Flow.string_source "Hello, world!\n" in
-  Eio.Flow.write stdout ~src
+  Eio.Flow.copy_string "Hello, world!\n" stdout
 ```
 
 To run it, we use `Eio_main.run` to run the event loop and call it from there:
@@ -284,9 +283,9 @@ rather than propagate it.
 ## Performance
 
 As mentioned above, Eio allows you to supply your own implementations of its abstract interfaces.
-This is in contrast to OCaml's `Unix` module, for example, which only operates on OS file descriptors.
+This is in contrast to OCaml's standard library, for example, which only operates on OS file descriptors.
 You might wonder what the performance impact of this is.
-Here's a simple implementation of `cat` using OCaml's `Unix` module:
+Here's a simple implementation of `cat` using the standard OCaml functions:
 
 ```ocaml
 # let () =
@@ -306,9 +305,9 @@ And here is the equivalent using Eio:
 ```ocaml
 # let () =
     Eio_main.run @@ fun env ->
-    let src = Eio.Stdenv.stdin env in
-    let dst = Eio.Stdenv.stdout env in
-    Eio.Flow.write dst ~src
+    Eio.Flow.copy
+      (Eio.Stdenv.stdin env)
+      (Eio.Stdenv.stdout env)
 ```
 
 Testing on a fresh 10G file with [pv](https://www.ivarch.com/programs/pv.shtml) on my machine gives:
@@ -326,8 +325,10 @@ $ cat_ocaml_eio.exe  < dummy | pv >/dev/null
 10.0GiB 0:00:03 [3.01GiB/s]
 ```
 
-`Eio.Flow.write` first calls the `probe` method on the `src` object.
-Discovering that `src` is a Unix file descriptor, it switches to a faster code path optimised for that case.
+`Eio.Flow.copy src dst` asks `dst` to copy from `src`.
+As `dst` here is a Unix file descriptor,
+it first calls the `probe` method on the `src` object to check whether it is too.
+Discovering that `src` is also a file descriptor, it switches to a faster code path optimised for that case.
 On my machine, this code path uses the Linux-specific `splice` system call for maximum performance.
 
 Note that not all cases are well optimised yet, but the idea is for each backend to choose the most efficient way to implement the operation.
@@ -341,7 +342,7 @@ Here is a client that connects to address `addr` using `network` and sends a mes
 let run_client ~sw ~network ~addr =
   traceln "Connecting to server...";
   let flow = Eio.Network.connect ~sw network addr in
-  Eio.Flow.write_string flow "Hello from client";
+  Eio.Flow.copy_string "Hello from client" flow;
   Eio.Flow.close flow
 ```
 
@@ -356,8 +357,7 @@ let run_server ~sw socket =
   Eio.Network.Listening_socket.accept_sub socket ~sw (fun ~sw flow _addr ->
     traceln "Server accepted connection from client";
     let b = Buffer.create 100 in
-    let buf = Eio.Flow.buffer_sink b in
-    Eio.Flow.write buf ~src:flow;
+    Eio.Flow.copy flow (Eio.Flow.buffer_sink b);
     traceln "Server received: %S" (Buffer.contents b)
   ) ~on_error:(fun ex -> traceln "Error handling connection: %s" (Printexc.to_string ex));
   traceln "(normally we'd loop and accept more connections here)"

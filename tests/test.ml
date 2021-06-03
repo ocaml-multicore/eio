@@ -156,10 +156,10 @@ let test_copy () =
   let from_pipe, to_pipe = Eunix.pipe sw in
   let buffer = Buffer.create 20 in
   Fibre.both ~sw
-    (fun () -> Eio.Flow.write (Eio.Flow.buffer_sink buffer) ~src:from_pipe)
+    (fun () -> Eio.Flow.copy from_pipe (Eio.Flow.buffer_sink buffer))
     (fun () ->
-       Eio.Flow.write to_pipe ~src:(Eio.Flow.string_source msg);
-       Eio.Flow.write to_pipe ~src:(Eio.Flow.string_source msg);
+       Eio.Flow.copy (Eio.Flow.string_source msg) to_pipe;
+       Eio.Flow.copy (Eio.Flow.string_source msg) to_pipe;
        Eio.Flow.close to_pipe
     );
   Alcotest.(check string) "Copy correct" (msg ^ msg) (Buffer.contents buffer);
@@ -175,9 +175,9 @@ let test_direct_copy () =
   let buffer = Buffer.create 20 in
   let to_output = Eio.Flow.buffer_sink buffer in
   Switch.top (fun sw ->
-      Fibre.fork_ignore ~sw (fun () -> Ctf.label "copy1"; Eio.Flow.write ~src:from_pipe1 to_pipe2; Eio.Flow.close to_pipe2);
-      Fibre.fork_ignore ~sw (fun () -> Ctf.label "copy2"; Eio.Flow.write ~src:from_pipe2 to_output);
-      Eio.Flow.write to_pipe1 ~src:(Eio.Flow.string_source msg);
+      Fibre.fork_ignore ~sw (fun () -> Ctf.label "copy1"; Eio.Flow.copy from_pipe1 to_pipe2; Eio.Flow.close to_pipe2);
+      Fibre.fork_ignore ~sw (fun () -> Ctf.label "copy2"; Eio.Flow.copy from_pipe2 to_output);
+      Eio.Flow.copy (Eio.Flow.string_source msg) to_pipe1;
       Eio.Flow.close to_pipe1;
     );
   Alcotest.(check string) "Copy correct" msg (Buffer.contents buffer);
