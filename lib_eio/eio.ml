@@ -73,10 +73,10 @@ module Flow = struct
     method virtual write : 'a. (#source as 'a) -> unit
   end
 
-  (** [write src] writes data from [src] until end-of-file. *)
-  let write (t : #write) ~src = t#write src
+  (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
+  let copy (src : #source) (dst : #write) = dst#write src
 
-  let write_string t s = write t ~src:(string_source s)
+  let copy_string s = copy (string_source s)
 
   (** Consumer base class. *)
   class virtual sink = object (_ : #Generic.t)
