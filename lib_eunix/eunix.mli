@@ -61,24 +61,25 @@ val with_chunk : (Uring.Region.chunk -> 'a) -> 'a
 val openfile : sw:Switch.t -> string -> Unix.open_flag list -> int -> FD.t
 (** Like {!Unix.open_file}. *)
 
-val read_upto : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> int
+val read_upto : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> int
 (** [read_upto fd chunk len] reads at most [len] bytes from [fd],
     returning as soon as some data is available.
+    @param sw Abort the read if [sw] is turned off.
     @param file_offset Read from the given position in [fd] (default: 0).
     @raise End_of_file Raised if all data has already been read. *)
 
-val read_exactly : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
+val read_exactly : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
 (** [read_exactly fd chunk len] reads exactly [len] bytes from [fd],
     performing multiple read operations if necessary.
     @param file_offset Read from the given position in [fd] (default: 0).
     @raise End_of_file Raised if the stream ends before [len] bytes have been read. *)
 
-val write : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
+val write : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
 (** [write fd buf len] writes exactly [len] bytes from [buf] to [fd].
     It blocks until the OS confirms the write is done,
     and resubmits automatically if the OS doesn't write all of it at once. *)
 
-val splice : FD.t -> dst:FD.t -> len:int -> int
+val splice : ?sw:Switch.t -> FD.t -> dst:FD.t -> len:int -> int
 (** [splice src ~dst ~len] attempts to copy up to [len] bytes of data from [src] to [dst].
     @return The number of bytes copied.
     @raise End_of_file [src] is at the end of the file.
@@ -98,10 +99,12 @@ val fstat : FD.t -> Unix.stats
 
 (** {1 Sockets} *)
 
-val accept : FD.t -> (FD.t * Unix.sockaddr)
-(** [accept t] blocks until a new connection is received on listening socket [t].
+val accept : sw:Switch.t -> FD.t -> (FD.t * Unix.sockaddr)
+(** [accept ~sw t] blocks until a new connection is received on listening socket [t].
     It returns the new connection and the address of the connecting peer.
-    The new connection has the close-on-exec flag set automatically. *)
+    The new connection has the close-on-exec flag set automatically.
+    The new connection is attached to [sw] and will be closed when that finishes, if
+    not already closed manually by then. *)
 
 val shutdown : FD.t -> Unix.shutdown_command -> unit
 (** Like {!Unix.shutdown}. *)

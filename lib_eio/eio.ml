@@ -21,16 +21,17 @@ module Flow = struct
   let close (t : #close) = t#close
 
   class virtual read = object
-    method virtual read_into : Cstruct.t -> int
+    method virtual read_into : ?sw:Switch.t -> Cstruct.t -> int
   end
 
   (** [read_into buf] reads one or more bytes into [buf].
       It returns the number of bytes written (which may be less than the
       buffer size even if there is more data to be read).
       [buf] must not be zero-length.
+      @param sw Abort the read if [sw] is turned off.
       @raise End_of_file if there is no more data to read *)
-  let read_into (t : #read) buf =
-    let got = t#read_into buf in
+  let read_into ?sw (t : #read) buf =
+    let got = t#read_into ?sw buf in
     assert (got > 0);
     got
 
@@ -46,7 +47,8 @@ module Flow = struct
 
       val mutable data = Cstruct.of_string s
 
-      method read_into buf =
+      method read_into ?sw buf =
+        Option.iter Switch.check sw;
         match Cstruct.length data with
         | 0 -> raise End_of_file
         | remaining ->
@@ -62,7 +64,8 @@ module Flow = struct
 
       inherit source
 
-      method read_into dst =
+      method read_into ?sw dst =
+        Option.iter Switch.check sw;
         let avail, src = Cstruct.fillv ~dst ~src:data in
         if avail = 0 then raise End_of_file;
         data <- src;
@@ -70,13 +73,13 @@ module Flow = struct
     end
 
   class virtual write = object
-    method virtual write : 'a. (#source as 'a) -> unit
+    method virtual write : 'a. ?sw:Switch.t -> (#source as 'a) -> unit
   end
 
   (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
-  let copy (src : #source) (dst : #write) = dst#write src
+  let copy ?sw (src : #source) (dst : #write) = dst#write ?sw src
 
-  let copy_string s = copy (string_source s)
+  let copy_string ?sw s = copy ?sw (string_source s)
 
   (** Consumer base class. *)
   class virtual sink = object (_ : #Generic.t)
@@ -88,11 +91,11 @@ module Flow = struct
     object
       inherit sink
 
-      method write src =
+      method write ?sw src =
         let buf = Cstruct.create 4096 in
         try
           while true do
-            let got = src#read_into buf in
+            let got = src#read_into ?sw buf in
             Buffer.add_string b (Cstruct.to_string ~len:got buf)
           done
         with End_of_file -> ()
