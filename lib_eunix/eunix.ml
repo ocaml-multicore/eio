@@ -120,7 +120,7 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; _} as req) =
     |`R -> Uring.read uring ~file_offset fd off len (Read req)
     |`W -> Uring.write uring ~file_offset fd off len (Write req)
   in
-  if not subm then (
+  if subm = None then (
     Ctf.label "await-sqe";
     (* wait until an sqe is available *)
     Queue.push (fun st -> submit_rw_req st req) io_q
@@ -144,14 +144,14 @@ let rec enqueue_poll_add st action fd poll_mask =
   Log.debug (fun l -> l "poll_add: submitting call");
   Ctf.label "poll_add";
   let subm = Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Poll_add action) in
-  if not subm then (* wait until an sqe is available *)
+  if subm = None then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_poll_add st action fd poll_mask) st.io_q
 
 let rec enqueue_close st action fd =
   Log.debug (fun l -> l "close: submitting call");
   Ctf.label "close";
   let subm = Uring.close st.uring fd (Close action) in
-  if not subm then (* wait until an sqe is available *)
+  if subm = None then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_close st action fd) st.io_q
 
 let enqueue_write st action (file_offset,fd,buf,len) =
@@ -169,21 +169,21 @@ let rec enqueue_splice st action ~src ~dst ~len =
   Log.debug (fun l -> l "splice: submitting call");
   Ctf.label "splice";
   let subm = Uring.splice st.uring (Splice action) ~src:(FD.get "splice" src) ~dst:(FD.get "splice" dst) ~len in
-  if not subm then (* wait until an sqe is available *)
+  if subm = None then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_splice st action ~src ~dst ~len) st.io_q
 
 let rec enqueue_connect st action fd addr =
   Log.debug (fun l -> l "connect: submitting call");
   Ctf.label "connect";
   let subm = Uring.connect st.uring (FD.get "connect" fd) addr (Connect action) in
-  if not subm then (* wait until an sqe is available *)
+  if subm = None then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_connect st action fd addr) st.io_q
 
 let rec enqueue_accept st action fd client_addr =
   Log.debug (fun l -> l "accept: submitting call");
   Ctf.label "accept";
   let subm = Uring.accept st.uring (FD.get "accept" fd) client_addr (Accept action) in
-  if not subm then (* wait until an sqe is available *)
+  if subm = None then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_accept st action fd client_addr) st.io_q
 
 let submit_pending_io st =
