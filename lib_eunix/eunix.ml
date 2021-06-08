@@ -93,7 +93,7 @@ type io_job =
   | Read : rw_req * cancel_hook -> io_job
   | Poll_add : int Suspended.t -> io_job
   | Splice : int Suspended.t * cancel_hook -> io_job
-  | Connect : int Suspended.t -> io_job
+  | Connect : int Suspended.t * cancel_hook -> io_job
   | Accept : int Suspended.t * cancel_hook -> io_job
   | Close : int Suspended.t -> io_job
   | Write : rw_req * cancel_hook -> io_job
@@ -236,12 +236,15 @@ let rec enqueue_splice ?sw st action ~src ~dst ~len =
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_splice ?sw st action ~src ~dst ~len) st.io_q
 
-let rec enqueue_connect st action fd addr =
+let rec enqueue_connect ?sw st action fd addr =
   Log.debug (fun l -> l "connect: submitting call");
   Ctf.label "connect";
-  let subm = Uring.connect st.uring (FD.get "connect" fd) addr (Connect action) in
-  if subm = None then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_connect st action fd addr) st.io_q
+  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+      Uring.connect st.uring (FD.get "connect" fd) addr (Connect (action, cancel))
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_connect ?sw st action fd addr) st.io_q
 
 let rec enqueue_cancel st action job =
   Log.debug (fun l -> l "cancel: submitting call");
@@ -327,8 +330,9 @@ and handle_complete st ~runnable result =
     Log.debug (fun l -> l "splice returned");
     Fibre_impl.Waiters.remove_waiter !cancel;
     Suspended.continue k result
-  | Connect k ->
+  | Connect (k, cancel) ->
     Log.debug (fun l -> l "connect returned");
+    Fibre_impl.Waiters.remove_waiter !cancel;
     Suspended.continue k result
   | Accept (k, cancel) ->
     Log.debug (fun l -> l "accept returned");
@@ -434,10 +438,13 @@ let splice ?sw src ~dst ~len =
     raise (Unix.Unix_error (Uring.error_of_errno res, "splice", ""))
   )
 
-effect Connect : FD.t * Unix.sockaddr -> int
-let connect fd addr =
-  let res = perform (Connect (fd, addr)) in
-  if res < 0 then raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
+effect Connect : Switch.t option * FD.t * Unix.sockaddr -> int
+let connect ?sw fd addr =
+  let res = perform (Connect (sw, fd, addr)) in
+  if res < 0 then (
+    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
+    raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
+  )
 
 let with_chunk fn =
   let chunk = alloc () in
@@ -574,7 +581,7 @@ module Objects = struct
     method connect ~sw addr =
       let sock_unix = Unix.(socket PF_INET SOCK_STREAM 0) in
       let sock = FD.of_unix ~sw ~seekable:false sock_unix in
-      connect sock addr;
+      connect ~sw sock addr;
       (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
   end
 
@@ -642,9 +649,9 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       enqueue_splice ?sw st k ~src ~dst ~len;
       schedule st
-    | effect (Connect (fd, addr)) k ->
+    | effect (Connect (sw, fd, addr)) k ->
       let k = { Suspended.k; tid } in
-      enqueue_connect st k fd addr;
+      enqueue_connect ?sw st k fd addr;
       schedule st
     | effect (Accept (sw, fd, client_addr)) k ->
       let k = { Suspended.k; tid } in
