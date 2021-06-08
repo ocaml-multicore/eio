@@ -85,13 +85,13 @@ val splice : ?sw:Switch.t -> FD.t -> dst:FD.t -> len:int -> int
     @raise End_of_file [src] is at the end of the file.
     @raise Unix.Unix_error(EINVAL, "splice", _) if splice is not supported for these FDs. *)
 
-val connect : FD.t -> Unix.sockaddr -> unit
+val connect : ?sw:Switch.t -> FD.t -> Unix.sockaddr -> unit
 (** [connect fd addr] attempts to connect socket [fd] to [addr]. *)
 
-val await_readable : FD.t -> unit
+val await_readable : ?sw:Switch.t -> FD.t -> unit
 (** [await_readable fd] blocks until [fd] is readable (or has an error). *)
 
-val await_writable : FD.t -> unit
+val await_writable : ?sw:Switch.t -> FD.t -> unit
 (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
 val fstat : FD.t -> Unix.stats

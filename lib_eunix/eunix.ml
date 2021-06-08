@@ -91,9 +91,9 @@ type cancel_hook = Fibre_impl.Waiters.waiter ref
 (* Type of user-data attached to jobs. *)
 type io_job =
   | Read : rw_req * cancel_hook -> io_job
-  | Poll_add : int Suspended.t -> io_job
+  | Poll_add : int Suspended.t * cancel_hook -> io_job
   | Splice : int Suspended.t * cancel_hook -> io_job
-  | Connect : int Suspended.t -> io_job
+  | Connect : int Suspended.t * cancel_hook -> io_job
   | Accept : int Suspended.t * cancel_hook -> io_job
   | Close : int Suspended.t -> io_job
   | Write : rw_req * cancel_hook -> io_job
@@ -201,12 +201,15 @@ let enqueue_read st action (sw,file_offset,fd,buf,len) =
   Ctf.label "read";
   submit_rw_req st req
 
-let rec enqueue_poll_add st action fd poll_mask =
+let rec enqueue_poll_add ?sw st action fd poll_mask =
   Log.debug (fun l -> l "poll_add: submitting call");
   Ctf.label "poll_add";
-  let subm = Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Poll_add action) in
-  if subm = None then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_poll_add st action fd poll_mask) st.io_q
+  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+      Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Poll_add (action, cancel))
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_poll_add ?sw st action fd poll_mask) st.io_q
 
 let rec enqueue_close st action fd =
   Log.debug (fun l -> l "close: submitting call");
@@ -236,12 +239,15 @@ let rec enqueue_splice ?sw st action ~src ~dst ~len =
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_splice ?sw st action ~src ~dst ~len) st.io_q
 
-let rec enqueue_connect st action fd addr =
+let rec enqueue_connect ?sw st action fd addr =
   Log.debug (fun l -> l "connect: submitting call");
   Ctf.label "connect";
-  let subm = Uring.connect st.uring (FD.get "connect" fd) addr (Connect action) in
-  if subm = None then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_connect st action fd addr) st.io_q
+  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+      Uring.connect st.uring (FD.get "connect" fd) addr (Connect (action, cancel))
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_connect ?sw st action fd addr) st.io_q
 
 let rec enqueue_cancel st action job =
   Log.debug (fun l -> l "cancel: submitting call");
@@ -320,15 +326,17 @@ and handle_complete st ~runnable result =
     Log.debug (fun l -> l "write returned");
     Fibre_impl.Waiters.remove_waiter !cancel;
     complete_rw_req st req result
-  | Poll_add k ->
+  | Poll_add (k, cancel) ->
     Log.debug (fun l -> l "poll_add returned");
+    Fibre_impl.Waiters.remove_waiter !cancel;
     Suspended.continue k result
   | Splice (k, cancel) ->
     Log.debug (fun l -> l "splice returned");
     Fibre_impl.Waiters.remove_waiter !cancel;
     Suspended.continue k result
-  | Connect k ->
+  | Connect (k, cancel) ->
     Log.debug (fun l -> l "connect returned");
+    Fibre_impl.Waiters.remove_waiter !cancel;
     Suspended.continue k result
   | Accept (k, cancel) ->
     Log.debug (fun l -> l "accept returned");
@@ -394,19 +402,23 @@ let read_upto ?sw ?file_offset fd buf len =
     res
   )
 
-effect EPoll_add : FD.t * Uring.Poll_mask.t -> int
+effect EPoll_add : Switch.t option * FD.t * Uring.Poll_mask.t -> int
 
-let await_readable fd =
-  let res = perform (EPoll_add (fd, Uring.Poll_mask.(pollin + pollerr))) in
+let await_readable ?sw fd =
+  let res = perform (EPoll_add (sw, fd, Uring.Poll_mask.(pollin + pollerr))) in
   Log.debug (fun l -> l "await_readable: woken up");
-  if res < 0 then
+  if res < 0 then (
+    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
+  )
 
-let await_writable fd =
-  let res = perform (EPoll_add (fd, Uring.Poll_mask.(pollout + pollerr))) in
+let await_writable ?sw fd =
+  let res = perform (EPoll_add (sw, fd, Uring.Poll_mask.(pollout + pollerr))) in
   Log.debug (fun l -> l "await_writable: woken up");
-  if res < 0 then
+  if res < 0 then (
+    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
+  )
 
 effect EWrite : (Switch.t option * Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int
 
@@ -434,10 +446,13 @@ let splice ?sw src ~dst ~len =
     raise (Unix.Unix_error (Uring.error_of_errno res, "splice", ""))
   )
 
-effect Connect : FD.t * Unix.sockaddr -> int
-let connect fd addr =
-  let res = perform (Connect (fd, addr)) in
-  if res < 0 then raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
+effect Connect : Switch.t option * FD.t * Unix.sockaddr -> int
+let connect ?sw fd addr =
+  let res = perform (Connect (sw, fd, addr)) in
+  if res < 0 then (
+    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
+    raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
+  )
 
 let with_chunk fn =
   let chunk = alloc () in
@@ -574,7 +589,7 @@ module Objects = struct
     method connect ~sw addr =
       let sock_unix = Unix.(socket PF_INET SOCK_STREAM 0) in
       let sock = FD.of_unix ~sw ~seekable:false sock_unix in
-      connect sock addr;
+      connect ~sw sock addr;
       (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
   end
 
@@ -626,9 +641,9 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       enqueue_read st k args;
       schedule st
-    | effect (EPoll_add (fd, poll_mask)) k ->
+    | effect (EPoll_add (sw, fd, poll_mask)) k ->
       let k = { Suspended.k; tid } in
-      enqueue_poll_add st k fd poll_mask;
+      enqueue_poll_add ?sw st k fd poll_mask;
       schedule st
     | effect (Close fd) k ->
       let k = { Suspended.k; tid } in
@@ -642,9 +657,9 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       enqueue_splice ?sw st k ~src ~dst ~len;
       schedule st
-    | effect (Connect (fd, addr)) k ->
+    | effect (Connect (sw, fd, addr)) k ->
       let k = { Suspended.k; tid } in
-      enqueue_connect st k fd addr;
+      enqueue_connect ?sw st k fd addr;
       schedule st
     | effect (Accept (sw, fd, client_addr)) k ->
       let k = { Suspended.k; tid } in
