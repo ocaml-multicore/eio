@@ -31,6 +31,10 @@ module Switch : sig
   (** [check t] checks that [t] is still on.
       @raise Cancelled If the switch is off. *)
 
+  val get_error : t -> exn option
+  (** [get_error t] is like [check t] except that it returns the exception instead of raising it.
+      If [t] is finished, this returns (rather than raising) the [Invalid_argument] exception too. *)
+
   val turn_off : t -> exn -> unit
   (** [turn_off t ex] turns off [t], with reason [ex].
       It returns immediately, without waiting for the shutdown actions to complete.
@@ -186,6 +190,9 @@ module Fibre_impl : sig
     (** A queue of callbacks waiting for a value of type ['a]. *)
 
     type waiter
+
+    val null : waiter
+    (** A dummy waiter that does nothing when removed. *)
 
     val add_waiter : 'a t -> (('a, exn) result -> unit) -> waiter
     (** [add_waiter t fn] adds [fn] to the queue of callbacks to be invoked when the wait is over.

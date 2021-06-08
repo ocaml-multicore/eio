@@ -33,12 +33,18 @@ let check t =
   | Off ex -> raise (Cancelled ex)
   | Finished -> invalid_arg "Switch finished!"
 
+let get_error t =
+  match t.state with
+  | On _ -> None
+  | Off ex -> Some (Cancelled ex)
+  | Finished -> Some (Invalid_argument "Switch finished!")
+
 let is_finished t =
   match t.state with
   | Finished -> true
   | On _ | Off _ -> false
 
-let turn_off t ex =
+let rec turn_off t ex =
   match t.state with
   | Finished -> invalid_arg "Switch finished!"
   | Off orig when orig == ex -> ()
@@ -50,7 +56,17 @@ let turn_off t ex =
   | On q ->
     Ctf.note_resolved t.id ~ex:(Some ex);
     t.state <- Off ex;
-    Lwt_dllist.iter_r (fun f -> f ex) q
+    let rec aux () =
+      match Lwt_dllist.take_opt_r q with
+      | None -> ()
+      | Some f ->
+        begin
+          try f ex 
+          with ex2 -> turn_off t ex2
+        end;
+        aux ()
+    in
+    aux ()
 
 let add_cancel_hook t hook =
   match t.state with
