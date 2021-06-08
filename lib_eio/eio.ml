@@ -1,9 +1,7 @@
 open Fibreslib
 
-(** A base class for objects that can be queried at runtime for extra features. *)
 module Generic = struct
   type 'a ty = ..
-  (** An ['a ty] is a query for a feature of type ['a]. *)
 
   class type t = object
     method probe : 'a. 'a ty -> 'a option
@@ -12,7 +10,6 @@ module Generic = struct
   let probe (t : #t) ty = t#probe ty
 end
 
-(** Byte streams. *)
 module Flow = struct
   class type close = object
     method close : unit
@@ -24,18 +21,11 @@ module Flow = struct
     method virtual read_into : ?sw:Switch.t -> Cstruct.t -> int
   end
 
-  (** [read_into buf] reads one or more bytes into [buf].
-      It returns the number of bytes written (which may be less than the
-      buffer size even if there is more data to be read).
-      [buf] must not be zero-length.
-      @param sw Abort the read if [sw] is turned off.
-      @raise End_of_file if there is no more data to read *)
   let read_into ?sw (t : #read) buf =
     let got = t#read_into ?sw buf in
     assert (got > 0);
     got
 
-  (** Producer base class. *)
   class virtual source = object (_ : #Generic.t)
     method probe _ = None
     inherit read
@@ -76,12 +66,10 @@ module Flow = struct
     method virtual write : 'a. ?sw:Switch.t -> (#source as 'a) -> unit
   end
 
-  (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
   let copy ?sw (src : #source) (dst : #write) = dst#write ?sw src
 
   let copy_string ?sw s = copy ?sw (string_source s)
 
-  (** Consumer base class. *)
   class virtual sink = object (_ : #Generic.t)
     method probe _ = None
     inherit write
@@ -101,7 +89,6 @@ module Flow = struct
         with End_of_file -> ()
     end
 
-  (** Bidirectional stream base class. *)
   class virtual two_way = object (_ : #Generic.t)
     method probe _ = None
     inherit read
@@ -136,11 +123,7 @@ module Network = struct
     end
 
     let listen (t : #t) = t#listen
-
-    (** [accept t fn] waits for a new connection to [t] and then runs [fn ~sw flow client_addr] in a new fibre,
-        created with [Fibre.fork_sub_ignore].
-        [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
-    let accept_sub (t : #t) = t#accept_sub
+    let accept_sub ~sw (t : #t) = t#accept_sub ~sw
   end
 
   class virtual t = object
@@ -148,16 +131,10 @@ module Network = struct
     method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   end
 
-  (** [bind ~sw t addr] is a new listening socket bound to local address [addr].
-      The new socket will be closed when [sw] finishes, unless closed manually first. *)
-  let bind ?(reuse_addr=false) (t:#t) = t#bind ~reuse_addr
-
-  (** [connect t ~sw addr] is a new socket connected to remote address [addr].
-      The new socket will be closed when [sw] finishes, unless closed manually first. *)
-  let connect (t:#t) = t#connect
+  let bind ?(reuse_addr=false) ~sw (t:#t) = t#bind ~reuse_addr ~sw
+  let connect ~sw (t:#t) = t#connect ~sw
 end
 
-(** The standard environment of a process. *)
 module Stdenv = struct
   type t = <
     stdin  : Flow.source;
