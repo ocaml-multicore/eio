@@ -15,7 +15,7 @@
 
 (mdx
   (packages eunix)
-  (files test_switch.md test_network.md))
+  (files test_switch.md test_network.md test_domains.md))
 
 (test
  (name test)

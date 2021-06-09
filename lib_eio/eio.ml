@@ -3,12 +3,17 @@ module Std = struct
   module Fibre = Fibre
   module Switch = Switch
 
+  let stderr_mutex = Mutex.create ()
   let traceln ?__POS__ fmt =
     fmt |> Format.kasprintf (fun msg ->
         Ctf.label msg;
-        match __POS__ with
-        | Some (file, lnum, _, _) -> Format.printf "%s:%d %s@." file lnum msg
-        | None -> Format.printf "%s@." msg
+        Mutex.lock stderr_mutex;
+        Fun.protect ~finally:(fun () -> Mutex.unlock stderr_mutex)
+          (fun () ->
+             match __POS__ with
+             | Some (file, lnum, _, _) -> Format.printf "%s:%d %s@." file lnum msg
+             | None -> Format.printf "%s@." msg
+          )
       )
 end
 
@@ -151,12 +156,21 @@ module Network = struct
   let connect ~sw (t:#t) = t#connect ~sw
 end
 
+module Domain_manager = struct
+  class virtual t = object
+    method virtual run_compute_unsafe : 'a. (unit -> 'a) -> 'a
+  end
+
+  let run_compute_unsafe (t : #t) = t#run_compute_unsafe
+end
+
 module Stdenv = struct
   type t = <
     stdin  : Flow.source;
     stdout : Flow.sink;
     stderr : Flow.sink;
     network : Network.t;
+    domain_mgr : Domain_manager.t;
   >
 
   let stdin  (t : <stdin  : #Flow.source; ..>) = t#stdin
@@ -164,6 +178,8 @@ module Stdenv = struct
   let stderr (t : <stderr : #Flow.sink;   ..>) = t#stderr
 
   let network (t : <network : #Network.t; ..>) = t#network
+
+  let domain_mgr (t : <domain_mgr : #Domain_manager.t; ..>) = t#domain_mgr
 end
 
 module Private = struct
