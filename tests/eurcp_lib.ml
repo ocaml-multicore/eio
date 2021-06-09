@@ -1,6 +1,6 @@
 (* cp(1) built with effects. *)
 
-open Fibreslib
+open Eio.Std
 
 module U = Eunix
 module Int63 = Optint.Int63

@@ -59,8 +59,7 @@ It is able to run a web-server with good performance, but most features are stil
 
 ## Structure of the code
 
-- `fibreslib` provides concurrency primitives (promises, semaphores, etc).
-- `eio` provides a high-level, cross-platform OS API.
+- `eio` provides concurrency primitives (promises, etc), and a high-level, cross-platform OS API.
 - `eunix` provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
 - `eio_main` selects an appropriate backend (e.g. `eunix`), depending on your platform.
@@ -86,11 +85,11 @@ opam depext -i eio_main utop
 ```
 
 To try out the examples interactively, run `utop` and `require` the `eio_main` library.
-It is also convenient to open the `Fibreslib` module:
+It is also convenient to open the `Eio.Std` module:
 
 ```ocaml
 # #require "eio_main";;
-# open Fibreslib;;
+# open Eio.Std;;
 ```
 
 This function writes a greeting to stdout:

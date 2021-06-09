@@ -5,7 +5,7 @@
 ```
 
 ```ocaml
-open Fibreslib
+open Eio.Std
 
 let run (fn : network:Eio.Network.t -> Switch.t -> unit) =
   try

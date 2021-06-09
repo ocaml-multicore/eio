@@ -5,7 +5,7 @@
 ```
 
 ```ocaml
-open Fibreslib
+open Eio.Std
 
 let run (fn : Switch.t -> unit) =
   try
@@ -153,15 +153,15 @@ Turning off a switch runs the cancel callbacks, unless they've been removed by t
 
 ```ocaml
 # run (fun sw ->
-      let h1 = Fibre_impl.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 1") in
-      let h2 = Fibre_impl.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 2") in
-      let h3 = Fibre_impl.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 3") in
-      Fibre_impl.Waiters.remove_waiter h2;
+      let h1 = Eio.Private.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 1") in
+      let h2 = Eio.Private.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 2") in
+      let h3 = Eio.Private.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 3") in
+      Eio.Private.Waiters.remove_waiter h2;
       Switch.turn_off sw (Failure "Cancelled");
-      let h4 = Fibre_impl.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 4") in
-      Fibre_impl.Waiters.remove_waiter h1;
-      Fibre_impl.Waiters.remove_waiter h3;
-      Fibre_impl.Waiters.remove_waiter h4
+      let h4 = Eio.Private.Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 4") in
+      Eio.Private.Waiters.remove_waiter h1;
+      Eio.Private.Waiters.remove_waiter h3;
+      Eio.Private.Waiters.remove_waiter h4
     )
 Cancel 3
 Cancel 1
