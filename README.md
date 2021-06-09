@@ -21,6 +21,7 @@ unreleased repository.
 * [Performance](#performance)
 * [Networking](#networking)
 * [Design note: object capabilities](#design-note-object-capabilities)
+* [Design note: determinism](#design-note-determinism)
 * [Further reading](#further-reading)
 
 <!-- vim-markdown-toc -->
@@ -436,6 +437,21 @@ Therefore, this cannot be used as a security mechanism.
 However, it still makes non-malicious code easier to understand and test,
 and may allow for an ocap extension to the language in the future.
 See [Emily][] for a previous attempt at this.
+
+## Design note: determinism
+
+Within a domain, fibres are scheduled deterministically.
+Programs using only the eio APIs can only behave non-deterministically if given a capability to do so from somewhere else.
+
+For example, `Fibre.both f g` always starts running `f` first,
+and only switches to `g` when `f` finishes or performs an effect that can switch fibres.
+
+Performing IO with external objects (e.g. `stdout`, files or network sockets) will introduce non-determinism,
+as will using multiple domains.
+
+Note that `traceln` is unusual. Although it writes (by default) to stderr, it will not switch fibres.
+Instead, if the OS is not ready to receive trace output, the whole domain is paused until it is ready.
+This means that adding `traceln` to deterministic code will not affect its scheduling.
 
 ## Further reading
 
