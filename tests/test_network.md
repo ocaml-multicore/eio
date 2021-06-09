@@ -86,22 +86,30 @@ Cancelling the read:
 
 ```ocaml
 # run @@ fun ~network sw ->
+  Switch.top @@ fun read_switch ->
   let server = Eio.Network.bind network ~sw ~reuse_addr:true addr in
   Eio.Network.Listening_socket.listen server 5;
   Fibre.both ~sw
-    (fun () -> run_server ~sw server)
+    (fun () ->
+      Eio.Network.Listening_socket.accept_sub server ~sw (fun ~sw flow _addr ->
+        try
+          let msg = read_all ~sw:read_switch flow in
+          traceln "Server received: %S" msg
+        with Switch.Cancelled Graceful_shutdown ->
+          Eio.Flow.copy_string "Request cancelled" flow
+      ) ~on_error:raise
+    )
     (fun () ->
       traceln "Connecting to server...";
       let flow = Eio.Network.connect ~sw network addr in
-      traceln "Connection opened - cancelling server";
-      Switch.turn_off sw Graceful_shutdown;
+      traceln "Connection opened - cancelling server's read";
+      Switch.turn_off read_switch Graceful_shutdown;
       let msg = read_all flow in
       traceln "Client received: %S" msg
     )
 Connecting to server...
-Server accepted connection from client
-Connection opened - cancelling server
-Client received: "Bye"
+Connection opened - cancelling server's read
+Client received: "Request cancelled"
 Graceful_shutdown
 - : unit = ()
 ```

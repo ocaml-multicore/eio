@@ -122,7 +122,7 @@ let enqueue_failed_thread st k ex =
 effect Cancel : io_job Uring.job -> int
 let cancel job =
   let res = perform (Cancel job) in
-  if res = 2 then (
+  if res = -2 then (
     Log.debug (fun f -> f "Cancel returned ENOENT - operation completed before cancel took effect")
   ) else if res <> 0 then (
     raise (Unix.Unix_error (Uring.error_of_errno res, "cancel", ""))
