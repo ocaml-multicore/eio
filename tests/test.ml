@@ -1,4 +1,4 @@
-open Fibreslib
+open Eio.Std
 
 let () =
   Logs.(set_level ~all:true (Some Debug));
@@ -106,6 +106,7 @@ let test_fork_ignore () =
     Alcotest.(check int) "Forked code ran" 2 !i
 
 let test_semaphore () =
+  let module Semaphore = Eio.Semaphore in
   Eunix.run ~queue_depth:1 @@ fun _stdenv ->
   Switch.top @@ fun sw ->
   let running = ref 0 in
@@ -135,6 +136,7 @@ let test_semaphore () =
   Semaphore.release sem
 
 let test_semaphore_no_waiter () =
+  let module Semaphore = Eio.Semaphore in
   Eunix.run ~queue_depth:2 @@ fun _stdenv ->
   Switch.top @@ fun sw ->
   let sem = Semaphore.make 0 in

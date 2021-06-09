@@ -1,4 +1,20 @@
-open Fibreslib
+module Std = struct
+  module Promise = Promise
+  module Fibre = Fibre
+  module Switch = Switch
+
+  let traceln ?__POS__ fmt =
+    fmt |> Format.kasprintf (fun msg ->
+        Ctf.label msg;
+        match __POS__ with
+        | Some (file, lnum, _, _) -> Format.printf "%s:%d %s@." file lnum msg
+        | None -> Format.printf "%s@." msg
+      )
+end
+
+module Semaphore = Semaphore
+
+open Std
 
 module Generic = struct
   type 'a ty = ..
@@ -148,4 +164,15 @@ module Stdenv = struct
   let stderr (t : <stderr : #Flow.sink;   ..>) = t#stderr
 
   let network (t : <network : #Network.t; ..>) = t#network
+end
+
+module Private = struct
+  module Effects = struct
+    effect Await = Switch.Await
+    effect Fork = Fibre.Fork
+    effect Fork_ignore = Fibre.Fork_ignore
+    effect Yield = Fibre.Yield
+  end
+  module Waiters = Waiters
+  module Switch = Switch
 end

@@ -12,7 +12,8 @@
   "An effect-based IO API for multicore OCaml with fibres.")
  (depends
   (ctf (= :version))
-  (fibreslib (= :version))
+  (cstruct (>= 6.0.0))
+  lwt-dllist
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name eunix)
@@ -22,7 +23,6 @@
  (depends
   (ocaml-variants (= "4.12.0+domains+effects"))
   (ctf (= :version))
-  (fibreslib (= :version))
   (eio (= :version))
   (alcotest (and (>= 1.4.0) :with-test))
   (mdx :with-test)
@@ -31,14 +31,6 @@
   (bigstringaf (>= 0.7.0))
   uring
   (bheap (>= 2.0.0))))
-(package
- (name fibreslib)
- (synopsis "Effect-based synchronisation primitives")
- (description "An effect-based API for promises and other synchronisation primitives.")
- (depends
-  (ctf (= :version))
-  lwt-dllist
-  (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name ctf)
  (synopsis "CTF tracing")

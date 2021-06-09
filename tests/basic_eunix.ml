@@ -1,7 +1,7 @@
 (* basic tests using effects *)
 
 open Eunix
-open Fibreslib
+open Eio.Std
 module Int63 = Optint.Int63
 
 let setup_log level =

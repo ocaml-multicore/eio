@@ -1,4 +1,5 @@
 (library
   (name eio)
   (public_name eio)
-  (libraries cstruct fibreslib))
+  (libraries cstruct ctf lwt-dllist)
+  (flags (:standard -w -50)))

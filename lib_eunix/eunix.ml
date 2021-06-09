@@ -17,7 +17,7 @@
 let src = Logs.Src.create "eunix" ~doc:"Effect-based IO system"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-open Fibreslib
+open Eio.Std
 
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)
@@ -86,7 +86,7 @@ type rw_req = {
   sw : Switch.t option;
 }
 
-type cancel_hook = Fibre_impl.Waiters.waiter ref
+type cancel_hook = Eio.Private.Waiters.waiter ref
 
 (* Type of user-data attached to jobs. *)
 type io_job =
@@ -156,7 +156,7 @@ let cancel job =
    If [sw] is already off, it schedules [action] to be discontinued.
    @return Whether to retry the operation later, once there is space. *)
 let with_cancel_hook ?sw ~action st fn =
-  let release = ref Fibre_impl.Waiters.null in
+  let release = ref Eio.Private.Waiters.null in
   match sw with
   | None -> fn release = None
   | Some sw ->
@@ -166,7 +166,7 @@ let with_cancel_hook ?sw ~action st fn =
       match fn release with
       | None -> true
       | Some job ->
-        release := Fibre_impl.Switch.add_cancel_hook sw (fun _ -> cancel job);
+        release := Eio.Private.Switch.add_cancel_hook sw (fun _ -> cancel job);
         false
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; sw; action} as req) =
@@ -320,27 +320,27 @@ and handle_complete st ~runnable result =
   match runnable with
   | Read (req, cancel) ->
     Log.debug (fun l -> l "read returned");
-    Fibre_impl.Waiters.remove_waiter !cancel;
+    Eio.Private.Waiters.remove_waiter !cancel;
     complete_rw_req st req result
   | Write (req, cancel) ->
     Log.debug (fun l -> l "write returned");
-    Fibre_impl.Waiters.remove_waiter !cancel;
+    Eio.Private.Waiters.remove_waiter !cancel;
     complete_rw_req st req result
   | Poll_add (k, cancel) ->
     Log.debug (fun l -> l "poll_add returned");
-    Fibre_impl.Waiters.remove_waiter !cancel;
+    Eio.Private.Waiters.remove_waiter !cancel;
     Suspended.continue k result
   | Splice (k, cancel) ->
     Log.debug (fun l -> l "splice returned");
-    Fibre_impl.Waiters.remove_waiter !cancel;
+    Eio.Private.Waiters.remove_waiter !cancel;
     Suspended.continue k result
   | Connect (k, cancel) ->
     Log.debug (fun l -> l "connect returned");
-    Fibre_impl.Waiters.remove_waiter !cancel;
+    Eio.Private.Waiters.remove_waiter !cancel;
     Suspended.continue k result
   | Accept (k, cancel) ->
     Log.debug (fun l -> l "accept returned");
-    Fibre_impl.Waiters.remove_waiter !cancel;
+    Eio.Private.Waiters.remove_waiter !cancel;
     Suspended.continue k result
   | Close k ->
     Log.debug (fun l -> l "close returned");
@@ -665,7 +665,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       enqueue_accept ~sw st k fd client_addr;
       schedule st
-    | effect Fibre_impl.Effects.Yield k ->
+    | effect Eio.Private.Effects.Yield k ->
       let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       schedule st
@@ -673,11 +673,11 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       Zzz.sleep sleep_q d k;
       schedule st
-    | effect (Fibre_impl.Effects.Await (sw, pid, q)) k ->
+    | effect (Eio.Private.Effects.Await (sw, pid, q)) k ->
       let k = { Suspended.k; tid } in
       let waiters = Queue.create () in
       let when_resolved r =
-        Queue.iter Fibre_impl.Waiters.remove_waiter waiters;
+        Queue.iter Eio.Private.Waiters.remove_waiter waiters;
         match r with
         | Ok v ->
           Ctf.note_read ~reader:tid pid;
@@ -688,13 +688,13 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       in
       let cancel ex = when_resolved (Error ex) in
       sw |> Option.iter (fun sw ->
-          let cancel_waiter = Fibre_impl.Switch.add_cancel_hook sw cancel in
+          let cancel_waiter = Eio.Private.Switch.add_cancel_hook sw cancel in
           Queue.add cancel_waiter waiters;
         );
-      let resolved_waiter = Fibre_impl.Waiters.add_waiter q when_resolved in
+      let resolved_waiter = Eio.Private.Waiters.add_waiter q when_resolved in
       Queue.add resolved_waiter waiters;
       schedule st
-    | effect (Fibre_impl.Effects.Fork f) k ->
+    | effect (Eio.Private.Effects.Fork f) k ->
       let k = { Suspended.k; tid } in
       let id = Ctf.mint_id () in
       Ctf.note_created id Ctf.Task;
@@ -709,7 +709,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
              Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
              Promise.break resolver ex
         )
-    | effect (Fibre_impl.Effects.Fork_ignore f) k ->
+    | effect (Eio.Private.Effects.Fork_ignore f) k ->
       let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       let child = Ctf.note_fork () in
