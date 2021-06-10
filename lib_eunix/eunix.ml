@@ -560,7 +560,10 @@ module Objects = struct
         with End_of_file -> ()
 
     method shutdown cmd =
-      Unix.shutdown (FD.get "shutdown" fd) cmd
+      Unix.shutdown (FD.get "shutdown" fd) @@ match cmd with
+      | `Receive -> Unix.SHUTDOWN_RECEIVE
+      | `Send -> Unix.SHUTDOWN_SEND
+      | `All -> Unix.SHUTDOWN_ALL
   end
 
   let source fd = (flow fd :> source)
@@ -571,28 +574,57 @@ module Objects = struct
 
     method close = FD.close fd
 
-    method listen n = Unix.listen (FD.get "listen" fd) n
-
     method accept_sub ~sw ~on_error fn =
       let client, client_addr = accept_loose_fd ~sw fd in
       Fibre.fork_sub_ignore ~sw ~on_error
-        (fun sw -> fn ~sw (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr)
+        (fun sw ->
+           let client_addr = match client_addr with
+             | Unix.ADDR_UNIX path         -> `Unix path
+             | Unix.ADDR_INET (host, port) -> `Tcp (host, port)
+           in
+           fn ~sw (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr
+        )
         ~on_release:(fun () -> FD.ensure_closed client)
   end
 
   let network = object
     inherit Eio.Network.t
 
-    method bind ~reuse_addr ~sw addr =
-      let sock_unix = Unix.(socket PF_INET SOCK_STREAM 0) in
+    method listen ~reuse_addr ~backlog ~sw listen_addr =
+      let socket_domain, socket_type, addr =
+        match listen_addr with
+        | `Unix path         ->
+          if reuse_addr then (
+            match Unix.lstat path with
+            | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
+            | _ -> ()
+            | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+          );
+          Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+        | `Tcp (host, port)  -> Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+      in
+      let sock_unix = Unix.socket socket_domain socket_type 0 in
+      (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
+      begin match listen_addr with
+        | `Unix path ->
+          if String.length path > 0 && path.[0] <> Char.chr 0 then
+            Switch.on_release sw (fun () -> Unix.unlink path)
+        | `Tcp _ -> ()
+      end;
       if reuse_addr then
         Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
       let sock = FD.of_unix ~sw ~seekable:false sock_unix in
       Unix.bind sock_unix addr;
+      Unix.listen sock_unix backlog;
       listening_socket sock
 
     method connect ~sw addr =
-      let sock_unix = Unix.(socket PF_INET SOCK_STREAM 0) in
+      let socket_domain, socket_type, addr =
+        match addr with
+        | `Unix path         -> Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+        | `Tcp (host, port)  -> Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+      in
+      let sock_unix = Unix.socket socket_domain socket_type 0 in
       let sock = FD.of_unix ~sw ~seekable:false sock_unix in
       connect ~sw sock addr;
       (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)

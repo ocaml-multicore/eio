@@ -17,7 +17,7 @@ let run (fn : network:Eio.Network.t -> Switch.t -> unit) =
   | Failure msg -> print_endline msg
   | ex -> print_endline (Printexc.to_string ex)
 
-let addr = Unix.(ADDR_INET (inet_addr_loopback, 8081))
+let addr = `Tcp (Unix.inet_addr_loopback, 8081)
 
 let read_all ?sw flow =
   let b = Buffer.create 100 in
@@ -36,7 +36,7 @@ let run_client ~sw ~network ~addr =
   traceln "Connecting to server...";
   let flow = Eio.Network.connect ~sw network addr in
   Eio.Flow.copy_string "Hello from client" flow;
-  Eio.Flow.shutdown flow Unix.SHUTDOWN_SEND;
+  Eio.Flow.shutdown flow `Send;
   let msg = read_all ~sw flow in
   traceln "Client received: %S" msg
 ```
@@ -58,14 +58,9 @@ let run_server ~sw socket =
       | ex -> traceln "Error handling connection: %s" (Printexc.to_string ex)
     );
   done
-```
 
-Handling one connection, then cancelling the server:
-
-```ocaml
-# run @@ fun ~network sw ->
-  let server = Eio.Network.bind network ~sw ~reuse_addr:true addr in
-  Eio.Network.Listening_socket.listen server 5;
+let test_address addr ~network sw =
+  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
   Fibre.both ~sw
     (fun () -> run_server ~sw server)
     (fun () ->
@@ -73,6 +68,38 @@ Handling one connection, then cancelling the server:
       traceln "Client finished - cancelling server";
       Switch.turn_off sw (Failure "Test is over")
     )
+```
+
+Handling one connection, then cancelling the server:
+
+```ocaml
+# run (test_address addr)
+Connecting to server...
+Server accepted connection from client
+Server received: "Hello from client"
+Client received: "Bye"
+Client finished - cancelling server
+Test is over
+- : unit = ()
+```
+
+Handling one connection on a Unix domain socket:
+
+```ocaml
+# run (test_address (`Unix "/tmp/eio-test.sock"))
+Connecting to server...
+Server accepted connection from client
+Server received: "Hello from client"
+Client received: "Bye"
+Client finished - cancelling server
+Test is over
+- : unit = ()
+```
+
+Handling one connection on an abstract Unix domain socket:
+
+```ocaml
+# run (test_address (`Unix "\x00/tmp/eio-test.sock"))
 Connecting to server...
 Server accepted connection from client
 Server received: "Hello from client"
@@ -87,8 +114,7 @@ Cancelling the read:
 ```ocaml
 # run @@ fun ~network sw ->
   Switch.top @@ fun read_switch ->
-  let server = Eio.Network.bind network ~sw ~reuse_addr:true addr in
-  Eio.Network.Listening_socket.listen server 5;
+  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
   Fibre.both ~sw
     (fun () ->
       Eio.Network.Listening_socket.accept_sub server ~sw (fun ~sw flow _addr ->
@@ -118,8 +144,7 @@ Calling accept when the switch is already off:
 
 ```ocaml
 # run @@ fun ~network sw ->
-  let server = Eio.Network.bind network ~sw ~reuse_addr:true addr in
-  Eio.Network.Listening_socket.listen server 5;
+  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
   Switch.turn_off sw (Failure "Simulated error");
   Eio.Network.Listening_socket.accept_sub server ~sw (fun ~sw:_ _flow _addr -> assert false)
     ~on_error:raise

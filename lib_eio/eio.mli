@@ -215,6 +215,8 @@ end
 
 (** Byte streams. *)
 module Flow : sig
+  type shutdown_command = [ `Receive | `Send | `All ]
+
   class type close = object
     method close : unit
   end
@@ -266,15 +268,20 @@ module Flow : sig
     inherit read
     inherit write
 
-    method virtual shutdown : Unix.shutdown_command -> unit
+    method virtual shutdown : shutdown_command -> unit
   end
 
-  val shutdown : #two_way -> Unix.shutdown_command -> unit
+  val shutdown : #two_way -> shutdown_command -> unit
 end
 
 module Network : sig
   module Sockaddr : sig
-    type t = Unix.sockaddr
+    type inet_addr = Unix.inet_addr
+
+    type t = [
+      | `Unix of string
+      | `Tcp of inet_addr * int
+    ]
 
     val pp : Format.formatter -> t -> unit
   end
@@ -282,15 +289,12 @@ module Network : sig
   module Listening_socket : sig
     class virtual t : object
       method virtual close : unit
-      method virtual listen : int -> unit
       method virtual accept_sub :
         sw:Switch.t ->
         on_error:(exn -> unit) ->
         (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
         unit
     end
-
-    val listen : #t -> int -> unit
 
     val accept_sub :
       sw:Switch.t ->
@@ -304,13 +308,17 @@ module Network : sig
   end
 
   class virtual t : object
-    method virtual bind : reuse_addr:bool -> sw:Switch.t -> Sockaddr.t -> Listening_socket.t
+    method virtual listen : reuse_addr:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> Listening_socket.t
     method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   end
 
-  val bind : ?reuse_addr:bool -> sw:Switch.t -> #t -> Sockaddr.t -> Listening_socket.t
-  (** [bind ~sw t addr] is a new listening socket bound to local address [addr].
-      The new socket will be closed when [sw] finishes, unless closed manually first. *)
+  val listen : ?reuse_addr:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.t -> Listening_socket.t
+  (** [listen ~sw ~backlog t addr] is a new listening socket bound to local address [addr].
+      The new socket will be closed when [sw] finishes, unless closed manually first.
+      For (non-abstract) Unix domain sockets, the path will be removed afterwards.
+      @param backlog The number of pending connections that can be queued up (see listen(2)).
+      @param reuse_addr Set the [Unix.SO_REUSEADDR] socket option.
+                        For Unix paths, also remove any stale left-over socket. *)
 
   val connect : sw:Switch.t -> #t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   (** [connect ~sw t addr] is a new socket connected to remote address [addr].

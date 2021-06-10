@@ -32,6 +32,8 @@ module Generic = struct
 end
 
 module Flow = struct
+  type shutdown_command = [ `Receive | `Send | `All ]
+
   class type close = object
     method close : unit
   end
@@ -115,7 +117,7 @@ module Flow = struct
     inherit read
     inherit write
 
-    method virtual shutdown : Unix.shutdown_command -> unit
+    method virtual shutdown : shutdown_command -> unit
   end
 
   let shutdown (t : #two_way) = t#shutdown
@@ -123,19 +125,23 @@ end
 
 module Network = struct
   module Sockaddr = struct
-    type t = Unix.sockaddr
+    type inet_addr = Unix.inet_addr
+
+    type t = [
+      | `Unix of string
+      | `Tcp of inet_addr * int
+    ]
 
     let pp f = function
-      | Unix.ADDR_UNIX path ->
+      | `Unix path ->
         Format.fprintf f "unix:%s" path
-      | Unix.ADDR_INET (addr, port) ->
-        Format.fprintf f "inet:%s:%d" (Unix.string_of_inet_addr addr) port
+      | `Tcp (addr, port) ->
+        Format.fprintf f "tcp:%s:%d" (Unix.string_of_inet_addr addr) port
   end
 
   module Listening_socket = struct
     class virtual t = object
       method virtual close : unit
-      method virtual listen : int -> unit
       method virtual accept_sub :
         sw:Switch.t ->
         on_error:(exn -> unit) ->
@@ -143,16 +149,15 @@ module Network = struct
         unit
     end
 
-    let listen (t : #t) = t#listen
     let accept_sub ~sw (t : #t) = t#accept_sub ~sw
   end
 
   class virtual t = object
-    method virtual bind : reuse_addr:bool -> sw:Switch.t -> Sockaddr.t -> Listening_socket.t
+    method virtual listen : reuse_addr:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> Listening_socket.t
     method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   end
 
-  let bind ?(reuse_addr=false) ~sw (t:#t) = t#bind ~reuse_addr ~sw
+  let listen ?(reuse_addr=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~backlog ~sw
   let connect ~sw (t:#t) = t#connect ~sw
 end
 
