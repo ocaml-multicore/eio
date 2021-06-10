@@ -215,6 +215,8 @@ end
 
 (** Byte streams. *)
 module Flow : sig
+  type shutdown_command = [ `Receive | `Send | `All ]
+
   class type close = object
     method close : unit
   end
@@ -266,10 +268,10 @@ module Flow : sig
     inherit read
     inherit write
 
-    method virtual shutdown : Unix.shutdown_command -> unit
+    method virtual shutdown : shutdown_command -> unit
   end
 
-  val shutdown : #two_way -> Unix.shutdown_command -> unit
+  val shutdown : #two_way -> shutdown_command -> unit
 end
 
 module Network : sig

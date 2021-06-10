@@ -560,7 +560,10 @@ module Objects = struct
         with End_of_file -> ()
 
     method shutdown cmd =
-      Unix.shutdown (FD.get "shutdown" fd) cmd
+      Unix.shutdown (FD.get "shutdown" fd) @@ match cmd with
+      | `Receive -> Unix.SHUTDOWN_RECEIVE
+      | `Send -> Unix.SHUTDOWN_SEND
+      | `All -> Unix.SHUTDOWN_ALL
   end
 
   let source fd = (flow fd :> source)

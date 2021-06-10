@@ -36,7 +36,7 @@ let run_client ~sw ~network ~addr =
   traceln "Connecting to server...";
   let flow = Eio.Network.connect ~sw network addr in
   Eio.Flow.copy_string "Hello from client" flow;
-  Eio.Flow.shutdown flow Unix.SHUTDOWN_SEND;
+  Eio.Flow.shutdown flow `Send;
   let msg = read_all ~sw flow in
   traceln "Client received: %S" msg
 ```

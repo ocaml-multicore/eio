@@ -32,6 +32,8 @@ module Generic = struct
 end
 
 module Flow = struct
+  type shutdown_command = [ `Receive | `Send | `All ]
+
   class type close = object
     method close : unit
   end
@@ -115,7 +117,7 @@ module Flow = struct
     inherit read
     inherit write
 
-    method virtual shutdown : Unix.shutdown_command -> unit
+    method virtual shutdown : shutdown_command -> unit
   end
 
   let shutdown (t : #two_way) = t#shutdown
