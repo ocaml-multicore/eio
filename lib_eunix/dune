@@ -1,4 +1,4 @@
 (library
  (name eunix)
  (public_name eunix)
- (libraries eio unix uring bheap logs fmt bigstringaf ctf))
+ (libraries eio unix uring psq logs fmt bigstringaf ctf))

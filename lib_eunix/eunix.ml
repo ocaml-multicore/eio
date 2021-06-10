@@ -284,16 +284,21 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   | Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
   | Failed_thread (k, ex) -> Suspended.discontinue k ex
   | exception Queue.Empty ->
-    match Zzz.restart_threads sleep_q with
-    | Some k -> Suspended.continue k ()                   (* A sleeping task is now due *)
-    | None ->
+    let now = Unix.gettimeofday () in
+    match Zzz.pop ~now sleep_q with
+    | `Due k -> Suspended.continue k ()                   (* A sleeping task is now due *)
+    | `Wait_until _ | `Nothing as next_due ->
       (* Handle any pending events before submitting. This is faster. *)
       match Uring.peek uring with
       | Some { data = runnable; result } -> handle_complete st ~runnable result
       | None ->
         let num_jobs = Uring.submit uring in
         st.io_jobs <- st.io_jobs + num_jobs;
-        let timeout = Zzz.select_next sleep_q in
+        let timeout =
+          match next_due with
+          | `Wait_until time -> Some (time -. now)
+          | `Nothing -> None
+        in
         Log.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
                       (match timeout with None -> "inf" | Some v -> string_of_float v));
         assert (Queue.length run_q = 0);
@@ -378,9 +383,9 @@ let free_buf st buf =
   | None -> Uring.Region.free buf
   | Some k -> enqueue_thread st k buf
 
-effect Sleep : float -> unit
-let sleep d =
-  perform (Sleep d)
+effect Sleep : Switch.t option * float -> unit
+let sleep ?sw d =
+  perform (Sleep (sw, d))
 
 effect ERead : (Switch.t option * Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int
 
@@ -599,6 +604,7 @@ module Objects = struct
     stderr : sink;
     network : Eio.Network.t;
     domain_mgr : Eio.Domain_manager.t;
+    clock : Eio.Time.clock;
   >
 
   let domain_mgr = object
@@ -619,6 +625,12 @@ module Objects = struct
         raise ex
   end
 
+  let clock = object
+    inherit Eio.Time.clock
+
+    method sleep ?sw d = sleep ?sw d
+  end
+
   let stdenv () =
     let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) fd in
     let stdin = lazy (source (of_unix Unix.stdin)) in
@@ -630,6 +642,7 @@ module Objects = struct
       method stderr = Lazy.force stderr
       method network = network
       method domain_mgr = domain_mgr
+      method clock = clock
     end
 end
 
@@ -648,7 +661,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   let buf = Uring.buf uring in 
   let mem = Uring.Region.init ~block_size buf queue_depth in
   let run_q = Queue.create () in
-  let sleep_q = Zzz.init () in
+  let sleep_q = Zzz.create () in
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
   let st = { mem; uring; run_q; io_q; mem_q; sleep_q; io_jobs = 0 } in
@@ -689,10 +702,25 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       schedule st
-    | effect (Sleep d) k ->
+    | effect (Sleep (sw, d)) k ->
       let k = { Suspended.k; tid } in
-      Zzz.sleep sleep_q d k;
-      schedule st
+      let time = Unix.gettimeofday () +. d in
+      let cancel_hook = ref Eio.Private.Waiters.null in
+      begin match sw with
+        | None ->
+          ignore (Zzz.add ~cancel_hook sleep_q time k : Zzz.Key.t);
+          schedule st
+        | Some sw ->
+          match Switch.get_error sw with
+          | Some ex -> Suspended.discontinue k ex
+          | None ->
+            let job = Zzz.add ~cancel_hook sleep_q time k in
+            cancel_hook := Eio.Private.Switch.add_cancel_hook sw (fun ex ->
+                Zzz.remove sleep_q job;
+                enqueue_failed_thread st k ex
+              );
+            schedule st
+      end
     | effect (Eio.Private.Effects.Await (sw, pid, q)) k ->
       let k = { Suspended.k; tid } in
       let waiters = Queue.create () in

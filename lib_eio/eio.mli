@@ -330,6 +330,16 @@ module Domain_manager : sig
       calling domain, but this is not enforced by the type system. *)
 end
 
+module Time : sig
+  class virtual clock : object
+    method virtual sleep : ?sw:Switch.t -> float -> unit
+  end
+
+  val sleep : ?sw:Switch.t -> #clock -> float -> unit
+  (** [sleep t d] waits for [d] seconds.
+      @param sw The sleep is aborted if the switch is turned off. *)
+end
+
 (** The standard environment of a process. *)
 module Stdenv : sig
   type t = <
@@ -338,6 +348,7 @@ module Stdenv : sig
     stderr : Flow.sink;
     network : Network.t;
     domain_mgr : Domain_manager.t;
+    clock : Time.clock;
   >
 
   val stdin  : <stdin  : #Flow.source as 'a; ..> -> 'a
@@ -346,6 +357,7 @@ module Stdenv : sig
 
   val network : <network : #Network.t as 'a; ..> -> 'a
   val domain_mgr : <domain_mgr : #Domain_manager.t as 'a; ..> -> 'a
+  val clock : <clock : #Time.clock as 'a; ..> -> 'a
 end
 
 (** {1 Provider API for OS schedulers} *)

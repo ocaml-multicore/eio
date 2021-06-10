@@ -1,90 +1,44 @@
-(* Lightweight thread library for Objective Caml
- * http://www.ocsigen.org/lwt
- * Module Lwt_mirage, based on Lwt_unix
- * Copyright (C) 2010,2021- Anil Madhavapeddy
- * Copyright (C) 2005-2008 Jerome Vouillon
- * Laboratoire PPS - CNRS Universite Paris Diderot
- *                    2009 Jeremie Dimino
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as
- * published by the Free Software Foundation, with linking exceptions;
- * either version 2.1 of the License, or (at your option) any later
- * version. See COPYING file for details.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
- *)
+(** Keep track of scheduled alarms. *)
 
-type sleep = {
-  time : float;
-  mutable canceled : bool;
-  thread : unit Suspended.t option;
-}
+module Key = struct
+  type t = Optint.Int63.t
+  let compare = Optint.Int63.compare
+end
 
-module SleepQueue =
-  Binary_heap.Make (struct
-    type t = sleep
-    let compare { time = t1; _ } { time = t2; _ } =
-    compare t1 t2
-  end)
+module Job = struct
+  type t = {
+    time : float;
+    thread : unit Suspended.t;
+    cancel_hook : Eio.Private.Waiters.waiter ref;
+  }
 
+  let compare a b = Float.compare a.time b.time
+end
+
+module Q = Psq.Make(Key)(Job)
 
 type t = {
- sleep_queue: SleepQueue.t;
- mutable new_sleeps: sleep list; (** Sleepers added since the last iteration of the main loop:
-                                     They are not added immediately to the main sleep queue in order to
-                                     prevent them from being wakeup immediately by [restart_threads]. *)
+  mutable sleep_queue: Q.t;
+  mutable next_id : Optint.Int63.t;
 }
 
-let init () =
-  let dummy = {
-    time = Unix.gettimeofday ();
-    canceled = false;
-    thread = None; }
-  in
-  let sleep_queue = SleepQueue.create ~dummy 0 in
-  let new_sleeps = [] in
-  { sleep_queue; new_sleeps }
+let create () = { sleep_queue = Q.empty; next_id = Optint.Int63.zero }
 
-let sleep t d k =
-  let time = Unix.gettimeofday () +. d in
-  let sleeper = { time; canceled = false; thread = Some k } in
-  t.new_sleeps <- sleeper :: t.new_sleeps
+let add ~cancel_hook t time thread =
+  let id = t.next_id in
+  t.next_id <- Optint.Int63.succ t.next_id;
+  let sleeper = { Job.time; thread; cancel_hook } in
+  t.sleep_queue <- Q.add id sleeper t.sleep_queue;
+  id
 
-let in_the_past t =
-  t <= 0. || t <= (Unix.gettimeofday ())
+let remove t id =
+  t.sleep_queue <- Q.remove id t.sleep_queue
 
-let rec restart_threads ({sleep_queue;_} as st) =
-  match SleepQueue.minimum sleep_queue with
-  | exception Binary_heap.Empty -> None
-  | { canceled = true; _ } ->
-      SleepQueue.remove sleep_queue;
-      restart_threads st
-  | { time; thread; _ } when in_the_past time ->
-      SleepQueue.remove sleep_queue;
-      Some (Option.get thread)
-  | _ -> None
-
-let rec get_next_timeout ({sleep_queue; _} as st) =
-  match SleepQueue.minimum sleep_queue with
-  | exception Binary_heap.Empty -> None
-  | { canceled = true; _ } ->
-      SleepQueue.remove sleep_queue;
-      get_next_timeout st
-  | { time; _ } ->
-      Some (time -. (Unix.gettimeofday ()))
-
-let select_next t =
-  (* Transfer all sleepers added since the last iteration to the main
-     sleep queue: *)
-  List.iter (fun e -> SleepQueue.add t.sleep_queue e) t.new_sleeps;
-  t.new_sleeps <- [];
-  get_next_timeout t
+let pop t ~now =
+  match Q.min t.sleep_queue with
+  | Some (_, { Job.time; thread; cancel_hook }) when time <= now ->
+    Eio.Private.Waiters.remove_waiter !cancel_hook;
+    t.sleep_queue <- Option.get (Q.rest t.sleep_queue);
+    `Due thread
+  | Some (_, { Job.time; _ }) -> `Wait_until time
+  | None -> `Nothing
