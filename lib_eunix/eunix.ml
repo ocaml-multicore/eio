@@ -595,10 +595,24 @@ module Objects = struct
     method bind ~reuse_addr ~sw listen_addr =
       let socket_domain, socket_type, addr =
         match listen_addr with
-        | `Unix path         -> Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+        | `Unix path         ->
+          if reuse_addr then (
+            match Unix.lstat path with
+            | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
+            | _ -> ()
+            | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+          );
+          Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
         | `Tcp (host, port)  -> Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
       in
       let sock_unix = Unix.socket socket_domain socket_type 0 in
+      (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
+      begin match listen_addr with
+        | `Unix path ->
+          if String.length path > 0 && path.[0] <> Char.chr 0 then
+            Switch.on_release sw (fun () -> Unix.unlink path)
+        | `Tcp _ -> ()
+      end;
       if reuse_addr then
         Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
       let sock = FD.of_unix ~sw ~seekable:false sock_unix in

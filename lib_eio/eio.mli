@@ -317,7 +317,10 @@ module Network : sig
 
   val bind : ?reuse_addr:bool -> sw:Switch.t -> #t -> Sockaddr.t -> Listening_socket.t
   (** [bind ~sw t addr] is a new listening socket bound to local address [addr].
-      The new socket will be closed when [sw] finishes, unless closed manually first. *)
+      The new socket will be closed when [sw] finishes, unless closed manually first.
+      For (non-abstract) Unix domain sockets, the path will be removed afterwards.
+      @param reuse_addr Set the [Unix.SO_REUSEADDR] socket option.
+                        For Unix paths, also remove any stale left-over socket. *)
 
   val connect : sw:Switch.t -> #t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   (** [connect ~sw t addr] is a new socket connected to remote address [addr].

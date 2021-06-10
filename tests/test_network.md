@@ -58,12 +58,8 @@ let run_server ~sw socket =
       | ex -> traceln "Error handling connection: %s" (Printexc.to_string ex)
     );
   done
-```
 
-Handling one connection, then cancelling the server:
-
-```ocaml
-# run @@ fun ~network sw ->
+let test_address addr ~network sw =
   let server = Eio.Network.bind network ~sw ~reuse_addr:true addr in
   Eio.Network.Listening_socket.listen server 5;
   Fibre.both ~sw
@@ -73,6 +69,38 @@ Handling one connection, then cancelling the server:
       traceln "Client finished - cancelling server";
       Switch.turn_off sw (Failure "Test is over")
     )
+```
+
+Handling one connection, then cancelling the server:
+
+```ocaml
+# run (test_address addr)
+Connecting to server...
+Server accepted connection from client
+Server received: "Hello from client"
+Client received: "Bye"
+Client finished - cancelling server
+Test is over
+- : unit = ()
+```
+
+Handling one connection on a Unix domain socket:
+
+```ocaml
+# run (test_address (`Unix "/tmp/eio-test.sock"))
+Connecting to server...
+Server accepted connection from client
+Server received: "Hello from client"
+Client received: "Bye"
+Client finished - cancelling server
+Test is over
+- : unit = ()
+```
+
+Handling one connection on an abstract Unix domain socket:
+
+```ocaml
+# run (test_address (`Unix "\x00/tmp/eio-test.sock"))
 Connecting to server...
 Server accepted connection from client
 Server received: "Hello from client"
