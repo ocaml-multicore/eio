@@ -598,7 +598,26 @@ module Objects = struct
     stdout : sink;
     stderr : sink;
     network : Eio.Network.t;
+    domain_mgr : Eio.Domain_manager.t;
   >
+
+  let domain_mgr = object
+    inherit Eio.Domain_manager.t
+
+    method run_compute_unsafe fn =
+      (* todo: use eventfd instead of a pipe *)
+      let r, w = Unix.pipe () in
+      let r = FD.of_unix_no_hook ~seekable:false r in
+      match Domain.spawn (fun () -> Fun.protect fn ~finally:(fun () -> Unix.close w)) with
+      | domain ->
+        await_readable r;
+        FD.close r;
+        Domain.join domain
+      | exception ex ->
+        Unix.close w;
+        FD.close r;
+        raise ex
+  end
 
   let stdenv () =
     let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) fd in
@@ -610,6 +629,7 @@ module Objects = struct
       method stdout = Lazy.force stdout
       method stderr = Lazy.force stderr
       method network = network
+      method domain_mgr = domain_mgr
     end
 end
 

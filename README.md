@@ -21,6 +21,8 @@ unreleased repository.
 * [Performance](#performance)
 * [Networking](#networking)
 * [Design note: object capabilities](#design-note-object-capabilities)
+* [Multicore support](#multicore-support)
+* [Design note: thread-safety](#design-note-thread-safety)
 * [Design note: determinism](#design-note-determinism)
 * [Further reading](#further-reading)
 
@@ -437,6 +439,94 @@ Therefore, this cannot be used as a security mechanism.
 However, it still makes non-malicious code easier to understand and test,
 and may allow for an ocap extension to the language in the future.
 See [Emily][] for a previous attempt at this.
+
+## Multicore support
+
+Fibres are scheduled cooperatively within a single domain, but you can also create new domains that run in parallel.
+This is useful to perform CPU-intensive operations quickly.
+For example, let's say we have a CPU intensive task:
+
+```ocaml
+let sum_to n =
+  traceln "Starting CPU-intensive task...";
+  let total = ref 0 in
+  for i = 1 to n do
+    total := !total + i
+  done;
+  traceln "Finished";
+  !total
+```
+
+We can use `Eio.Domain_manager` to run this in a separate domain:
+
+```ocaml
+let main ~domain_mgr =
+  Switch.top @@ fun sw ->
+  let test n =
+    traceln "sum 1..%d = %d" n
+      (Eio.Domain_manager.run_compute_unsafe domain_mgr
+        (fun () -> sum_to n))
+  in
+  Fibre.both ~sw
+    (fun () -> test 100000)
+    (fun () -> test 50000)
+```
+
+<!-- $MDX non-deterministic=output -->
+```ocaml
+# run @@ fun env ->
+  main ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+Starting CPU-intensive task...
+Starting CPU-intensive task...
+Finished
+sum 1..50000 = 1250025000
+Finished
+sum 1..100000 = 5000050000
+- : unit = ()
+```
+
+Notes:
+
+- `traceln` can be used safely from multiple domains.
+  It takes a mutex, so that trace lines are output atomically.
+- The exact traceln output of this example is non-deterministic,
+  because the OS is free to schedule domains as it likes.
+- `run_compute_unsafe` is "unsafe" because you must ensure that the function doesn't have access to any non-threadsafe values.
+  The type system does not check this.
+- `run_compute_unsafe` waits for the domain to finish, but allows other fibres to run while waiting.
+  This is why we use `Fibre.both` to create multiple fibres.
+- `run_compute_unsafe` does not start an event loop in the new domain, so it cannot perform IO or create fibres.
+
+## Design note: thread-safety
+
+OCaml spent the first 25 years of its existence without multicore support, and so most libraries are not thread-safe.
+Even in languages which had parallelism from the beginning thread safety is a very common cause of bugs.
+Eio therefore defaults to a conservative model, in which each mutable value is owned and used by a single domain.
+
+There are several ways to share values between domains:
+
+1. Immutable values (such as strings) can always be shared safely.
+2. Values specifically designed to be thread-safe (e.g. a `Mutex.t`) can be shared.
+3. A non-threadsafe value's owning domain can update it in response to messages from other domains.
+4. A non-threadsafe value can be wrapped with a mutex.
+5. A non-threadsafe value can passed to another domain if the sending domain will never use it again.
+
+Note that (3) and (4) are not quite the same.
+Consider this code:
+
+```ocaml
+let example q =
+  assert (Queue.length q = Queue.length q)
+```
+
+If `q` is only updated by its owning domain (as in 3) then this assertion will always pass.
+`Queue.length` will not perform an effect which could switch fibres, and so nothing else can update `q`.
+If another domain wants to change it, it sends a message to `q`'s domain, which is added to the domain's
+run-queue and will take effect later.
+
+However, if `q` is wrapped by a mutex (as in 4) then the assertion could fail.
+The first `Queue.length` will lock and then release the queue, then the second will lock and release it again.
+Another domain could change the value between these two calls.
 
 ## Design note: determinism
 

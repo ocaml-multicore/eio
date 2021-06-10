@@ -157,7 +157,14 @@ module Std : sig
   (** [traceln fmt] outputs a debug message (typically to stderr).
       Trace messages are printed by default and do not require logging to be configured first.
       The message is printed with a newline, and is flushed automatically.
-      This is intended for quick debugging rather than for production code.
+      [traceln] is intended for quick debugging rather than for production code.
+
+      Unlike most Eio operations, [traceln] will never switch to another fibre;
+      if the OS is not ready to accept the message then the whole domain waits.
+
+      It is safe to call [traceln] from multiple domains at the same time.
+      Each line will be written atomically.
+
       Examples:
       {[
         traceln "x = %d" x;
@@ -310,6 +317,19 @@ module Network : sig
       The new socket will be closed when [sw] finishes, unless closed manually first. *)
 end
 
+module Domain_manager : sig
+  class virtual t : object
+    method virtual run_compute_unsafe : 'a. (unit -> 'a) -> 'a
+  end
+
+  val run_compute_unsafe : #t -> (unit -> 'a) -> 'a
+  (** [run_compute_unsafe t f] runs [f ()] in a newly-created domain and returns the result.
+      The new domain does not get an event loop, and so cannot perform IO, fork fibres, etc.
+      Other fibres in the calling domain can run in parallel with the new domain.
+      Unsafe because [f] must only be able to access thread-safe values from the
+      calling domain, but this is not enforced by the type system. *)
+end
+
 (** The standard environment of a process. *)
 module Stdenv : sig
   type t = <
@@ -317,6 +337,7 @@ module Stdenv : sig
     stdout : Flow.sink;
     stderr : Flow.sink;
     network : Network.t;
+    domain_mgr : Domain_manager.t;
   >
 
   val stdin  : <stdin  : #Flow.source as 'a; ..> -> 'a
@@ -324,6 +345,7 @@ module Stdenv : sig
   val stderr : <stderr : #Flow.sink   as 'a; ..> -> 'a
 
   val network : <network : #Network.t as 'a; ..> -> 'a
+  val domain_mgr : <domain_mgr : #Domain_manager.t as 'a; ..> -> 'a
 end
 
 (** {1 Provider API for OS schedulers} *)

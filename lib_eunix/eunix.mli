@@ -121,6 +121,7 @@ module Objects : sig
     stdout : sink;
     stderr : sink;
     network : Eio.Network.t;
+    domain_mgr : Eio.Domain_manager.t;
   >
 
   val get_fd : <has_fd; ..> -> FD.t
