@@ -276,7 +276,12 @@ end
 
 module Network : sig
   module Sockaddr : sig
-    type t = Unix.sockaddr
+    type inet_addr = Unix.inet_addr
+
+    type t = [
+      | `Unix of string
+      | `Tcp of inet_addr * int
+    ]
 
     val pp : Format.formatter -> t -> unit
   end

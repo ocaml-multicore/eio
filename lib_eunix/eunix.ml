@@ -579,15 +579,26 @@ module Objects = struct
     method accept_sub ~sw ~on_error fn =
       let client, client_addr = accept_loose_fd ~sw fd in
       Fibre.fork_sub_ignore ~sw ~on_error
-        (fun sw -> fn ~sw (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr)
+        (fun sw ->
+           let client_addr = match client_addr with
+             | Unix.ADDR_UNIX path         -> `Unix path
+             | Unix.ADDR_INET (host, port) -> `Tcp (host, port)
+           in
+           fn ~sw (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr
+        )
         ~on_release:(fun () -> FD.ensure_closed client)
   end
 
   let network = object
     inherit Eio.Network.t
 
-    method bind ~reuse_addr ~sw addr =
-      let sock_unix = Unix.(socket PF_INET SOCK_STREAM 0) in
+    method bind ~reuse_addr ~sw listen_addr =
+      let socket_domain, socket_type, addr =
+        match listen_addr with
+        | `Unix path         -> Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+        | `Tcp (host, port)  -> Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+      in
+      let sock_unix = Unix.socket socket_domain socket_type 0 in
       if reuse_addr then
         Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
       let sock = FD.of_unix ~sw ~seekable:false sock_unix in
@@ -595,7 +606,12 @@ module Objects = struct
       listening_socket sock
 
     method connect ~sw addr =
-      let sock_unix = Unix.(socket PF_INET SOCK_STREAM 0) in
+      let socket_domain, socket_type, addr =
+        match addr with
+        | `Unix path         -> Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+        | `Tcp (host, port)  -> Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+      in
+      let sock_unix = Unix.socket socket_domain socket_type 0 in
       let sock = FD.of_unix ~sw ~seekable:false sock_unix in
       connect ~sw sock addr;
       (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)

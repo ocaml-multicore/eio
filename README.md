@@ -388,7 +388,7 @@ let main ~network ~addr =
 # run @@ fun env ->
   main
     ~network:(Eio.Stdenv.network env)
-    ~addr:Unix.(ADDR_INET (inet_addr_loopback, 8080))
+    ~addr:(`Tcp (Unix.inet_addr_loopback, 8080))
 Server ready...
 Connecting to server...
 Server accepted connection from client

@@ -125,13 +125,18 @@ end
 
 module Network = struct
   module Sockaddr = struct
-    type t = Unix.sockaddr
+    type inet_addr = Unix.inet_addr
+
+    type t = [
+      | `Unix of string
+      | `Tcp of inet_addr * int
+    ]
 
     let pp f = function
-      | Unix.ADDR_UNIX path ->
+      | `Unix path ->
         Format.fprintf f "unix:%s" path
-      | Unix.ADDR_INET (addr, port) ->
-        Format.fprintf f "inet:%s:%d" (Unix.string_of_inet_addr addr) port
+      | `Tcp (addr, port) ->
+        Format.fprintf f "tcp:%s:%d" (Unix.string_of_inet_addr addr) port
   end
 
   module Listening_socket = struct

@@ -17,7 +17,7 @@ let run (fn : network:Eio.Network.t -> Switch.t -> unit) =
   | Failure msg -> print_endline msg
   | ex -> print_endline (Printexc.to_string ex)
 
-let addr = Unix.(ADDR_INET (inet_addr_loopback, 8081))
+let addr = `Tcp (Unix.inet_addr_loopback, 8081)
 
 let read_all ?sw flow =
   let b = Buffer.create 100 in
