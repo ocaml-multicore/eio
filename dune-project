@@ -30,7 +30,7 @@
   (fmt (>= 0.8.9))
   (bigstringaf (>= 0.7.0))
   uring
-  (bheap (>= 2.0.0))))
+  (psq (>= 0.2.0))))
 (package
  (name ctf)
  (synopsis "CTF tracing")

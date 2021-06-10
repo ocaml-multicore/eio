@@ -164,6 +164,15 @@ module Domain_manager = struct
   let run_compute_unsafe (t : #t) = t#run_compute_unsafe
 end
 
+module Time = struct
+  class virtual clock = object
+    method virtual sleep : ?sw:Switch.t -> float -> unit
+  end
+
+  let sleep ?sw (t : #clock) d = t#sleep ?sw d
+end
+
+
 module Stdenv = struct
   type t = <
     stdin  : Flow.source;
@@ -171,15 +180,15 @@ module Stdenv = struct
     stderr : Flow.sink;
     network : Network.t;
     domain_mgr : Domain_manager.t;
+    clock : Time.clock;
   >
 
   let stdin  (t : <stdin  : #Flow.source; ..>) = t#stdin
   let stdout (t : <stdout : #Flow.sink;   ..>) = t#stdout
   let stderr (t : <stderr : #Flow.sink;   ..>) = t#stderr
-
   let network (t : <network : #Network.t; ..>) = t#network
-
   let domain_mgr (t : <domain_mgr : #Domain_manager.t; ..>) = t#domain_mgr
+  let clock (t : <clock : #Time.clock; ..>) = t#clock
 end
 
 module Private = struct

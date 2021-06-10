@@ -44,8 +44,9 @@ end
 
 (** {1 Time functions} *)
 
-val sleep : float -> unit
-(** [sleep s] blocks until (at least) [s] seconds have passed. *)
+val sleep : ?sw:Switch.t -> float -> unit
+(** [sleep s] blocks until (at least) [s] seconds have passed.
+    @param sw Cancel the sleep if [sw] is turned off. *)
 
 (** {1 Memory allocation functions} *)
 
@@ -122,6 +123,7 @@ module Objects : sig
     stderr : sink;
     network : Eio.Network.t;
     domain_mgr : Eio.Domain_manager.t;
+    clock : Eio.Time.clock;
   >
 
   val get_fd : <has_fd; ..> -> FD.t
