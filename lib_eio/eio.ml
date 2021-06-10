@@ -142,7 +142,6 @@ module Network = struct
   module Listening_socket = struct
     class virtual t = object
       method virtual close : unit
-      method virtual listen : int -> unit
       method virtual accept_sub :
         sw:Switch.t ->
         on_error:(exn -> unit) ->
@@ -150,16 +149,15 @@ module Network = struct
         unit
     end
 
-    let listen (t : #t) = t#listen
     let accept_sub ~sw (t : #t) = t#accept_sub ~sw
   end
 
   class virtual t = object
-    method virtual bind : reuse_addr:bool -> sw:Switch.t -> Sockaddr.t -> Listening_socket.t
+    method virtual listen : reuse_addr:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> Listening_socket.t
     method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   end
 
-  let bind ?(reuse_addr=false) ~sw (t:#t) = t#bind ~reuse_addr ~sw
+  let listen ?(reuse_addr=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~backlog ~sw
   let connect ~sw (t:#t) = t#connect ~sw
 end
 

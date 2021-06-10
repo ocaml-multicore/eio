@@ -60,8 +60,7 @@ let run_server ~sw socket =
   done
 
 let test_address addr ~network sw =
-  let server = Eio.Network.bind network ~sw ~reuse_addr:true addr in
-  Eio.Network.Listening_socket.listen server 5;
+  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
   Fibre.both ~sw
     (fun () -> run_server ~sw server)
     (fun () ->
@@ -115,8 +114,7 @@ Cancelling the read:
 ```ocaml
 # run @@ fun ~network sw ->
   Switch.top @@ fun read_switch ->
-  let server = Eio.Network.bind network ~sw ~reuse_addr:true addr in
-  Eio.Network.Listening_socket.listen server 5;
+  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
   Fibre.both ~sw
     (fun () ->
       Eio.Network.Listening_socket.accept_sub server ~sw (fun ~sw flow _addr ->
@@ -146,8 +144,7 @@ Calling accept when the switch is already off:
 
 ```ocaml
 # run @@ fun ~network sw ->
-  let server = Eio.Network.bind network ~sw ~reuse_addr:true addr in
-  Eio.Network.Listening_socket.listen server 5;
+  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
   Switch.turn_off sw (Failure "Simulated error");
   Eio.Network.Listening_socket.accept_sub server ~sw (fun ~sw:_ _flow _addr -> assert false)
     ~on_error:raise

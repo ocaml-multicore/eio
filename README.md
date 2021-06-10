@@ -376,8 +376,7 @@ We can test them in a single process using `Fibre.both`:
 ```ocaml
 let main ~network ~addr =
   Switch.top @@ fun sw ->
-  let server = Eio.Network.bind network ~sw ~reuse_addr:true addr in
-  Eio.Network.Listening_socket.listen server 5;
+  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
   traceln "Server ready...";
   Fibre.both ~sw
     (fun () -> run_server ~sw server)

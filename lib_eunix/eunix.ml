@@ -574,8 +574,6 @@ module Objects = struct
 
     method close = FD.close fd
 
-    method listen n = Unix.listen (FD.get "listen" fd) n
-
     method accept_sub ~sw ~on_error fn =
       let client, client_addr = accept_loose_fd ~sw fd in
       Fibre.fork_sub_ignore ~sw ~on_error
@@ -592,7 +590,7 @@ module Objects = struct
   let network = object
     inherit Eio.Network.t
 
-    method bind ~reuse_addr ~sw listen_addr =
+    method listen ~reuse_addr ~backlog ~sw listen_addr =
       let socket_domain, socket_type, addr =
         match listen_addr with
         | `Unix path         ->
@@ -617,6 +615,7 @@ module Objects = struct
         Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
       let sock = FD.of_unix ~sw ~seekable:false sock_unix in
       Unix.bind sock_unix addr;
+      Unix.listen sock_unix backlog;
       listening_socket sock
 
     method connect ~sw addr =
