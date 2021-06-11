@@ -2,6 +2,8 @@ exception Multiple_exceptions of exn list
 
 exception Cancelled of exn
 
+type hook = unit -> unit                (* A function to remove the hook *)
+
 let () =
   Printexc.register_printer @@ function
   | Multiple_exceptions exns -> Some ("Multiple exceptions:\n" ^ String.concat "\nand\n" (List.map Printexc.to_string exns))
@@ -21,6 +23,10 @@ type t = {
   on_release : (unit -> unit) Lwt_dllist.t;
   waiter : unit Waiters.t;              (* The main [top]/[sub] function may wait here for fibres to finish. *)
 }
+
+let null_hook = ignore
+
+let remove_hook h = h ()
 
 let check t =
   match t.state with

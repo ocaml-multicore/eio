@@ -31,7 +31,7 @@ effect Close : Unix.file_descr -> int
 module FD = struct
   type t = {
     seekable : bool;
-    mutable release_hook : unit -> unit;        (* Call this on close to remove switch's [on_release] hook. *)
+    mutable release_hook : Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
     mutable fd : [`Open of Unix.file_descr | `Closed]
   }
 
@@ -47,7 +47,7 @@ module FD = struct
     Ctf.label "close";
     let fd = get "close" t in
     t.fd <- `Closed;
-    t.release_hook ();
+    Switch.remove_hook t.release_hook;
     let res = perform (Close fd) in
     Log.debug (fun l -> l "close: woken up");
     if res < 0 then
@@ -64,7 +64,7 @@ module FD = struct
   let to_unix = get "to_unix"
 
   let of_unix_no_hook ~seekable fd =
-    { seekable; fd = `Open fd; release_hook = ignore }
+    { seekable; fd = `Open fd; release_hook = Switch.null_hook }
 
   let of_unix ~sw ~seekable fd =
     let t = of_unix_no_hook ~seekable fd in
@@ -86,7 +86,7 @@ type rw_req = {
   sw : Switch.t option;
 }
 
-type cancel_hook = Eio.Private.Waiters.waiter ref
+type cancel_hook = Switch.hook ref
 
 (* Type of user-data attached to jobs. *)
 type io_job =
@@ -156,7 +156,7 @@ let cancel job =
    If [sw] is already off, it schedules [action] to be discontinued.
    @return Whether to retry the operation later, once there is space. *)
 let with_cancel_hook ?sw ~action st fn =
-  let release = ref Eio.Private.Waiters.null in
+  let release = ref Switch.null_hook in
   match sw with
   | None -> fn release = None
   | Some sw ->
@@ -166,7 +166,7 @@ let with_cancel_hook ?sw ~action st fn =
       match fn release with
       | None -> true
       | Some job ->
-        release := Eio.Private.Switch.add_cancel_hook sw (fun _ -> cancel job);
+        release := Switch.add_cancel_hook sw (fun _ -> cancel job);
         false
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; sw; action} as req) =
@@ -325,27 +325,27 @@ and handle_complete st ~runnable result =
   match runnable with
   | Read (req, cancel) ->
     Log.debug (fun l -> l "read returned");
-    Eio.Private.Waiters.remove_waiter !cancel;
+    Switch.remove_hook !cancel;
     complete_rw_req st req result
   | Write (req, cancel) ->
     Log.debug (fun l -> l "write returned");
-    Eio.Private.Waiters.remove_waiter !cancel;
+    Switch.remove_hook !cancel;
     complete_rw_req st req result
   | Poll_add (k, cancel) ->
     Log.debug (fun l -> l "poll_add returned");
-    Eio.Private.Waiters.remove_waiter !cancel;
+    Switch.remove_hook !cancel;
     Suspended.continue k result
   | Splice (k, cancel) ->
     Log.debug (fun l -> l "splice returned");
-    Eio.Private.Waiters.remove_waiter !cancel;
+    Switch.remove_hook !cancel;
     Suspended.continue k result
   | Connect (k, cancel) ->
     Log.debug (fun l -> l "connect returned");
-    Eio.Private.Waiters.remove_waiter !cancel;
+    Switch.remove_hook !cancel;
     Suspended.continue k result
   | Accept (k, cancel) ->
     Log.debug (fun l -> l "accept returned");
-    Eio.Private.Waiters.remove_waiter !cancel;
+    Switch.remove_hook !cancel;
     Suspended.continue k result
   | Close k ->
     Log.debug (fun l -> l "close returned");
@@ -733,7 +733,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (Sleep (sw, d)) k ->
       let k = { Suspended.k; tid } in
       let time = Unix.gettimeofday () +. d in
-      let cancel_hook = ref Eio.Private.Waiters.null in
+      let cancel_hook = ref Switch.null_hook in
       begin match sw with
         | None ->
           ignore (Zzz.add ~cancel_hook sleep_q time k : Zzz.Key.t);
@@ -743,7 +743,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
           | Some ex -> Suspended.discontinue k ex
           | None ->
             let job = Zzz.add ~cancel_hook sleep_q time k in
-            cancel_hook := Eio.Private.Switch.add_cancel_hook sw (fun ex ->
+            cancel_hook := Switch.add_cancel_hook sw (fun ex ->
                 Zzz.remove sleep_q job;
                 enqueue_failed_thread st k ex
               );
