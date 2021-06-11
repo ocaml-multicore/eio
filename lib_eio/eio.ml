@@ -198,10 +198,10 @@ end
 
 module Private = struct
   module Effects = struct
-    effect Await = Switch.Await
+    type 'a enqueue = 'a Suspend.enqueue
+    effect Suspend = Suspend.Suspend
     effect Fork = Fibre.Fork
     effect Fork_ignore = Fibre.Fork_ignore
-    effect Yield = Fibre.Yield
   end
   module Waiters = Waiters
   module Switch = Switch

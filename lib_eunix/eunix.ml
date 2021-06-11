@@ -730,10 +730,6 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       enqueue_accept ~sw st k fd client_addr;
       schedule st
-    | effect Eio.Private.Effects.Yield k ->
-      let k = { Suspended.k; tid } in
-      enqueue_thread st k ();
-      schedule st
     | effect (Sleep (sw, d)) k ->
       let k = { Suspended.k; tid } in
       let time = Unix.gettimeofday () +. d in
@@ -753,26 +749,12 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
               );
             schedule st
       end
-    | effect (Eio.Private.Effects.Await (sw, pid, q)) k ->
+    | effect (Eio.Private.Effects.Suspend f) k ->
       let k = { Suspended.k; tid } in
-      let waiters = Queue.create () in
-      let when_resolved r =
-        Queue.iter Eio.Private.Waiters.remove_waiter waiters;
-        match r with
-        | Ok v ->
-          Ctf.note_read ~reader:tid pid;
-          enqueue_thread st k v
-        | Error ex ->
-          Ctf.note_read ~reader:tid pid;
-          enqueue_failed_thread st k ex
-      in
-      let cancel ex = when_resolved (Error ex) in
-      sw |> Option.iter (fun sw ->
-          let cancel_waiter = Eio.Private.Switch.add_cancel_hook sw cancel in
-          Queue.add cancel_waiter waiters;
+      f tid (function
+          | Ok v -> enqueue_thread st k v
+          | Error ex -> enqueue_failed_thread st k ex
         );
-      let resolved_waiter = Eio.Private.Waiters.add_waiter q when_resolved in
-      Queue.add resolved_waiter waiters;
       schedule st
     | effect (Eio.Private.Effects.Fork f) k ->
       let k = { Suspended.k; tid } in

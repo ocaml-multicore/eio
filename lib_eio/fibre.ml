@@ -20,9 +20,8 @@ let fork_ignore ~sw f =
   in
   perform (Fork_ignore f)
 
-effect Yield : unit
 let yield ?sw () =
-  perform Yield;
+  Suspend.enter (fun _id enqueue -> enqueue (Ok ()));
   Option.iter Switch.check sw
 
 let both ~sw f g =
