@@ -10,6 +10,9 @@ module Std : sig
     (** A switch controls a group of fibres.
         Once a switch is turned off, all activities in that context should cancel themselves. *)
 
+    type hook
+    (** A handle to a cancellation hook. *)
+
     exception Multiple_exceptions of exn list
 
     exception Cancelled of exn
@@ -59,9 +62,24 @@ module Std : sig
         Note that [fn] must work even if the switch has been turned off,
         so using [sub t] or similar within [fn] is usually a bad idea. *)
 
-    val on_release_cancellable : t -> (unit -> unit) -> (unit -> unit)
-    (** Like [on_release], but returns a function that can be called to remove the handler.
-        Calling this more than once has no effect. *)
+    val on_release_cancellable : t -> (unit -> unit) -> hook
+    (** Like [on_release], but the handler can be removed later. *)
+
+    val add_cancel_hook : t -> (exn -> unit) -> hook
+    (** [add_cancel_hook t cancel] registers shutdown function [cancel] with [t].
+        When [t] is turned off, [cancel] is called.
+        If [t] is already off, it calls [cancel] immediately. *)
+
+    val add_cancel_hook_opt : t option -> (exn -> unit) -> hook
+    (**[add_cancel_hook_opt (Some t)] is [add_cancel_hook t].
+       If called with [None], it does nothing and returns {!null_hook}. *)
+
+    val remove_hook : hook -> unit
+    (** [remove_hook h] removes a hook.
+        If the hook has already been removed, this does nothing. *)
+
+    val null_hook : hook
+    (** A dummy hook. Removing it does nothing. *)
   end
 
   module Promise : sig
@@ -372,37 +390,6 @@ end
 
 (** API for use by the scheduler implementation. *)
 module Private : sig
-  module Waiters : sig
-    type 'a t
-    (** A queue of callbacks waiting for a value of type ['a]. *)
-
-    type waiter
-
-    val null : waiter
-    (** A dummy waiter that does nothing when removed. *)
-
-    val add_waiter : 'a t -> (('a, exn) result -> unit) -> waiter
-    (** [add_waiter t fn] adds [fn] to the queue of callbacks to be invoked when the wait is over.
-        [fn] will typically add some saved continuation to the runqueue. *)
-
-    val remove_waiter : waiter -> unit
-    (** [remove_waiter w] removes a waiter previously added with e.g. [add_waiter].
-        If the waiter is already removed, this does nothing. *)
-  end
-  
-  module Switch : sig
-    type t = Switch.t
-
-    val add_cancel_hook : t -> (exn -> unit) -> Waiters.waiter
-    (** [add_cancel_hook t cancel] registers shutdown function [cancel] with [t].
-        When [t] is turned off, [cancel] is called.
-        If [t] is already off, it calls [cancel] immediately. *)
-
-    val add_cancel_hook_opt : t option -> (exn -> unit) -> Waiters.waiter
-    (**[add_cancel_hook_opt (Some t)] is [add_cancel_hook t].
-       If called with [None], it does nothing and returns a dummy waiter. *)
-  end
-
   module Effects : sig
     type 'a enqueue = ('a, exn) result -> unit
     (** A function provided by the scheduler to reschedule a previously-suspended thread. *)

@@ -2,8 +2,6 @@ type 'a t = (('a, exn) result -> unit) Lwt_dllist.t
 
 type waiter = unit -> unit
 
-let null = ignore
-
 let create = Lwt_dllist.create
 
 let add_waiter t cb =

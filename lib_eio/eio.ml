@@ -203,6 +203,5 @@ module Private = struct
     effect Fork = Fibre.Fork
     effect Fork_ignore = Fibre.Fork_ignore
   end
-  module Waiters = Waiters
   module Switch = Switch
 end
