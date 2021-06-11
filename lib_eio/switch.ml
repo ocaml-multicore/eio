@@ -22,11 +22,6 @@ type t = {
   waiter : unit Waiters.t;              (* The main [top]/[sub] function may wait here for fibres to finish. *)
 }
 
-effect Await : t option * Ctf.id * 'a Waiters.t -> 'a
-
-let await ?sw waiters id =
-  perform (Await (sw, id, waiters))
-
 let check t =
   match t.state with
   | On _ -> ()
@@ -90,6 +85,22 @@ let with_op t fn =
         if t.fibres = 0 then
           Waiters.wake_all t.waiter (Ok ())
       )
+
+let await ?sw waiters id =
+  Suspend.enter @@ fun tid enqueue ->
+  let cleanup_hooks = Queue.create () in
+  let when_resolved r =
+    Queue.iter Waiters.remove_waiter cleanup_hooks;
+    Ctf.note_read ~reader:id tid;
+    enqueue r
+  in
+  let cancel ex = when_resolved (Error ex) in
+  sw |> Option.iter (fun sw ->
+      let cancel_waiter = add_cancel_hook sw cancel in
+      Queue.add cancel_waiter cleanup_hooks;
+    );
+  let resolved_waiter = Waiters.add_waiter waiters when_resolved in
+  Queue.add resolved_waiter cleanup_hooks
 
 let rec await_idle t =
   (* Wait for fibres to finish: *)

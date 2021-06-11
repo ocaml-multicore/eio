@@ -404,18 +404,20 @@ module Private : sig
   end
 
   module Effects : sig
-    effect Await : Switch.t option * Ctf.id * 'a Waiters.t -> 'a
-    (** Performed when a fibre must be suspended (e.g. because it called {!Promise.await} on an unresolved promise).
-        The effect handler should add itself to the list of waiters and block until its callback is invoked.
-        The ID is used for tracing. *)
+    type 'a enqueue = ('a, exn) result -> unit
+    (** A function provided by the scheduler to reschedule a previously-suspended thread. *)
+
+    effect Suspend : (Ctf.id -> 'a enqueue -> unit) -> 'a
+    (** [Suspend fn] is performed when a fibre must be suspended
+        (e.g. because it called {!Promise.await} on an unresolved promise).
+        The effect handler runs [fn tid enqueue] in the scheduler context,
+        passing it the suspended fibre's thread ID (for tracing) and a function to resume it.
+        [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
 
     effect Fork : (unit -> 'a) -> 'a Promise.t
     (** See {!Fibre.fork} *)
 
     effect Fork_ignore  : (unit -> unit) -> unit
     (** See {!Fibre.fork_ignore} *)
-
-    effect Yield : unit
-    (** See {!Fibre.yield} *)
   end
 end
