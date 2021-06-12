@@ -47,7 +47,7 @@ For example, Linux's io-uring system has applications write the operations they 
 which Linux handles asynchronously.
 
 Due to this, we anticipate many OCaml users will want to rewrite their IO code at some point,
-once effects have been merged into the the official version of OCaml.
+once effects have been merged into the official version of OCaml.
 It would be very beneficial if we could use this opportunity to standardise on a single concurrency API for OCaml.
 
 This project is therefore exploring what this new API should look like by building an effects-based IO library and
@@ -58,7 +58,7 @@ If you are looking for a stable library for your application, you should continu
 However, if you'd like to help with these experiments, please get in touch!
 
 At present, Linux with io-uring is the only backend available.
-It is able to run a web-server with good performance, but most features are still missing.
+It is able to run a web-server with [good performance][http-bench], but many features are still missing.
 
 ## Structure of the code
 
@@ -138,16 +138,6 @@ Main would print "Hello, world!\n"
 `traceln` provides convenient printf-style debugging, without requiring you to plumb `stderr` through your code.
 It's actually using the `Format` module, so you can use the extended formatting directives here too.
 
-The MDX documentation system this README uses doesn't handle exceptions very well,
-so let's make a little wrapper to simplify future examples:
-
-```ocaml
-let run fn =
-  Eio_main.run @@ fun env ->
-  try fn env
-  with Failure msg -> traceln "Error: %s" msg
-```
-
 ## Fibres
 
 Here's an example running two threads of execution (fibres) concurrently:
@@ -161,7 +151,7 @@ let main _env =
 ```
 
 ```ocaml
-# run main;;
+# Eio_main.run main;;
 x = 1
 y = 1
 x = 2
@@ -188,7 +178,7 @@ We can run the previous code with tracing enabled (writing to a new `trace.ctf` 
     let buffer = Ctf.Unix.mmap_buffer ~size:0x100000 "trace.ctf" in
     let trace_config = Ctf.Control.make buffer in
     Ctf.Control.start trace_config;
-    run main;
+    Eio_main.run main;
     Ctf.Control.stop trace_config;;
 x = 1
 y = 1
@@ -217,7 +207,7 @@ This is a form of [structured concurrency][].
 Here's what happens if one of the two threads above fails:
 
 ```ocaml
-# run @@ fun _env ->
+# Eio_main.run @@ fun _env ->
   Switch.top @@ fun sw ->
   Fibre.both ~sw
     (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield ~sw () done)
@@ -243,11 +233,13 @@ Any operation that can be cancelled should take a `~sw` argument.
 Switches can also be used to wait for threads even when there isn't an error. e.g.
 
 ```ocaml
-# run @@ fun _env ->
+# Eio_main.run @@ fun _env ->
   Switch.top (fun sw ->
-    Fibre.fork_ignore ~sw (fun () -> for i = 1 to 3 do traceln "i = %d" i; Fibre.yield ~sw () done);
+    Fibre.fork_ignore ~sw
+      (fun () -> for i = 1 to 3 do traceln "i = %d" i; Fibre.yield ~sw () done);
     traceln "First thread forked";
-    Fibre.fork_ignore ~sw (fun () -> for j = 1 to 3 do traceln "j = %d" j; Fibre.yield ~sw () done);
+    Fibre.fork_ignore ~sw
+      (fun () -> for j = 1 to 3 do traceln "j = %d" j; Fibre.yield ~sw () done);
     traceln "Second thread forked; top-level code is finished"
   );
   traceln "Switch is finished";;
@@ -317,13 +309,13 @@ Testing on a fresh 10G file with [pv](https://www.ivarch.com/programs/pv.shtml) 
 ```
 $ truncate -s 10G dummy
 
-$ cat_ocaml_unix.exe < dummy | pv >/dev/null
+$ cat_ocaml_unix.exe <dummy | pv >/dev/null
 10.0GiB 0:00:04 [2.33GiB/s]
 
-$ cat                < dummy | pv >/dev/null
+$ cat                <dummy | pv >/dev/null
 10.0GiB 0:00:04 [2.42GiB/s]
 
-$ cat_ocaml_eio.exe  < dummy | pv >/dev/null
+$ cat_ocaml_eio.exe  <dummy | pv >/dev/null
 10.0GiB 0:00:03 [3.01GiB/s]
 ```
 
@@ -384,7 +376,7 @@ let main ~network ~addr =
 ```
 
 ```ocaml
-# run @@ fun env ->
+# Eio_main.run @@ fun env ->
   main
     ~network:(Eio.Stdenv.network env)
     ~addr:(`Tcp (Unix.inet_addr_loopback, 8080))
@@ -473,7 +465,7 @@ let main ~domain_mgr =
 
 <!-- $MDX non-deterministic=output -->
 ```ocaml
-# run @@ fun env ->
+# Eio_main.run @@ fun env ->
   main ~domain_mgr:(Eio.Stdenv.domain_mgr env)
 Starting CPU-intensive task...
 Starting CPU-intensive task...
@@ -494,7 +486,7 @@ Notes:
   The type system does not check this.
 - `run_compute_unsafe` waits for the domain to finish, but allows other fibres to run while waiting.
   This is why we use `Fibre.both` to create multiple fibres.
-- `run_compute_unsafe` does not start an event loop in the new domain, so it cannot perform IO or create fibres.
+- `run_compute_unsafe` does not start an event loop in the new domain, so it cannot perform IO or create fibres. There will be a separate API for that in the future.
 
 ## Design note: thread-safety
 
@@ -557,3 +549,4 @@ Some background about the effects system can be found in:
 [typed effects]: https://www.janestreet.com/tech-talks/effective-programming/
 [Object-capability model]: https://en.wikipedia.org/wiki/Object-capability_model
 [Emily]: https://www.hpl.hp.com/techreports/2006/HPL-2006-116.pdf
+[http-bench]: https://github.com/ocaml-multicore/retro-httpaf-bench
