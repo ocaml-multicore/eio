@@ -1,0 +1,1 @@
+let run fn = Edispatch.run (fun env -> fn (env :> Eio.Stdenv.t))
