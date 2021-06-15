@@ -17,6 +17,20 @@
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name eunix)
+ (synopsis "Eio implementation for Unix-compatible systems")
+ (description
+   "An eio implementation for Unix-compatible systems.")
+ (depends
+  (ocaml-variants (= "4.12.0+domains+effects"))
+  (ctf (= :version))
+  (eio (= :version))
+  (alcotest (and (>= 1.4.0) :with-test))
+  (logs (>= 0.7.0))
+  (fmt (>= 0.8.9))
+  (bigstringaf (>= 0.7.0))
+  (psq (>= 0.2.0))))
+(package
+ (name eio_linux)
  (synopsis "Eio implementation for Linux using io-uring")
  (description
    "An eio implementation for Linux using io-uring.")
@@ -24,13 +38,12 @@
   (ocaml-variants (= "4.12.0+domains+effects"))
   (ctf (= :version))
   (eio (= :version))
-  (alcotest (and (>= 1.4.0) :with-test))
+  (eunix (= :version))
   (mdx :with-test)
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
   (bigstringaf (>= 0.7.0))
-  uring
-  (psq (>= 0.2.0))))
+  uring))
 (package
  (name ctf)
  (synopsis "CTF tracing")

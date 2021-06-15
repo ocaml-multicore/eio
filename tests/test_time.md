@@ -1,7 +1,7 @@
 # Setting up the environment
 
 ```ocaml
-# #require "eunix";;
+# #require "eio_main";;
 ```
 
 ```ocaml
@@ -9,7 +9,7 @@ open Eio.Std
 
 let run (fn : clock:Eio.Time.clock -> unit) =
   try
-    Eunix.run @@ fun env ->
+    Eio_main.run @@ fun env ->
     let clock = Eio.Stdenv.clock env in
     fn ~clock;
     print_endline "ok"

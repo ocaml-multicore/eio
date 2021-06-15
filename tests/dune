@@ -1,22 +1,2 @@
-(library
-  (name eurcp_lib)
-  (modules eurcp_lib)
-  (libraries eunix uring))
-
-(executable
- (name eurcp)
- (modules eurcp)
- (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli eurcp_lib))
-
-(executable
- (name basic_eunix)
- (modules basic_eunix)
- (libraries logs.fmt fmt.tty eurcp_lib))
-
 (mdx
-  (packages eunix))
-
-(test
- (name test)
- (modules test)
- (libraries alcotest eunix uring))
+  (packages eio_main))

@@ -63,9 +63,10 @@ It is able to run a web-server with [good performance][http-bench], but many fea
 ## Structure of the code
 
 - `eio` provides concurrency primitives (promises, etc), and a high-level, cross-platform OS API.
-- `eunix` provides a Linux io-uring backend for these APIs,
+- `eio_linux` provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
-- `eio_main` selects an appropriate backend (e.g. `eunix`), depending on your platform.
+- `eunix` provides some common code shared by multiple backends.
+- `eio_main` selects an appropriate backend (e.g. `eio_linux`), depending on your platform.
 - `ctf` provides tracing support.
 
 ## Getting started
@@ -119,7 +120,7 @@ Note that:
 - The type of the `main` function here tells us that this program only interacts via `stdout`.
 
 - `Eio_main.run` automatically calls the appropriate run function for your platform.
-  For example, on Linux this will call `Eunix.run`. For non-portable code you can use the platform-specific library directly.
+  For example, on Linux this will call `Eio_linux.run`. For non-portable code you can use the platform-specific library directly.
 
 ## Testing with mocks
 
