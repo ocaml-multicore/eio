@@ -21,6 +21,7 @@ unreleased repository.
 * [Performance](#performance)
 * [Networking](#networking)
 * [Design note: object capabilities](#design-note-object-capabilities)
+* [Filesystem access](#filesystem-access)
 * [Multicore support](#multicore-support)
 * [Design note: thread-safety](#design-note-thread-safety)
 * [Design note: determinism](#design-note-determinism)
@@ -431,6 +432,82 @@ Therefore, this cannot be used as a security mechanism.
 However, it still makes non-malicious code easier to understand and test,
 and may allow for an ocap extension to the language in the future.
 See [Emily][] for a previous attempt at this.
+
+## Filesystem access
+
+Access to the filesystem is also controlled by capabilities, and `env` provides two:
+
+- `fs` provides full access (just like OCaml's stdlib).
+- `cwd` restricts access to files beneath the current working directory.
+
+For example:
+
+```ocaml
+let try_write_file dir path data =
+  match
+    Switch.top @@ fun sw ->
+    let flow = Eio.Dir.open_out dir ~sw path ~create:(`Exclusive 0o600) in
+    Eio.Flow.copy_string data flow
+  with
+  | () -> traceln "write %S -> ok" path
+  | exception ex -> traceln "write %S -> %a" path Fmt.exn ex
+
+let try_mkdir dir path =
+  match Eio.Dir.mkdir dir path ~perm:0o700 with
+  | () -> traceln "mkdir %S -> ok" path
+  | exception ex -> traceln "mkdir %S -> %a" path Fmt.exn ex
+```
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_mkdir cwd "dir1";
+  try_mkdir cwd "../dir2";
+  try_mkdir cwd "/tmp/dir3";
+mkdir "dir1" -> ok
+mkdir "../dir2" -> Eio.Dir.Permission_denied("..", _)
+mkdir "/tmp/dir3" -> Eio.Dir.Permission_denied("/tmp", _)
+- : unit = ()
+```
+
+The checks also apply to following symlinks:
+
+```ocaml
+# Unix.symlink "dir1" "link-to-dir1"; Unix.symlink "/tmp" "link-to-tmp";;
+- : unit = ()
+
+# Eio_main.run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_write_file cwd "dir1/file1" "A";
+  try_write_file cwd "link-to-dir1/file2" "B";
+  try_write_file cwd "link-to-tmp/file3" "C"
+write "dir1/file1" -> ok
+write "link-to-dir1/file2" -> ok
+write "link-to-tmp/file3" -> Eio.Dir.Permission_denied("link-to-tmp/file3", _)
+- : unit = ()
+```
+
+You can use `open_dir` to create a restricted capability to a sub-directory:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Switch.top @@ fun sw ->
+  let cwd = Eio.Stdenv.cwd env in
+  let dir1 = Eio.Dir.open_dir ~sw cwd "dir1" in
+  try_write_file dir1 "file4" "D";
+  try_write_file dir1 "../file5" "E"
+write "file4" -> ok
+write "../file5" -> Eio.Dir.Permission_denied("../file5", _)
+- : unit = ()
+```
+
+Note that you only need to use `open_dir` if you want to create a new sandboxed environment.
+You can use a single directory object to access all paths beneath it,
+and this allows following symlinks within that sub-tree.
+
+A program that operates on the current directory will probably want to use `cwd`,
+whereas a program that accepts a path from the user will probably want to use `fs`,
+perhaps with `open_dir` to constrain all access to be within that directory.
 
 ## Multicore support
 

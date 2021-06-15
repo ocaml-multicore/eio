@@ -177,6 +177,34 @@ module Time = struct
   let sleep ?sw (t : #clock) d = t#sleep ?sw d
 end
 
+module Dir = struct
+  type path = string
+
+  exception Permission_denied of path * exn
+
+  type create = [`Never | `If_missing of Unix.file_perm | `Or_truncate of Unix.file_perm | `Exclusive of Unix.file_perm]
+
+  class virtual t = object
+    method virtual open_in : sw:Switch.t -> path -> <Flow.source; Flow.close>
+    method virtual open_out :
+      sw:Switch.t ->
+      append:bool ->
+      create:create ->
+      path -> <Flow.two_way; Flow.close>
+    method virtual mkdir : ?sw:Switch.t -> perm:Unix.file_perm -> path -> unit
+    method virtual open_dir : sw:Switch.t -> path -> t_with_close
+  end
+  and virtual t_with_close = object
+    (* This dummy class avoids an "Error: The type < .. > is not an object type" error from the compiler. *)
+    inherit t
+    method virtual close : unit
+  end
+
+  let open_in ~sw (t:#t) = t#open_in ~sw
+  let open_out ~sw ?(append=false) ~create (t:#t) path = t#open_out ~sw ~append ~create path
+  let open_dir ~sw (t:#t) = t#open_dir ~sw
+  let mkdir ?sw (t:#t) = t#mkdir ?sw
+end
 
 module Stdenv = struct
   type t = <
@@ -186,6 +214,8 @@ module Stdenv = struct
     network : Network.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
+    fs : Dir.t;
+    cwd : Dir.t;
   >
 
   let stdin  (t : <stdin  : #Flow.source; ..>) = t#stdin
@@ -194,6 +224,8 @@ module Stdenv = struct
   let network (t : <network : #Network.t; ..>) = t#network
   let domain_mgr (t : <domain_mgr : #Domain_manager.t; ..>) = t#domain_mgr
   let clock (t : <clock : #Time.clock; ..>) = t#clock
+  let fs (t : <fs : #Dir.t; ..>) = t#fs
+  let cwd (t : <cwd : #Dir.t; ..>) = t#cwd
 end
 
 module Private = struct
