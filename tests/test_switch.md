@@ -1,7 +1,7 @@
 # Setting up the environment
 
 ```ocaml
-# #require "eunix";;
+# #require "eio_main";;
 ```
 
 ```ocaml
@@ -9,7 +9,7 @@ open Eio.Std
 
 let run (fn : Switch.t -> unit) =
   try
-    Eunix.run @@ fun _e ->
+    Eio_main.run @@ fun _e ->
     Switch.top fn;
     print_endline "ok"
   with

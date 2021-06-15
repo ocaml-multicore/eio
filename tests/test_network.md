@@ -1,7 +1,7 @@
 # Setting up the environment
 
 ```ocaml
-# #require "eunix";;
+# #require "eio_main";;
 ```
 
 ```ocaml
@@ -9,7 +9,7 @@ open Eio.Std
 
 let run (fn : network:Eio.Network.t -> Switch.t -> unit) =
   try
-    Eunix.run @@ fun env ->
+    Eio_main.run @@ fun env ->
     let network = Eio.Stdenv.network env in
     Switch.top (fn ~network);
     print_endline "ok"

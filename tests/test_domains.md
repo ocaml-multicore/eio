@@ -1,7 +1,7 @@
 # Setting up the environment
 
 ```ocaml
-# #require "eunix";;
+# #require "eio_main";;
 ```
 
 ```ocaml
@@ -9,7 +9,7 @@ open Eio.Std
 
 let run (fn : Eio.Domain_manager.t -> unit) =
   try
-    Eunix.run @@ fun env ->
+    Eio_main.run @@ fun env ->
     fn (Eio.Stdenv.domain_mgr env);
     print_endline "ok"
   with

@@ -14,7 +14,7 @@
  (libraries logs.fmt fmt.tty eurcp_lib))
 
 (mdx
-  (packages eunix))
+  (packages eio_main))
 
 (test
  (name test)

@@ -5,50 +5,6 @@ let () =
   Logs.set_reporter @@ Logs.format_reporter ();
   Printexc.record_backtrace true
 
-let state t =
-  Alcotest.of_pp
-    (fun f -> function
-       | `Unresolved -> Fmt.string f "unresolved"
-       | `Broken (Failure msg) -> Fmt.pf f "broken:%s" msg
-       | `Broken ex -> Fmt.pf f "broken:%a" Fmt.exn ex
-       | `Fulfilled x -> Fmt.pf f "fulfilled:%a" (Alcotest.pp t) x
-    )
-
-let get_state p =
-  match Promise.state p with
-  | Unresolved _ -> `Unresolved
-  | Broken ex -> `Broken ex
-  | Fulfilled x -> `Fulfilled x
-
-let test_promise () =
-  Eunix.run @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
-  let p, r = Promise.create () in
-  Alcotest.(check (state string)) "Initially unresolved" (get_state p) `Unresolved;
-  let thread = Fibre.fork ~sw ~exn_turn_off:false (fun () -> Promise.await p) in
-  Promise.fulfill r "ok";
-  Alcotest.(check (state string)) "Resolved OK" (get_state p) (`Fulfilled "ok");
-  Alcotest.(check (state string)) "Thread unresolved" (get_state thread) `Unresolved;
-  Fibre.yield ();
-  Alcotest.(check (state string)) "Thread resolved" (get_state thread) @@ `Fulfilled "ok";
-  let result = Promise.await thread in
-  Alcotest.(check string) "Await result" result "ok"
-
-let test_promise_exn () =
-  Eunix.run @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
-  let p, r = Promise.create () in
-  Alcotest.(check (state reject)) "Initially unresolved" (get_state p) `Unresolved;
-  let thread = Fibre.fork ~sw ~exn_turn_off:false (fun () -> Promise.await p) in
-  Promise.break r (Failure "test");
-  Alcotest.(check (state reject)) "Broken" (get_state p) @@ `Broken (Failure "test");
-  Alcotest.(check (state reject)) "Thread unresolved" (get_state thread) `Unresolved;
-  Fibre.yield ();
-  Alcotest.(check (state reject)) "Thread broken" (get_state thread) @@ `Broken (Failure "test");
-  match Promise.await thread with
-  | `Cant_happen -> assert false
-  | exception (Failure msg) -> Alcotest.(check string) "Await result" msg "test"
-
 let read_one_byte ~sw r =
   Fibre.fork ~sw ~exn_turn_off:true (fun () ->
       let r = Option.get (Eunix.Objects.get_fd_opt r) in
@@ -86,69 +42,6 @@ let test_poll_add_busy () =
   Alcotest.(check string) "Received data" "!" a;
   let b = Promise.await b in
   Alcotest.(check string) "Received data" "!" b
-
-let test_fork_ignore () =
-  Eunix.run ~queue_depth:1 @@ fun _stdenv ->
-  let i = ref 0 in
-  Switch.top (fun sw ->
-      Fibre.fork_ignore ~sw (fun () -> incr i);
-    );
-  Alcotest.(check int) "Forked code ran" 1 !i;
-  let p1, r1 = Promise.create () in
-  try
-    Switch.top (fun sw ->
-        Fibre.fork_ignore ~sw (fun () -> Promise.await p1; incr i; raise Exit);
-        Alcotest.(check int) "Forked code waiting" 1 !i;
-        Promise.fulfill r1 ();
-      );
-    assert false
-  with Exit ->
-    Alcotest.(check int) "Forked code ran" 2 !i
-
-let test_semaphore () =
-  let module Semaphore = Eio.Semaphore in
-  Eunix.run ~queue_depth:1 @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
-  let running = ref 0 in
-  let sem = Semaphore.make 2 in
-  let fork = Fibre.fork ~sw ~exn_turn_off:false in
-  let a = fork (fun () -> Ctf.label "a"; Semaphore.acquire sem; incr running) in
-  let b = fork (fun () -> Ctf.label "b"; Semaphore.acquire sem; incr running) in
-  let c = fork (fun () -> Ctf.label "c"; Semaphore.acquire sem; incr running) in
-  let d = fork (fun () -> Ctf.label "d"; Semaphore.acquire sem; incr running) in
-  Alcotest.(check int) "Two running" 2 !running;
-  Promise.await a;
-  Promise.await b;
-  (* a finishes and c starts *)
-  decr running;
-  Semaphore.release sem;
-  Alcotest.(check int) "One finished " 1 !running;
-  Fibre.yield ();
-  Alcotest.(check int) "Two running again" 2 !running;
-  Promise.await c;
-  (* b finishes and d starts *)
-  decr running;
-  Semaphore.release sem;
-  Promise.await d;
-  decr running;
-  Semaphore.release sem;
-  decr running;
-  Semaphore.release sem
-
-let test_semaphore_no_waiter () =
-  let module Semaphore = Eio.Semaphore in
-  Eunix.run ~queue_depth:2 @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
-  let sem = Semaphore.make 0 in
-  Semaphore.release sem;        (* Release with free-counter *)
-  Alcotest.(check int) "Initial config" 1 (Semaphore.get_value sem);
-  Fibre.fork_ignore ~sw (fun () -> Ctf.label "a"; Semaphore.acquire sem);
-  Fibre.fork_ignore ~sw (fun () -> Ctf.label "b"; Semaphore.acquire sem);
-  Alcotest.(check int) "A running" 0 (Semaphore.get_value sem);
-  Semaphore.release sem;        (* Release with a non-empty wait-queue *)
-  Alcotest.(check int) "Now b running" 0 (Semaphore.get_value sem);
-  Semaphore.release sem;        (* Release with an empty wait-queue *)
-  Alcotest.(check int) "Finished" 1 (Semaphore.get_value sem)
 
 (* Write a string to a pipe and read it out again. *)
 let test_copy () =
@@ -189,17 +82,6 @@ let test_direct_copy () =
 let () =
   let open Alcotest in
   run "eioio" [
-    "promise", [
-      test_case "promise"      `Quick test_promise;
-      test_case "promise_exn"  `Quick test_promise_exn;
-    ];
-    "semaphore", [
-      test_case "semaphore"    `Quick test_semaphore;
-      test_case "no-waiter"    `Quick test_semaphore_no_waiter;
-    ];
-    "fork", [
-      test_case "fork_ignore"  `Quick test_fork_ignore;
-    ];
     "io", [
       test_case "copy"          `Quick test_copy;
       test_case "direct_copy"   `Quick test_direct_copy;
