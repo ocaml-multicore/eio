@@ -1,6 +1,6 @@
 (* basic tests using effects *)
 
-open Eunix
+open Eio_linux
 open Eio.Std
 module Int63 = Optint.Int63
 
@@ -13,7 +13,7 @@ let () =
   setup_log (Some Logs.Debug);
   run @@ fun _stdenv ->
   Switch.top @@ fun sw ->
-  let fd = Unix.handle_unix_error (Eunix.openfile ~sw "test.txt" Unix.[O_RDONLY]) 0 in
+  let fd = Unix.handle_unix_error (openfile ~sw "test.txt" Unix.[O_RDONLY]) 0 in
   let buf = alloc () in
   let _ = read_exactly fd buf 5 in
   print_endline (Uring.Region.to_string ~len:5 buf);
@@ -28,4 +28,4 @@ let () =
   print_endline (Uring.Region.to_string ~len:5 buf);
   let _ = read_exactly fd ~file_offset:(Int63.of_int 3) buf 3 in
   print_endline (Uring.Region.to_string ~len:3 buf);
-  free buf;
+  free buf

@@ -1,0 +1,19 @@
+(library
+  (name eurcp_lib)
+  (modules eurcp_lib)
+  (libraries eio_linux))
+
+(executable
+ (name eurcp)
+ (modules eurcp)
+ (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli eurcp_lib))
+
+(executable
+ (name basic_eio_linux)
+ (modules basic_eio_linux)
+ (libraries logs.fmt fmt.tty eurcp_lib))
+
+(test
+ (name test)
+ (modules test)
+ (libraries alcotest eio_linux))

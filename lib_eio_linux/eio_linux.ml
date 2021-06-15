@@ -14,10 +14,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-let src = Logs.Src.create "eunix" ~doc:"Effect-based IO system"
+let src = Logs.Src.create "eio_linux" ~doc:"Effect-based IO system for Linux/io-uring"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 open Eio.Std
+
+module Suspended = Eunix.Suspended
+module Zzz = Eunix.Zzz
 
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)

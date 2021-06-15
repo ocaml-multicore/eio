@@ -2,7 +2,7 @@
 
 open Eio.Std
 
-module U = Eunix
+module U = Eio_linux
 module Int63 = Optint.Int63
 
 let read_then_write_chunk infd outfd file_offset len =
@@ -29,9 +29,9 @@ let run_cp block_size queue_depth infile outfile () =
   U.run ~queue_depth ~block_size @@ fun _stdenv ->
   Switch.top @@ fun sw ->
   let open Unix in
-  let infd = Eunix.openfile ~sw infile [O_RDONLY] 0 in
-  let outfd = Eunix.openfile ~sw outfile [O_WRONLY; O_CREAT; O_TRUNC] 0o644 in
-  let insize = Eunix.fstat infd |> fun {st_size; _} -> Int63.of_int st_size in
+  let infd = Eio_linux.openfile ~sw infile [O_RDONLY] 0 in
+  let outfd = Eio_linux.openfile ~sw outfile [O_WRONLY; O_CREAT; O_TRUNC] 0o644 in
+  let insize = Eio_linux.fstat infd |> fun {st_size; _} -> Int63.of_int st_size in
   Logs.debug (fun l -> l "eurcp: %s -> %s size %a queue %d bs %d"
                  infile
                  outfile

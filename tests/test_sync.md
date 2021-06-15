@@ -51,15 +51,14 @@ Create a promise, fork a thread waiting for it, then break it:
     traceln "Thread before yield: %a" (pp_promise Fmt.string) thread;
     Fibre.yield ();
     traceln "Thread after yield: %a" (pp_promise Fmt.string) thread;
-    traceln "Final result: %s" (Promise.await thread);
     match Promise.await thread with
     | x -> failwith x
     | exception (Failure msg) -> traceln "Final result exception: %s" msg
-Exception: Failure "test".
 Initial state: unresolved
 After being broken: broken:test
 Thread before yield: unresolved
 Thread after yield: broken:test
+Final result exception: test
 ```
 
 Some simple tests of `fork_ignore`:
@@ -122,7 +121,7 @@ One finished; now 1 is running
 Yield allows C to start; now 2 are running
 ```
 
-Releasing a semaphore when noone is waiting for it:
+Releasing a semaphore when no-one is waiting for it:
 ```ocaml
 # let () =
     let module Semaphore = Eio.Semaphore in
