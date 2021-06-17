@@ -123,7 +123,7 @@ module Flow = struct
   let shutdown (t : #two_way) = t#shutdown
 end
 
-module Network = struct
+module Net = struct
   module Sockaddr = struct
     type inet_addr = Unix.inet_addr
 
@@ -139,21 +139,19 @@ module Network = struct
         Format.fprintf f "tcp:%s:%d" (Unix.string_of_inet_addr addr) port
   end
 
-  module Listening_socket = struct
-    class virtual t = object
-      method virtual close : unit
-      method virtual accept_sub :
-        sw:Switch.t ->
-        on_error:(exn -> unit) ->
-        (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
-        unit
-    end
-
-    let accept_sub ~sw (t : #t) = t#accept_sub ~sw
+  class virtual listening_socket = object
+    method virtual close : unit
+    method virtual accept_sub :
+      sw:Switch.t ->
+      on_error:(exn -> unit) ->
+      (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
+      unit
   end
 
+  let accept_sub ~sw (t : #listening_socket) = t#accept_sub ~sw
+
   class virtual t = object
-    method virtual listen : reuse_addr:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> Listening_socket.t
+    method virtual listen : reuse_addr:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
     method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   end
 
@@ -171,10 +169,15 @@ end
 
 module Time = struct
   class virtual clock = object
-    method virtual sleep : ?sw:Switch.t -> float -> unit
+    method virtual now : float
+    method virtual sleep_until : ?sw:Switch.t -> float -> unit
   end
 
-  let sleep ?sw (t : #clock) d = t#sleep ?sw d
+  let now (t : #clock) = t#now
+
+  let sleep_until ?sw (t : #clock) time = t#sleep_until ?sw time
+
+  let sleep ?sw t d = sleep_until ?sw t (now t +. d)
 end
 
 module Dir = struct
@@ -211,7 +214,7 @@ module Stdenv = struct
     stdin  : Flow.source;
     stdout : Flow.sink;
     stderr : Flow.sink;
-    network : Network.t;
+    net : Net.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
     fs : Dir.t;
@@ -221,7 +224,7 @@ module Stdenv = struct
   let stdin  (t : <stdin  : #Flow.source; ..>) = t#stdin
   let stdout (t : <stdout : #Flow.sink;   ..>) = t#stdout
   let stderr (t : <stderr : #Flow.sink;   ..>) = t#stderr
-  let network (t : <network : #Network.t; ..>) = t#network
+  let net (t : <net : #Net.t; ..>) = t#net
   let domain_mgr (t : <domain_mgr : #Domain_manager.t; ..>) = t#domain_mgr
   let clock (t : <clock : #Time.clock; ..>) = t#clock
   let fs (t : <fs : #Dir.t; ..>) = t#fs

@@ -44,8 +44,8 @@ end
 
 (** {1 Time functions} *)
 
-val sleep : ?sw:Switch.t -> float -> unit
-(** [sleep s] blocks until (at least) [s] seconds have passed.
+val sleep_until : ?sw:Switch.t -> float -> unit
+(** [sleep_until time] blocks until the current time is [time].
     @param sw Cancel the sleep if [sw] is turned off. *)
 
 (** {1 Memory allocation functions} *)
@@ -132,7 +132,7 @@ module Objects : sig
     stdin  : source;
     stdout : sink;
     stderr : sink;
-    network : Eio.Network.t;
+    net : Eio.Net.t;
     domain_mgr : Eio.Domain_manager.t;
     clock : Eio.Time.clock;
     fs : Eio.Dir.t;

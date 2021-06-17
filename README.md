@@ -22,6 +22,7 @@ unreleased repository.
 * [Networking](#networking)
 * [Design note: object capabilities](#design-note-object-capabilities)
 * [Filesystem access](#filesystem-access)
+* [Time](#time)
 * [Multicore support](#multicore-support)
 * [Design note: thread-safety](#design-note-thread-safety)
 * [Design note: determinism](#design-note-determinism)
@@ -335,22 +336,20 @@ Eio provides a simple high-level API for networking.
 Here is a client that connects to address `addr` using `network` and sends a message:
 
 ```ocaml
-let run_client ~sw ~network ~addr =
+let run_client ~sw ~net ~addr =
   traceln "Connecting to server...";
-  let flow = Eio.Network.connect ~sw network addr in
+  let flow = Eio.Net.connect ~sw net addr in
   Eio.Flow.copy_string "Hello from client" flow;
-  Eio.Flow.close flow
+  Eio.Flow.shutdown flow `Send
 ```
 
 Note: The `flow` is attached to `sw` and will be closed automatically when it finishes.
-      The explicit `close` here just ensures it is closed promptly,
-      rather than waiting for the server to finish too.
 
 Here is a server that listens on `socket` and handles a single connection by reading a message:
 
 ```ocaml
 let run_server ~sw socket =
-  Eio.Network.Listening_socket.accept_sub socket ~sw (fun ~sw flow _addr ->
+  Eio.Net.accept_sub socket ~sw (fun ~sw flow _addr ->
     traceln "Server accepted connection from client";
     let b = Buffer.create 100 in
     Eio.Flow.copy flow (Eio.Flow.buffer_sink b);
@@ -368,19 +367,19 @@ Notes:
 We can test them in a single process using `Fibre.both`:
 
 ```ocaml
-let main ~network ~addr =
+let main ~net ~addr =
   Switch.top @@ fun sw ->
-  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   traceln "Server ready...";
   Fibre.both ~sw
     (fun () -> run_server ~sw server)
-    (fun () -> run_client ~sw ~network ~addr)
+    (fun () -> run_client ~sw ~net ~addr)
 ```
 
 ```ocaml
 # Eio_main.run @@ fun env ->
   main
-    ~network:(Eio.Stdenv.network env)
+    ~net:(Eio.Stdenv.net env)
     ~addr:(`Tcp (Unix.inet_addr_loopback, 8080))
 Server ready...
 Connecting to server...
@@ -424,7 +423,7 @@ In an ocap language, we don't have to read the entire code-base to find the answ
   `run_server` does not get the full `network` access, so we probably don't need to read that code
   (we might want to check whether we granted other parties access to this port on our loopback network).
 - `run_client` does get `network`, so we do need to read that.
-  We could make that code easier to audit by passing it `(fun () -> Eio.Network.connect network addr)` instead of `network`.
+  We could make that code easier to audit by passing it `(fun () -> Eio.Net.connect network addr)` instead of `network`.
   Then we could see that `run_client` could only connect to our loopback address.
 
 Since OCaml is not an ocap language, code can ignore Eio and use the non-ocap APIs directly.
@@ -508,6 +507,24 @@ and this allows following symlinks within that sub-tree.
 A program that operates on the current directory will probably want to use `cwd`,
 whereas a program that accepts a path from the user will probably want to use `fs`,
 perhaps with `open_dir` to constrain all access to be within that directory.
+
+## Time
+
+The standard environment provides a clock with the usual POSIX time:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  traceln "The time is now %f" (Eio.Time.now clock);
+  Eio.Time.sleep clock 1.0;
+  traceln "The time is now %f" (Eio.Time.now clock)
+The time is now 1623940778.270336
+The time is now 1623940779.270336
+- : unit = ()
+```
+
+You might like to replace this clock with a mock for tests.
+In fact, this README does just that - see [doc/prelude.ml](doc/prelude.ml) for the fake clock used in the example above!
 
 ## Multicore support
 
