@@ -315,7 +315,7 @@ A child error handler deals with the exception:
 ```ocaml
 # run (fun sw ->
       let print ex = traceln "%s" (Printexc.to_string ex); 0 in
-      let x = Switch.sub ~sw ~on_error:print (fun _sw -> failwith "Child error") in
+      let x = Switch.sub sw ~on_error:print (fun _sw -> failwith "Child error") in
       traceln "x = %d" x
     )
 Failure("Child error")
@@ -454,7 +454,7 @@ We release when `fork_sub_ignore` fails due to parent switch being invalid:
 ```ocaml
 # run (fun sw ->
     let copy = ref sw in
-    Switch.sub ~sw ~on_error:raise (fun sub -> copy := sub);
+    Switch.sub sw ~on_error:raise (fun sub -> copy := sub);
     fork_sub_ignore_resource !copy
   )
 Allocate resource
