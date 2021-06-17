@@ -339,12 +339,10 @@ let run_client ~sw ~network ~addr =
   traceln "Connecting to server...";
   let flow = Eio.Network.connect ~sw network addr in
   Eio.Flow.copy_string "Hello from client" flow;
-  Eio.Flow.close flow
+  Eio.Flow.shutdown flow `Send
 ```
 
 Note: The `flow` is attached to `sw` and will be closed automatically when it finishes.
-      The explicit `close` here just ensures it is closed promptly,
-      rather than waiting for the server to finish too.
 
 Here is a server that listens on `socket` and handles a single connection by reading a message:
 
