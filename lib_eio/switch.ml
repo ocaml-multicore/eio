@@ -193,7 +193,7 @@ let on_release t fn =
     let _ : _ Lwt_dllist.node = Lwt_dllist.add_r fn t.on_release in
     ()
 
-let sub ?on_release:release ~sw ~on_error fn =
+let sub ?on_release:release sw ~on_error fn =
   match sw.state with
   | Finished ->
     (* Can't create child switch. Run release hooks immediately. *)
@@ -220,3 +220,12 @@ let sub ?on_release:release ~sw ~on_error fn =
     | exception ex ->
       Waiters.remove_waiter !w;
       on_error ex
+
+let sub_opt ?on_release:release t fn =
+  match t with
+  | Some t -> sub ?on_release:release ~on_error:raise t fn
+  | None ->
+    top (fun child ->
+        Option.iter (on_release child) release;
+        fn child
+      )

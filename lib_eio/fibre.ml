@@ -41,7 +41,7 @@ let fork_sub_ignore ?on_release ~sw ~on_error f =
     invalid_arg "Switch finished!"
   );
   let f () =
-    try Switch.sub ?on_release ~sw ~on_error f
+    try Switch.sub ?on_release sw ~on_error f
     with ex ->
       Switch.turn_off sw ex;
       raise ex

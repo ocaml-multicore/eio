@@ -27,14 +27,21 @@ module Std : sig
         If the switch is turned off before it returns, [top] re-raises the switch's exception(s).
         @raise Multiple_exceptions If [turn_off] is called more than once. *)
 
-    val sub : ?on_release:(unit -> unit) -> sw:t -> on_error:(exn -> 'a) -> (t -> 'a) -> 'a
-    (** [sub ~sw ~on_error fn] is like [top fn], but the new switch is a child of [sw], so that
-        cancelling [sw] also cancels the child (but not the other way around).
+    val sub : ?on_release:(unit -> unit) -> t -> on_error:(exn -> 'a) -> (t -> 'a) -> 'a
+    (** [sub sw ~on_error fn] is like [top fn], but the new switch is a child of [t], so that
+        cancelling [t] also cancels the child (but not the other way around).
         If [fn] raises an exception then it is passed to [on_error].
         If you only want to use [sub] to wait for a group of threads to finish, but not to contain
         errors, you can use [~on_error:raise].
         @param on_release Register this function with [Switch.on_release sub] once the sub-switch is created.
                           If creating the sub-switch fails, run it immediately. *)
+
+    val sub_opt : ?on_release:(unit -> unit) -> t option -> (t -> 'a) -> 'a
+    (** Run a function with a new switch, optionally a child of another switch.
+        [sub_opt (Some sw)] is [sub sw ~on_error:raise].
+        [sub None] is [top].
+        @param on_release Register this function with [Switch.on_release sub] once the new switch is created.
+                          If creating the switch fails, run it immediately. *)
 
     val check : t -> unit
     (** [check t] checks that [t] is still on.
