@@ -169,10 +169,15 @@ end
 
 module Time = struct
   class virtual clock = object
-    method virtual sleep : ?sw:Switch.t -> float -> unit
+    method virtual now : float
+    method virtual sleep_until : ?sw:Switch.t -> float -> unit
   end
 
-  let sleep ?sw (t : #clock) d = t#sleep ?sw d
+  let now (t : #clock) = t#now
+
+  let sleep_until ?sw (t : #clock) time = t#sleep_until ?sw time
+
+  let sleep ?sw t d = sleep_until ?sw t (now t +. d)
 end
 
 module Dir = struct

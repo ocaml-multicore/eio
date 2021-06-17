@@ -404,9 +404,9 @@ let free_buf st buf =
   | None -> Uring.Region.free buf
   | Some k -> enqueue_thread st k buf
 
-effect Sleep : Switch.t option * float -> unit
-let sleep ?sw d =
-  perform (Sleep (sw, d))
+effect Sleep_until : Switch.t option * float -> unit
+let sleep_until ?sw d =
+  perform (Sleep_until (sw, d))
 
 effect ERead : (Switch.t option * Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int
 
@@ -722,7 +722,8 @@ module Objects = struct
   let clock = object
     inherit Eio.Time.clock
 
-    method sleep ?sw d = sleep ?sw d
+    method now = Unix.gettimeofday ()
+    method sleep_until = sleep_until
   end
 
   class dir fd = object
@@ -856,9 +857,8 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
       let k = { Suspended.k; tid } in
       enqueue_accept ~sw st k fd client_addr;
       schedule st
-    | effect (Sleep (sw, d)) k ->
+    | effect (Sleep_until (sw, time)) k ->
       let k = { Suspended.k; tid } in
-      let time = Unix.gettimeofday () +. d in
       let cancel_hook = ref Switch.null_hook in
       begin match sw with
         | None ->

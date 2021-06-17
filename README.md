@@ -22,6 +22,7 @@ unreleased repository.
 * [Networking](#networking)
 * [Design note: object capabilities](#design-note-object-capabilities)
 * [Filesystem access](#filesystem-access)
+* [Time](#time)
 * [Multicore support](#multicore-support)
 * [Design note: thread-safety](#design-note-thread-safety)
 * [Design note: determinism](#design-note-determinism)
@@ -506,6 +507,24 @@ and this allows following symlinks within that sub-tree.
 A program that operates on the current directory will probably want to use `cwd`,
 whereas a program that accepts a path from the user will probably want to use `fs`,
 perhaps with `open_dir` to constrain all access to be within that directory.
+
+## Time
+
+The standard environment provides a clock with the usual POSIX time:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  traceln "The time is now %f" (Eio.Time.now clock);
+  Eio.Time.sleep clock 1.0;
+  traceln "The time is now %f" (Eio.Time.now clock)
+The time is now 1623940778.270336
+The time is now 1623940779.270336
+- : unit = ()
+```
+
+You might like to replace this clock with a mock for tests.
+In fact, this README does just that - see [doc/prelude.ml](doc/prelude.ml) for the fake clock used in the example above!
 
 ## Multicore support
 

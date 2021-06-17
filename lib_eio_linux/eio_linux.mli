@@ -44,8 +44,8 @@ end
 
 (** {1 Time functions} *)
 
-val sleep : ?sw:Switch.t -> float -> unit
-(** [sleep s] blocks until (at least) [s] seconds have passed.
+val sleep_until : ?sw:Switch.t -> float -> unit
+(** [sleep_until time] blocks until the current time is [time].
     @param sw Cancel the sleep if [sw] is turned off. *)
 
 (** {1 Memory allocation functions} *)

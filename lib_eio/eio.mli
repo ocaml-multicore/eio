@@ -363,8 +363,16 @@ end
 
 module Time : sig
   class virtual clock : object
-    method virtual sleep : ?sw:Switch.t -> float -> unit
+    method virtual now : float
+    method virtual sleep_until : ?sw:Switch.t -> float -> unit
   end
+
+  val now : #clock -> float
+  (** [now t] is the current time according to [t]. *)
+
+  val sleep_until : ?sw:Switch.t -> #clock -> float -> unit
+  (** [sleep_until t time] waits until the given time is reached.
+      @param sw The sleep is aborted if the switch is turned off. *)
 
   val sleep : ?sw:Switch.t -> #clock -> float -> unit
   (** [sleep t d] waits for [d] seconds.
