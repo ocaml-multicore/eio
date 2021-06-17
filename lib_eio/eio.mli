@@ -299,7 +299,7 @@ module Flow : sig
   val shutdown : #two_way -> shutdown_command -> unit
 end
 
-module Network : sig
+module Net : sig
   module Sockaddr : sig
     type inet_addr = Unix.inet_addr
 
@@ -311,33 +311,31 @@ module Network : sig
     val pp : Format.formatter -> t -> unit
   end
 
-  module Listening_socket : sig
-    class virtual t : object
-      method virtual close : unit
-      method virtual accept_sub :
-        sw:Switch.t ->
-        on_error:(exn -> unit) ->
-        (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
-        unit
-    end
-
-    val accept_sub :
+  class virtual listening_socket : object
+    method virtual close : unit
+    method virtual accept_sub :
       sw:Switch.t ->
-      #t ->
       on_error:(exn -> unit) ->
       (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
       unit
-    (** [accept t fn] waits for a new connection to [t] and then runs [fn ~sw flow client_addr] in a new fibre,
-        created with [Fibre.fork_sub_ignore].
-        [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
   end
 
+  val accept_sub :
+    sw:Switch.t ->
+    #listening_socket ->
+    on_error:(exn -> unit) ->
+    (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
+    unit
+  (** [accept socket fn] waits for a new connection to [socket] and then runs [fn ~sw flow client_addr] in a new fibre,
+      created with [Fibre.fork_sub_ignore].
+      [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
+
   class virtual t : object
-    method virtual listen : reuse_addr:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> Listening_socket.t
+    method virtual listen : reuse_addr:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
     method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   end
 
-  val listen : ?reuse_addr:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.t -> Listening_socket.t
+  val listen : ?reuse_addr:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.t -> listening_socket
   (** [listen ~sw ~backlog t addr] is a new listening socket bound to local address [addr].
       The new socket will be closed when [sw] finishes, unless closed manually first.
       For (non-abstract) Unix domain sockets, the path will be removed afterwards.
@@ -430,7 +428,7 @@ module Stdenv : sig
     stdin  : Flow.source;
     stdout : Flow.sink;
     stderr : Flow.sink;
-    network : Network.t;
+    net : Net.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
     fs : Dir.t;
@@ -441,7 +439,7 @@ module Stdenv : sig
   val stdout : <stdout : #Flow.sink   as 'a; ..> -> 'a
   val stderr : <stderr : #Flow.sink   as 'a; ..> -> 'a
 
-  val network : <network : #Network.t as 'a; ..> -> 'a
+  val net : <net : #Net.t as 'a; ..> -> 'a
   val domain_mgr : <domain_mgr : #Domain_manager.t as 'a; ..> -> 'a
   val clock : <clock : #Time.clock as 'a; ..> -> 'a
 

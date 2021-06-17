@@ -132,7 +132,7 @@ module Objects : sig
     stdin  : source;
     stdout : sink;
     stderr : sink;
-    network : Eio.Network.t;
+    net : Eio.Net.t;
     domain_mgr : Eio.Domain_manager.t;
     clock : Eio.Time.clock;
     fs : Eio.Dir.t;

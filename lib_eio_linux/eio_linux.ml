@@ -630,7 +630,7 @@ module Objects = struct
   let sink   fd = (flow fd :> sink)
 
   let listening_socket fd = object
-    inherit Eio.Network.Listening_socket.t
+    inherit Eio.Net.listening_socket
 
     method close = FD.close fd
 
@@ -647,8 +647,8 @@ module Objects = struct
         ~on_release:(fun () -> FD.ensure_closed client)
   end
 
-  let network = object
-    inherit Eio.Network.t
+  let net = object
+    inherit Eio.Net.t
 
     method listen ~reuse_addr ~backlog ~sw listen_addr =
       let socket_domain, socket_type, addr =
@@ -694,7 +694,7 @@ module Objects = struct
     stdin  : source;
     stdout : sink;
     stderr : sink;
-    network : Eio.Network.t;
+    net : Eio.Net.t;
     domain_mgr : Eio.Domain_manager.t;
     clock : Eio.Time.clock;
     fs : Eio.Dir.t;
@@ -792,7 +792,7 @@ module Objects = struct
       method stdin  = Lazy.force stdin
       method stdout = Lazy.force stdout
       method stderr = Lazy.force stderr
-      method network = network
+      method net = net
       method domain_mgr = domain_mgr
       method clock = clock
       method fs = (fs :> Eio.Dir.t)

@@ -7,11 +7,11 @@
 ```ocaml
 open Eio.Std
 
-let run (fn : network:Eio.Network.t -> Switch.t -> unit) =
+let run (fn : net:Eio.Net.t -> Switch.t -> unit) =
   try
     Eio_main.run @@ fun env ->
-    let network = Eio.Stdenv.network env in
-    Switch.top (fn ~network);
+    let net = Eio.Stdenv.net env in
+    Switch.top (fn ~net);
     print_endline "ok"
   with
   | Failure msg -> print_endline msg
@@ -32,9 +32,9 @@ exception Graceful_shutdown
 A simple client:
 
 ```ocaml
-let run_client ~sw ~network ~addr =
+let run_client ~sw ~net ~addr =
   traceln "Connecting to server...";
-  let flow = Eio.Network.connect ~sw network addr in
+  let flow = Eio.Net.connect ~sw net addr in
   Eio.Flow.copy_string "Hello from client" flow;
   Eio.Flow.shutdown flow `Send;
   let msg = read_all ~sw flow in
@@ -46,7 +46,7 @@ A simple server:
 ```ocaml
 let run_server ~sw socket =
   while true do
-    Eio.Network.Listening_socket.accept_sub socket ~sw (fun ~sw flow _addr ->
+    Eio.Net.accept_sub socket ~sw (fun ~sw flow _addr ->
       traceln "Server accepted connection from client";
       Fun.protect (fun () ->
         let msg = read_all ~sw flow in
@@ -59,12 +59,12 @@ let run_server ~sw socket =
     );
   done
 
-let test_address addr ~network sw =
-  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
+let test_address addr ~net sw =
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   Fibre.both ~sw
     (fun () -> run_server ~sw server)
     (fun () ->
-      run_client ~sw ~network ~addr;
+      run_client ~sw ~net ~addr;
       traceln "Client finished - cancelling server";
       Switch.turn_off sw (Failure "Test is over")
     )
@@ -112,12 +112,12 @@ Test is over
 Cancelling the read:
 
 ```ocaml
-# run @@ fun ~network sw ->
+# run @@ fun ~net sw ->
   Switch.top @@ fun read_switch ->
-  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   Fibre.both ~sw
     (fun () ->
-      Eio.Network.Listening_socket.accept_sub server ~sw (fun ~sw flow _addr ->
+      Eio.Net.accept_sub server ~sw (fun ~sw flow _addr ->
         try
           let msg = read_all ~sw:read_switch flow in
           traceln "Server received: %S" msg
@@ -127,7 +127,7 @@ Cancelling the read:
     )
     (fun () ->
       traceln "Connecting to server...";
-      let flow = Eio.Network.connect ~sw network addr in
+      let flow = Eio.Net.connect ~sw net addr in
       traceln "Connection opened - cancelling server's read";
       Switch.turn_off read_switch Graceful_shutdown;
       let msg = read_all flow in
@@ -143,10 +143,10 @@ Graceful_shutdown
 Calling accept when the switch is already off:
 
 ```ocaml
-# run @@ fun ~network sw ->
-  let server = Eio.Network.listen network ~sw ~reuse_addr:true ~backlog:5 addr in
+# run @@ fun ~net sw ->
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   Switch.turn_off sw (Failure "Simulated error");
-  Eio.Network.Listening_socket.accept_sub server ~sw (fun ~sw:_ _flow _addr -> assert false)
+  Eio.Net.accept_sub server ~sw (fun ~sw:_ _flow _addr -> assert false)
     ~on_error:raise
 Simulated error
 - : unit = ()
