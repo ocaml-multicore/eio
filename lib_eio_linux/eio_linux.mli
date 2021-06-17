@@ -62,6 +62,17 @@ val with_chunk : (Uring.Region.chunk -> 'a) -> 'a
 val openfile : sw:Switch.t -> string -> Unix.open_flag list -> int -> FD.t
 (** Like {!Unix.open_file}. *)
 
+val openat2 :
+  sw:Switch.t ->
+  ?seekable:bool ->
+  access:[`R|`W|`RW] ->
+  flags:Uring.Open_flags.t ->
+  perm:Unix.file_perm ->
+  resolve:Uring.Resolve.t ->
+  ?dir:FD.t -> string -> FD.t
+(** [openat2 ~sw ~flags ~perm ~resolve ~dir path] opens [dir/path].
+    See {!Uring.openat2} for details. *)
+
 val read_upto : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> int
 (** [read_upto fd chunk len] reads at most [len] bytes from [fd],
     returning as soon as some data is available.
@@ -124,6 +135,8 @@ module Objects : sig
     network : Eio.Network.t;
     domain_mgr : Eio.Domain_manager.t;
     clock : Eio.Time.clock;
+    fs : Eio.Dir.t;
+    cwd : Eio.Dir.t;
   >
 
   val get_fd : <has_fd; ..> -> FD.t

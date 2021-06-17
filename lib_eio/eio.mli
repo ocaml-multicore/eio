@@ -373,6 +373,57 @@ module Time : sig
       @param sw The sleep is aborted if the switch is turned off. *)
 end
 
+module Dir : sig
+  type path = string
+
+  exception Permission_denied of path * exn
+
+  type create = [`Never | `If_missing of Unix.file_perm | `Or_truncate of Unix.file_perm | `Exclusive of Unix.file_perm]
+  (** When to create a new file:
+      If [`Never] then it's an error if the named file doesn't exist.
+      If [`If_missing] then an existing file is simply opened.
+      If [`Or_truncate] then an existing file truncated to zero length.
+      If [`Exclusive] then it is an error is the file does exist.
+      If a new file is created, the given permissions are used for it. *)
+
+  (** A [Dir.t] represents access to a directory and contents, recursively. *)
+  class virtual t : object
+    method virtual open_in : sw:Switch.t -> path -> <Flow.source; Flow.close>
+    method virtual open_out :
+      sw:Switch.t ->
+      append:bool ->
+      create:create ->
+      path -> <Flow.two_way; Flow.close>
+    method virtual mkdir : ?sw:Switch.t -> perm:Unix.file_perm -> path -> unit
+    method virtual open_dir : sw:Switch.t -> path -> t_with_close
+  end
+  and virtual t_with_close : object
+    inherit t
+    method virtual close : unit
+  end
+
+  val open_in : sw:Switch.t -> #t -> path -> <Flow.source; Flow.close>
+  (** [open_in ~sw t path] opens [t/path] for reading.
+      Note: files are always opened in binary mode. *)
+
+  val open_out :
+    sw:Switch.t ->
+    ?append:bool ->
+    create:create ->
+    #t -> path -> <Flow.two_way; Flow.close>
+  (** [open_out ~sw t path] opens [t/path] for reading and writing.
+      Note: files are always opened in binary mode.
+      @param append Open for appending: always write at end of file.
+      @param create Controls whether to create the file, and what permissions to give it if so. *)
+
+  val mkdir : ?sw:Switch.t -> #t -> perm:Unix.file_perm -> path -> unit
+  (** [mkdir t ~perm path] creates a new directory [t/path] with permissions [perm]. *)
+
+  val open_dir : sw:Switch.t -> #t -> path -> <t; Flow.close>
+  (** [open_dir ~sw t path] opens [t/path].
+      This can be passed to functions to grant access only to the subtree [t/path]. *)
+end
+
 (** The standard environment of a process. *)
 module Stdenv : sig
   type t = <
@@ -382,6 +433,8 @@ module Stdenv : sig
     network : Network.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
+    fs : Dir.t;
+    cwd : Dir.t;
   >
 
   val stdin  : <stdin  : #Flow.source as 'a; ..> -> 'a
@@ -391,6 +444,17 @@ module Stdenv : sig
   val network : <network : #Network.t as 'a; ..> -> 'a
   val domain_mgr : <domain_mgr : #Domain_manager.t as 'a; ..> -> 'a
   val clock : <clock : #Time.clock as 'a; ..> -> 'a
+
+  val cwd : <cwd : #Dir.t as 'a; ..> -> 'a
+  (** [cwd t] is the current working directory of the process (this may change
+      over time if the process does a `chdir` operation, which is not recommended). *)
+
+  val fs : <fs : #Dir.t as 'a; ..> -> 'a
+  (** [fs t] is the process's full access to the filesystem.
+      Paths can be absolute or relative (to the current working directory).
+      Using relative paths with this is similar to using them with {!cwd},
+      except that this will follow symlinks to other parts of the filesystem.
+      [fs] is useful for handling paths passed in by the user. *)
 end
 
 (** {1 Provider API for OS schedulers} *)

@@ -96,6 +96,7 @@ type io_job =
   | Read : rw_req * cancel_hook -> io_job
   | Poll_add : int Suspended.t * cancel_hook -> io_job
   | Splice : int Suspended.t * cancel_hook -> io_job
+  | Openat2 : int Suspended.t * cancel_hook -> io_job
   | Connect : int Suspended.t * cancel_hook -> io_job
   | Accept : int Suspended.t * cancel_hook -> io_job
   | Close : int Suspended.t -> io_job
@@ -244,6 +245,17 @@ let rec enqueue_splice ?sw st action ~src ~dst ~len =
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_splice ?sw st action ~src ~dst ~len) st.io_q
 
+let rec enqueue_openat2 st action ((sw, access, flags, perm, resolve, dir, path) as args) =
+  Log.debug (fun l -> l "openat2: submitting call");
+  Ctf.label "openat2";
+  let fd = Option.map (FD.get "openat2") dir in
+  let retry = with_cancel_hook ~sw ~action st (fun cancel ->
+      Uring.openat2 st.uring ~access ~flags ~perm ~resolve ?fd path (Openat2 (action, cancel))
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_openat2 st action args) st.io_q
+
 let rec enqueue_connect ?sw st action fd addr =
   Log.debug (fun l -> l "connect: submitting call");
   Ctf.label "connect";
@@ -348,6 +360,10 @@ and handle_complete st ~runnable result =
     Log.debug (fun l -> l "connect returned");
     Switch.remove_hook !cancel;
     Suspended.continue k result
+  | Openat2 (k, cancel) ->
+    Log.debug (fun l -> l "openat2 returned");
+    Switch.remove_hook !cancel;
+    Suspended.continue k result
   | Accept (k, cancel) ->
     Log.debug (fun l -> l "accept returned");
     Switch.remove_hook !cancel;
@@ -378,7 +394,7 @@ and complete_rw_req st ({len; cur_off; action; _} as req) res =
 let alloc_buf st k =
   Log.debug (fun l -> l "alloc: %d" (Uring.Region.avail st.mem));
   match Uring.Region.alloc st.mem with
-  | buf -> Suspended.continue k buf 
+  | buf -> Suspended.continue k buf
   | exception Uring.Region.No_space ->
     Queue.push k st.mem_q;
     schedule st
@@ -473,8 +489,47 @@ let openfile ~sw path flags mode =
   let fd = Unix.openfile path flags mode in
   FD.of_unix ~sw ~seekable:(FD.is_seekable fd) fd
 
+effect Openat2 : (Switch.t * [`R|`W|`RW] * Uring.Open_flags.t * Unix.file_perm * Uring.Resolve.t * FD.t option * string) -> int
+let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
+  let res = perform (Openat2 (sw, access, flags, perm, resolve, dir, path)) in
+  if res < 0 then (
+    Switch.check sw;    (* If cancelled, report that instead. *)
+    let ex = Unix.Unix_error (Uring.error_of_errno res, "openat2", "") in
+    if res = -18 then raise (Eio.Dir.Permission_denied (path, ex))
+    else raise ex
+  );
+  let fd : Unix.file_descr = Obj.magic res in
+  let seekable =
+    match seekable with
+    | None -> FD.is_seekable fd
+    | Some x -> x
+  in
+  FD.of_unix ~sw ~seekable fd
+
 let fstat fd =
   Unix.fstat (FD.get "fstat" fd)
+
+external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
+
+(* We ignore [sw] because this isn't a uring operation yet. *)
+let mkdirat ?sw:_ ~perm dir path =
+  match dir with
+  | None -> Unix.mkdir path perm
+  | Some dir -> eio_mkdirat (FD.get "mkdirat" dir) path perm
+
+let mkdir_beneath ?sw ~perm ?dir path =
+  let dir_path = Filename.dirname path in
+  let leaf = Filename.basename path in
+  (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
+  Switch.sub_opt sw (fun sw ->
+      let parent = openat2 ~sw ~seekable:false ?dir dir_path
+          ~access:`R
+          ~flags:Uring.Open_flags.(cloexec + path + directory)
+          ~perm:0
+          ~resolve:Uring.Resolve.beneath
+      in
+      mkdirat ~sw ~perm (Some parent) leaf
+    )
 
 let shutdown socket command =
   Unix.shutdown (FD.get "shutdown" socket) command
@@ -642,6 +697,8 @@ module Objects = struct
     network : Eio.Network.t;
     domain_mgr : Eio.Domain_manager.t;
     clock : Eio.Time.clock;
+    fs : Eio.Dir.t;
+    cwd : Eio.Dir.t;
   >
 
   let domain_mgr = object
@@ -668,11 +725,69 @@ module Objects = struct
     method sleep ?sw d = sleep ?sw d
   end
 
+  class dir fd = object
+    inherit Eio.Dir.t
+
+    val resolve_flags = Uring.Resolve.beneath
+
+    method open_in ~sw path =
+      let fd = openat2 ~sw ?dir:fd path
+          ~access:`R
+          ~flags:Uring.Open_flags.cloexec
+          ~perm:0
+          ~resolve:Uring.Resolve.beneath
+      in
+      (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
+
+    method open_out ~sw ~append ~create path =
+      let perm, flags =
+        match create with
+        | `Never            -> 0,    Uring.Open_flags.empty
+        | `If_missing  perm -> perm, Uring.Open_flags.creat
+        | `Or_truncate perm -> perm, Uring.Open_flags.(creat + trunc)
+        | `Exclusive   perm -> perm, Uring.Open_flags.(creat + excl)
+      in
+      let flags = if append then Uring.Open_flags.(flags + append) else flags in
+      let fd = openat2 ~sw ?dir:fd path
+          ~access:`RW
+          ~flags:Uring.Open_flags.(cloexec + flags)
+          ~perm
+          ~resolve:resolve_flags
+      in
+      (flow fd :> <Eio.Flow.two_way; Eio.Flow.close>)
+
+    method open_dir ~sw path =
+      let fd = openat2 ~sw ~seekable:false ?dir:fd path
+          ~access:`R
+          ~flags:Uring.Open_flags.(cloexec + path + directory)
+          ~perm:0
+          ~resolve:resolve_flags
+      in
+      (new dir (Some fd) :> <Eio.Dir.t; Eio.Flow.close>)
+
+    method mkdir ?sw ~perm path =
+      mkdir_beneath ?sw ~perm ?dir:fd path
+
+    method close =
+      FD.close (Option.get fd)
+  end
+
+  (* Full access to the filesystem. *)
+  let fs = object
+    inherit dir None
+
+    val! resolve_flags = Uring.Resolve.empty
+
+    method! mkdir ?sw ~perm path =
+      mkdirat ?sw ~perm None path
+  end
+
   let stdenv () =
     let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) fd in
     let stdin = lazy (source (of_unix Unix.stdin)) in
     let stdout = lazy (sink (of_unix Unix.stdout)) in
     let stderr = lazy (sink (of_unix Unix.stderr)) in
+    let cwd = new dir None in
     object (_ : stdenv)
       method stdin  = Lazy.force stdin
       method stdout = Lazy.force stdout
@@ -680,6 +795,8 @@ module Objects = struct
       method network = network
       method domain_mgr = domain_mgr
       method clock = clock
+      method fs = (fs :> Eio.Dir.t)
+      method cwd = (cwd :> Eio.Dir.t)
     end
 end
 
@@ -695,7 +812,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   (* TODO unify this allocation API around baregion/uring *)
   let fixed_buf_len = block_size * queue_depth in
   let uring = Uring.create ~fixed_buf_len ~queue_depth () in
-  let buf = Uring.buf uring in 
+  let buf = Uring.buf uring in
   let mem = Uring.Region.init ~block_size buf queue_depth in
   let run_q = Queue.create () in
   let sleep_q = Zzz.create () in
@@ -726,6 +843,10 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (Splice (sw, src, dst, len)) k ->
       let k = { Suspended.k; tid } in
       enqueue_splice ?sw st k ~src ~dst ~len;
+      schedule st
+    | effect (Openat2 args) k ->
+      let k = { Suspended.k; tid } in
+      enqueue_openat2 st k args;
       schedule st
     | effect (Connect (sw, fd, addr)) k ->
       let k = { Suspended.k; tid } in
