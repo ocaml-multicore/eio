@@ -24,22 +24,17 @@ let read_all ?sw flow =
   Eio.Flow.copy ?sw flow (Eio.Flow.buffer_sink b);
   Buffer.contents b
 
-let write_file ~sw ~create ?append dir path content =
-  Switch.sub sw ~on_error:raise (fun sw ->
-    let flow = Eio.Dir.open_out ~sw ~create ?append dir path in
-    Eio.Flow.copy_string content flow
-  )
+let write_file ?sw ~create ?append dir path content =
+  Eio.Dir.with_open_out ?sw ~create ?append dir path @@ fun flow ->
+  Eio.Flow.copy_string content flow
 
 let try_write_file ~sw ~create ?append dir path content =
   match write_file ~sw ~create ?append dir path content with
   | () -> traceln "write %S -> ok" path
   | exception ex -> traceln "write %S -> %a" path Fmt.exn ex
 
-let read_file ~sw dir path =
-  Switch.sub sw ~on_error:raise (fun sw ->
-    let flow = Eio.Dir.open_in ~sw dir path in
-    read_all flow
-  )
+let read_file ?sw dir path =
+  Eio.Dir.with_open_in ?sw dir path read_all
 
 let try_mkdir dir path =
   match Eio.Dir.mkdir dir path ~perm:0o700 with

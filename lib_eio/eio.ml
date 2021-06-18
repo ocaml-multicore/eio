@@ -207,6 +207,15 @@ module Dir = struct
   let open_out ~sw ?(append=false) ~create (t:#t) path = t#open_out ~sw ~append ~create path
   let open_dir ~sw (t:#t) = t#open_dir ~sw
   let mkdir ?sw (t:#t) = t#mkdir ?sw
+
+  let with_open_in ?sw (t:#t) path fn =
+    Switch.sub_opt sw @@ fun sw -> fn (open_in ~sw t path)
+
+  let with_open_out ?sw ?append ~create (t:#t) path fn =
+    Switch.sub_opt sw @@ fun sw -> fn (open_out ~sw ?append ~create t path)
+
+  let with_open_dir ?sw (t:#t) path fn =
+    Switch.sub_opt sw @@ fun sw -> fn (open_dir ~sw t path)
 end
 
 module Stdenv = struct

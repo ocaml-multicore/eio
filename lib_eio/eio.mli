@@ -412,6 +412,10 @@ module Dir : sig
   (** [open_in ~sw t path] opens [t/path] for reading.
       Note: files are always opened in binary mode. *)
 
+  val with_open_in : ?sw:Switch.t -> #t -> path -> (<Flow.source; Flow.close> -> 'a) -> 'a
+  (** [with_open_in] is like [open_in], but calls [fn flow] with the new flow and closes
+      it automatically when [fn] returns (if it hasn't already been closed by then). *)
+
   val open_out :
     sw:Switch.t ->
     ?append:bool ->
@@ -422,12 +426,24 @@ module Dir : sig
       @param append Open for appending: always write at end of file.
       @param create Controls whether to create the file, and what permissions to give it if so. *)
 
+  val with_open_out :
+    ?sw:Switch.t ->
+    ?append:bool ->
+    create:create ->
+    #t -> path -> (<Flow.two_way; Flow.close> -> 'a) -> 'a
+  (** [with_open_out] is like [open_out], but calls [fn flow] with the new flow and closes
+      it automatically when [fn] returns (if it hasn't already been closed by then). *)
+
   val mkdir : ?sw:Switch.t -> #t -> perm:Unix.file_perm -> path -> unit
   (** [mkdir t ~perm path] creates a new directory [t/path] with permissions [perm]. *)
 
   val open_dir : sw:Switch.t -> #t -> path -> <t; Flow.close>
   (** [open_dir ~sw t path] opens [t/path].
       This can be passed to functions to grant access only to the subtree [t/path]. *)
+
+  val with_open_dir : ?sw:Switch.t -> #t -> path -> (<t; Flow.close> -> 'a) -> 'a
+  (** [with_open_dir] is like [open_dir], but calls [fn dir] with the new directory and closes
+      it automatically when [fn] returns (if it hasn't already been closed by then). *)
 end
 
 (** The standard environment of a process. *)
