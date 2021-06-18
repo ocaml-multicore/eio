@@ -444,8 +444,7 @@ For example:
 ```ocaml
 let try_write_file dir path data =
   match
-    Switch.top @@ fun sw ->
-    let flow = Eio.Dir.open_out dir ~sw path ~create:(`Exclusive 0o600) in
+    Eio.Dir.with_open_out ~create:(`Exclusive 0o600) dir path @@ fun flow ->
     Eio.Flow.copy_string data flow
   with
   | () -> traceln "write %S -> ok" path
@@ -486,13 +485,12 @@ write "link-to-tmp/file3" -> Eio.Dir.Permission_denied("link-to-tmp/file3", _)
 - : unit = ()
 ```
 
-You can use `open_dir` to create a restricted capability to a sub-directory:
+You can use `open_dir` (or `with_open_dir`) to create a restricted capability to a sub-directory:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
-  Switch.top @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
-  let dir1 = Eio.Dir.open_dir ~sw cwd "dir1" in
+  Eio.Dir.with_open_dir cwd "dir1" @@ fun dir1 ->
   try_write_file dir1 "file4" "D";
   try_write_file dir1 "../file5" "E"
 write "file4" -> ok
