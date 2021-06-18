@@ -12,7 +12,7 @@ let () =
 
 type state =
   | On of (exn -> unit) Lwt_dllist.t
-  | Off of exn
+  | Off of exn * Printexc.raw_backtrace
   | Finished
 
 type t = {
@@ -31,13 +31,13 @@ let remove_hook h = h ()
 let check t =
   match t.state with
   | On _ -> ()
-  | Off ex -> raise (Cancelled ex)
+  | Off (ex, _) -> raise (Cancelled ex)
   | Finished -> invalid_arg "Switch finished!"
 
 let get_error t =
   match t.state with
   | On _ -> None
-  | Off ex -> Some (Cancelled ex)
+  | Off (ex, _) -> Some (Cancelled ex)
   | Finished -> Some (Invalid_argument "Switch finished!")
 
 let is_finished t =
@@ -48,7 +48,7 @@ let is_finished t =
 let rec turn_off t ex =
   match t.state with
   | Finished -> invalid_arg "Switch finished!"
-  | Off orig when orig == ex -> ()
+  | Off (orig, _) when orig == ex || List.memq ex t.extra_exceptions -> ()
   | Off _ ->
     begin match ex with
       | Cancelled _ -> ()       (* The original exception will be reported elsewhere *)
@@ -56,7 +56,7 @@ let rec turn_off t ex =
     end
   | On q ->
     Ctf.note_resolved t.id ~ex:(Some ex);
-    t.state <- Off ex;
+    t.state <- Off (ex, Printexc.get_raw_backtrace ());
     let rec aux () =
       match Lwt_dllist.take_opt_r q with
       | None -> ()
@@ -72,7 +72,7 @@ let rec turn_off t ex =
 let add_cancel_hook t hook =
   match t.state with
   | Finished -> invalid_arg "Switch finished!"
-  | Off ex -> hook ex; ignore
+  | Off (ex, _) -> hook ex; ignore
   | On q ->
     let node = Lwt_dllist.add_r hook q in
     (fun () -> Lwt_dllist.remove node)
@@ -130,10 +130,10 @@ let rec await_idle t =
   in
   release ()
 
-let raise_with_extras t ex =
+let raise_with_extras t ex bt =
   match t.extra_exceptions with
-  | [] -> raise ex
-  | exns -> raise (Multiple_exceptions (ex :: List.rev exns))
+  | [] -> Printexc.raise_with_backtrace ex bt
+  | exns -> Printexc.raise_with_backtrace (Multiple_exceptions (ex :: List.rev exns)) bt
 
 let top fn =
   let id = Ctf.mint_id () in
@@ -157,11 +157,11 @@ let top fn =
         t.state <- Finished;
         Ctf.note_read t.id;
         v
-      | Off ex ->
+      | Off (ex, bt) ->
         (* Function succeeded, but got failure waiting for fibres to finish. *)
         t.state <- Finished;
         Ctf.note_read t.id;
-        raise_with_extras t ex
+        raise_with_extras t ex bt
     end
   | exception ex ->
     (* Main function failed.
@@ -171,9 +171,9 @@ let top fn =
     Ctf.note_read t.id;
     match t.state with
     | On _ | Finished -> assert false
-    | Off ex ->
+    | Off (ex, bt) ->
       t.state <- Finished;
-      raise_with_extras t ex
+      raise_with_extras t ex bt
 
 let on_release_cancellable t fn =
   match t.state with
@@ -199,7 +199,7 @@ let sub ?on_release:release sw ~on_error fn =
     (* Can't create child switch. Run release hooks immediately. *)
     Option.iter (fun f -> f ()) release;
     invalid_arg "Switch finished!"
-  | Off ex ->
+  | Off (ex, _) ->
     (* Can't create child switch. Run release hooks immediately. *)
     Option.iter (fun f -> f ()) release;
     raise (Cancelled ex)
