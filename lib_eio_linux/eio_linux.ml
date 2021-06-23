@@ -29,6 +29,19 @@ type amount = Exactly of int | Upto of int
 
 let system_thread = Ctf.mint_id ()
 
+let rec skip_empty = function
+  | c :: cs when Cstruct.length c = 0 -> skip_empty cs
+  | x -> x
+
+(* todo: use Cstruct.shiftv when that's released *)
+let rec shiftv cs = function
+  | 0 -> skip_empty cs
+  | n ->
+    match cs with
+    | [] -> failwith "Can't advance past end of vector!"
+    | c :: cs when n >= Cstruct.length c -> shiftv cs (n - Cstruct.length c)
+    | c :: cs -> Cstruct.shift c n :: cs
+
 effect Close : Unix.file_descr -> int
 
 module FD = struct
@@ -94,6 +107,8 @@ type cancel_hook = Switch.hook ref
 (* Type of user-data attached to jobs. *)
 type io_job =
   | Read : rw_req * cancel_hook -> io_job
+  | Readv : int Suspended.t * cancel_hook -> io_job
+  | Writev : int Suspended.t * cancel_hook -> io_job
   | Poll_add : int Suspended.t * cancel_hook -> io_job
   | Splice : int Suspended.t * cancel_hook -> io_job
   | Openat2 : int Suspended.t * cancel_hook -> io_job
@@ -206,6 +221,36 @@ let enqueue_read st action (sw,file_offset,fd,buf,len) =
   Log.debug (fun l -> l "read: submitting call");
   Ctf.label "read";
   submit_rw_req st req
+
+let rec enqueue_readv st action args =
+  let (sw,file_offset,fd,bufs) = args in
+  let file_offset =
+    match file_offset with
+    | Some x -> x
+    | None -> FD.uring_file_offset fd
+  in
+  Ctf.label "readv";
+  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+      Uring.readv st.uring ~file_offset (FD.get "readv" fd) bufs (Readv (action, cancel))
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_readv st action args) st.io_q
+
+let rec enqueue_writev st action args =
+  let (sw,file_offset,fd,bufs) = args in
+  let file_offset =
+    match file_offset with
+    | Some x -> x
+    | None -> FD.uring_file_offset fd
+  in
+  Ctf.label "writev";
+  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+      Uring.writev st.uring ~file_offset (FD.get "writev" fd) bufs (Writev (action, cancel))
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_writev st action args) st.io_q
 
 let rec enqueue_poll_add ?sw st action fd poll_mask =
   Log.debug (fun l -> l "poll_add: submitting call");
@@ -344,10 +389,18 @@ and handle_complete st ~runnable result =
     Log.debug (fun l -> l "read returned");
     Switch.remove_hook !cancel;
     complete_rw_req st req result
+  | Readv (k, cancel) ->
+    Log.debug (fun l -> l "readv returned");
+    Switch.remove_hook !cancel;
+    Suspended.continue k result
   | Write (req, cancel) ->
     Log.debug (fun l -> l "write returned");
     Switch.remove_hook !cancel;
     complete_rw_req st req result
+  | Writev (k, cancel) ->
+    Log.debug (fun l -> l "writev returned");
+    Switch.remove_hook !cancel;
+    Suspended.continue k result
   | Poll_add (k, cancel) ->
     Log.debug (fun l -> l "poll_add returned");
     Switch.remove_hook !cancel;
@@ -426,6 +479,42 @@ let read_upto ?sw ?file_offset fd buf len =
     raise (Unix.Unix_error (Uring.error_of_errno res, "read_upto", ""))
   ) else (
     res
+  )
+
+effect EReadv : (Switch.t option * Optint.Int63.t option * FD.t * Cstruct.t list) -> int
+
+let readv ?sw ?file_offset fd bufs =
+  let res = perform (EReadv (sw, file_offset, fd, bufs)) in
+  Log.debug (fun l -> l "readv: woken up after read");
+  if res < 0 then (
+    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
+    raise (Unix.Unix_error (Uring.error_of_errno res, "readv", ""))
+  ) else if res = 0 then (
+    raise End_of_file
+  ) else (
+    res
+  )
+
+effect EWritev : (Switch.t option * Optint.Int63.t option * FD.t * Cstruct.t list) -> int
+
+let rec writev ?sw ?file_offset fd bufs =
+  let res = perform (EWritev (sw, file_offset, fd, bufs)) in
+  Log.debug (fun l -> l "writev: woken up after read");
+  if res < 0 then (
+    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
+    raise (Unix.Unix_error (Uring.error_of_errno res, "writev", ""))
+  ) else (
+    match shiftv bufs res with
+    | [] -> ()
+    | bufs ->
+      let file_offset =
+        let module I63 = Optint.Int63 in
+        match file_offset with
+        | None -> None
+        | Some ofs when ofs = I63.minus_one -> Some I63.minus_one
+        | Some ofs -> Some (I63.add ofs (I63.of_int res))
+      in
+      writev ?sw ?file_offset fd bufs
   )
 
 effect EPoll_add : Switch.t option * FD.t * Uring.Poll_mask.t -> int
@@ -828,6 +917,14 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (ERead args) k ->
       let k = { Suspended.k; tid } in
       enqueue_read st k args;
+      schedule st
+    | effect (EReadv args) k ->
+      let k = { Suspended.k; tid } in
+      enqueue_readv st k args;
+      schedule st
+    | effect (EWritev args) k ->
+      let k = { Suspended.k; tid } in
+      enqueue_writev st k args;
       schedule st
     | effect (EPoll_add (sw, fd, poll_mask)) k ->
       let k = { Suspended.k; tid } in

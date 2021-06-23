@@ -86,10 +86,21 @@ val read_exactly : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Uring.
     @param file_offset Read from the given position in [fd] (default: 0).
     @raise End_of_file Raised if the stream ends before [len] bytes have been read. *)
 
+val readv : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> int
+(** [readv] is like {!read_upto} but can read into any cstruct(s),
+    not just chunks of the pre-shared buffer.
+    If multiple buffers are given, they are filled in order. *)
+
 val write : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
 (** [write fd buf len] writes exactly [len] bytes from [buf] to [fd].
     It blocks until the OS confirms the write is done,
     and resubmits automatically if the OS doesn't write all of it at once. *)
+
+val writev : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> unit
+(** [writev] is like {!write} but can write from any cstruct(s),
+    not just chunks of the pre-shared buffer.
+    If multiple buffers are given, they are sent in order.
+    It will make multiple OS calls if the OS doesn't write all of it at once. *)
 
 val splice : ?sw:Switch.t -> FD.t -> dst:FD.t -> len:int -> int
 (** [splice src ~dst ~len] attempts to copy up to [len] bytes of data from [src] to [dst].
