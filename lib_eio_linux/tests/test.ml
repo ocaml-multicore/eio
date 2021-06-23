@@ -79,6 +79,42 @@ let test_direct_copy () =
   Eio.Flow.close from_pipe1;
   Eio.Flow.close from_pipe2
 
+let rec skip_empty = function
+  | c :: cs when Cstruct.length c = 0 -> skip_empty cs
+  | x -> x
+
+(* todo: use Cstruct.shiftv when that's released *)
+let rec shiftv cs = function
+  | 0 -> skip_empty cs
+  | n ->
+    match cs with
+    | [] -> failwith "Can't advance past end of vector!"
+    | c :: cs when n >= Cstruct.length c -> shiftv cs (n - Cstruct.length c)
+    | c :: cs -> Cstruct.shift c n :: cs
+
+(* Read and write using IO vectors rather than the fixed buffers. *)
+let test_iovec () =
+  Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
+  Switch.top @@ fun sw ->
+  let from_pipe, to_pipe = Eio_linux.pipe sw in
+  let from_pipe = Eio_linux.Objects.get_fd from_pipe in
+  let to_pipe = Eio_linux.Objects.get_fd to_pipe in
+  let message = Cstruct.of_string "Got [   ] and [   ]" in
+  let rec recv = function
+    | [] -> ()
+    | cs ->
+      let got = Eio_linux.readv ~sw from_pipe cs in
+      recv (shiftv cs got)
+  in
+  Fibre.both ~sw
+    (fun () -> recv [Cstruct.sub message 5 3; Cstruct.sub message 15 3])
+    (fun () ->
+       let b = Cstruct.of_string "barfoo" in
+       Eio_linux.writev ~sw to_pipe [Cstruct.sub b 3 3; Cstruct.sub b 0 3];
+       Eio_linux.FD.close to_pipe
+    );
+  Alcotest.(check string) "Transfer correct" "Got [foo] and [bar]" (Cstruct.to_string message)
+
 let () =
   let open Alcotest in
   run "eioio" [
@@ -87,5 +123,6 @@ let () =
       test_case "direct_copy"   `Quick test_direct_copy;
       test_case "poll_add"      `Quick test_poll_add;
       test_case "poll_add_busy" `Quick test_poll_add_busy;
+      test_case "iovec"         `Quick test_iovec;
     ];
   ]
