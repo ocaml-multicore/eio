@@ -183,8 +183,8 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; sw; action} a
   let len = len - cur_off in
   let retry = with_cancel_hook ?sw ~action st (fun cancel ->
       match op with
-      |`R -> Uring.read uring ~file_offset fd off len (Read (req, cancel))
-      |`W -> Uring.write uring ~file_offset fd off len (Write (req, cancel))
+      |`R -> Uring.read_fixed uring ~file_offset fd ~off ~len (Read (req, cancel))
+      |`W -> Uring.write_fixed uring ~file_offset fd ~off ~len (Write (req, cancel))
     )
   in
   if retry then (
@@ -599,7 +599,7 @@ module Objects = struct
     method read_into ?sw buf =
       (* Inefficient copying fallback *)
       with_chunk @@ fun chunk ->
-      let chunk_cs = Cstruct.of_bigarray (Uring.Region.to_bigstring chunk) in
+      let chunk_cs = Uring.Region.to_cstruct chunk in
       let max_len = min (Cstruct.length buf) (Cstruct.length chunk_cs) in
       let got = read_upto ?sw fd chunk max_len in
       Cstruct.blit chunk_cs 0 buf 0 got;
@@ -611,7 +611,7 @@ module Objects = struct
       | None ->
         (* Inefficient copying fallback *)
         with_chunk @@ fun chunk ->
-        let chunk_cs = Cstruct.of_bigarray (Uring.Region.to_bigstring chunk) in
+        let chunk_cs = Uring.Region.to_cstruct chunk in
         try
           while true do
             let got = Eio.Flow.read_into ?sw src chunk_cs in
