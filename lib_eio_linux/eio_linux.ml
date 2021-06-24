@@ -107,17 +107,9 @@ type cancel_hook = Switch.hook ref
 (* Type of user-data attached to jobs. *)
 type io_job =
   | Read : rw_req * cancel_hook -> io_job
-  | Readv : int Suspended.t * cancel_hook -> io_job
-  | Writev : int Suspended.t * cancel_hook -> io_job
-  | Poll_add : int Suspended.t * cancel_hook -> io_job
-  | Splice : int Suspended.t * cancel_hook -> io_job
-  | Openat2 : int Suspended.t * cancel_hook -> io_job
-  | Connect : int Suspended.t * cancel_hook -> io_job
-  | Accept : int Suspended.t * cancel_hook -> io_job
-  | Close : int Suspended.t -> io_job
+  | Job_no_cancel : int Suspended.t -> io_job
+  | Job : int Suspended.t * cancel_hook -> io_job
   | Write : rw_req * cancel_hook -> io_job
-  | Cancel : int Suspended.t -> io_job
-  | Noop : int Suspended.t -> io_job
 
 type runnable =
   | Thread : 'a Suspended.t * 'a -> runnable
@@ -142,6 +134,7 @@ let enqueue_failed_thread st k ex =
 effect Cancel : io_job Uring.job -> int
 let cancel job =
   let res = perform (Cancel job) in
+  Log.debug (fun l -> l "cancel returned");
   if res = -2 then (
     Log.debug (fun f -> f "Cancel returned ENOENT - operation completed before cancel took effect")
   ) else if res = -114 then (
@@ -232,7 +225,7 @@ let rec enqueue_readv st action args =
   in
   Ctf.label "readv";
   let retry = with_cancel_hook ?sw ~action st (fun cancel ->
-      Uring.readv st.uring ~file_offset (FD.get "readv" fd) bufs (Readv (action, cancel))
+      Uring.readv st.uring ~file_offset (FD.get "readv" fd) bufs (Job (action, cancel))
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -247,7 +240,7 @@ let rec enqueue_writev st action args =
   in
   Ctf.label "writev";
   let retry = with_cancel_hook ?sw ~action st (fun cancel ->
-      Uring.writev st.uring ~file_offset (FD.get "writev" fd) bufs (Writev (action, cancel))
+      Uring.writev st.uring ~file_offset (FD.get "writev" fd) bufs (Job (action, cancel))
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -257,7 +250,7 @@ let rec enqueue_poll_add ?sw st action fd poll_mask =
   Log.debug (fun l -> l "poll_add: submitting call");
   Ctf.label "poll_add";
   let retry = with_cancel_hook ?sw ~action st (fun cancel ->
-      Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Poll_add (action, cancel))
+      Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Job (action, cancel))
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -266,7 +259,7 @@ let rec enqueue_poll_add ?sw st action fd poll_mask =
 let rec enqueue_close st action fd =
   Log.debug (fun l -> l "close: submitting call");
   Ctf.label "close";
-  let subm = Uring.close st.uring fd (Close action) in
+  let subm = Uring.close st.uring fd (Job_no_cancel action) in
   if subm = None then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_close st action fd) st.io_q
 
@@ -285,7 +278,7 @@ let rec enqueue_splice ?sw st action ~src ~dst ~len =
   Log.debug (fun l -> l "splice: submitting call");
   Ctf.label "splice";
   let retry = with_cancel_hook ?sw ~action st (fun cancel ->
-      Uring.splice st.uring (Splice (action, cancel)) ~src:(FD.get "splice" src) ~dst:(FD.get "splice" dst) ~len
+      Uring.splice st.uring (Job (action, cancel)) ~src:(FD.get "splice" src) ~dst:(FD.get "splice" dst) ~len
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -296,7 +289,7 @@ let rec enqueue_openat2 st action ((sw, access, flags, perm, resolve, dir, path)
   Ctf.label "openat2";
   let fd = Option.map (FD.get "openat2") dir in
   let retry = with_cancel_hook ~sw ~action st (fun cancel ->
-      Uring.openat2 st.uring ~access ~flags ~perm ~resolve ?fd path (Openat2 (action, cancel))
+      Uring.openat2 st.uring ~access ~flags ~perm ~resolve ?fd path (Job (action, cancel))
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -306,7 +299,7 @@ let rec enqueue_connect ?sw st action fd addr =
   Log.debug (fun l -> l "connect: submitting call");
   Ctf.label "connect";
   let retry = with_cancel_hook ?sw ~action st (fun cancel ->
-      Uring.connect st.uring (FD.get "connect" fd) addr (Connect (action, cancel))
+      Uring.connect st.uring (FD.get "connect" fd) addr (Job (action, cancel))
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -315,7 +308,7 @@ let rec enqueue_connect ?sw st action fd addr =
 let rec enqueue_cancel st action job =
   Log.debug (fun l -> l "cancel: submitting call");
   Ctf.label "cancel";
-  match Uring.cancel st.uring job (Cancel action) with
+  match Uring.cancel st.uring job (Job_no_cancel action) with
   | None -> Queue.push (fun st -> enqueue_cancel st action job) st.io_q
   | Some _ -> ()
 
@@ -323,7 +316,7 @@ let rec enqueue_accept ~sw st action fd client_addr =
   Log.debug (fun l -> l "accept: submitting call");
   Ctf.label "accept";
   let retry = with_cancel_hook ~sw ~action st (fun cancel ->
-      Uring.accept st.uring (FD.get "accept" fd) client_addr (Accept (action, cancel))
+      Uring.accept st.uring (FD.get "accept" fd) client_addr (Job (action, cancel))
     ) in
   if retry then (
     (* wait until an sqe is available *)
@@ -333,7 +326,7 @@ let rec enqueue_accept ~sw st action fd client_addr =
 let rec enqueue_noop st action =
   Log.debug (fun l -> l "noop: submitting call");
   Ctf.label "noop";
-  let retry = (Uring.noop st.uring (Noop action) = None) in
+  let retry = (Uring.noop st.uring (Job_no_cancel action) = None) in
   if retry then (
     (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_noop st action) st.io_q
@@ -399,46 +392,14 @@ and handle_complete st ~runnable result =
     Log.debug (fun l -> l "read returned");
     Switch.remove_hook !cancel;
     complete_rw_req st req result
-  | Readv (k, cancel) ->
-    Log.debug (fun l -> l "readv returned");
-    Switch.remove_hook !cancel;
-    Suspended.continue k result
   | Write (req, cancel) ->
     Log.debug (fun l -> l "write returned");
     Switch.remove_hook !cancel;
     complete_rw_req st req result
-  | Writev (k, cancel) ->
-    Log.debug (fun l -> l "writev returned");
+  | Job (k, cancel) ->
     Switch.remove_hook !cancel;
     Suspended.continue k result
-  | Poll_add (k, cancel) ->
-    Log.debug (fun l -> l "poll_add returned");
-    Switch.remove_hook !cancel;
-    Suspended.continue k result
-  | Splice (k, cancel) ->
-    Log.debug (fun l -> l "splice returned");
-    Switch.remove_hook !cancel;
-    Suspended.continue k result
-  | Connect (k, cancel) ->
-    Log.debug (fun l -> l "connect returned");
-    Switch.remove_hook !cancel;
-    Suspended.continue k result
-  | Openat2 (k, cancel) ->
-    Log.debug (fun l -> l "openat2 returned");
-    Switch.remove_hook !cancel;
-    Suspended.continue k result
-  | Accept (k, cancel) ->
-    Log.debug (fun l -> l "accept returned");
-    Switch.remove_hook !cancel;
-    Suspended.continue k result
-  | Close k ->
-    Log.debug (fun l -> l "close returned");
-    Suspended.continue k result
-  | Cancel k ->
-    Log.debug (fun l -> l "cancel returned");
-    Suspended.continue k result
-  | Noop k ->
-    Log.debug (fun l -> l "noop returned");
+  | Job_no_cancel k ->
     Suspended.continue k result
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res, len with
@@ -473,6 +434,7 @@ let free_buf st buf =
 effect Noop : int
 let noop () =
   let result = perform Noop in
+  Log.debug (fun l -> l "noop returned");
   if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
 effect Sleep_until : Switch.t option * float -> unit
@@ -572,6 +534,7 @@ let free buf = perform (Free buf)
 effect Splice : Switch.t option * FD.t * FD.t * int -> int
 let splice ?sw src ~dst ~len =
   let res = perform (Splice (sw, src, dst, len)) in
+  Log.debug (fun l -> l "splice returned");
   if res > 0 then res
   else if res = 0 then raise End_of_file
   else (
@@ -582,6 +545,7 @@ let splice ?sw src ~dst ~len =
 effect Connect : Switch.t option * FD.t * Unix.sockaddr -> int
 let connect ?sw fd addr =
   let res = perform (Connect (sw, fd, addr)) in
+  Log.debug (fun l -> l "connect returned");
   if res < 0 then (
     Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
@@ -599,6 +563,7 @@ let openfile ~sw path flags mode =
 effect Openat2 : (Switch.t * [`R|`W|`RW] * Uring.Open_flags.t * Unix.file_perm * Uring.Resolve.t * FD.t option * string) -> int
 let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
   let res = perform (Openat2 (sw, access, flags, perm, resolve, dir, path)) in
+  Log.debug (fun l -> l "openat2 returned");
   if res < 0 then (
     Switch.check sw;    (* If cancelled, report that instead. *)
     let ex = Unix.Unix_error (Uring.error_of_errno res, "openat2", "") in
@@ -646,6 +611,7 @@ let accept_loose_fd ~sw socket =
   Ctf.label "accept";
   let client_addr = Uring.Sockaddr.create () in
   let res = perform (Accept (sw, socket, client_addr)) in
+  Log.debug (fun l -> l "accept returned");
   if res < 0 then (
     Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "accept", ""))
