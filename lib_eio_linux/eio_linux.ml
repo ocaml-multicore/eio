@@ -131,9 +131,18 @@ let enqueue_thread st k x =
 let enqueue_failed_thread st k ex =
   Queue.push (Failed_thread (k, ex)) st.run_q
 
-effect Cancel : io_job Uring.job -> int
+effect Enter : (t -> 'a Suspended.t -> unit) -> 'a
+let enter fn = perform (Enter fn)
+
+let rec enqueue_cancel job st action =
+  Log.debug (fun l -> l "cancel: submitting call");
+  Ctf.label "cancel";
+  match Uring.cancel st.uring job (Job_no_cancel action) with
+  | None -> Queue.push (fun st -> enqueue_cancel job st action) st.io_q
+  | Some _ -> ()
+
 let cancel job =
-  let res = perform (Cancel job) in
+  let res = enter (enqueue_cancel job) in
   Log.debug (fun l -> l "cancel returned");
   if res = -2 then (
     Log.debug (fun f -> f "Cancel returned ENOENT - operation completed before cancel took effect")
@@ -216,7 +225,7 @@ let enqueue_read st action (sw,file_offset,fd,buf,len) =
   Ctf.label "read";
   submit_rw_req st req
 
-let rec enqueue_readv st action args =
+let rec enqueue_readv args st action =
   let (sw,file_offset,fd,bufs) = args in
   let file_offset =
     match file_offset with
@@ -229,9 +238,9 @@ let rec enqueue_readv st action args =
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_readv st action args) st.io_q
+    Queue.push (fun st -> enqueue_readv args st action) st.io_q
 
-let rec enqueue_writev st action args =
+let rec enqueue_writev args st action =
   let (sw,file_offset,fd,bufs) = args in
   let file_offset =
     match file_offset with
@@ -244,9 +253,9 @@ let rec enqueue_writev st action args =
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_writev st action args) st.io_q
+    Queue.push (fun st -> enqueue_writev args st action) st.io_q
 
-let rec enqueue_poll_add ?sw st action fd poll_mask =
+let rec enqueue_poll_add ?sw fd poll_mask st action =
   Log.debug (fun l -> l "poll_add: submitting call");
   Ctf.label "poll_add";
   let retry = with_cancel_hook ?sw ~action st (fun cancel ->
@@ -254,7 +263,7 @@ let rec enqueue_poll_add ?sw st action fd poll_mask =
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_poll_add ?sw st action fd poll_mask) st.io_q
+    Queue.push (fun st -> enqueue_poll_add ?sw fd poll_mask st action) st.io_q
 
 let rec enqueue_close st action fd =
   Log.debug (fun l -> l "close: submitting call");
@@ -274,7 +283,7 @@ let enqueue_write st action (sw,file_offset,fd,buf,len) =
   Ctf.label "write";
   submit_rw_req st req
 
-let rec enqueue_splice ?sw st action ~src ~dst ~len =
+let rec enqueue_splice ?sw ~src ~dst ~len st action =
   Log.debug (fun l -> l "splice: submitting call");
   Ctf.label "splice";
   let retry = with_cancel_hook ?sw ~action st (fun cancel ->
@@ -282,9 +291,9 @@ let rec enqueue_splice ?sw st action ~src ~dst ~len =
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_splice ?sw st action ~src ~dst ~len) st.io_q
+    Queue.push (fun st -> enqueue_splice ?sw ~src ~dst ~len st action) st.io_q
 
-let rec enqueue_openat2 st action ((sw, access, flags, perm, resolve, dir, path) as args) =
+let rec enqueue_openat2 ((sw, access, flags, perm, resolve, dir, path) as args) st action =
   Log.debug (fun l -> l "openat2: submitting call");
   Ctf.label "openat2";
   let fd = Option.map (FD.get "openat2") dir in
@@ -293,9 +302,9 @@ let rec enqueue_openat2 st action ((sw, access, flags, perm, resolve, dir, path)
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_openat2 st action args) st.io_q
+    Queue.push (fun st -> enqueue_openat2 args st action) st.io_q
 
-let rec enqueue_connect ?sw st action fd addr =
+let rec enqueue_connect ?sw fd addr st action =
   Log.debug (fun l -> l "connect: submitting call");
   Ctf.label "connect";
   let retry = with_cancel_hook ?sw ~action st (fun cancel ->
@@ -303,16 +312,9 @@ let rec enqueue_connect ?sw st action fd addr =
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_connect ?sw st action fd addr) st.io_q
+    Queue.push (fun st -> enqueue_connect ?sw fd addr st action) st.io_q
 
-let rec enqueue_cancel st action job =
-  Log.debug (fun l -> l "cancel: submitting call");
-  Ctf.label "cancel";
-  match Uring.cancel st.uring job (Job_no_cancel action) with
-  | None -> Queue.push (fun st -> enqueue_cancel st action job) st.io_q
-  | Some _ -> ()
-
-let rec enqueue_accept ~sw st action fd client_addr =
+let rec enqueue_accept ~sw fd client_addr st action =
   Log.debug (fun l -> l "accept: submitting call");
   Ctf.label "accept";
   let retry = with_cancel_hook ~sw ~action st (fun cancel ->
@@ -320,7 +322,7 @@ let rec enqueue_accept ~sw st action fd client_addr =
     ) in
   if retry then (
     (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_accept ~sw st action fd client_addr) st.io_q
+    Queue.push (fun st -> enqueue_accept ~sw fd client_addr st action) st.io_q
   )
 
 let rec enqueue_noop st action =
@@ -431,9 +433,8 @@ let free_buf st buf =
   | None -> Uring.Region.free buf
   | Some k -> enqueue_thread st k buf
 
-effect Noop : int
 let noop () =
-  let result = perform Noop in
+  let result = enter enqueue_noop in
   Log.debug (fun l -> l "noop returned");
   if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
@@ -461,10 +462,8 @@ let read_upto ?sw ?file_offset fd buf len =
     res
   )
 
-effect EReadv : (Switch.t option * Optint.Int63.t option * FD.t * Cstruct.t list) -> int
-
 let readv ?sw ?file_offset fd bufs =
-  let res = perform (EReadv (sw, file_offset, fd, bufs)) in
+  let res = enter (enqueue_readv (sw, file_offset, fd, bufs)) in
   Log.debug (fun l -> l "readv: woken up after read");
   if res < 0 then (
     Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
@@ -475,10 +474,8 @@ let readv ?sw ?file_offset fd bufs =
     res
   )
 
-effect EWritev : (Switch.t option * Optint.Int63.t option * FD.t * Cstruct.t list) -> int
-
 let rec writev ?sw ?file_offset fd bufs =
-  let res = perform (EWritev (sw, file_offset, fd, bufs)) in
+  let res = enter (enqueue_writev (sw, file_offset, fd, bufs)) in
   Log.debug (fun l -> l "writev: woken up after read");
   if res < 0 then (
     Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
@@ -497,10 +494,8 @@ let rec writev ?sw ?file_offset fd bufs =
       writev ?sw ?file_offset fd bufs
   )
 
-effect EPoll_add : Switch.t option * FD.t * Uring.Poll_mask.t -> int
-
 let await_readable ?sw fd =
-  let res = perform (EPoll_add (sw, fd, Uring.Poll_mask.(pollin + pollerr))) in
+  let res = enter (enqueue_poll_add ?sw fd (Uring.Poll_mask.(pollin + pollerr))) in
   Log.debug (fun l -> l "await_readable: woken up");
   if res < 0 then (
     Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
@@ -508,7 +503,7 @@ let await_readable ?sw fd =
   )
 
 let await_writable ?sw fd =
-  let res = perform (EPoll_add (sw, fd, Uring.Poll_mask.(pollout + pollerr))) in
+  let res = enter (enqueue_poll_add ?sw fd (Uring.Poll_mask.(pollout + pollerr))) in
   Log.debug (fun l -> l "await_writable: woken up");
   if res < 0 then (
     Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
@@ -531,9 +526,8 @@ let alloc () = perform Alloc
 effect Free : Uring.Region.chunk -> unit
 let free buf = perform (Free buf)
 
-effect Splice : Switch.t option * FD.t * FD.t * int -> int
 let splice ?sw src ~dst ~len =
-  let res = perform (Splice (sw, src, dst, len)) in
+  let res = enter (enqueue_splice ?sw ~src ~dst ~len) in
   Log.debug (fun l -> l "splice returned");
   if res > 0 then res
   else if res = 0 then raise End_of_file
@@ -542,9 +536,8 @@ let splice ?sw src ~dst ~len =
     raise (Unix.Unix_error (Uring.error_of_errno res, "splice", ""))
   )
 
-effect Connect : Switch.t option * FD.t * Unix.sockaddr -> int
 let connect ?sw fd addr =
-  let res = perform (Connect (sw, fd, addr)) in
+  let res = enter (enqueue_connect ?sw fd addr) in
   Log.debug (fun l -> l "connect returned");
   if res < 0 then (
     Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
@@ -560,9 +553,8 @@ let openfile ~sw path flags mode =
   let fd = Unix.openfile path flags mode in
   FD.of_unix ~sw ~seekable:(FD.is_seekable fd) fd
 
-effect Openat2 : (Switch.t * [`R|`W|`RW] * Uring.Open_flags.t * Unix.file_perm * Uring.Resolve.t * FD.t option * string) -> int
 let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
-  let res = perform (Openat2 (sw, access, flags, perm, resolve, dir, path)) in
+  let res = enter (enqueue_openat2 (sw, access, flags, perm, resolve, dir, path)) in
   Log.debug (fun l -> l "openat2 returned");
   if res < 0 then (
     Switch.check sw;    (* If cancelled, report that instead. *)
@@ -606,11 +598,10 @@ let mkdir_beneath ?sw ~perm ?dir path =
 let shutdown socket command =
   Unix.shutdown (FD.get "shutdown" socket) command
 
-effect Accept : Switch.t * FD.t * Uring.Sockaddr.t -> int
 let accept_loose_fd ~sw socket =
   Ctf.label "accept";
   let client_addr = Uring.Sockaddr.create () in
-  let res = perform (Accept (sw, socket, client_addr)) in
+  let res = enter (enqueue_accept ~sw socket client_addr) in
   Log.debug (fun l -> l "accept returned");
   if res < 0 then (
     Switch.check sw;    (* If cancelled, report that instead. *)
@@ -898,21 +889,13 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     Ctf.note_switch tid;
     match fn () with
     | () -> schedule st
+    | effect (Enter fn) k ->
+      let k = { Suspended.k; tid } in
+      fn st k;
+      schedule st
     | effect (ERead args) k ->
       let k = { Suspended.k; tid } in
       enqueue_read st k args;
-      schedule st
-    | effect (EReadv args) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_readv st k args;
-      schedule st
-    | effect (EWritev args) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_writev st k args;
-      schedule st
-    | effect (EPoll_add (sw, fd, poll_mask)) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_poll_add ?sw st k fd poll_mask;
       schedule st
     | effect (Close fd) k ->
       let k = { Suspended.k; tid } in
@@ -921,26 +904,6 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (EWrite args) k ->
       let k = { Suspended.k; tid } in
       enqueue_write st k args;
-      schedule st
-    | effect (Splice (sw, src, dst, len)) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_splice ?sw st k ~src ~dst ~len;
-      schedule st
-    | effect (Openat2 args) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_openat2 st k args;
-      schedule st
-    | effect (Connect (sw, fd, addr)) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_connect ?sw st k fd addr;
-      schedule st
-    | effect (Accept (sw, fd, client_addr)) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_accept ~sw st k fd client_addr;
-      schedule st
-    | effect Noop k ->
-      let k = { Suspended.k; tid } in
-      enqueue_noop st k;
       schedule st
     | effect (Sleep_until (sw, time)) k ->
       let k = { Suspended.k; tid } in
@@ -1000,10 +963,6 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (Free buf) k ->
       free_buf st buf;
       continue k ()
-    | effect (Cancel job) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_cancel st k job;
-      schedule st
   in
   let main_done = ref false in
   let `Exit_scheduler = fork ~tid:(Ctf.mint_id ()) (fun () ->
