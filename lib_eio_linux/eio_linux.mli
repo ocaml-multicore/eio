@@ -42,6 +42,9 @@ module FD : sig
       @raise Invalid_arg if [t] is closed. *)
 end
 
+val noop : unit -> unit
+(** [noop ()] performs a uring noop. This is only useful for benchmarking. *)
+
 (** {1 Time functions} *)
 
 val sleep_until : ?sw:Switch.t -> float -> unit

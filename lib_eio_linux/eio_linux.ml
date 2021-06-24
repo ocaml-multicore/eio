@@ -117,6 +117,7 @@ type io_job =
   | Close : int Suspended.t -> io_job
   | Write : rw_req * cancel_hook -> io_job
   | Cancel : int Suspended.t -> io_job
+  | Noop : int Suspended.t -> io_job
 
 type runnable =
   | Thread : 'a Suspended.t * 'a -> runnable
@@ -329,6 +330,15 @@ let rec enqueue_accept ~sw st action fd client_addr =
     Queue.push (fun st -> enqueue_accept ~sw st action fd client_addr) st.io_q
   )
 
+let rec enqueue_noop st action =
+  Log.debug (fun l -> l "noop: submitting call");
+  Ctf.label "noop";
+  let retry = (Uring.noop st.uring (Noop action) = None) in
+  if retry then (
+    (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_noop st action) st.io_q
+  )
+
 let submit_pending_io st =
   match Queue.take_opt st.io_q with
   | None -> ()
@@ -427,6 +437,9 @@ and handle_complete st ~runnable result =
   | Cancel k ->
     Log.debug (fun l -> l "cancel returned");
     Suspended.continue k result
+  | Noop k ->
+    Log.debug (fun l -> l "noop returned");
+    Suspended.continue k result
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res, len with
   | 0, _ -> Suspended.discontinue action End_of_file
@@ -456,6 +469,11 @@ let free_buf st buf =
   match Queue.take_opt st.mem_q with
   | None -> Uring.Region.free buf
   | Some k -> enqueue_thread st k buf
+
+effect Noop : int
+let noop () =
+  let result = perform Noop in
+  if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
 effect Sleep_until : Switch.t option * float -> unit
 let sleep_until ?sw d =
@@ -953,6 +971,10 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (Accept (sw, fd, client_addr)) k ->
       let k = { Suspended.k; tid } in
       enqueue_accept ~sw st k fd client_addr;
+      schedule st
+    | effect Noop k ->
+      let k = { Suspended.k; tid } in
+      enqueue_noop st k;
       schedule st
     | effect (Sleep_until (sw, time)) k ->
       let k = { Suspended.k; tid } in
