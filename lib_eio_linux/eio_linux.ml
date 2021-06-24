@@ -131,6 +131,9 @@ let enqueue_thread st k x =
 let enqueue_failed_thread st k ex =
   Queue.push (Failed_thread (k, ex)) st.run_q
 
+effect Enter : (t -> 'a Suspended.t -> unit) -> 'a
+let enter fn = perform (Enter fn)
+
 effect Cancel : io_job Uring.job -> int
 let cancel job =
   let res = perform (Cancel job) in
@@ -431,9 +434,8 @@ let free_buf st buf =
   | None -> Uring.Region.free buf
   | Some k -> enqueue_thread st k buf
 
-effect Noop : int
 let noop () =
-  let result = perform Noop in
+  let result = enter enqueue_noop in
   Log.debug (fun l -> l "noop returned");
   if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
@@ -898,6 +900,10 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     Ctf.note_switch tid;
     match fn () with
     | () -> schedule st
+    | effect (Enter fn) k ->
+      let k = { Suspended.k; tid } in
+      fn st k;
+      schedule st
     | effect (ERead args) k ->
       let k = { Suspended.k; tid } in
       enqueue_read st k args;
@@ -937,10 +943,6 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     | effect (Accept (sw, fd, client_addr)) k ->
       let k = { Suspended.k; tid } in
       enqueue_accept ~sw st k fd client_addr;
-      schedule st
-    | effect Noop k ->
-      let k = { Suspended.k; tid } in
-      enqueue_noop st k;
       schedule st
     | effect (Sleep_until (sw, time)) k ->
       let k = { Suspended.k; tid } in
