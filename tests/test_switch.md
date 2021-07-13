@@ -8,13 +8,8 @@
 open Eio.Std
 
 let run (fn : Switch.t -> unit) =
-  try
-    Eio_main.run @@ fun _e ->
-    Switch.top fn;
-    print_endline "ok"
-  with
-  | Failure msg -> print_endline msg
-  | ex -> print_endline (Printexc.to_string ex)
+  Eio_main.run @@ fun _e ->
+  Switch.top fn
 ```
 
 # Test cases
@@ -26,7 +21,6 @@ A very basic example:
       traceln "Running"
     );
 Running
-ok
 - : unit = ()
 ```
 
@@ -40,8 +34,7 @@ Turning off a switch still allows you to perform clean-up operations:
   );
 Running
 Clean up
-Cancel
-- : unit = ()
+Exception: Failure "Cancel".
 ```
 
 `Fibre.both`, both fibres pass:
@@ -56,7 +49,6 @@ i = 1
 j = 1
 i = 2
 j = 2
-ok
 - : unit = ()
 ```
 
@@ -69,8 +61,7 @@ ok
         (fun () -> failwith "Failed")
     )
 i = 1
-Failed
-- : unit = ()
+Exception: Failure "Failed".
 ```
 
 `Fibre.both`, only 2nd succeeds:
@@ -82,8 +73,7 @@ Failed
         (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield ~sw () done)
     )
 i = 1
-Failed
-- : unit = ()
+Exception: Failure "Failed".
 ```
 
 `Fibre.both`, first fails but the other doesn't stop:
@@ -93,8 +83,7 @@ Failed
       Fibre.both ~sw (fun () -> failwith "Failed") ignore;
       traceln "Not reached"
     )
-Failed
-- : unit = ()
+Exception: Failure "Failed".
 ```
 
 `Fibre.both`, second fails but the other doesn't stop:
@@ -104,8 +93,7 @@ Failed
       Fibre.both ~sw ignore (fun () -> failwith "Failed");
       traceln "not reached"
     )
-Failed
-- : unit = ()
+Exception: Failure "Failed".
 ```
 
 `Fibre.both`, both fibres fail:
@@ -116,11 +104,10 @@ Failed
         (fun () -> failwith "Failed 1")
         (fun () -> failwith "Failed 2")
     )
-Multiple exceptions:
+Exception: Multiple exceptions:
 Failure("Failed 1")
 and
 Failure("Failed 2")
-- : unit = ()
 ```
 
 The switch is already turned off when we try to fork. The new fibre doesn't start:
@@ -132,8 +119,7 @@ The switch is already turned off when we try to fork. The new fibre doesn't star
       traceln "Main continues"
     )
 Main continues
-Cancel
-- : unit = ()
+Exception: Failure "Cancel".
 ```
 
 You can't use a switch after leaving its scope:
@@ -143,7 +129,6 @@ You can't use a switch after leaving its scope:
     let x = ref None in
     run (fun sw -> x := Some sw);
     Option.get !x
-ok
 val sw : Switch.t = <abstr>
 # Switch.check sw
 Exception: Invalid_argument "Switch finished!".
@@ -166,8 +151,7 @@ Turning off a switch runs the cancel callbacks, unless they've been removed by t
 Cancel 3
 Cancel 1
 Cancel 4
-Cancelled
-- : unit = ()
+Exception: Failure "Cancelled".
 ```
 
 Wait for either a promise or a switch; switch cancelled first:
@@ -179,8 +163,7 @@ Wait for either a promise or a switch; switch cancelled first:
       Promise.fulfill r ()
     )
 Waiting
-Cancelled
-- : unit = ()
+Exception: Failure "Cancelled".
 ```
 
 Wait for either a promise or a switch; promise resolves first:
@@ -197,8 +180,7 @@ Wait for either a promise or a switch; promise resolves first:
 Waiting
 Resolved
 Now cancelling...
-Cancelled
-- : unit = ()
+Exception: Failure "Cancelled".
 ```
 
 Wait for either a promise or a switch; switch cancelled first. Result version.
@@ -211,8 +193,7 @@ Wait for either a promise or a switch; switch cancelled first. Result version.
       Promise.fulfill r ()
     );
 Waiting
-Cancelled
-- : unit = ()
+Exception: Failure "Cancelled".
 ```
 
 Wait for either a promise or a switch; promise resolves first but switch off without yielding:
@@ -227,8 +208,7 @@ Wait for either a promise or a switch; promise resolves first but switch off wit
     )
 Waiting
 Now cancelling...
-Cancelled
-- : unit = ()
+Exception: Failure "Cancelled".
 ```
 
 Child switches are cancelled when the parent is cancelled:
@@ -245,8 +225,7 @@ Child 1
 Child 2
 child: Failure("Cancel parent")
 child: Failure("Cancel parent")
-Cancel parent
-- : unit = ()
+Exception: Failure "Cancel parent".
 ```
 
 A child can fail independently of the parent:
@@ -267,7 +246,6 @@ Child 1
 Child 2
 child: Failure("Child error")
 Parent fibre is still running
-ok
 - : unit = ()
 ```
 
@@ -290,7 +268,6 @@ A child can be cancelled independently of the parent:
 Child 1
 child: Failure("Cancel child")
 Parent fibre is still running
-ok
 - : unit = ()
 ```
 
@@ -306,8 +283,7 @@ A child error handle raises:
       traceln "Not reached"
     )
 Child
-Child error escapes
-- : unit = ()
+Exception: Failure "Child error escapes".
 ```
 
 A child error handler deals with the exception:
@@ -320,7 +296,6 @@ A child error handler deals with the exception:
     )
 Failure("Child error")
 x = 0
-ok
 - : unit = ()
 ```
 
@@ -331,8 +306,9 @@ The system deadlocks. The scheduler detects and reports this:
       let p, _ = Promise.create () in
       Promise.await ~sw p
     )
-Deadlock detected: no events scheduled but main function hasn't returned
-- : unit = ()
+Exception:
+Failure
+ "Deadlock detected: no events scheduled but main function hasn't returned".
 ```
 
 # Release handlers
@@ -346,7 +322,6 @@ Release on success:
   )
 release 2
 release 1
-ok
 - : unit = ()
 ```
 
@@ -360,8 +335,7 @@ Release on error:
   )
 release 2
 release 1
-Test error
-- : unit = ()
+Exception: Failure "Test error".
 ```
 
 A release operation itself fails:
@@ -375,11 +349,10 @@ A release operation itself fails:
 release 3
 release 2
 release 1
-Multiple exceptions:
+Exception: Multiple exceptions:
 Failure("failure 3")
 and
 Failure("failure 1")
-- : unit = ()
 ```
 
 Using switch from inside release handler:
@@ -409,7 +382,6 @@ Starting release 1
 Finished release 2
 Finished release 1
 Late release
-ok
 - : unit = ()
 ```
 
@@ -432,7 +404,6 @@ We release when `fork_sub_ignore` returns:
 Allocate resource
 Child fibre running
 Free resource
-ok
 - : unit = ()
 ```
 
@@ -445,8 +416,7 @@ We release when `fork_sub_ignore` fails due to parent switch being already off:
   )
 Allocate resource
 Free resource
-Switch already off
-- : unit = ()
+Exception: Failure "Switch already off".
 ```
 
 We release when `fork_sub_ignore` fails due to parent switch being invalid:
@@ -459,8 +429,7 @@ We release when `fork_sub_ignore` fails due to parent switch being invalid:
   )
 Allocate resource
 Free resource
-Invalid_argument("Switch finished!")
-- : unit = ()
+Exception: Invalid_argument "Switch finished!".
 ```
 
 We release when `fork_sub_ignore`'s switch is turned off while running:
@@ -474,6 +443,5 @@ We release when `fork_sub_ignore`'s switch is turned off while running:
   )
 Allocate resource
 Free resource
-Simulated error
-- : unit = ()
+Exception: Failure "Simulated error".
 ```

@@ -23,14 +23,12 @@ module Eio_main = struct
 
   let run fn =
     Eio_main.run @@ fun env ->
-    try
-      fn @@ object
-        method net        = dontcrash env#net
-        method stdin      = dontcrash env#stdin
-        method stdout     = dontcrash env#stdout
-        method cwd        = dontcrash env#cwd
-        method domain_mgr = dontcrash env#domain_mgr
-        method clock      = fake_clock env#clock
-      end
-    with Failure msg -> traceln "Error: %s" msg
+    fn @@ object
+      method net        = dontcrash env#net
+      method stdin      = dontcrash env#stdin
+      method stdout     = dontcrash env#stdout
+      method cwd        = dontcrash env#cwd
+      method domain_mgr = dontcrash env#domain_mgr
+      method clock      = fake_clock env#clock
+    end
 end

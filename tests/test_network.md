@@ -8,14 +8,9 @@
 open Eio.Std
 
 let run (fn : net:Eio.Net.t -> Switch.t -> unit) =
-  try
-    Eio_main.run @@ fun env ->
-    let net = Eio.Stdenv.net env in
-    Switch.top (fn ~net);
-    print_endline "ok"
-  with
-  | Failure msg -> print_endline msg
-  | ex -> print_endline (Printexc.to_string ex)
+  Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  Switch.top (fn ~net)
 
 let addr = `Tcp (Unix.inet_addr_loopback, 8081)
 
@@ -79,8 +74,7 @@ Server accepted connection from client
 Server received: "Hello from client"
 Client received: "Bye"
 Client finished - cancelling server
-Test is over
-- : unit = ()
+Exception: Failure "Test is over".
 ```
 
 Handling one connection on a Unix domain socket:
@@ -92,8 +86,7 @@ Server accepted connection from client
 Server received: "Hello from client"
 Client received: "Bye"
 Client finished - cancelling server
-Test is over
-- : unit = ()
+Exception: Failure "Test is over".
 ```
 
 Handling one connection on an abstract Unix domain socket:
@@ -105,8 +98,7 @@ Server accepted connection from client
 Server received: "Hello from client"
 Client received: "Bye"
 Client finished - cancelling server
-Test is over
-- : unit = ()
+Exception: Failure "Test is over".
 ```
 
 Cancelling the read:
@@ -136,8 +128,7 @@ Cancelling the read:
 Connecting to server...
 Connection opened - cancelling server's read
 Client received: "Request cancelled"
-Graceful_shutdown
-- : unit = ()
+Exception: Graceful_shutdown.
 ```
 
 Calling accept when the switch is already off:
@@ -148,6 +139,5 @@ Calling accept when the switch is already off:
   Switch.turn_off sw (Failure "Simulated error");
   Eio.Net.accept_sub server ~sw (fun ~sw:_ _flow _addr -> assert false)
     ~on_error:raise
-Simulated error
-- : unit = ()
+Exception: Failure "Simulated error".
 ```
