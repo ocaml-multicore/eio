@@ -8,7 +8,7 @@ license: "ISC"
 homepage: "https://github.com/ocaml-multicore/eio"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
-  "dune" {>= "2.8"}
+  "dune" {>= "2.9"}
   "ocaml-variants" {= "4.12.0+domains+effects"}
   "ctf" {= version}
   "eio" {= version}
@@ -20,7 +20,7 @@ depends: [
   "odoc" {with-doc}
 ]
 build: [
-  ["dune" "subst"] {dev}
+  ["dune" "subst" "--root" "."] {dev}
   [
     "dune"
     "build"
@@ -28,9 +28,12 @@ build: [
     name
     "-j"
     jobs
+    "--promote-install-files"
+    "false"
     "@install"
     "@runtest" {with-test}
     "@doc" {with-doc}
   ]
+  ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"

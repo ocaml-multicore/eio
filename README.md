@@ -216,8 +216,7 @@ Here's what happens if one of the two threads above fails:
     (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield ~sw () done)
     (fun () -> failwith "Simulated error");;
 x = 1
-Error: Simulated error
-- : unit = ()
+Exception: Failure "Simulated error".
 ```
 
 What happened here was:

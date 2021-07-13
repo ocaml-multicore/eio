@@ -8,14 +8,9 @@
 open Eio.Std
 
 let run (fn : clock:Eio.Time.clock -> unit) =
-  try
-    Eio_main.run @@ fun env ->
-    let clock = Eio.Stdenv.clock env in
-    fn ~clock;
-    print_endline "ok"
-  with
-  | Failure msg -> print_endline msg
-  | ex -> print_endline (Printexc.to_string ex)
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  fn ~clock
 ```
 
 # Test cases
@@ -28,7 +23,6 @@ Check sleep works:
   Eio.Time.sleep clock 0.01;
   let t1 = Unix.gettimeofday () in
   assert (t1 -. t0 >= 0.01)
-ok
 - : unit = ()
 ```
 
@@ -41,7 +35,6 @@ Check sleep works with a switch:
   Eio.Time.sleep ~sw clock 0.01;
   let t1 = Unix.gettimeofday () in
   assert (t1 -. t0 >= 0.01)
-ok
 - : unit = ()
 ```
 
@@ -53,8 +46,7 @@ Cancelling sleep:
   Fibre.both ~sw
     (fun () -> Eio.Time.sleep ~sw clock 1200.; assert false)
     (fun () -> Switch.turn_off sw (Failure "Simulated cancel"))
-Simulated cancel
-- : unit = ()
+Exception: Failure "Simulated cancel".
 ```
 
 Switch is already off:
@@ -65,8 +57,7 @@ Switch is already off:
   Switch.turn_off sw (Failure "Simulated failure");
   Eio.Time.sleep ~sw clock 1200.0;
   assert false
-Simulated failure
-- : unit = ()
+Exception: Failure "Simulated failure".
 ```
 
 Scheduling a timer that's already due:
@@ -80,7 +71,6 @@ Scheduling a timer that's already due:
 First fibre runs
 Second fibre runs
 Sleep done
-ok
 - : unit = ()
 ```
 
@@ -100,6 +90,5 @@ Check ordering works:
       Switch.turn_off sw (Failure "Simulated cancel")
     )
 Short timer finished
-Simulated cancel
-- : unit = ()
+Exception: Failure "Simulated cancel".
 ```

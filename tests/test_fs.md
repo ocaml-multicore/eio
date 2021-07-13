@@ -10,14 +10,9 @@
 open Eio.Std
 
 let run (fn : sw:Switch.t -> Eio.Stdenv.t -> unit) =
-  try
-    Eio_main.run @@ fun env ->
-    Switch.top @@ fun sw ->
-    fn ~sw env;
-    print_endline "ok"
-  with
-  | Failure msg -> print_endline msg
-  | ex -> print_endline (Printexc.to_string ex)
+  Eio_main.run @@ fun env ->
+  Switch.top @@ fun sw ->
+  fn ~sw env
 
 let read_all ?sw flow =
   let b = Buffer.create 100 in
@@ -55,7 +50,6 @@ Creating a file and reading it back:
   write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "my-data";
   traceln "Got %S" @@ read_file ~sw cwd "test-file"
 Got "my-data"
-ok
 - : unit = ()
 ```
 
@@ -74,8 +68,9 @@ Trying to use cwd to access a file outside of that subtree fails:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Exclusive 0o666) cwd "../test-file" "my-data";
   failwith "Should have failed"
-Eio.Dir.Permission_denied("../test-file", _)
-- : unit = ()
+Exception:
+Eio.Dir.Permission_denied ("../test-file",
+ Unix.Unix_error (Unix.EXDEV, "openat2", "")).
 ```
 
 Trying to use cwd to access an absolute path fails:
@@ -84,8 +79,9 @@ Trying to use cwd to access an absolute path fails:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Exclusive 0o666) cwd "/tmp/test-file" "my-data";
   failwith "Should have failed"
-Eio.Dir.Permission_denied("/tmp/test-file", _)
-- : unit = ()
+Exception:
+Eio.Dir.Permission_denied ("/tmp/test-file",
+ Unix.Unix_error (Unix.EXDEV, "openat2", "")).
 ```
 
 # Creation modes
@@ -97,8 +93,7 @@ Exclusive create fails if already exists:
   write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
   write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
   failwith "Should have failed"
-Unix.Unix_error(Unix.EEXIST, "openat2", "")
-- : unit = ()
+Exception: Unix.Unix_error(Unix.EEXIST, "openat2", "")
 ```
 
 If-missing create succeeds if already exists:
@@ -109,7 +104,6 @@ If-missing create succeeds if already exists:
   write_file ~sw ~create:(`If_missing 0o666) cwd "test-file" "2nd-write";
   traceln "Got %S" @@ read_file ~sw cwd "test-file"
 Got "2nd-write-original"
-ok
 - : unit = ()
 ```
 
@@ -121,7 +115,6 @@ Truncate create succeeds if already exists, and truncates:
   write_file ~sw ~create:(`Or_truncate 0o666) cwd "test-file" "2nd-write";
   traceln "Got %S" @@ read_file ~sw cwd "test-file"
 Got "2nd-write"
-ok
 - : unit = ()
 # Unix.unlink "test-file";;
 - : unit = ()
@@ -133,8 +126,7 @@ Error if no create and doesn't exist:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:`Never cwd "test-file" "1st-write-original";
   traceln "Got %S" @@ read_file ~sw cwd "test-file"
-Unix.Unix_error(Unix.ENOENT, "openat2", "")
-- : unit = ()
+Exception: Unix.Unix_error(Unix.ENOENT, "openat2", "")
 ```
 
 Appending to an existing file:
@@ -145,7 +137,6 @@ Appending to an existing file:
   write_file ~sw ~create:`Never ~append:true cwd "test-file" "2nd-write";
   traceln "Got %S" @@ read_file ~sw cwd "test-file"
 Got "1st-write-original2nd-write"
-ok
 - : unit = ()
 # Unix.unlink "test-file";;
 - : unit = ()
@@ -162,7 +153,6 @@ ok
   ()
 mkdir "subdir" -> ok
 mkdir "subdir/nested" -> ok
-ok
 - : unit = ()
 # Unix.unlink "subdir/nested/test-file"; Unix.rmdir "subdir/nested"; Unix.rmdir "subdir";;
 - : unit = ()
@@ -191,7 +181,6 @@ mkdir "to-root/tmp/foo" -> Eio.Dir.Permission_denied("to-root/tmp", _)
 mkdir "../foo" -> Eio.Dir.Permission_denied("..", _)
 mkdir "to-subdir" -> Unix.Unix_error(Unix.EEXIST, "mkdirat", "to-subdir")
 mkdir "dangle/foo" -> Unix.Unix_error(Unix.ENOENT, "openat2", "")
-ok
 - : unit = ()
 ```
 
@@ -209,7 +198,6 @@ Create a sandbox, write a file with it, then read it from outside:
 mkdir "sandbox" -> ok
 mkdir "../new-sandbox" -> Eio.Dir.Permission_denied("..", _)
 Got "data"
-ok
 - : unit = ()
 ```
 
@@ -238,6 +226,5 @@ write "../test-file" -> Eio.Dir.Permission_denied("../test-file", _)
 mkdir "../outside-cwd" -> ok
 write "../test-file" -> ok
 chdir ".."
-ok
 - : unit = ()
 ```
