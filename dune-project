@@ -60,5 +60,5 @@
  (description
   "Selects an appropriate Eio backend for the current platform.")
  (depends
-  (eunix (= :version))))
+  (eio_linux (= :version))))
 (using mdx 0.1)

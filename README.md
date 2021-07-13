@@ -77,7 +77,9 @@ You will need a version of the OCaml compiler with effects.
 You can get one like this:
 
 ```
-opam switch create 4.12.0+domains+effects --packages=ocaml-variants.4.12.0+domains+effects --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
+opam switch create 4.12.0+domains+effects --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
+opam pin add -yn ppxlib 0.22.0+effect-syntax
+opam pin add -yn ocaml-migrate-parsetree 2.1.0+effect-syntax
 ```
 
 Then you'll need to install this library (and `utop` if you want to try it interactively):
@@ -86,7 +88,8 @@ Then you'll need to install this library (and `utop` if you want to try it inter
 git clone --recursive https://github.com/ocaml-multicore/eio.git
 cd eio
 opam pin -yn ./ocaml-uring
-opam pin -yn .
+sed -i '/dune" "subst/d' *.opam
+opam pin -yn -k path .
 opam depext -i eio_main utop
 ```
 
@@ -625,6 +628,10 @@ as will using multiple domains.
 Note that `traceln` is unusual. Although it writes (by default) to stderr, it will not switch fibres.
 Instead, if the OS is not ready to receive trace output, the whole domain is paused until it is ready.
 This means that adding `traceln` to deterministic code will not affect its scheduling.
+
+In particular, if you test your code by providing (deterministic) mocks then the tests will be deterministic.
+An easy way to write tests is by having the mocks call `traceln` and then comparing the trace output with the expected output.
+See Eio's own tests for examples, e.g. [tests/test_switch.md](tests/test_switch.md).
 
 ## Further reading
 
