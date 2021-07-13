@@ -88,7 +88,8 @@ Then you'll need to install this library (and `utop` if you want to try it inter
 git clone --recursive https://github.com/ocaml-multicore/eio.git
 cd eio
 opam pin -yn ./ocaml-uring
-opam pin -yn .
+sed -i '/dune" "subst/d' *.opam
+opam pin -yn -k path .
 opam depext -i eio_main utop
 ```
 
