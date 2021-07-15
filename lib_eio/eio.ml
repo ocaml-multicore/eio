@@ -3,18 +3,9 @@ module Std = struct
   module Fibre = Fibre
   module Switch = Switch
 
-  let stderr_mutex = Mutex.create ()
+  effect Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a)
   let traceln ?__POS__ fmt =
-    fmt |> Format.kasprintf (fun msg ->
-        Ctf.label msg;
-        Mutex.lock stderr_mutex;
-        Fun.protect ~finally:(fun () -> Mutex.unlock stderr_mutex)
-          (fun () ->
-             match __POS__ with
-             | Some (file, lnum, _, _) -> Format.printf "%s:%d %s@." file lnum msg
-             | None -> Format.printf "%s@." msg
-          )
-      )
+    perform Trace ?__POS__ fmt
 end
 
 module Semaphore = Semaphore
@@ -246,6 +237,7 @@ module Private = struct
     effect Suspend = Suspend.Suspend
     effect Fork = Fibre.Fork
     effect Fork_ignore = Fibre.Fork_ignore
+    effect Trace = Std.Trace
   end
   module Switch = Switch
 end

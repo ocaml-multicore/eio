@@ -69,11 +69,11 @@ Handling one connection, then cancelling the server:
 
 ```ocaml
 # run (test_address addr)
-Connecting to server...
-Server accepted connection from client
-Server received: "Hello from client"
-Client received: "Bye"
-Client finished - cancelling server
++Connecting to server...
++Server accepted connection from client
++Server received: "Hello from client"
++Client received: "Bye"
++Client finished - cancelling server
 Exception: Failure "Test is over".
 ```
 
@@ -81,11 +81,11 @@ Handling one connection on a Unix domain socket:
 
 ```ocaml
 # run (test_address (`Unix "/tmp/eio-test.sock"))
-Connecting to server...
-Server accepted connection from client
-Server received: "Hello from client"
-Client received: "Bye"
-Client finished - cancelling server
++Connecting to server...
++Server accepted connection from client
++Server received: "Hello from client"
++Client received: "Bye"
++Client finished - cancelling server
 Exception: Failure "Test is over".
 ```
 
@@ -93,11 +93,11 @@ Handling one connection on an abstract Unix domain socket:
 
 ```ocaml
 # run (test_address (`Unix "\x00/tmp/eio-test.sock"))
-Connecting to server...
-Server accepted connection from client
-Server received: "Hello from client"
-Client received: "Bye"
-Client finished - cancelling server
++Connecting to server...
++Server accepted connection from client
++Server received: "Hello from client"
++Client received: "Bye"
++Client finished - cancelling server
 Exception: Failure "Test is over".
 ```
 
@@ -125,9 +125,9 @@ Cancelling the read:
       let msg = read_all flow in
       traceln "Client received: %S" msg
     )
-Connecting to server...
-Connection opened - cancelling server's read
-Client received: "Request cancelled"
++Connecting to server...
++Connection opened - cancelling server's read
++Client received: "Request cancelled"
 Exception: Graceful_shutdown.
 ```
 

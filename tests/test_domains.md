@@ -20,7 +20,7 @@ Spawning a second domain:
 # run @@ fun mgr ->
   let response = Eio.Domain_manager.run_compute_unsafe mgr (fun () -> "Hello from new domain") in
   traceln "Got %S from spawned domain" response
-Got "Hello from new domain" from spawned domain
++Got "Hello from new domain" from spawned domain
 - : unit = ()
 ```
 
@@ -46,8 +46,8 @@ We can still run other fibres in the main domain while waiting:
     (fun () ->
       traceln "Other fibres can still run"
     )
-Spawning new domain...
-Other fibres can still run
-Got "Hello from new domain" from spawned domain
++Spawning new domain...
++Other fibres can still run
++Got "Hello from new domain" from spawned domain
 - : unit = ()
 ```
