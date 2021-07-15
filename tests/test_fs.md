@@ -55,7 +55,7 @@ Got "my-data"
 
 Check the file got the correct permissions (subject to the umask set above):
 ```ocaml
-# traceln "Perm = %o" ((Unix.stat "test-file").st_perm);;
+# Printf.printf "Perm = %o\n" ((Unix.stat "test-file").st_perm);;
 Perm = 644
 - : unit = ()
 ```

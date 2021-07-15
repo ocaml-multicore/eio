@@ -497,7 +497,13 @@ module Private : sig
     effect Fork : (unit -> 'a) -> 'a Promise.t
     (** See {!Fibre.fork} *)
 
-    effect Fork_ignore  : (unit -> unit) -> unit
+    effect Fork_ignore : (unit -> unit) -> unit
     (** See {!Fibre.fork_ignore} *)
+
+    effect Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a)
+    (** [perform Trace fmt] writes trace logging to the configured trace output.
+        It must not switch fibres, as tracing must not affect scheduling.
+        If the system is not ready to receive the trace output,
+        the whole domain must block until it is. *)
   end
 end

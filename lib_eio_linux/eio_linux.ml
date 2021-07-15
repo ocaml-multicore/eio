@@ -44,6 +44,20 @@ let rec shiftv cs = function
 
 effect Close : Unix.file_descr -> int
 
+let stderr_mutex = Mutex.create ()
+
+let default_traceln ?__POS__ fmt =
+  fmt |> Format.kasprintf (fun msg ->
+      Ctf.label msg;
+      Mutex.lock stderr_mutex;
+      Fun.protect ~finally:(fun () -> Mutex.unlock stderr_mutex)
+        (fun () ->
+           match __POS__ with
+           | Some (file, lnum, _, _) -> Format.printf "%s:%d %s@." file lnum msg
+           | None -> Format.printf "%s@." msg
+        )
+    )
+
 module FD = struct
   type t = {
     seekable : bool;
@@ -618,6 +632,11 @@ let accept ~sw fd =
   Switch.on_release sw (fun () -> FD.ensure_closed client);
   client, client_addr
 
+let run_compute fn () =
+  match fn () with
+  | x -> x
+  | effect Eio.Private.Effects.Trace k -> continue k default_traceln
+
 module Objects = struct
   type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
 
@@ -772,7 +791,7 @@ module Objects = struct
       (* todo: use eventfd instead of a pipe *)
       let r, w = Unix.pipe () in
       let r = FD.of_unix_no_hook ~seekable:false r in
-      match Domain.spawn (fun () -> Fun.protect fn ~finally:(fun () -> Unix.close w)) with
+      match Domain.spawn (fun () -> Fun.protect (run_compute fn) ~finally:(fun () -> Unix.close w)) with
       | domain ->
         await_readable r;
         FD.close r;
@@ -957,6 +976,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
           | exception ex ->
             Ctf.note_resolved child ~ex:(Some ex)
         )
+    | effect Eio.Private.Effects.Trace k -> continue k default_traceln
     | effect Alloc k ->
       let k = { Suspended.k; tid } in
       alloc_buf st k
