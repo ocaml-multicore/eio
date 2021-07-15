@@ -49,7 +49,7 @@ Creating a file and reading it back:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "my-data";
   traceln "Got %S" @@ read_file ~sw cwd "test-file"
-Got "my-data"
++Got "my-data"
 - : unit = ()
 ```
 
@@ -103,7 +103,7 @@ If-missing create succeeds if already exists:
   write_file ~sw ~create:(`If_missing 0o666) cwd "test-file" "1st-write-original";
   write_file ~sw ~create:(`If_missing 0o666) cwd "test-file" "2nd-write";
   traceln "Got %S" @@ read_file ~sw cwd "test-file"
-Got "2nd-write-original"
++Got "2nd-write-original"
 - : unit = ()
 ```
 
@@ -114,7 +114,7 @@ Truncate create succeeds if already exists, and truncates:
   write_file ~sw ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
   write_file ~sw ~create:(`Or_truncate 0o666) cwd "test-file" "2nd-write";
   traceln "Got %S" @@ read_file ~sw cwd "test-file"
-Got "2nd-write"
++Got "2nd-write"
 - : unit = ()
 # Unix.unlink "test-file";;
 - : unit = ()
@@ -136,7 +136,7 @@ Appending to an existing file:
   write_file ~sw ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
   write_file ~sw ~create:`Never ~append:true cwd "test-file" "2nd-write";
   traceln "Got %S" @@ read_file ~sw cwd "test-file"
-Got "1st-write-original2nd-write"
++Got "1st-write-original2nd-write"
 - : unit = ()
 # Unix.unlink "test-file";;
 - : unit = ()
@@ -151,8 +151,8 @@ Got "1st-write-original2nd-write"
   try_mkdir cwd "subdir/nested";
   write_file ~sw ~create:(`Exclusive 0o600) cwd "subdir/nested/test-file" "data";
   ()
-mkdir "subdir" -> ok
-mkdir "subdir/nested" -> ok
++mkdir "subdir" -> ok
++mkdir "subdir/nested" -> ok
 - : unit = ()
 # Unix.unlink "subdir/nested/test-file"; Unix.rmdir "subdir/nested"; Unix.rmdir "subdir";;
 - : unit = ()
@@ -175,12 +175,12 @@ Creating directories with nesting, symlinks, etc:
   try_mkdir cwd "to-subdir";
   try_mkdir cwd "dangle/foo";
   ()
-mkdir "subdir" -> ok
-mkdir "to-subdir/nested" -> ok
-mkdir "to-root/tmp/foo" -> Eio.Dir.Permission_denied("to-root/tmp", _)
-mkdir "../foo" -> Eio.Dir.Permission_denied("..", _)
-mkdir "to-subdir" -> Unix.Unix_error(Unix.EEXIST, "mkdirat", "to-subdir")
-mkdir "dangle/foo" -> Unix.Unix_error(Unix.ENOENT, "openat2", "")
++mkdir "subdir" -> ok
++mkdir "to-subdir/nested" -> ok
++mkdir "to-root/tmp/foo" -> Eio.Dir.Permission_denied("to-root/tmp", _)
++mkdir "../foo" -> Eio.Dir.Permission_denied("..", _)
++mkdir "to-subdir" -> Unix.Unix_error(Unix.EEXIST, "mkdirat", "to-subdir")
++mkdir "dangle/foo" -> Unix.Unix_error(Unix.ENOENT, "openat2", "")
 - : unit = ()
 ```
 
@@ -195,9 +195,9 @@ Create a sandbox, write a file with it, then read it from outside:
   write_file ~sw ~create:(`Exclusive 0o600) subdir "test-file" "data";
   try_mkdir subdir "../new-sandbox";
   traceln "Got %S" @@ read_file ~sw cwd "sandbox/test-file"
-mkdir "sandbox" -> ok
-mkdir "../new-sandbox" -> Eio.Dir.Permission_denied("..", _)
-Got "data"
++mkdir "sandbox" -> ok
++mkdir "../new-sandbox" -> Eio.Dir.Permission_denied("..", _)
++Got "data"
 - : unit = ()
 ```
 
@@ -219,12 +219,12 @@ Using `cwd` we can't access the parent, but using `fs` we can:
   );
   Unix.unlink "test-file";
   Unix.rmdir "outside-cwd"
-mkdir "fs-test" -> ok
-chdir "fs-test"
-mkdir "../outside-cwd" -> Eio.Dir.Permission_denied("..", _)
-write "../test-file" -> Eio.Dir.Permission_denied("../test-file", _)
-mkdir "../outside-cwd" -> ok
-write "../test-file" -> ok
-chdir ".."
++mkdir "fs-test" -> ok
++chdir "fs-test"
++mkdir "../outside-cwd" -> Eio.Dir.Permission_denied("..", _)
++write "../test-file" -> Eio.Dir.Permission_denied("../test-file", _)
++mkdir "../outside-cwd" -> ok
++write "../test-file" -> ok
++chdir ".."
 - : unit = ()
 ```

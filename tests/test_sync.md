@@ -31,11 +31,11 @@ Create a promise, fork a thread waiting for it, then fulfull it:
     Fibre.yield ();
     traceln "Thread after yield: %a" (pp_promise Fmt.string) thread;
     traceln "Final result: %s" (Promise.await thread)
-Initial state: unresolved
-After being fulfilled: fulfilled:ok
-Thread before yield: unresolved
-Thread after yield: fulfilled:ok
-Final result: ok
++Initial state: unresolved
++After being fulfilled: fulfilled:ok
++Thread before yield: unresolved
++Thread after yield: fulfilled:ok
++Final result: ok
 ```
 
 Create a promise, fork a thread waiting for it, then break it:
@@ -54,11 +54,11 @@ Create a promise, fork a thread waiting for it, then break it:
     match Promise.await thread with
     | x -> failwith x
     | exception (Failure msg) -> traceln "Final result exception: %s" msg
-Initial state: unresolved
-After being broken: broken:test
-Thread before yield: unresolved
-Thread after yield: broken:test
-Final result exception: test
++Initial state: unresolved
++After being broken: broken:test
++Thread before yield: unresolved
++Thread after yield: broken:test
++Final result exception: test
 ```
 
 Some simple tests of `fork_ignore`:
@@ -80,9 +80,9 @@ Some simple tests of `fork_ignore`:
       assert false
     with Exit ->
       traceln "Forked code ran; i is now %d" !i
-Forked code ran; i is now 1
-Forked code waiting; i is still 1
-Forked code ran; i is now 2
++Forked code ran; i is now 1
++Forked code waiting; i is still 1
++Forked code ran; i is now 2
 ```
 
 Basic semaphore tests:
@@ -116,9 +116,9 @@ Basic semaphore tests:
     Semaphore.release sem;
     decr running;
     Semaphore.release sem
-Semaphore means that only 2 threads are running
-One finished; now 1 is running
-Yield allows C to start; now 2 are running
++Semaphore means that only 2 threads are running
++One finished; now 1 is running
++Yield allows C to start; now 2 are running
 ```
 
 Releasing a semaphore when no-one is waiting for it:
@@ -137,8 +137,8 @@ Releasing a semaphore when no-one is waiting for it:
     traceln "Now b running: %d" (Semaphore.get_value sem);
     Semaphore.release sem;        (* Release with an empty wait-queue *)
     traceln "Finished: %d" (Semaphore.get_value sem)
-Initial config: 1
-A running: 0
-Now b running: 0
-Finished: 1
++Initial config: 1
++A running: 0
++Now b running: 0
++Finished: 1
 ```

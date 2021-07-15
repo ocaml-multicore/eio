@@ -137,7 +137,7 @@ e.g.
   let buffer = Buffer.create 20 in
   main ~stdout:(Eio.Flow.buffer_sink buffer);
   traceln "Main would print %S" (Buffer.contents buffer);;
-Main would print "Hello, world!\n"
++Main would print "Hello, world!\n"
 - : unit = ()
 ```
 
@@ -158,12 +158,12 @@ let main _env =
 
 ```ocaml
 # Eio_main.run main;;
-x = 1
-y = 1
-x = 2
-y = 2
-x = 3
-y = 3
++x = 1
++y = 1
++x = 2
++y = 2
++x = 3
++y = 3
 - : unit = ()
 ```
 
@@ -186,12 +186,12 @@ We can run the previous code with tracing enabled (writing to a new `trace.ctf` 
     Ctf.Control.start trace_config;
     Eio_main.run main;
     Ctf.Control.stop trace_config;;
-x = 1
-y = 1
-x = 2
-y = 2
-x = 3
-y = 3
++x = 1
++y = 1
++x = 2
++y = 2
++x = 3
++y = 3
 ```
 
 The trace can be viewed using [mirage-trace-viewer][].
@@ -218,7 +218,7 @@ Here's what happens if one of the two threads above fails:
   Fibre.both ~sw
     (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield ~sw () done)
     (fun () -> failwith "Simulated error");;
-x = 1
++x = 1
 Exception: Failure "Simulated error".
 ```
 
@@ -248,15 +248,15 @@ Switches can also be used to wait for threads even when there isn't an error. e.
     traceln "Second thread forked; top-level code is finished"
   );
   traceln "Switch is finished";;
-i = 1
-First thread forked
-j = 1
-i = 2
-Second thread forked; top-level code is finished
-j = 2
-i = 3
-j = 3
-Switch is finished
++i = 1
++First thread forked
++j = 1
++i = 2
++Second thread forked; top-level code is finished
++j = 2
++i = 3
++j = 3
++Switch is finished
 - : unit = ()
 ```
 
@@ -383,11 +383,11 @@ let main ~net ~addr =
   main
     ~net:(Eio.Stdenv.net env)
     ~addr:(`Tcp (Unix.inet_addr_loopback, 8080))
-Server ready...
-Connecting to server...
-Server accepted connection from client
-(normally we'd loop and accept more connections here)
-Server received: "Hello from client"
++Server ready...
++Connecting to server...
++Server accepted connection from client
++(normally we'd loop and accept more connections here)
++Server received: "Hello from client"
 - : unit = ()
 ```
 
@@ -464,9 +464,9 @@ let try_mkdir dir path =
   try_mkdir cwd "dir1";
   try_mkdir cwd "../dir2";
   try_mkdir cwd "/tmp/dir3";
-mkdir "dir1" -> ok
-mkdir "../dir2" -> Eio.Dir.Permission_denied("..", _)
-mkdir "/tmp/dir3" -> Eio.Dir.Permission_denied("/tmp", _)
++mkdir "dir1" -> ok
++mkdir "../dir2" -> Eio.Dir.Permission_denied("..", _)
++mkdir "/tmp/dir3" -> Eio.Dir.Permission_denied("/tmp", _)
 - : unit = ()
 ```
 
@@ -481,9 +481,9 @@ The checks also apply to following symlinks:
   try_write_file cwd "dir1/file1" "A";
   try_write_file cwd "link-to-dir1/file2" "B";
   try_write_file cwd "link-to-tmp/file3" "C"
-write "dir1/file1" -> ok
-write "link-to-dir1/file2" -> ok
-write "link-to-tmp/file3" -> Eio.Dir.Permission_denied("link-to-tmp/file3", _)
++write "dir1/file1" -> ok
++write "link-to-dir1/file2" -> ok
++write "link-to-tmp/file3" -> Eio.Dir.Permission_denied("link-to-tmp/file3", _)
 - : unit = ()
 ```
 
@@ -495,8 +495,8 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
   Eio.Dir.with_open_dir cwd "dir1" @@ fun dir1 ->
   try_write_file dir1 "file4" "D";
   try_write_file dir1 "../file5" "E"
-write "file4" -> ok
-write "../file5" -> Eio.Dir.Permission_denied("../file5", _)
++write "file4" -> ok
++write "../file5" -> Eio.Dir.Permission_denied("../file5", _)
 - : unit = ()
 ```
 
@@ -518,8 +518,8 @@ The standard environment provides a clock with the usual POSIX time:
   traceln "The time is now %f" (Eio.Time.now clock);
   Eio.Time.sleep clock 1.0;
   traceln "The time is now %f" (Eio.Time.now clock)
-The time is now 1623940778.270336
-The time is now 1623940779.270336
++The time is now 1623940778.270336
++The time is now 1623940779.270336
 - : unit = ()
 ```
 
@@ -562,12 +562,12 @@ let main ~domain_mgr =
 ```ocaml
 # Eio_main.run @@ fun env ->
   main ~domain_mgr:(Eio.Stdenv.domain_mgr env)
-Starting CPU-intensive task...
-Starting CPU-intensive task...
-Finished
-sum 1..50000 = 1250025000
-Finished
-sum 1..100000 = 5000050000
++Starting CPU-intensive task...
++Starting CPU-intensive task...
++Finished
++sum 1..50000 = 1250025000
++Finished
++sum 1..100000 = 5000050000
 - : unit = ()
 ```
 

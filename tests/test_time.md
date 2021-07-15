@@ -68,9 +68,9 @@ Scheduling a timer that's already due:
   Fibre.both ~sw
     (fun () -> traceln "First fibre runs"; Eio.Time.sleep ~sw clock (-1.0); traceln "Sleep done")
     (fun () -> traceln "Second fibre runs")
-First fibre runs
-Second fibre runs
-Sleep done
++First fibre runs
++Second fibre runs
++Sleep done
 - : unit = ()
 ```
 
@@ -89,6 +89,6 @@ Check ordering works:
       traceln "Short timer finished";
       Switch.turn_off sw (Failure "Simulated cancel")
     )
-Short timer finished
++Short timer finished
 Exception: Failure "Simulated cancel".
 ```
