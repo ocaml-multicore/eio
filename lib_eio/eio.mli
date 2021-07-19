@@ -242,6 +242,17 @@ end
 module Flow : sig
   type shutdown_command = [ `Receive | `Send | `All ]
 
+  type read_method = ..
+  (** Sources can offer a list of ways to read them, in order of preference. *)
+
+  type read_method += Read_source_buffer of (?sw:Switch.t -> (Cstruct.t list -> unit) -> unit)
+  (** If a source offers [Read_source_buffer rsb] then the user can call [rsb fn]
+      to borrow a view of the source's buffers.
+      [rb] will raise [End_of_file] if no more data will be produced.
+      If no data is currently available, [rb] will wait for some to become available before calling [fn]
+      (turning off [sw] will abort the operation).
+      [fn] must not continue to use the buffers after it returns. *)
+
   class type close = object
     method close : unit
   end
@@ -249,16 +260,22 @@ module Flow : sig
   val close : #close -> unit
 
   class virtual read : object
+    method virtual read_methods : read_method list
     method virtual read_into : ?sw:Switch.t -> Cstruct.t -> int
   end
 
   val read_into : ?sw:Switch.t -> #read -> Cstruct.t -> int
-  (** [read_into buf] reads one or more bytes into [buf].
+  (** [read_into reader buf] reads one or more bytes into [buf].
       It returns the number of bytes written (which may be less than the
       buffer size even if there is more data to be read).
       [buf] must not be zero-length.
       @param sw Abort the read if [sw] is turned off.
       @raise End_of_file if there is no more data to read *)
+
+  val read_methods : #read -> read_method list
+  (** [read_methods flow] is a list of extra ways of reading from [flow],
+      with the preferred (most efficient) methods first.
+      If no method is suitable, {!read_into} should be used as the fallback. *)
 
   (** Producer base class. *)
   class virtual source : object

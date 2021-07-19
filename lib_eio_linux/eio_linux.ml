@@ -642,7 +642,7 @@ module Objects = struct
     try
       while true do
         let got = read_upto ?sw src chunk chunk_size in
-        write dst chunk got
+        write ?sw dst chunk got
       done
     with End_of_file -> ()
 
@@ -656,6 +656,28 @@ module Objects = struct
     with
     | End_of_file -> ()
     | Unix.Unix_error (Unix.EINVAL, "splice", _) -> fast_copy ?sw src dst
+
+  (* Copy using the [Read_source_buffer] optimisation.
+     Avoids a copy if the source already has the data. *)
+  let copy_with_rsb ?sw rsb dst =
+    try
+      while true do
+        rsb ?sw (writev ?sw dst)
+      done
+    with End_of_file -> ()
+
+  (* Copy by allocating a chunk from the pre-shared buffer and asking
+     the source to write into it. This used when the other methods
+     aren't available. *)
+  let fallback_copy ?sw src dst =
+    with_chunk @@ fun chunk ->
+    let chunk_cs = Uring.Region.to_cstruct chunk in
+    try
+      while true do
+        let got = Eio.Flow.read_into ?sw src chunk_cs in
+        write ?sw dst chunk got
+      done
+    with End_of_file -> ()
 
   let flow fd = object (_ : <source; sink; ..>)
     method fd = fd
@@ -674,19 +696,18 @@ module Objects = struct
       Cstruct.blit chunk_cs 0 buf 0 got;
       got
 
+    method read_methods = []
+
     method write ?sw src =
       match get_fd_opt src with
       | Some src -> fast_copy_try_splice ?sw src fd
       | None ->
-        (* Inefficient copying fallback *)
-        with_chunk @@ fun chunk ->
-        let chunk_cs = Uring.Region.to_cstruct chunk in
-        try
-          while true do
-            let got = Eio.Flow.read_into ?sw src chunk_cs in
-            write fd chunk got
-          done
-        with End_of_file -> ()
+        let rec aux = function
+          | Eio.Flow.Read_source_buffer rsb :: _ -> copy_with_rsb ?sw rsb fd
+          | _ :: xs -> aux xs
+          | [] -> fallback_copy ?sw src fd
+        in
+        aux (Eio.Flow.read_methods src)
 
     method shutdown cmd =
       Unix.shutdown (FD.get "shutdown" fd) @@ match cmd with

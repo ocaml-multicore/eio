@@ -25,6 +25,9 @@ end
 module Flow = struct
   type shutdown_command = [ `Receive | `Send | `All ]
 
+  type read_method = ..
+  type read_method += Read_source_buffer of (?sw:Switch.t -> (Cstruct.t list -> unit) -> unit)
+
   class type close = object
     method close : unit
   end
@@ -32,6 +35,7 @@ module Flow = struct
   let close (t : #close) = t#close
 
   class virtual read = object
+    method virtual read_methods : read_method list
     method virtual read_into : ?sw:Switch.t -> Cstruct.t -> int
   end
 
@@ -40,33 +44,31 @@ module Flow = struct
     assert (got > 0);
     got
 
+  let read_methods (t : #read) = t#read_methods
+
   class virtual source = object (_ : #Generic.t)
     method probe _ = None
     inherit read
   end
 
-  let string_source s : source =
-    object
-      inherit source
-
-      val mutable data = Cstruct.of_string s
-
-      method read_into ?sw buf =
-        Option.iter Switch.check sw;
-        match Cstruct.length data with
-        | 0 -> raise End_of_file
-        | remaining ->
-          let len = min remaining (Cstruct.length buf) in
-          Cstruct.blit data 0 buf 0 len;
-          data <- Cstruct.shift data len;
-          len
-    end
-
   let cstruct_source data : source =
-    object
+    object (self)
       val mutable data = data
 
       inherit source
+
+      method private read_source_buffer ?sw fn =
+        Option.iter Switch.check sw;
+        let rec aux () =
+          match data with
+          | [] -> raise End_of_file
+          | x :: xs when Cstruct.length x = 0 -> data <- xs; aux ()
+          | xs -> data <- []; fn xs
+        in
+        aux ()
+
+      method read_methods =
+        [ Read_source_buffer self#read_source_buffer ]
 
       method read_into ?sw dst =
         Option.iter Switch.check sw;
@@ -75,6 +77,8 @@ module Flow = struct
         data <- src;
         avail
     end
+
+  let string_source s = cstruct_source [Cstruct.of_string s]
 
   class virtual write = object
     method virtual write : 'a. ?sw:Switch.t -> (#source as 'a) -> unit
