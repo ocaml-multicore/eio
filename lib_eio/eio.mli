@@ -265,7 +265,7 @@ module Flow : sig
   end
 
   val read_into : ?sw:Switch.t -> #read -> Cstruct.t -> int
-  (** [read_into flow buf] reads one or more bytes into [buf].
+  (** [read_into reader buf] reads one or more bytes into [buf].
       It returns the number of bytes written (which may be less than the
       buffer size even if there is more data to be read).
       [buf] must not be zero-length.
@@ -273,8 +273,9 @@ module Flow : sig
       @raise End_of_file if there is no more data to read *)
 
   val read_methods : #read -> read_method list
-  (** [read_methods flow] is a list of ways of reading from [flow],
-      with the preferred (most efficient) methods first. *)
+  (** [read_methods flow] is a list of extra ways of reading from [flow],
+      with the preferred (most efficient) methods first.
+      If no method is suitable, {!read_into} should be used as the fallback. *)
 
   (** Producer base class. *)
   class virtual source : object

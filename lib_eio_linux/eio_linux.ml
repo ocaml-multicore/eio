@@ -642,7 +642,7 @@ module Objects = struct
     try
       while true do
         let got = read_upto ?sw src chunk chunk_size in
-        write dst chunk got
+        write ?sw dst chunk got
       done
     with End_of_file -> ()
 
@@ -666,14 +666,16 @@ module Objects = struct
       done
     with End_of_file -> ()
 
-  (* Inefficient copying fallback *)
+  (* Copy by allocating a chunk from the pre-shared buffer and asking
+     the source to write into it. This used when the other methods
+     aren't available. *)
   let fallback_copy ?sw src dst =
     with_chunk @@ fun chunk ->
     let chunk_cs = Uring.Region.to_cstruct chunk in
     try
       while true do
         let got = Eio.Flow.read_into ?sw src chunk_cs in
-        write dst chunk got
+        write ?sw dst chunk got
       done
     with End_of_file -> ()
 
@@ -705,7 +707,7 @@ module Objects = struct
           | _ :: xs -> aux xs
           | [] -> fallback_copy ?sw src fd
         in
-        aux( Eio.Flow.read_methods src)
+        aux (Eio.Flow.read_methods src)
 
     method shutdown cmd =
       Unix.shutdown (FD.get "shutdown" fd) @@ match cmd with
