@@ -1,19 +1,24 @@
 (library
-  (name eurcp_lib)
-  (modules eurcp_lib)
-  (libraries eio_linux))
+ (name eurcp_lib)
+ (enabled_if (= %{system} "linux"))
+ (modules eurcp_lib)
+ (libraries eio_linux))
 
 (executable
  (name eurcp)
+ (enabled_if (= %{system} "linux"))
  (modules eurcp)
  (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli eurcp_lib))
 
 (executable
  (name basic_eio_linux)
+ (enabled_if (= %{system} "linux"))
  (modules basic_eio_linux)
  (libraries logs.fmt fmt.tty eurcp_lib))
 
 (test
  (name test)
+ (package eio_linux)
+ (enabled_if (= %{system} "linux"))
  (modules test)
  (libraries alcotest eio_linux))

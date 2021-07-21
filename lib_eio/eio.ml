@@ -182,6 +182,12 @@ module Dir = struct
   exception Not_found of path * exn
   exception Permission_denied of path * exn
 
+  class virtual rw = object (_ : #Generic.t)
+    method probe _ = None
+    inherit Flow.read
+    inherit Flow.write
+  end
+
   type create = [`Never | `If_missing of Unix.file_perm | `Or_truncate of Unix.file_perm | `Exclusive of Unix.file_perm]
 
   class virtual t = object
@@ -190,7 +196,7 @@ module Dir = struct
       sw:Switch.t ->
       append:bool ->
       create:create ->
-      path -> <Flow.two_way; Flow.close>
+      path -> <rw; Flow.close>
     method virtual mkdir : ?sw:Switch.t -> perm:Unix.file_perm -> path -> unit
     method virtual open_dir : sw:Switch.t -> path -> t_with_close
   end

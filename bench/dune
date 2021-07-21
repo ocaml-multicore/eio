@@ -1,3 +1,4 @@
 (executable
   (name bench)
+  (enabled_if (= %{system} "linux"))
   (libraries eio_main))

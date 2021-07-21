@@ -65,10 +65,11 @@ It is able to run a web-server with [good performance][http-bench], but many fea
 ## Structure of the code
 
 - `eio` provides concurrency primitives (promises, etc), and a high-level, cross-platform OS API.
+- `eio_luv` provides a cross-platform backend for these APIs using [luv](https://github.com/aantron/luv) (libuv),
 - `eio_linux` provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
 - `eunix` provides some common code shared by multiple backends.
-- `eio_main` selects an appropriate backend (e.g. `eio_linux`), depending on your platform.
+- `eio_main` selects an appropriate backend (e.g. `eio_linux` or `eio_luv`), depending on your platform.
 - `ctf` provides tracing support.
 
 ## Getting started
@@ -465,8 +466,8 @@ let try_mkdir dir path =
   try_mkdir cwd "../dir2";
   try_mkdir cwd "/tmp/dir3";
 +mkdir "dir1" -> ok
-+mkdir "../dir2" -> Eio.Dir.Permission_denied("..", _)
-+mkdir "/tmp/dir3" -> Eio.Dir.Permission_denied("/tmp", _)
++mkdir "../dir2" -> Eio.Dir.Permission_denied("../dir2", _)
++mkdir "/tmp/dir3" -> Eio.Dir.Permission_denied("/tmp/dir3", _)
 - : unit = ()
 ```
 
@@ -507,6 +508,8 @@ and this allows following symlinks within that sub-tree.
 A program that operates on the current directory will probably want to use `cwd`,
 whereas a program that accepts a path from the user will probably want to use `fs`,
 perhaps with `open_dir` to constrain all access to be within that directory.
+
+Note: the `eio_luv` backend doesn't have the `openat`, `mkdirat`, etc calls that are necessary to implement these checks without races.
 
 ## Time
 

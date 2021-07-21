@@ -404,6 +404,12 @@ module Dir : sig
   exception Not_found of path * exn
   exception Permission_denied of path * exn
 
+  class virtual rw : object
+    inherit Generic.t
+    inherit Flow.read
+    inherit Flow.write
+  end
+
   type create = [`Never | `If_missing of Unix.file_perm | `Or_truncate of Unix.file_perm | `Exclusive of Unix.file_perm]
   (** When to create a new file:
       If [`Never] then it's an error if the named file doesn't exist.
@@ -419,7 +425,7 @@ module Dir : sig
       sw:Switch.t ->
       append:bool ->
       create:create ->
-      path -> <Flow.two_way; Flow.close>
+      path -> <rw; Flow.close>
     method virtual mkdir : ?sw:Switch.t -> perm:Unix.file_perm -> path -> unit
     method virtual open_dir : sw:Switch.t -> path -> t_with_close
   end
@@ -440,7 +446,7 @@ module Dir : sig
     sw:Switch.t ->
     ?append:bool ->
     create:create ->
-    #t -> path -> <Flow.two_way; Flow.close>
+    #t -> path -> <rw; Flow.close>
   (** [open_out ~sw t path] opens [t/path] for reading and writing.
       Note: files are always opened in binary mode.
       @param append Open for appending: always write at end of file.
@@ -450,7 +456,7 @@ module Dir : sig
     ?sw:Switch.t ->
     ?append:bool ->
     create:create ->
-    #t -> path -> (<Flow.two_way; Flow.close> -> 'a) -> 'a
+    #t -> path -> (<rw; Flow.close> -> 'a) -> 'a
   (** [with_open_out] is like [open_out], but calls [fn flow] with the new flow and closes
       it automatically when [fn] returns (if it hasn't already been closed by then). *)
 

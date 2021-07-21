@@ -1,4 +1,7 @@
 (library
   (name eio_main)
   (public_name eio_main)
-  (libraries eio_linux))
+  (libraries eio_luv
+             (select eio_main.ml from
+              (eio_linux -> eio_main.linux.ml)
+              (          -> eio_main.default.ml))))
