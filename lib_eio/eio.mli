@@ -216,9 +216,10 @@ module Semaphore : sig
       If other fibres are waiting on [t], the one that has been waiting the longest is resumed.
       @raise Sys_error if the value of the semaphore would overflow [max_int] *)
 
-  val acquire : t -> unit
+  val acquire : ?sw:Switch.t -> t -> unit
   (** [acquire t] blocks the calling fibre until the value of semaphore [t]
-      is not zero, then atomically decrements the value of [t] and returns. *)
+      is not zero, then atomically decrements the value of [t] and returns.
+      @param sw Abort if the switch is turned off. *)
 
   val get_value : t -> int
   (** [get_value t] returns the current value of semaphore [t]. *)
