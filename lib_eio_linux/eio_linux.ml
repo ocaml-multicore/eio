@@ -29,6 +29,12 @@ type amount = Exactly of int | Upto of int
 
 let system_thread = Ctf.mint_id ()
 
+let wrap_errors path fn =
+  try fn () with
+  | Unix.Unix_error(Unix.EEXIST, _, _) as ex -> raise @@ Eio.Dir.Already_exists (path, ex)
+  | Unix.Unix_error(Unix.ENOENT, _, _) as ex -> raise @@ Eio.Dir.Not_found (path, ex)
+  | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
+
 let rec skip_empty = function
   | c :: cs when Cstruct.length c = 0 -> skip_empty cs
   | x -> x
@@ -554,13 +560,12 @@ let openfile ~sw path flags mode =
   FD.of_unix ~sw ~seekable:(FD.is_seekable fd) fd
 
 let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
+  wrap_errors path @@ fun () ->
   let res = enter (enqueue_openat2 (sw, access, flags, perm, resolve, dir, path)) in
   Log.debug (fun l -> l "openat2 returned");
   if res < 0 then (
     Switch.check sw;    (* If cancelled, report that instead. *)
-    let ex = Unix.Unix_error (Uring.error_of_errno res, "openat2", "") in
-    if res = -18 then raise (Eio.Dir.Permission_denied (path, ex))
-    else raise ex
+    raise @@ Unix.Unix_error (Uring.error_of_errno res, "openat2", "")
   );
   let fd : Unix.file_descr = Obj.magic res in
   let seekable =
@@ -577,6 +582,7 @@ external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "ca
 
 (* We ignore [sw] because this isn't a uring operation yet. *)
 let mkdirat ?sw:_ ~perm dir path =
+  wrap_errors path @@ fun () ->
   match dir with
   | None -> Unix.mkdir path perm
   | Some dir -> eio_mkdirat (FD.get "mkdirat" dir) path perm
@@ -586,7 +592,9 @@ let mkdir_beneath ?sw ~perm ?dir path =
   let leaf = Filename.basename path in
   (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
   Switch.sub_opt sw (fun sw ->
-      let parent = openat2 ~sw ~seekable:false ?dir dir_path
+      let parent =
+        wrap_errors dir_path @@ fun () ->
+        openat2 ~sw ~seekable:false ?dir dir_path
           ~access:`R
           ~flags:Uring.Open_flags.(cloexec + path + directory)
           ~perm:0

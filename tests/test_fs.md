@@ -7,6 +7,14 @@
 ```
 
 ```ocaml
+let () =
+  Printexc.register_printer (function
+    | Eio.Dir.Permission_denied (path, _) -> Some (Fmt.str "Eio.Dir.Permission_denied (%S, _)" path)
+    | Eio.Dir.Already_exists (path, _)    -> Some (Fmt.str "Eio.Dir.Already_exists (%S, _)" path)
+    | Eio.Dir.Not_found (path, _)         -> Some (Fmt.str "Eio.Dir.Not_found (%S, _)" path)
+    | _ -> None
+  )
+
 open Eio.Std
 
 let run (fn : sw:Switch.t -> Eio.Stdenv.t -> unit) =
@@ -68,9 +76,7 @@ Trying to use cwd to access a file outside of that subtree fails:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Exclusive 0o666) cwd "../test-file" "my-data";
   failwith "Should have failed"
-Exception:
-Eio.Dir.Permission_denied ("../test-file",
- Unix.Unix_error (Unix.EXDEV, "openat2", "")).
+Exception: Eio.Dir.Permission_denied ("../test-file", _)
 ```
 
 Trying to use cwd to access an absolute path fails:
@@ -79,9 +85,7 @@ Trying to use cwd to access an absolute path fails:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Exclusive 0o666) cwd "/tmp/test-file" "my-data";
   failwith "Should have failed"
-Exception:
-Eio.Dir.Permission_denied ("/tmp/test-file",
- Unix.Unix_error (Unix.EXDEV, "openat2", "")).
+Exception: Eio.Dir.Permission_denied ("/tmp/test-file", _)
 ```
 
 # Creation modes
@@ -93,7 +97,7 @@ Exclusive create fails if already exists:
   write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
   write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
   failwith "Should have failed"
-Exception: Unix.Unix_error(Unix.EEXIST, "openat2", "")
+Exception: Eio.Dir.Already_exists ("test-file", _)
 ```
 
 If-missing create succeeds if already exists:
@@ -126,7 +130,7 @@ Error if no create and doesn't exist:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:`Never cwd "test-file" "1st-write-original";
   traceln "Got %S" @@ read_file ~sw cwd "test-file"
-Exception: Unix.Unix_error(Unix.ENOENT, "openat2", "")
+Exception: Eio.Dir.Not_found ("test-file", _)
 ```
 
 Appending to an existing file:
@@ -177,10 +181,10 @@ Creating directories with nesting, symlinks, etc:
   ()
 +mkdir "subdir" -> ok
 +mkdir "to-subdir/nested" -> ok
-+mkdir "to-root/tmp/foo" -> Eio.Dir.Permission_denied("to-root/tmp", _)
-+mkdir "../foo" -> Eio.Dir.Permission_denied("..", _)
-+mkdir "to-subdir" -> Unix.Unix_error(Unix.EEXIST, "mkdirat", "to-subdir")
-+mkdir "dangle/foo" -> Unix.Unix_error(Unix.ENOENT, "openat2", "")
++mkdir "to-root/tmp/foo" -> Eio.Dir.Permission_denied ("to-root/tmp", _)
++mkdir "../foo" -> Eio.Dir.Permission_denied ("..", _)
++mkdir "to-subdir" -> Eio.Dir.Already_exists ("to-subdir", _)
++mkdir "dangle/foo" -> Eio.Dir.Not_found ("dangle", _)
 - : unit = ()
 ```
 
@@ -196,7 +200,7 @@ Create a sandbox, write a file with it, then read it from outside:
   try_mkdir subdir "../new-sandbox";
   traceln "Got %S" @@ read_file ~sw cwd "sandbox/test-file"
 +mkdir "sandbox" -> ok
-+mkdir "../new-sandbox" -> Eio.Dir.Permission_denied("..", _)
++mkdir "../new-sandbox" -> Eio.Dir.Permission_denied ("..", _)
 +Got "data"
 - : unit = ()
 ```
@@ -221,8 +225,8 @@ Using `cwd` we can't access the parent, but using `fs` we can:
   Unix.rmdir "outside-cwd"
 +mkdir "fs-test" -> ok
 +chdir "fs-test"
-+mkdir "../outside-cwd" -> Eio.Dir.Permission_denied("..", _)
-+write "../test-file" -> Eio.Dir.Permission_denied("../test-file", _)
++mkdir "../outside-cwd" -> Eio.Dir.Permission_denied ("..", _)
++write "../test-file" -> Eio.Dir.Permission_denied ("../test-file", _)
 +mkdir "../outside-cwd" -> ok
 +write "../test-file" -> ok
 +chdir ".."
