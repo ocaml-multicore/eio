@@ -400,6 +400,8 @@ end
 module Dir : sig
   type path = string
 
+  exception Already_exists of path * exn
+  exception Not_found of path * exn
   exception Permission_denied of path * exn
 
   type create = [`Never | `If_missing of Unix.file_perm | `Or_truncate of Unix.file_perm | `Exclusive of Unix.file_perm]

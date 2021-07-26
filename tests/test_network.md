@@ -61,7 +61,7 @@ let test_address addr ~net sw =
     (fun () ->
       run_client ~sw ~net ~addr;
       traceln "Client finished - cancelling server";
-      Switch.turn_off sw (Failure "Test is over")
+      Switch.turn_off sw Graceful_shutdown
     )
 ```
 
@@ -74,7 +74,7 @@ Handling one connection, then cancelling the server:
 +Server received: "Hello from client"
 +Client received: "Bye"
 +Client finished - cancelling server
-Exception: Failure "Test is over".
+Exception: Graceful_shutdown.
 ```
 
 Handling one connection on a Unix domain socket:
@@ -86,7 +86,7 @@ Handling one connection on a Unix domain socket:
 +Server received: "Hello from client"
 +Client received: "Bye"
 +Client finished - cancelling server
-Exception: Failure "Test is over".
+Exception: Graceful_shutdown.
 ```
 
 Handling one connection on an abstract Unix domain socket:
@@ -98,7 +98,7 @@ Handling one connection on an abstract Unix domain socket:
 +Server received: "Hello from client"
 +Client received: "Bye"
 +Client finished - cancelling server
-Exception: Failure "Test is over".
+Exception: Graceful_shutdown.
 ```
 
 Cancelling the read:
