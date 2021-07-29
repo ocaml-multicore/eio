@@ -10,7 +10,7 @@ bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "2.9"}
   "ctf" {= version}
-  "cstruct" {>= "6.0.0"}
+  "cstruct" {>= "6.0.1"}
   "lwt-dllist"
   "alcotest" {>= "1.4.0" & with-test}
   "odoc" {with-doc}
