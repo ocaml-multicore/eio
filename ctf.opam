@@ -10,10 +10,10 @@ bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "2.9"}
   "alcotest" {>= "1.4.0" & with-test}
-  "ppx_cstruct" {>= "6.0.0"}
+  "ppx_cstruct" {>= "6.0.1"}
   "ocplib-endian" {>= "1.1"}
   "mtime" {>= "1.2.0"}
-  "cstruct" {>= "6.0.0"}
+  "cstruct" {>= "6.0.1"}
   "odoc" {with-doc}
 ]
 build: [

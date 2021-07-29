@@ -11,7 +11,7 @@
  (description "An effect-based IO API for multicore OCaml with fibres.")
  (depends
   (ctf (= :version))
-  (cstruct (>= 6.0.0))
+  (cstruct (>= 6.0.1))
   lwt-dllist
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
@@ -63,10 +63,10 @@
  (description "Trace IO events.")
  (depends
   (alcotest (and (>= 1.4.0) :with-test))
-  (ppx_cstruct (>= 6.0.0))
+  (ppx_cstruct (>= 6.0.1))
   (ocplib-endian (>= 1.1))
   (mtime (>= 1.2.0))
-  (cstruct (>= 6.0.0))))
+  (cstruct (>= 6.0.1))))
 (package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")

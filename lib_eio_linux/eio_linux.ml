@@ -36,19 +36,6 @@ let wrap_errors path fn =
   | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
   | Eio.Dir.Permission_denied _        as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
 
-let rec skip_empty = function
-  | c :: cs when Cstruct.length c = 0 -> skip_empty cs
-  | x -> x
-
-(* todo: use Cstruct.shiftv when that's released *)
-let rec shiftv cs = function
-  | 0 -> skip_empty cs
-  | n ->
-    match cs with
-    | [] -> failwith "Can't advance past end of vector!"
-    | c :: cs when n >= Cstruct.length c -> shiftv cs (n - Cstruct.length c)
-    | c :: cs -> Cstruct.shift c n :: cs
-
 effect Close : Unix.file_descr -> int
 
 module FD = struct
@@ -488,7 +475,7 @@ let rec writev ?sw ?file_offset fd bufs =
     Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "writev", ""))
   ) else (
-    match shiftv bufs res with
+    match Cstruct.shiftv bufs res with
     | [] -> ()
     | bufs ->
       let file_offset =
