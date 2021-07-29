@@ -616,10 +616,10 @@ let run main =
   fork ~tid:(Ctf.mint_id ()) (fun () ->
       match main stdenv with
       | () -> main_status := `Done
-      | exception ex -> main_status := `Ex ex
+      | exception ex -> main_status := `Ex (ex, Printexc.get_raw_backtrace ())
     );
   ignore (Luv.Loop.run () : bool);
   match !main_status with
   | `Done -> ()
-  | `Ex ex -> raise ex
+  | `Ex (ex, bt) -> Printexc.raise_with_backtrace ex bt
   | `Running -> failwith "Deadlock detected: no events scheduled but main function hasn't returned"
