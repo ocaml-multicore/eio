@@ -181,8 +181,8 @@ Creating directories with nesting, symlinks, etc:
   ()
 +mkdir "subdir" -> ok
 +mkdir "to-subdir/nested" -> ok
-+mkdir "to-root/tmp/foo" -> Eio.Dir.Permission_denied ("to-root/tmp", _)
-+mkdir "../foo" -> Eio.Dir.Permission_denied ("..", _)
++mkdir "to-root/tmp/foo" -> Eio.Dir.Permission_denied ("to-root/tmp/foo", _)
++mkdir "../foo" -> Eio.Dir.Permission_denied ("../foo", _)
 +mkdir "to-subdir" -> Eio.Dir.Already_exists ("to-subdir", _)
 +mkdir "dangle/foo" -> Eio.Dir.Not_found ("dangle", _)
 - : unit = ()
@@ -200,7 +200,7 @@ Create a sandbox, write a file with it, then read it from outside:
   try_mkdir subdir "../new-sandbox";
   traceln "Got %S" @@ read_file ~sw cwd "sandbox/test-file"
 +mkdir "sandbox" -> ok
-+mkdir "../new-sandbox" -> Eio.Dir.Permission_denied ("..", _)
++mkdir "../new-sandbox" -> Eio.Dir.Permission_denied ("../new-sandbox", _)
 +Got "data"
 - : unit = ()
 ```
@@ -225,7 +225,7 @@ Using `cwd` we can't access the parent, but using `fs` we can:
   Unix.rmdir "outside-cwd"
 +mkdir "fs-test" -> ok
 +chdir "fs-test"
-+mkdir "../outside-cwd" -> Eio.Dir.Permission_denied ("..", _)
++mkdir "../outside-cwd" -> Eio.Dir.Permission_denied ("../outside-cwd", _)
 +write "../test-file" -> Eio.Dir.Permission_denied ("../test-file", _)
 +mkdir "../outside-cwd" -> ok
 +write "../test-file" -> ok

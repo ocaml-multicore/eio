@@ -34,6 +34,7 @@ let wrap_errors path fn =
   | Unix.Unix_error(Unix.EEXIST, _, _) as ex -> raise @@ Eio.Dir.Already_exists (path, ex)
   | Unix.Unix_error(Unix.ENOENT, _, _) as ex -> raise @@ Eio.Dir.Not_found (path, ex)
   | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
+  | Eio.Dir.Permission_denied _        as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
 
 let rec skip_empty = function
   | c :: cs when Cstruct.length c = 0 -> skip_empty cs
@@ -593,7 +594,7 @@ let mkdir_beneath ?sw ~perm ?dir path =
   (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
   Switch.sub_opt sw (fun sw ->
       let parent =
-        wrap_errors dir_path @@ fun () ->
+        wrap_errors path @@ fun () ->
         openat2 ~sw ~seekable:false ?dir dir_path
           ~access:`R
           ~flags:Uring.Open_flags.(cloexec + path + directory)
@@ -853,7 +854,7 @@ module Objects = struct
           ~perm
           ~resolve:resolve_flags
       in
-      (flow fd :> <Eio.Flow.two_way; Eio.Flow.close>)
+      (flow fd :> <Eio.Dir.rw; Eio.Flow.close>)
 
     method open_dir ~sw path =
       let fd = openat2 ~sw ~seekable:false ?dir:fd path

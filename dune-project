@@ -8,8 +8,7 @@
 (package
  (name eio)
  (synopsis "Effect-based direct-style IO API for OCaml")
- (description
-  "An effect-based IO API for multicore OCaml with fibres.")
+ (description "An effect-based IO API for multicore OCaml with fibres.")
  (depends
   (ctf (= :version))
   (cstruct (>= 6.0.0))
@@ -18,9 +17,9 @@
 (package
  (name eunix)
  (synopsis "Eio implementation for Unix-compatible systems")
- (description
-   "An eio implementation for Unix-compatible systems.")
+ (description "An eio implementation for Unix-compatible systems.")
  (depends
+  (optint (>= 0.1.0))
   (ocaml-variants (= "4.12.0+domains+effects"))
   (ctf (= :version))
   (eio (= :version))
@@ -32,9 +31,9 @@
 (package
  (name eio_linux)
  (synopsis "Eio implementation for Linux using io-uring")
- (description
-   "An eio implementation for Linux using io-uring.")
+ (description "An eio implementation for Linux using io-uring.")
  (depends
+  (alcotest (and (>= 1.4.0) :with-test))
   (ocaml-variants (= "4.12.0+domains+effects"))
   (ctf (= :version))
   (eio (= :version))
@@ -44,6 +43,20 @@
   (fmt (>= 0.8.9))
   (bigstringaf (>= 0.7.0))
   uring))
+(package
+ (name eio_luv)
+ (synopsis "Eio implementation using luv (libuv)")
+ (description "An eio implementation for most platforms, using luv.")
+ (depends
+  (ocaml-variants (= "4.12.0+domains+effects"))
+  (ctf (= :version))
+  (eio (= :version))
+  (eunix (= :version))
+  (luv (>= 0.5.8))
+  (mdx (and (>= 1.10.0) :with-test))
+  (logs (>= 0.7.0))
+  (fmt (>= 0.8.9))
+  (bigstringaf (>= 0.7.0))))
 (package
  (name ctf)
  (synopsis "CTF tracing")
@@ -57,8 +70,8 @@
 (package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
- (description
-  "Selects an appropriate Eio backend for the current platform.")
+ (description "Selects an appropriate Eio backend for the current platform.")
  (depends
-  (eio_linux (= :version))))
+  (eio_linux (= :version))
+  (eio_luv (= :version))))
 (using mdx 0.1)

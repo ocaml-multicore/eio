@@ -121,6 +121,7 @@ Cancelling the read:
       traceln "Connecting to server...";
       let flow = Eio.Net.connect ~sw net addr in
       traceln "Connection opened - cancelling server's read";
+      Fibre.yield ();
       Switch.turn_off read_switch Graceful_shutdown;
       let msg = read_all flow in
       traceln "Client received: %S" msg
