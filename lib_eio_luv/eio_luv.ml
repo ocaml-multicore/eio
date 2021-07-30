@@ -26,6 +26,11 @@ type 'a or_error = ('a, Luv.Error.t) result
 
 exception Luv_error of Luv.Error.t
 
+let () =
+  Printexc.register_printer @@ function
+  | Luv_error e -> Some (Printf.sprintf "Eio_luv.Luv_error(%s) (* %s *)" (Luv.Error.err_name e) (Luv.Error.strerror e))
+  | _ -> None
+
 let wrap_error ~path e =
   let ex = Luv_error e in
   match e with
