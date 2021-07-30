@@ -26,6 +26,11 @@ type 'a or_error = ('a, Luv.Error.t) result
 
 exception Luv_error of Luv.Error.t
 
+let () =
+  Printexc.register_printer @@ function
+  | Luv_error e -> Some (Printf.sprintf "Eio_luv.Luv_error(%s) (* %s *)" (Luv.Error.err_name e) (Luv.Error.strerror e))
+  | _ -> None
+
 let wrap_error ~path e =
   let ex = Luv_error e in
   match e with
@@ -218,6 +223,7 @@ module Stream = struct
       if len > 0 then len
       else read_into ?sw sock buf       (* Luv uses a zero-length read to mean EINTR! *)
     | Error `EOF -> raise End_of_file
+    | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
     | Error x -> raise (Luv_error x)
 
   let rec skip_empty = function

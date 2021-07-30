@@ -318,6 +318,8 @@ module Flow : sig
 end
 
 module Net : sig
+  exception Connection_reset of exn
+
   module Sockaddr : sig
     type inet_addr = Unix.inet_addr
 
