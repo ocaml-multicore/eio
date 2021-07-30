@@ -451,7 +451,10 @@ let read_upto ?sw ?file_offset fd buf len =
   Log.debug (fun l -> l "read_upto: woken up after read");
   if res < 0 then (
     Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
-    raise (Unix.Unix_error (Uring.error_of_errno res, "read_upto", ""))
+    let err = Uring.error_of_errno res in
+    let ex = Unix.Unix_error (err, "read_upto", "") in
+    if err = Unix.ECONNRESET then raise (Eio.Net.Connection_reset ex)
+    else raise ex
   ) else (
     res
   )

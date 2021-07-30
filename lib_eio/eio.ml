@@ -119,6 +119,8 @@ module Flow = struct
 end
 
 module Net = struct
+  exception Connection_reset of exn
+
   module Sockaddr = struct
     type inet_addr = Unix.inet_addr
 

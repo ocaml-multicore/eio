@@ -223,6 +223,7 @@ module Stream = struct
       if len > 0 then len
       else read_into ?sw sock buf       (* Luv uses a zero-length read to mean EINTR! *)
     | Error `EOF -> raise End_of_file
+    | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
     | Error x -> raise (Luv_error x)
 
   let rec skip_empty = function
