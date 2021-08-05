@@ -89,8 +89,9 @@ Handling one connection on a Unix domain socket:
 Exception: Graceful_shutdown.
 ```
 
-Handling one connection on an abstract Unix domain socket:
+Handling one connection on an abstract Unix domain socket (this only works on Linux):
 
+<!-- $MDX non-deterministic=command -->
 ```ocaml
 # run (test_address (`Unix "\x00/tmp/eio-test.sock"))
 +Connecting to server...
