@@ -1,10 +1,10 @@
 (* Asynchronous IO is achieved thanks to GCD's dispatch_io functions. 
    The implementation is largely based on the Eunix counterpart. *)
   
-let src = Logs.Src.create "edispatch" ~doc:"Effect-based IO system using GCD"
+let src = Logs.Src.create "eio_gcd" ~doc:"Eio backend using Grand Central Dispatch"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-open Fibreslib
+open Eio.Std
 
 type amount = Exactly of int | Upto of int
 
@@ -133,14 +133,17 @@ module Objects = struct
       | FD -> Some fd
       | _ -> None
 
-    method read_into buf =
+    method read_into ?sw:_ buf =
       let data = ref (Dispatch.Data.empty ()) in 
       let got = read_upto ~file_offset:0 fd data (Cstruct.length buf) in
       let cs = Cstruct.of_bigarray @@ Dispatch.Data.to_buff ~offset:0 got !data in
       Cstruct.blit cs 0 buf 0 got;
       Dispatch.Data.size !data
 
-    method write src = 
+    (* ?? *)
+    method read_methods = []
+
+    method write ?sw:_ src = 
       match Eio.Generic.probe src FD with
       | Some src -> fast_copy src fd
       | None ->
@@ -153,13 +156,25 @@ module Objects = struct
         with End_of_file -> ()
   end
 
+  let clock = object
+    inherit Eio.Time.clock
+
+    method now = Unix.gettimeofday ()
+    method sleep_until = Obj.magic ()
+  end
+
   let source fd = (flow fd :> source)
   let sink   fd = (flow fd :> sink)
 
   type stdenv = <
-    stdin  : source;
+    stdin : source;
     stdout : sink;
     stderr : sink;
+    net : Eio.Net.t;
+    domain_mgr : Eio.Domain_manager.t;
+    clock : Eio.Time.clock;
+    fs : Eio.Dir.t;
+    cwd : Eio.Dir.t;
   >
 
   let stdenv () =
@@ -170,6 +185,11 @@ module Objects = struct
       method stdin = Lazy.force stdin
       method stdout = Lazy.force stdout
       method stderr = Lazy.force stderr
+      method net = Obj.magic ()
+      method domain_mgr = Obj.magic ()
+      method clock = clock
+      method fs = Obj.magic () (* (fs :> Eio.Dir.t) *)
+      method cwd = Obj.magic () (* (cwd :> Eio.Dir.t) *)
    end
 end
 
@@ -230,32 +250,14 @@ let run main =
       enqueue_close st k fd;
       schedule st
       (* Suspended.continue k 0 *)
-    | effect Fibre_impl.Effects.Yield k ->
+    | effect (Eio.Private.Effects.Suspend f) k ->
       let k = { Suspended.k; tid } in
-      enqueue_thread st k ();
-      schedule st
-    | effect (Fibre_impl.Effects.Await (sw, pid, q)) k ->
-      let k = { Suspended.k; tid } in
-      let waiters = Queue.create () in
-      let when_resolved r =
-        Queue.iter Fibre_impl.Waiters.remove_waiter waiters;
-        match r with
-        | Ok v ->
-          Ctf.note_read ~reader:tid pid;
-          enqueue_thread st k v
-        | Error ex ->
-          Ctf.note_read ~reader:tid pid;
-          enqueue_failed_thread st k ex
-      in
-      let cancel ex = when_resolved (Error ex) in
-      sw |> Option.iter (fun sw ->
-          let cancel_waiter = Fibre_impl.Switch.add_cancel_hook sw cancel in
-          Queue.add cancel_waiter waiters;
+      f tid (function
+          | Ok v -> enqueue_thread st k v
+          | Error ex -> enqueue_failed_thread st k ex
         );
-      let resolved_waiter = Fibre_impl.Waiters.add_waiter q when_resolved in
-      Queue.add resolved_waiter waiters;
       schedule st
-    | effect (Fibre_impl.Effects.Fork (sw, exn_turn_off, f)) k ->
+    | effect (Eio.Private.Effects.Fork f) k ->
       let k = { Suspended.k; tid } in
       let id = Ctf.mint_id () in
       Ctf.note_created id Ctf.Task;
@@ -264,27 +266,24 @@ let run main =
       fork
         ~tid:id
         (fun () ->
-           Fibre_impl.Switch.with_op sw @@ fun () ->
            match f () with
            | x -> 
             Log.debug (fun f -> f "Fullfilling fork");
             Promise.fulfill resolver x
            | exception ex ->
              Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
-             if exn_turn_off then Switch.turn_off sw ex;
              Promise.break resolver ex
         )
-    | effect (Fibre_impl.Effects.Fork_ignore (sw, f)) k ->
+    | effect (Eio.Private.Effects.Fork_ignore f) k ->
       let k = { Suspended.k; tid } in
       enqueue_thread st k ();
       let child = Ctf.note_fork () in
       Ctf.note_switch child;
       fork ~tid:child (fun () ->
-          match Fibre_impl.Switch.with_op sw f with
+          match f () with
           | () ->
             Ctf.note_resolved child ~ex:None
           | exception ex ->
-            Switch.turn_off sw ex;
             Ctf.note_resolved child ~ex:(Some ex)
         )
   in

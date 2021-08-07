@@ -1,0 +1,6 @@
+(library
+ (name eio_gcd)
+ (enabled_if
+  (= %{system} macosx))
+ (public_name eio_gcd)
+ (libraries eio ctf dispatch logs fmt))

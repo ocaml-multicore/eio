@@ -58,6 +58,19 @@
   (fmt (>= 0.8.9))
   (bigstringaf (>= 0.7.0))))
 (package
+ (name eio_gcd)
+ (synopsis "Eio implementation using Grand Central Dispatch and Network.Framework")
+ (description "An eio implementation for Apple platforms, using Grand Central Dispatch and Network.Framework.")
+ (depends
+  (ocaml-variants (= "4.12.0+domains+effects"))
+  (ctf (= :version))
+  (eio (= :version))
+   dispatch
+  (mdx (and (>= 1.10.0) :with-test))
+  (logs (>= 0.7.0))
+  (fmt (>= 0.8.9))
+  (bigstringaf (>= 0.7.0))))
+(package
  (name ctf)
  (synopsis "CTF tracing")
  (description "Trace IO events.")

@@ -61,10 +61,15 @@
    type sink   = < Eio.Flow.sink  ; Eio.Flow.close; fd : FD.t >
  
    type stdenv = <
-     stdin  : source;
-     stdout : sink;
-     stderr : sink;
-   >
+    stdin : source;
+    stdout : sink;
+    stderr : sink;
+    net : Eio.Net.t;
+    domain_mgr : Eio.Domain_manager.t;
+    clock : Eio.Time.clock;
+    fs : Eio.Dir.t;
+    cwd : Eio.Dir.t;
+  >
  end
  
  val pipe : unit -> Objects.source * Objects.sink

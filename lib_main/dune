@@ -4,4 +4,7 @@
   (libraries eio_luv
              (select eio_main.ml from
               (eio_linux -> eio_main.linux.ml)
+              ; Probably don't want this for macOS, but need for iOS
+              ; Whilst it is a WIP, it will be commented out here (undo for testing)
+              ; (eio_gcd   -> eio_main.apple.ml)
               (          -> eio_main.default.ml))))
