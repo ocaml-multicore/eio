@@ -3,4 +3,4 @@
  (enabled_if
   (= %{system} macosx))
  (public_name eio_gcd)
- (libraries eio ctf dispatch logs fmt))
+ (libraries eio ctf gcd logs fmt))
