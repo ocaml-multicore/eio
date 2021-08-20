@@ -473,7 +473,7 @@ let readv ?sw ?file_offset fd bufs =
 
 let rec writev ?sw ?file_offset fd bufs =
   let res = enter (enqueue_writev (sw, file_offset, fd, bufs)) in
-  Log.debug (fun l -> l "writev: woken up after read");
+  Log.debug (fun l -> l "writev: woken up after write");
   if res < 0 then (
     Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "writev", ""))
@@ -678,42 +678,49 @@ module Objects = struct
       done
     with End_of_file -> ()
 
-  let flow fd = object (_ : <source; sink; ..>)
-    method fd = fd
-    method close = FD.close fd
+  let flow fd =
+    let is_tty = lazy (Unix.isatty (FD.get "isatty" fd)) in
+    object (_ : <source; sink; ..>)
+      method fd = fd
+      method close = FD.close fd
 
-    method probe : type a. a Eio.Generic.ty -> a option = function
-      | FD -> Some fd
-      | _ -> None
+      method probe : type a. a Eio.Generic.ty -> a option = function
+        | FD -> Some fd
+        | _ -> None
 
-    method read_into ?sw buf =
-      (* Inefficient copying fallback *)
-      with_chunk @@ fun chunk ->
-      let chunk_cs = Uring.Region.to_cstruct chunk in
-      let max_len = min (Cstruct.length buf) (Cstruct.length chunk_cs) in
-      let got = read_upto ?sw fd chunk max_len in
-      Cstruct.blit chunk_cs 0 buf 0 got;
-      got
+      method read_into ?sw buf =
+        (* Inefficient copying fallback *)
+        with_chunk @@ fun chunk ->
+        let chunk_cs = Uring.Region.to_cstruct chunk in
+        let max_len = min (Cstruct.length buf) (Cstruct.length chunk_cs) in
+        if Lazy.force is_tty then (
+          (* Work-around for https://github.com/axboe/liburing/issues/354
+             (should be fixed in Linux 5.14) *)
+          await_readable ?sw fd
+        );
+        let got = read_upto ?sw fd chunk max_len in
+        Cstruct.blit chunk_cs 0 buf 0 got;
+        got
 
-    method read_methods = []
+      method read_methods = []
 
-    method write ?sw src =
-      match get_fd_opt src with
-      | Some src -> fast_copy_try_splice ?sw src fd
-      | None ->
-        let rec aux = function
-          | Eio.Flow.Read_source_buffer rsb :: _ -> copy_with_rsb ?sw rsb fd
-          | _ :: xs -> aux xs
-          | [] -> fallback_copy ?sw src fd
-        in
-        aux (Eio.Flow.read_methods src)
+      method write ?sw src =
+        match get_fd_opt src with
+        | Some src -> fast_copy_try_splice ?sw src fd
+        | None ->
+          let rec aux = function
+            | Eio.Flow.Read_source_buffer rsb :: _ -> copy_with_rsb ?sw rsb fd
+            | _ :: xs -> aux xs
+            | [] -> fallback_copy ?sw src fd
+          in
+          aux (Eio.Flow.read_methods src)
 
-    method shutdown cmd =
-      Unix.shutdown (FD.get "shutdown" fd) @@ match cmd with
-      | `Receive -> Unix.SHUTDOWN_RECEIVE
-      | `Send -> Unix.SHUTDOWN_SEND
-      | `All -> Unix.SHUTDOWN_ALL
-  end
+      method shutdown cmd =
+        Unix.shutdown (FD.get "shutdown" fd) @@ match cmd with
+        | `Receive -> Unix.SHUTDOWN_RECEIVE
+        | `Send -> Unix.SHUTDOWN_SEND
+        | `All -> Unix.SHUTDOWN_ALL
+    end
 
   let source fd = (flow fd :> source)
   let sink   fd = (flow fd :> sink)
