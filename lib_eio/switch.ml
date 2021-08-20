@@ -92,8 +92,7 @@ let with_op t fn =
           Waiters.wake_all t.waiter (Ok ())
       )
 
-let await ?sw waiters id =
-  Suspend.enter @@ fun tid enqueue ->
+let await_internal ?sw waiters id tid enqueue =
   let cleanup_hooks = Queue.create () in
   let when_resolved r =
     Queue.iter Waiters.remove_waiter cleanup_hooks;
@@ -107,6 +106,9 @@ let await ?sw waiters id =
     );
   let resolved_waiter = Waiters.add_waiter waiters when_resolved in
   Queue.add resolved_waiter cleanup_hooks
+
+let await ?sw waiters id =
+  Suspend.enter (await_internal ?sw waiters id)
 
 let rec await_idle t =
   (* Wait for fibres to finish: *)

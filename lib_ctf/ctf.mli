@@ -46,6 +46,7 @@ type event =
   | Promise
   | Semaphore
   | Switch
+  | Stream
 (** Types of threads or other recorded objects. *)
 
 val mint_id : unit -> id
