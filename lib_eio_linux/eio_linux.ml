@@ -375,8 +375,8 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
           Ctf.note_resume system_thread;
           match result with
           | None ->
-            assert (timeout <> None);
-            schedule st                                   (* Woken by a timeout, which is now due *)
+            (* Woken by a timeout, which is now due, or by a signal. *)
+            schedule st
           | Some { data = runnable; result } ->
             handle_complete st ~runnable result
         )
