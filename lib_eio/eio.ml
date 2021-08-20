@@ -9,6 +9,7 @@ module Std = struct
 end
 
 module Semaphore = Semaphore
+module Stream = Stream
 
 open Std
 

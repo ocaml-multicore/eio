@@ -21,3 +21,5 @@ let wake_one t v =
   | Some f -> f v; `Ok
 
 let remove_waiter f = f ()
+
+let is_empty t = Lwt_dllist.is_empty t

@@ -225,6 +225,26 @@ module Semaphore : sig
   (** [get_value t] returns the current value of semaphore [t]. *)
 end
 
+(** A stream/queue. *)
+module Stream : sig
+  type 'a t
+  (** A queue of items of type ['a]. *)
+
+  val create : int -> 'a t
+  (** [create capacity] is a new stream which can hold up to [capacity] items without blocking writers.
+      If [capacity = 0] then writes block until a reader is ready. *)
+
+  val add : ?sw:Switch.t -> 'a t -> 'a -> unit
+  (** [add t item] adds [item] to [t].
+      If this would take [t] over capacity, it blocks until there is space.
+      @param sw Stop waiting if the switch is turned off. *)
+
+  val take : ?sw:Switch.t -> 'a t -> 'a
+  (** [take t] takes the next item from the head of [t].
+      If no items are available, it waits until one becomes available.
+      @param sw Stop waiting if the switch is turned off. *)
+end  
+
 (** {1 Cross-platform OS API} *)
 
 (** A base class for objects that can be queried at runtime for extra features. *)
