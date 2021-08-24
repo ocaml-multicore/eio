@@ -26,6 +26,7 @@ unreleased repository.
 * [Multicore support](#multicore-support)
 * [Design note: thread-safety](#design-note-thread-safety)
 * [Design note: determinism](#design-note-determinism)
+* [Examples](#examples)
 * [Further reading](#further-reading)
 
 <!-- vim-markdown-toc -->
@@ -636,6 +637,11 @@ In particular, if you test your code by providing (deterministic) mocks then the
 An easy way to write tests is by having the mocks call `traceln` and then comparing the trace output with the expected output.
 See Eio's own tests for examples, e.g. [tests/test_switch.md](tests/test_switch.md).
 
+## Examples
+
+- [gemini-eio][] is a simple Gemini browser. It shows how to integrate eio with `ocaml-tls`, `angstrom` and `notty`.
+- [ocaml-multicore/retro-httpaf-bench](https://github.com/ocaml-multicore/retro-httpaf-bench) includes a simple HTTP server using eio. It shows how to use eio with `httpaf` and how to use multiple domains for increased performance.
+
 ## Further reading
 
 Some background about the effects system can be found in:
@@ -652,3 +658,4 @@ Some background about the effects system can be found in:
 [Object-capability model]: https://en.wikipedia.org/wiki/Object-capability_model
 [Emily]: https://www.hpl.hp.com/techreports/2006/HPL-2006-116.pdf
 [http-bench]: https://github.com/ocaml-multicore/retro-httpaf-bench
+[gemini-eio]: https://gitlab.com/talex5/gemini-eio
