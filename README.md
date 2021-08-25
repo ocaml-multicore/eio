@@ -91,7 +91,8 @@ git clone --recursive https://github.com/ocaml-multicore/eio.git
 cd eio
 opam pin -yn ./ocaml-uring
 opam pin -yn .
-opam depext -i eio_main utop
+opam depext -i eio_main utop		# (for opam 2.0)
+opam install eio_main utop		# (for opam 2.1)
 ```
 
 To try out the examples interactively, run `utop` and `require` the `eio_main` library.
