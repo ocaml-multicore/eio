@@ -1,33 +1,32 @@
-# eio -- effects based parallel IO for OCaml
+# Eio -- Effects-Based Parallel IO for OCaml
 
 This library implements an effects-based direct-style IO
 stack for multicore OCaml.
 
-The library is very much a work-in-progress, so this is an
-unreleased repository.
+This is an unreleased repository, as it's very much a work-in-progress.
 
 ## Contents
 
 <!-- vim-markdown-toc GFM -->
 
 * [Motivation](#motivation)
-* [Structure of the code](#structure-of-the-code)
-* [Getting started](#getting-started)
-* [Testing with mocks](#testing-with-mocks)
+* [Structure of the Code](#structure-of-the-code)
+* [Getting Started](#getting-started)
+* [Testing with Mocks](#testing-with-mocks)
 * [Fibres](#fibres)
 * [Tracing](#tracing)
-* [Switches, errors and cancellation](#switches-errors-and-cancellation)
-* [Design note: results vs exceptions](#design-note-results-vs-exceptions)
+* [Switches, Errors, and Cancellation](#switches-errors-and-cancellation)
+* [Design Note: Results vs Exceptions](#design-note-results-vs-exceptions)
 * [Performance](#performance)
 * [Networking](#networking)
-* [Design note: object capabilities](#design-note-object-capabilities)
-* [Filesystem access](#filesystem-access)
+* [Design Note: Object Capabilities](#design-note-object-capabilities)
+* [Filesystem Access](#filesystem-access)
 * [Time](#time)
-* [Multicore support](#multicore-support)
-* [Design note: thread-safety](#design-note-thread-safety)
-* [Design note: determinism](#design-note-determinism)
+* [Multicore Support](#multicore-support)
+* [Design Note: Thread-Safety](#design-note-thread-safety)
+* [Design Note: Determinism](#design-note-determinism)
 * [Examples](#examples)
-* [Further reading](#further-reading)
+* [Further Reading](#further-reading)
 
 <!-- vim-markdown-toc -->
 
@@ -40,42 +39,42 @@ These libraries allow writing code as if there were multiple threads of executio
 The multicore version of OCaml adds support for "effects", removing the need for monadic code here.
 Using effects brings several advantages:
 
-1. It is faster, because no heap allocations are needed to simulate a stack.
+1. It's faster, because no heap allocations are needed to simulate a stack.
 2. Concurrent code can be written in the same style as plain non-concurrent code.
 3. Because a real stack is used, backtraces from exceptions work as expected.
 4. Other features of the language (such as `try ... with ...`) can be used in concurrent code.
 
-In addition, modern operating systems provide high-performance alternatives to the old Unix `select` call.
+Additionally, modern operating systems provide high-performance alternatives to the old Unix `select` call.
 For example, Linux's io-uring system has applications write the operations they want to perform to a ring buffer,
 which Linux handles asynchronously.
 
 Due to this, we anticipate many OCaml users will want to rewrite their IO code at some point,
 once effects have been merged into the official version of OCaml.
-It would be very beneficial if we could use this opportunity to standardise on a single concurrency API for OCaml.
+It would be very beneficial to use this opportunity to standardise a single concurrency API for OCaml.
 
-This project is therefore exploring what this new API should look like by building an effects-based IO library and
+This project explores what this new API should look like by building an effects-based IO library and
 then using it to create or port larger applications.
 
 The API is expected to change a great deal over the next year or so.
-If you are looking for a stable library for your application, you should continue using Lwt or Async for now.
+If you're looking for a stable library for your application, you should continue using Lwt or Async for now.
 However, if you'd like to help with these experiments, please get in touch!
 
 At present, Linux with io-uring is the only backend available.
-It is able to run a web-server with [good performance][http-bench], but many features are still missing.
+It's able to run a web-server with [good performance][http-bench], but many features are still missing.
 
-## Structure of the code
+## Structure of the Code
 
-- `eio` provides concurrency primitives (promises, etc), and a high-level, cross-platform OS API.
-- `eio_luv` provides a cross-platform backend for these APIs using [luv](https://github.com/aantron/luv) (libuv),
+- `eio` provides concurrency primitives (promises, etc.) and a high-level, cross-platform OS API.
+- `eio_luv` provides a cross-platform backend for these APIs using [luv](https://github.com/aantron/luv) (libuv).
 - `eio_linux` provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
 - `eunix` provides some common code shared by multiple backends.
 - `eio_main` selects an appropriate backend (e.g. `eio_linux` or `eio_luv`), depending on your platform.
 - `ctf` provides tracing support.
 
-## Getting started
+## Getting Started
 
-You will need a version of the OCaml compiler with effects.
+You'll need a version of the OCaml compiler with effects.
 You can get one like this:
 
 ```
@@ -94,23 +93,27 @@ opam pin -yn .
 opam depext -i eio_main utop		# (for opam 2.0)
 opam install eio_main utop		# (for opam 2.1)
 ```
+(Run `opam --version` if you're not sure which one you have installed.)
 
-To try out the examples interactively, run `utop` and `require` the `eio_main` library.
-It is also convenient to open the `Eio.Std` module:
+Try out the examples interactively by running `utop` in the shell.
+
+First `require` the `eio_main` library. It's also convenient to open the `Eio.Std`
+module, as follows. (The leftmost `#` shown below is the Utop prompt, so enter the text after the 
+prompt and return after each line.)
 
 ```ocaml
 # #require "eio_main";;
 # open Eio.Std;;
 ```
 
-This function writes a greeting to stdout:
+This function writes a greeting to `stdout`:
 
 ```ocaml
 let main ~stdout =
   Eio.Flow.copy_string "Hello, world!\n" stdout
 ```
 
-To run it, we use `Eio_main.run` to run the event loop and call it from there:
+We use `Eio_main.run` to run the event loop and call it from there:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
@@ -129,10 +132,10 @@ Note that:
 - `Eio_main.run` automatically calls the appropriate run function for your platform.
   For example, on Linux this will call `Eio_linux.run`. For non-portable code you can use the platform-specific library directly.
 
-## Testing with mocks
+## Testing with Mocks
 
 Because external resources are provided to `main` as arguments, we can easily replace them with mocks for testing.
-e.g.
+For example:
 
 ```ocaml
 # Eio_main.run @@ fun _env ->
@@ -198,18 +201,18 @@ We can run the previous code with tracing enabled (writing to a new `trace.ctf` 
 
 The trace can be viewed using [mirage-trace-viewer][].
 This should work even while the program is still running.
-The file is a ring buffer, so when it gets full old events will start to be overwritten with new ones.
+The file is a ring buffer, so when it gets full, old events will start to be overwritten with new ones.
 
 <p align='center'>
   <img src="./doc/switch.svg"/>
 </p>
 
-This shows the two counting threads, as well as the lifetime of the `sw` switch.
+This shows the two counting threads and the lifetime of the `sw` switch.
 Note that the output from `traceln` appears in the trace as well as on the console.
 
-## Switches, errors and cancellation
+## Switches, Errors, and Cancellation
 
-A switch is used to group fibres together so that they can be cancelled or waited on together.
+A switch is used to group fibres together, so they can be cancelled or waited on together.
 This is a form of [structured concurrency][].
 
 Here's what happens if one of the two threads above fails:
@@ -232,7 +235,7 @@ What happened here was:
 4. The first thread's `yield` saw the switch was off and raised the exception there too.
 5. Once both threads had finished, `Fibre.both` re-raised the exception.
 
-Note that turning off a switch only asks the other thread(s) to cancel.
+Please note: turning off a switch only asks the other thread(s) to cancel.
 A thread is free to ignore the switch and continue (perhaps to clean up some resources).
 
 Any operation that can be cancelled should take a `~sw` argument.
@@ -269,7 +272,7 @@ For example, a web-server might use one switch for the whole server and then cre
 This allows you to end all fibres handling a single connection by turning off that connection's switch,
 or to exit the whole application using the top-level switch.
 
-## Design note: results vs exceptions
+## Design Note: Results vs Exceptions
 
 The OCaml standard library uses exceptions to report errors in most cases.
 Many libraries instead use the `result` type, which has the advantage of tracking the possible errors in the type system.
@@ -284,7 +287,7 @@ rather than propagate it.
 ## Performance
 
 As mentioned above, Eio allows you to supply your own implementations of its abstract interfaces.
-This is in contrast to OCaml's standard library, for example, which only operates on OS file descriptors.
+This is in contrast to OCaml's standard library, which only operates on OS file descriptors.
 You might wonder what the performance impact of this is.
 Here's a simple implementation of `cat` using the standard OCaml functions:
 
@@ -332,7 +335,7 @@ it first calls the `probe` method on the `src` object to check whether it is too
 Discovering that `src` is also a file descriptor, it switches to a faster code path optimised for that case.
 On my machine, this code path uses the Linux-specific `splice` system call for maximum performance.
 
-Note that not all cases are well optimised yet, but the idea is for each backend to choose the most efficient way to implement the operation.
+Note that not all cases are well-optimised yet, but the idea is for each backend to choose the most efficient way to implement the operation.
 
 ## Networking
 
@@ -347,7 +350,7 @@ let run_client ~sw ~net ~addr =
   Eio.Flow.shutdown flow `Send
 ```
 
-Note: The `flow` is attached to `sw` and will be closed automatically when it finishes.
+Note: the `flow` is attached to `sw` and will be closed automatically when it finishes.
 
 Here is a server that listens on `socket` and handles a single connection by reading a message:
 
@@ -364,7 +367,7 @@ let run_server ~sw socket =
 
 Notes:
 
-- `accept_sub` handles the connection in a new fibre, with its own sub-switch.
+- `accept_sub` handles the connection in a new fibre, with its own subswitch.
 - Normally, a server would call `accept_sub` in a loop to handle multiple connections.
 - When the child switch created by `accept_sub` finishes, `flow` is closed automatically.
 
@@ -393,13 +396,13 @@ let main ~net ~addr =
 - : unit = ()
 ```
 
-## Design note: object capabilities
+## Design Note: Object Capabilities
 
-The `Eio` high-level API follows the principles of the [Object-capability model][] (ocaps).
+The `Eio` high-level API follows the principles of the [Object-capability model][] (Ocaps).
 In this model, having a reference to an "object" (which could be a function or closure) grants permission to use it.
 The only ways to get a reference are to create a new object, or to be passed an existing reference by another object.
 For A to pass a reference B to another object C, A requires access (i.e. references) to both B and C.
-In particular, for B to get a reference to C there must be a path in the reference graph between them
+In particular, for B to get a reference to C, there must be a path in the reference graph between them
 on which all objects allow it.
 
 This is all just standard programming practice, really, except that it disallows patterns that break this model:
@@ -416,27 +419,27 @@ Imagine this is a large program and we want to know:
 1. Does this program modify the filesystem?
 2. Does this program send telemetry data over the network?
 
-In an ocap language, we don't have to read the entire code-base to find the answers:
+In an Ocap language, we don't have to read the entire code-base to find the answers:
 
 - All authority starts at the (privileged) `run` function with the `env` parameter,
   so we must check this code.
-- We see that only `env`'s network access is used, so we know this program doesn't access the filesystem,
+- Only `env`'s network access is used, so we know this program doesn't access the filesystem,
   answering question 1 immediately.
 - To check whether telemetry is sent, we need to follow the `network` authority as it is passed to `main`.
 - `main` uses `network` to open a listening socket on the loopback interface, which it passes to `run_server`.
-  `run_server` does not get the full `network` access, so we probably don't need to read that code
-  (we might want to check whether we granted other parties access to this port on our loopback network).
+  `run_server` does not get the full `network` access, so we probably don't need to read that code; however,
+  we might want to check whether we granted other parties access to this port on our loopback network.
 - `run_client` does get `network`, so we do need to read that.
   We could make that code easier to audit by passing it `(fun () -> Eio.Net.connect network addr)` instead of `network`.
   Then we could see that `run_client` could only connect to our loopback address.
 
-Since OCaml is not an ocap language, code can ignore Eio and use the non-ocap APIs directly.
+Since OCaml is not an Ocap language, code can ignore Eio and use the non-Ocap APIs directly.
 Therefore, this cannot be used as a security mechanism.
-However, it still makes non-malicious code easier to understand and test,
-and may allow for an ocap extension to the language in the future.
+However, it still makes non-malicious code easier to understand and test
+and may allow for an Ocap extension to the language in the future.
 See [Emily][] for a previous attempt at this.
 
-## Filesystem access
+## Filesystem Access
 
 Access to the filesystem is also controlled by capabilities, and `env` provides two:
 
@@ -489,7 +492,7 @@ The checks also apply to following symlinks:
 - : unit = ()
 ```
 
-You can use `open_dir` (or `with_open_dir`) to create a restricted capability to a sub-directory:
+You can use `open_dir` (or `with_open_dir`) to create a restricted capability to a subdirectory:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
@@ -502,15 +505,15 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
 - : unit = ()
 ```
 
-Note that you only need to use `open_dir` if you want to create a new sandboxed environment.
+Please note: you only need to use `open_dir` if you want to create a new sandboxed environment.
 You can use a single directory object to access all paths beneath it,
-and this allows following symlinks within that sub-tree.
+and this allows following symlinks within that subtree.
 
 A program that operates on the current directory will probably want to use `cwd`,
 whereas a program that accepts a path from the user will probably want to use `fs`,
 perhaps with `open_dir` to constrain all access to be within that directory.
 
-Note: the `eio_luv` backend doesn't have the `openat`, `mkdirat`, etc calls that are necessary to implement these checks without races.
+Note: the `eio_luv` backend doesn't have the `openat`, `mkdirat`, etc., calls that are necessary to implement these checks without races.
 
 ## Time
 
@@ -528,9 +531,9 @@ The standard environment provides a clock with the usual POSIX time:
 ```
 
 You might like to replace this clock with a mock for tests.
-In fact, this README does just that - see [doc/prelude.ml](doc/prelude.ml) for the fake clock used in the example above!
+In fact, this README does just that! See [doc/prelude.ml](doc/prelude.ml) for the fake clock used in the example above.
 
-## Multicore support
+## Multicore Support
 
 Fibres are scheduled cooperatively within a single domain, but you can also create new domains that run in parallel.
 This is useful to perform CPU-intensive operations quickly.
@@ -579,18 +582,18 @@ Notes:
 
 - `traceln` can be used safely from multiple domains.
   It takes a mutex, so that trace lines are output atomically.
-- The exact traceln output of this example is non-deterministic,
+- The exact `traceln` output of this example is non-deterministic,
   because the OS is free to schedule domains as it likes.
 - `run_compute_unsafe` is "unsafe" because you must ensure that the function doesn't have access to any non-threadsafe values.
   The type system does not check this.
-- `run_compute_unsafe` waits for the domain to finish, but allows other fibres to run while waiting.
+- `run_compute_unsafe` waits for the domain to finish, but it allows other fibres to run while waiting.
   This is why we use `Fibre.both` to create multiple fibres.
 - `run_compute_unsafe` does not start an event loop in the new domain, so it cannot perform IO or create fibres. There will be a separate API for that in the future.
 
-## Design note: thread-safety
+## Design Note: Thread-Safety
 
 OCaml spent the first 25 years of its existence without multicore support, and so most libraries are not thread-safe.
-Even in languages which had parallelism from the beginning thread safety is a very common cause of bugs.
+Even in languages that had parallelism from the beginning, thread safety is a very common cause of bugs.
 Eio therefore defaults to a conservative model, in which each mutable value is owned and used by a single domain.
 
 There are several ways to share values between domains:
@@ -610,7 +613,7 @@ let example q =
 ```
 
 If `q` is only updated by its owning domain (as in 3) then this assertion will always pass.
-`Queue.length` will not perform an effect which could switch fibres, and so nothing else can update `q`.
+`Queue.length` will not perform an effect which could switch fibres, so nothing else can update `q`.
 If another domain wants to change it, it sends a message to `q`'s domain, which is added to the domain's
 run-queue and will take effect later.
 
@@ -618,15 +621,15 @@ However, if `q` is wrapped by a mutex (as in 4) then the assertion could fail.
 The first `Queue.length` will lock and then release the queue, then the second will lock and release it again.
 Another domain could change the value between these two calls.
 
-## Design note: determinism
+## Design Note: Determinism
 
 Within a domain, fibres are scheduled deterministically.
-Programs using only the eio APIs can only behave non-deterministically if given a capability to do so from somewhere else.
+Programs using only the Eio APIs can only behave non-deterministically if given a capability to do so from somewhere else.
 
 For example, `Fibre.both f g` always starts running `f` first,
 and only switches to `g` when `f` finishes or performs an effect that can switch fibres.
 
-Performing IO with external objects (e.g. `stdout`, files or network sockets) will introduce non-determinism,
+Performing IO with external objects (e.g., `stdout`, files, or network sockets) will introduce non-determinism,
 as will using multiple domains.
 
 Note that `traceln` is unusual. Although it writes (by default) to stderr, it will not switch fibres.
@@ -635,14 +638,14 @@ This means that adding `traceln` to deterministic code will not affect its sched
 
 In particular, if you test your code by providing (deterministic) mocks then the tests will be deterministic.
 An easy way to write tests is by having the mocks call `traceln` and then comparing the trace output with the expected output.
-See Eio's own tests for examples, e.g. [tests/test_switch.md](tests/test_switch.md).
+See Eio's own tests for examples, e.g., [tests/test_switch.md](tests/test_switch.md).
 
 ## Examples
 
-- [gemini-eio][] is a simple Gemini browser. It shows how to integrate eio with `ocaml-tls`, `angstrom` and `notty`.
-- [ocaml-multicore/retro-httpaf-bench](https://github.com/ocaml-multicore/retro-httpaf-bench) includes a simple HTTP server using eio. It shows how to use eio with `httpaf` and how to use multiple domains for increased performance.
+- [gemini-eio][] is a simple Gemini browser. It shows how to integrate Eio with `ocaml-tls`, `angstrom`, and `notty`.
+- [ocaml-multicore/retro-httpaf-bench](https://github.com/ocaml-multicore/retro-httpaf-bench) includes a simple HTTP server using Eio. It shows how to use Eio with `httpaf`, and how to use multiple domains for increased performance.
 
-## Further reading
+## Further Reading
 
 Some background about the effects system can be found in:
 
