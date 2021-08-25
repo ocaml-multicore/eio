@@ -90,9 +90,9 @@ Then you'll need to install this library (and `utop` if you want to try it inter
 git clone --recursive https://github.com/ocaml-multicore/eio.git
 cd eio
 opam pin -yn ./ocaml-uring
-sed -i '/dune" "subst/d' *.opam
-opam pin -yn -k path .
-opam depext -i eio_main utop
+opam pin -yn .
+opam depext -i eio_main utop		# (for opam 2.0)
+opam install eio_main utop		# (for opam 2.1)
 ```
 
 To try out the examples interactively, run `utop` and `require` the `eio_main` library.

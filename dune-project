@@ -1,6 +1,5 @@
 (lang dune 2.9)
 (name eunix)
-(generate_opam_files true)
 (source (github ocaml-multicore/eio))
 (license ISC)
 (authors "Anil Madhavapeddy" "Thomas Leonard")
@@ -73,5 +72,6 @@
  (description "Selects an appropriate Eio backend for the current platform.")
  (depends
   (eio_linux (= :version))
+  (mdx (and (>= 1.10.0) :with-test))
   (eio_luv (= :version))))
 (using mdx 0.1)
