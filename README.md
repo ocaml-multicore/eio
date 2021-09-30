@@ -649,6 +649,7 @@ See Eio's own tests for examples, e.g., [tests/test_switch.md](tests/test_switch
 
 Some background about the effects system can be found in:
 
+- [Experiences with effects (video)](https://watch.ocaml.org/videos/watch/74ece0a8-380f-4e2a-bef5-c6bb9092be89), OCaml Workshop 2021.
 - ["Retrofitting Concurrency onto OCaml"](https://kcsrk.info/papers/retro-concurrency_pldi_21.pdf) (to appear, PLDI 2021)
 - https://kcsrk.info/ocaml/multicore/2015/05/20/effects-multicore/
 - Effects examples: https://github.com/ocaml-multicore/effects-examples/tree/master/aio
