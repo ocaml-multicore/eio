@@ -90,7 +90,7 @@ module Std : sig
   end
 
   module Promise : sig
-    type 'a t
+    type !'a t
     (** An ['a t] is a promise for a value of type ['a]. *)
 
     type 'a u
@@ -532,26 +532,31 @@ end
 (** API for use by the scheduler implementation. *)
 module Private : sig
   module Effects : sig
+    open Obj.Effect_handlers 
+
     type 'a enqueue = ('a, exn) result -> unit
     (** A function provided by the scheduler to reschedule a previously-suspended thread. *)
 
-    effect Suspend : (Ctf.id -> 'a enqueue -> unit) -> 'a
-    (** [Suspend fn] is performed when a fibre must be suspended
-        (e.g. because it called {!Promise.await} on an unresolved promise).
-        The effect handler runs [fn tid enqueue] in the scheduler context,
-        passing it the suspended fibre's thread ID (for tracing) and a function to resume it.
-        [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
+    type _ eff += 
+      | Suspend : (Ctf.id -> 'a enqueue -> unit) -> 'a eff
+      (** [Suspend fn] is performed when a fibre must be suspended
+          (e.g. because it called {!Promise.await} on an unresolved promise).
+          The effect handler runs [fn tid enqueue] in the scheduler context,
+          passing it the suspended fibre's thread ID (for tracing) and a function to resume it.
+          [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
 
-    effect Fork : (unit -> 'a) -> 'a Promise.t
-    (** See {!Fibre.fork} *)
+      | Fork : (unit -> 'a) -> 'a Promise.t eff
+      (** See {!Fibre.fork} *)
 
-    effect Fork_ignore : (unit -> unit) -> unit
-    (** See {!Fibre.fork_ignore} *)
+      | Fork_ignore : (unit -> unit) -> unit eff
+      (** See {!Fibre.fork_ignore} *)
 
-    effect Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a)
-    (** [perform Trace fmt] writes trace logging to the configured trace output.
-        It must not switch fibres, as tracing must not affect scheduling.
-        If the system is not ready to receive the trace output,
-        the whole domain must block until it is. *)
+      | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
+      (** [perform Trace fmt] writes trace logging to the configured trace output.
+          It must not switch fibres, as tracing must not affect scheduling.
+          If the system is not ready to receive the trace output,
+          the whole domain must block until it is. *)
   end
 end
+
+

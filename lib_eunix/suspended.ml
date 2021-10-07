@@ -1,3 +1,5 @@
+open Obj.Effect_handlers.Deep
+
 type 'a t = {
   tid : Ctf.id;
   k : ('a, [`Exit_scheduler]) continuation;

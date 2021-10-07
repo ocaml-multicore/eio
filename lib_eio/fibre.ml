@@ -1,4 +1,7 @@
-effect Fork  : (unit -> 'a) -> 'a Promise.t
+open Obj.Effect_handlers
+
+type _ eff += Fork : (unit -> 'a) -> 'a Promise.t eff
+
 let fork ~sw ~exn_turn_off f =
   let f () =
     Switch.with_op sw @@ fun () ->
@@ -9,7 +12,8 @@ let fork ~sw ~exn_turn_off f =
   in
   perform (Fork f)
 
-effect Fork_ignore : (unit -> unit) -> unit
+type _ eff += Fork_ignore : (unit -> unit) -> unit eff
+
 let fork_ignore ~sw f =
   let f () =
     Switch.with_op sw @@ fun () ->

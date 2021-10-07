@@ -1,9 +1,12 @@
+open Obj.Effect_handlers
+
 module Std = struct
   module Promise = Promise
   module Fibre = Fibre
   module Switch = Switch
 
-  effect Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a)
+  type _ eff += Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
+
   let traceln ?__POS__ fmt =
     perform Trace ?__POS__ fmt
 end
@@ -249,10 +252,11 @@ end
 module Private = struct
   module Effects = struct
     type 'a enqueue = 'a Suspend.enqueue
-    effect Suspend = Suspend.Suspend
-    effect Fork = Fibre.Fork
-    effect Fork_ignore = Fibre.Fork_ignore
-    effect Trace = Std.Trace
+    type _ eff += 
+      | Suspend = Suspend.Suspend 
+      | Fork = Fibre.Fork
+      | Fork_ignore = Fibre.Fork_ignore
+      | Trace = Std.Trace
   end
   module Switch = Switch
 end

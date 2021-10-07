@@ -18,6 +18,8 @@ let src = Logs.Src.create "eio_linux" ~doc:"Effect-based IO system for Linux/io-
 module Log = (val Logs.src_log src : Logs.LOG)
 
 open Eio.Std
+open Obj.Effect_handlers
+open Obj.Effect_handlers.Deep 
 
 module Suspended = Eunix.Suspended
 module Zzz = Eunix.Zzz
@@ -36,7 +38,7 @@ let wrap_errors path fn =
   | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
   | Eio.Dir.Permission_denied _        as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
 
-effect Close : Unix.file_descr -> int
+type _ eff += Close : Unix.file_descr -> int eff
 
 module FD = struct
   type t = {
@@ -125,7 +127,7 @@ let enqueue_thread st k x =
 let enqueue_failed_thread st k ex =
   Queue.push (Failed_thread (k, ex)) st.run_q
 
-effect Enter : (t -> 'a Suspended.t -> unit) -> 'a
+type _ eff += Enter : (t -> 'a Suspended.t -> unit) -> 'a eff
 let enter fn = perform (Enter fn)
 
 let rec enqueue_cancel job st action =
@@ -432,11 +434,11 @@ let noop () =
   Log.debug (fun l -> l "noop returned");
   if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
-effect Sleep_until : Switch.t option * float -> unit
+type _ eff += Sleep_until : Switch.t option * float -> unit eff
 let sleep_until ?sw d =
   perform (Sleep_until (sw, d))
 
-effect ERead : (Switch.t option * Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int
+type _ eff += ERead : (Switch.t option * Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
 
 let read_exactly ?sw ?file_offset fd buf len =
   let res = perform (ERead (sw, file_offset, fd, buf, Exactly len)) in
@@ -507,7 +509,7 @@ let await_writable ?sw fd =
     raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
   )
 
-effect EWrite : (Switch.t option * Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int
+type _ eff += EWrite : (Switch.t option * Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
 
 let write ?sw ?file_offset fd buf len =
   let res = perform (EWrite (sw, file_offset, fd, buf, Exactly len)) in
@@ -517,10 +519,10 @@ let write ?sw ?file_offset fd buf len =
     raise (Unix.Unix_error (Uring.error_of_errno res, "write", ""))
   )
 
-effect Alloc : Uring.Region.chunk
+type _ eff += Alloc : Uring.Region.chunk eff
 let alloc () = perform Alloc
 
-effect Free : Uring.Region.chunk -> unit
+type _ eff += Free : Uring.Region.chunk -> unit eff
 let free buf = perform (Free buf)
 
 let splice ?sw src ~dst ~len =
@@ -618,9 +620,15 @@ let accept ~sw fd =
   client, client_addr
 
 let run_compute fn () =
-  match fn () with
-  | x -> x
-  | effect Eio.Private.Effects.Trace k -> continue k Eunix.Trace.default_traceln
+  match_with fn ()
+  { retc = (fun x -> x);
+    exnc = (fun e -> raise e);
+    effc = fun (type a) (e : a eff) -> 
+          match e with
+          | Eio.Private.Effects.Trace -> 
+            Some (fun (k: (a, _) continuation) -> continue k Eunix.Trace.default_traceln)
+          | _ -> None
+  }
 
 module Objects = struct
   type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
@@ -919,83 +927,98 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~tid fn =
     Ctf.note_switch tid;
-    match fn () with
-    | () -> schedule st
-    | effect (Enter fn) k ->
-      let k = { Suspended.k; tid } in
-      fn st k;
-      schedule st
-    | effect (ERead args) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_read st k args;
-      schedule st
-    | effect (Close fd) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_close st k fd;
-      schedule st
-    | effect (EWrite args) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_write st k args;
-      schedule st
-    | effect (Sleep_until (sw, time)) k ->
-      let k = { Suspended.k; tid } in
-      let cancel_hook = ref Switch.null_hook in
-      begin match sw with
-        | None ->
-          ignore (Zzz.add ~cancel_hook sleep_q time k : Zzz.Key.t);
-          schedule st
-        | Some sw ->
-          match Switch.get_error sw with
-          | Some ex -> Suspended.discontinue k ex
-          | None ->
-            let job = Zzz.add ~cancel_hook sleep_q time k in
-            cancel_hook := Switch.add_cancel_hook sw (fun ex ->
-                Zzz.remove sleep_q job;
-                enqueue_failed_thread st k ex
+    match_with fn () 
+    { retc = (fun () -> schedule st);
+      exnc = (fun e -> raise e);
+      effc = fun (type a) (e : a eff) ->  
+        match e with 
+        | Enter fn ->
+          Some (fun k ->
+            let k = { Suspended.k; tid } in
+            fn st k;
+            schedule st)
+        | ERead args ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            enqueue_read st k args;
+            schedule st)
+        | Close fd ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            enqueue_close st k fd;
+            schedule st)
+        | EWrite args ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            enqueue_write st k args;
+            schedule st)
+        | Sleep_until (sw, time) ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            let cancel_hook = ref Switch.null_hook in
+            begin match sw with
+              | None ->
+                ignore (Zzz.add ~cancel_hook sleep_q time k : Zzz.Key.t);
+                schedule st
+              | Some sw ->
+                match Switch.get_error sw with
+                | Some ex -> Suspended.discontinue k ex
+                | None ->
+                  let job = Zzz.add ~cancel_hook sleep_q time k in
+                  cancel_hook := Switch.add_cancel_hook sw (fun ex ->
+                      Zzz.remove sleep_q job;
+                      enqueue_failed_thread st k ex
+                    );
+                  schedule st
+            end)
+        | Eio.Private.Effects.Suspend f ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            f tid (function
+                | Ok v -> enqueue_thread st k v
+                | Error ex -> enqueue_failed_thread st k ex
               );
-            schedule st
-      end
-    | effect (Eio.Private.Effects.Suspend f) k ->
-      let k = { Suspended.k; tid } in
-      f tid (function
-          | Ok v -> enqueue_thread st k v
-          | Error ex -> enqueue_failed_thread st k ex
-        );
-      schedule st
-    | effect (Eio.Private.Effects.Fork f) k ->
-      let k = { Suspended.k; tid } in
-      let id = Ctf.mint_id () in
-      Ctf.note_created id Ctf.Task;
-      let promise, resolver = Promise.create_with_id id in
-      enqueue_thread st k promise;
-      fork
-        ~tid:id
-        (fun () ->
-           match f () with
-           | x -> Promise.fulfill resolver x
-           | exception ex ->
-             Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
-             Promise.break resolver ex
-        )
-    | effect (Eio.Private.Effects.Fork_ignore f) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_thread st k ();
-      let child = Ctf.note_fork () in
-      Ctf.note_switch child;
-      fork ~tid:child (fun () ->
-          match f () with
-          | () ->
-            Ctf.note_resolved child ~ex:None
-          | exception ex ->
-            Ctf.note_resolved child ~ex:(Some ex)
-        )
-    | effect Eio.Private.Effects.Trace k -> continue k Eunix.Trace.default_traceln
-    | effect Alloc k ->
-      let k = { Suspended.k; tid } in
-      alloc_buf st k
-    | effect (Free buf) k ->
-      free_buf st buf;
-      continue k ()
+            schedule st)
+        | Eio.Private.Effects.Fork f ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            let id = Ctf.mint_id () in
+            Ctf.note_created id Ctf.Task;
+            let promise, resolver = Promise.create_with_id id in
+            enqueue_thread st k promise;
+            fork
+              ~tid:id
+              (fun () ->
+                 match f () with
+                 | x -> Promise.fulfill resolver x
+                 | exception ex ->
+                   Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
+                   Promise.break resolver ex
+              ))
+        | Eio.Private.Effects.Fork_ignore f ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            enqueue_thread st k ();
+            let child = Ctf.note_fork () in
+            Ctf.note_switch child;
+            fork ~tid:child (fun () ->
+                match f () with
+                | () ->
+                  Ctf.note_resolved child ~ex:None
+                | exception ex ->
+                  Ctf.note_resolved child ~ex:(Some ex)
+              ))
+        | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eunix.Trace.default_traceln)
+        | Alloc ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            alloc_buf st k)
+        | Free buf ->
+          Some (fun k -> 
+            free_buf st buf;
+            continue k ())
+        | _ -> None
+    }
   in
   let main_done = ref false in
   let `Exit_scheduler = fork ~tid:(Ctf.mint_id ()) (fun () ->
