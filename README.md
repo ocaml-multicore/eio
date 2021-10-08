@@ -78,9 +78,7 @@ You'll need a version of the OCaml compiler with effects.
 You can get one like this:
 
 ```
-opam switch create 4.12.0+domains+effects --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
-opam pin add -yn ppxlib 0.22.0+effect-syntax
-opam pin add -yn ocaml-migrate-parsetree 2.1.0+effect-syntax
+opam switch create 4.12.0+domains --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
 ```
 
 Then you'll need to install this library (and `utop` if you want to try it interactively):
