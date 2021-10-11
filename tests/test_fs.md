@@ -56,7 +56,7 @@ Creating a file and reading it back:
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "my-data";
-  traceln "Got %S" @@ read_file ~sw cwd "test-file"
+  traceln "Got %S" @@ read_file ~sw cwd "test-file";;
 +Got "my-data"
 - : unit = ()
 ```
@@ -75,7 +75,7 @@ Trying to use cwd to access a file outside of that subtree fails:
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Exclusive 0o666) cwd "../test-file" "my-data";
-  failwith "Should have failed"
+  failwith "Should have failed";;
 Exception: Eio.Dir.Permission_denied ("../test-file", _)
 ```
 
@@ -84,7 +84,7 @@ Trying to use cwd to access an absolute path fails:
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Exclusive 0o666) cwd "/tmp/test-file" "my-data";
-  failwith "Should have failed"
+  failwith "Should have failed";;
 Exception: Eio.Dir.Permission_denied ("/tmp/test-file", _)
 ```
 
@@ -96,7 +96,7 @@ Exclusive create fails if already exists:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
   write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
-  failwith "Should have failed"
+  failwith "Should have failed";;
 Exception: Eio.Dir.Already_exists ("test-file", _)
 ```
 
@@ -106,7 +106,7 @@ If-missing create succeeds if already exists:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`If_missing 0o666) cwd "test-file" "1st-write-original";
   write_file ~sw ~create:(`If_missing 0o666) cwd "test-file" "2nd-write";
-  traceln "Got %S" @@ read_file ~sw cwd "test-file"
+  traceln "Got %S" @@ read_file ~sw cwd "test-file";;
 +Got "2nd-write-original"
 - : unit = ()
 ```
@@ -117,7 +117,7 @@ Truncate create succeeds if already exists, and truncates:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
   write_file ~sw ~create:(`Or_truncate 0o666) cwd "test-file" "2nd-write";
-  traceln "Got %S" @@ read_file ~sw cwd "test-file"
+  traceln "Got %S" @@ read_file ~sw cwd "test-file";;
 +Got "2nd-write"
 - : unit = ()
 # Unix.unlink "test-file";;
@@ -129,7 +129,7 @@ Error if no create and doesn't exist:
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:`Never cwd "test-file" "1st-write-original";
-  traceln "Got %S" @@ read_file ~sw cwd "test-file"
+  traceln "Got %S" @@ read_file ~sw cwd "test-file";;
 Exception: Eio.Dir.Not_found ("test-file", _)
 ```
 
@@ -139,7 +139,7 @@ Appending to an existing file:
   let cwd = Eio.Stdenv.cwd env in
   write_file ~sw ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
   write_file ~sw ~create:`Never ~append:true cwd "test-file" "2nd-write";
-  traceln "Got %S" @@ read_file ~sw cwd "test-file"
+  traceln "Got %S" @@ read_file ~sw cwd "test-file";;
 +Got "1st-write-original2nd-write"
 - : unit = ()
 # Unix.unlink "test-file";;
@@ -154,7 +154,7 @@ Appending to an existing file:
   try_mkdir cwd "subdir";
   try_mkdir cwd "subdir/nested";
   write_file ~sw ~create:(`Exclusive 0o600) cwd "subdir/nested/test-file" "data";
-  ()
+  ();;
 +mkdir "subdir" -> ok
 +mkdir "subdir/nested" -> ok
 - : unit = ()
@@ -178,7 +178,7 @@ Creating directories with nesting, symlinks, etc:
   try_mkdir cwd "../foo";
   try_mkdir cwd "to-subdir";
   try_mkdir cwd "dangle/foo";
-  ()
+  ();;
 +mkdir "subdir" -> ok
 +mkdir "to-subdir/nested" -> ok
 +mkdir "to-root/tmp/foo" -> Eio.Dir.Permission_denied ("to-root/tmp/foo", _)
@@ -198,7 +198,7 @@ Create a sandbox, write a file with it, then read it from outside:
   let subdir = Eio.Dir.open_dir ~sw cwd "sandbox" in
   write_file ~sw ~create:(`Exclusive 0o600) subdir "test-file" "data";
   try_mkdir subdir "../new-sandbox";
-  traceln "Got %S" @@ read_file ~sw cwd "sandbox/test-file"
+  traceln "Got %S" @@ read_file ~sw cwd "sandbox/test-file";;
 +mkdir "sandbox" -> ok
 +mkdir "../new-sandbox" -> Eio.Dir.Permission_denied ("../new-sandbox", _)
 +Got "data"
@@ -222,7 +222,7 @@ Using `cwd` we can't access the parent, but using `fs` we can:
     try_write_file ~sw ~create:(`Exclusive 0o600) fs "../test-file" "data";
   );
   Unix.unlink "test-file";
-  Unix.rmdir "outside-cwd"
+  Unix.rmdir "outside-cwd";;
 +mkdir "fs-test" -> ok
 +chdir "fs-test"
 +mkdir "../outside-cwd" -> Eio.Dir.Permission_denied ("../outside-cwd", _)

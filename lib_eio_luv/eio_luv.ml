@@ -18,6 +18,8 @@ let src = Logs.Src.create "eio_luv" ~doc:"Eio backend using luv"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 open Eio.Std
+open Obj.Effect_handlers 
+open Obj.Effect_handlers.Deep 
 
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)
@@ -65,10 +67,10 @@ module Suspended = struct
     | Error x -> discontinue t x
 end
 
-effect Await : (('a -> unit) -> unit) -> 'a
+type _ eff += Await : (('a -> unit) -> unit) -> 'a eff
 let await fn = perform (Await fn)
 
-effect Enter : ('a Suspended.t -> unit) -> 'a
+type _ eff += Enter : ('a Suspended.t -> unit) -> 'a eff
 let enter fn = perform (Enter fn)
 
 let await_exn fn =
@@ -260,9 +262,15 @@ let sleep_until ?sw due =
     ) |> or_raise
 
 let run_compute fn =
-  match fn () with
-  | x -> x
-  | effect Eio.Private.Effects.Trace k -> continue k Eunix.Trace.default_traceln
+  match_with fn ()
+  { retc = (fun x -> x);
+    exnc = (fun e -> raise e);
+    effc = fun (type a) (e: a eff) -> 
+      match e with 
+      | Eio.Private.Effects.Trace -> 
+        Some (fun (k : (a,_) continuation) -> continue k Eunix.Trace.default_traceln)
+      | _ -> None
+  }
 
 module Objects = struct
   type _ Eio.Generic.ty += FD : File.t Eio.Generic.ty
@@ -580,43 +588,53 @@ let run main =
   let stdenv = Objects.stdenv () in
   let rec fork ~tid fn =
     Ctf.note_switch tid;
-    match fn () with
-    | () -> ()
-    | effect (Await fn) k ->
-      let k = { Suspended.k; tid } in
-      fn (Suspended.continue k)
-    | effect Eio.Private.Effects.Trace k -> continue k Eunix.Trace.default_traceln
-    | effect (Eio.Private.Effects.Fork f) k ->
-      let k = { Suspended.k; tid } in
-      let id = Ctf.mint_id () in
-      Ctf.note_created id Ctf.Task;
-      let promise, resolver = Promise.create_with_id id in
-      enqueue_thread k promise;
-      fork
-        ~tid:id
-        (fun () ->
-           match f () with
-           | x -> Promise.fulfill resolver x
-           | exception ex ->
-             Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
-             Promise.break resolver ex
-        )
-    | effect (Eio.Private.Effects.Fork_ignore f) k ->
-      let k = { Suspended.k; tid } in
-      enqueue_thread k ();
-      let child = Ctf.note_fork () in
-      Ctf.note_switch child;
-      fork ~tid:child (fun () ->
-          match f () with
-          | () ->
-            Ctf.note_resolved child ~ex:None
-          | exception ex ->
-            Ctf.note_resolved child ~ex:(Some ex)
-        )
-    | effect (Enter fn) k -> fn { Suspended.k; tid }
-    | effect (Eio.Private.Effects.Suspend fn) k ->
-      let k = { Suspended.k; tid } in
-      fn tid (enqueue_result_thread k)
+    match_with fn () 
+    { retc = (fun () -> ());
+      exnc = (fun e -> raise e);
+      effc = fun (type a) (e : a eff) ->
+        match e with
+        | Await fn ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            fn (Suspended.continue k))
+        | Eio.Private.Effects.Trace ->
+          Some (fun k -> continue k Eunix.Trace.default_traceln)
+        | Eio.Private.Effects.Fork f ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            let id = Ctf.mint_id () in
+            Ctf.note_created id Ctf.Task;
+            let promise, resolver = Promise.create_with_id id in
+            enqueue_thread k promise;
+            fork
+              ~tid:id
+              (fun () ->
+                 match f () with
+                 | x -> Promise.fulfill resolver x
+                 | exception ex ->
+                   Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
+                   Promise.break resolver ex
+              ))
+        | Eio.Private.Effects.Fork_ignore f ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            enqueue_thread k ();
+            let child = Ctf.note_fork () in
+            Ctf.note_switch child;
+            fork ~tid:child (fun () ->
+                match f () with
+                | () ->
+                  Ctf.note_resolved child ~ex:None
+                | exception ex ->
+                  Ctf.note_resolved child ~ex:(Some ex)
+              ))
+        | Enter fn -> Some (fun k -> fn { Suspended.k; tid })
+        | Eio.Private.Effects.Suspend fn ->
+          Some (fun k -> 
+            let k = { Suspended.k; tid } in
+            fn tid (enqueue_result_thread k))
+        | _ -> None
+    }
   in
   let main_status = ref `Running in
   fork ~tid:(Ctf.mint_id ()) (fun () ->

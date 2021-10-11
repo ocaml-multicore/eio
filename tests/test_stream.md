@@ -35,7 +35,7 @@ Simple non-blocking case
   add t 1;
   add t 2;
   take t;
-  take t
+  take t;;
 +Adding 1 to stream
 +Added 1 to stream
 +Adding 2 to stream
@@ -56,7 +56,7 @@ Readers have to wait when the stream is empty:
   add t 1;
   Fibre.both ~sw
     (fun () -> take t; take t)
-    (fun () -> add t 2)
+    (fun () -> add t 2);;
 +Adding 1 to stream
 +Added 1 to stream
 +Reading from stream
@@ -86,7 +86,7 @@ Writers have to wait when the stream is full:
       take t;
       take t;
       take t
-    )
+    );;
 +Adding 1 to stream
 +Added 1 to stream
 +Adding 2 to stream
@@ -120,7 +120,7 @@ A zero-length queue is synchronous:
     (fun () ->
       take t;
       take t;
-    )
+    );;
 +Adding 1 to stream
 +Reading from stream
 +Got 1 from stream
@@ -146,7 +146,7 @@ Cancel reading from a stream:
   with Cancel ->
     traceln "Cancelled";
     add t 2;
-    take t
+    take t;;
 +Reading from stream
 +Cancelled
 +Adding 2 to stream
@@ -171,7 +171,7 @@ Cancel writing to a stream:
     traceln "Cancelled";
     take t;
     add t 3;
-    take t
+    take t;;
 +Adding 1 to stream
 +Added 1 to stream
 +Adding 2 to stream
@@ -201,7 +201,7 @@ Cancel writing to a zero-length stream:
     Switch.top @@ fun sw ->
     Fibre.both ~sw
       (fun () -> add ~sw t 2)
-      (fun () -> take ~sw t)
+      (fun () -> take ~sw t);;
 +Adding 1 to stream
 +Cancelled
 +Adding 2 to stream
@@ -219,7 +219,7 @@ Trying to use a stream with a turned-off switch:
   Switch.top @@ fun sw ->
   Switch.turn_off sw Cancel;
   begin try add  ~sw t 1 with ex -> traceln "%a" Fmt.exn ex end;
-  begin try take ~sw t   with ex -> traceln "%a" Fmt.exn ex end
+  begin try take ~sw t   with ex -> traceln "%a" Fmt.exn ex end;;
 +Adding 1 to stream
 +Cancelled: Cancel
 +Reading from stream
@@ -238,7 +238,7 @@ Readers queue up:
   Fibre.fork_ignore ~sw (fun () -> take t; traceln "c done");
   add t 1;
   add t 2;
-  add t 3
+  add t 3;;
 +Reading from stream
 +Reading from stream
 +Reading from stream
@@ -268,7 +268,7 @@ Writers queue up:
   Fibre.fork_ignore ~sw (fun () -> add t 3);
   take t;
   take t;
-  take t
+  take t;;
 +Adding 1 to stream
 +Adding 2 to stream
 +Adding 3 to stream

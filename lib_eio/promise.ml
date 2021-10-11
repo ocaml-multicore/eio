@@ -3,7 +3,7 @@ type 'a state =
   | Fulfilled of 'a
   | Broken of exn
 
-type 'a t = {
+type !'a t = {
   id : Ctf.id;
   mutable state : 'a state;
 }

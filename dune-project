@@ -1,5 +1,7 @@
 (lang dune 2.9)
 (name eunix)
+(formatting disabled)
+(generate_opam_files true)
 (source (github ocaml-multicore/eio))
 (license ISC)
 (authors "Anil Madhavapeddy" "Thomas Leonard")
@@ -19,7 +21,7 @@
  (description "An eio implementation for Unix-compatible systems.")
  (depends
   (optint (>= 0.1.0))
-  (ocaml-variants (= "4.12.0+domains+effects"))
+  (ocaml-variants (= "4.12.0+domains"))
   (ctf (= :version))
   (eio (= :version))
   (alcotest (and (>= 1.4.0) :with-test))
@@ -33,7 +35,7 @@
  (description "An eio implementation for Linux using io-uring.")
  (depends
   (alcotest (and (>= 1.4.0) :with-test))
-  (ocaml-variants (= "4.12.0+domains+effects"))
+  (ocaml-variants (= "4.12.0+domains"))
   (ctf (= :version))
   (eio (= :version))
   (eunix (= :version))
@@ -47,7 +49,7 @@
  (synopsis "Eio implementation using luv (libuv)")
  (description "An eio implementation for most platforms, using luv.")
  (depends
-  (ocaml-variants (= "4.12.0+domains+effects"))
+  (ocaml-variants (= "4.12.0+domains"))
   (ctf (= :version))
   (eio (= :version))
   (eunix (= :version))
@@ -71,7 +73,7 @@
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
  (description "Selects an appropriate Eio backend for the current platform.")
  (depends
-  (eio_linux (= :version))
+  (eio_linux (and (= :version) (= :os "linux")))
   (mdx (and (>= 1.10.0) :with-test))
   (eio_luv (= :version))))
 (using mdx 0.1)

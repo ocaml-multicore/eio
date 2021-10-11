@@ -23,7 +23,7 @@ let () =
 
 ```ocaml
 # Eio_luv.run @@ fun env ->
-  Eio.Flow.copy_string "Hello, world!\n" (Eio.Stdenv.stdout env)
+  Eio.Flow.copy_string "Hello, world!\n" (Eio.Stdenv.stdout env);;
 Hello, world!
 - : unit = ()
 ```
@@ -41,7 +41,7 @@ let main _stdenv =
 ```
 
 ```ocaml
-# Eio_luv.run main
+# Eio_luv.run main;;
 +Read "\000\000\000\000"
 - : unit = ()
 ```

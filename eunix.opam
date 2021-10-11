@@ -10,7 +10,7 @@ bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "2.9"}
   "optint" {>= "0.1.0"}
-  "ocaml-variants" {= "4.12.0+domains+effects"}
+  "ocaml-variants" {= "4.12.0+domains"}
   "ctf" {= version}
   "eio" {= version}
   "alcotest" {>= "1.4.0" & with-test}
@@ -21,6 +21,7 @@ depends: [
   "odoc" {with-doc}
 ]
 build: [
+  ["dune" "subst"] {dev}
   [
     "dune"
     "build"
@@ -28,8 +29,7 @@ build: [
     name
     "-j"
     jobs
-    "--promote-install-files"
-    "false"
+    "--promote-install-files=false"
     "@install"
     "@runtest" {with-test}
     "@doc" {with-doc}

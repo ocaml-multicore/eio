@@ -1,3 +1,6 @@
+open Obj.Effect_handlers
+
 type 'a enqueue = ('a, exn) result -> unit
-effect Suspend : (Ctf.id -> 'a enqueue -> unit) -> 'a
+type _ eff += Suspend : (Ctf.id -> 'a enqueue -> unit) -> 'a eff
+
 let enter fn = perform (Suspend fn)

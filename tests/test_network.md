@@ -68,7 +68,7 @@ let test_address addr ~net sw =
 Handling one connection, then cancelling the server:
 
 ```ocaml
-# run (test_address addr)
+# run (test_address addr);;
 +Connecting to server...
 +Server accepted connection from client
 +Server received: "Hello from client"
@@ -80,7 +80,7 @@ Exception: Graceful_shutdown.
 Handling one connection on a Unix domain socket:
 
 ```ocaml
-# run (test_address (`Unix "/tmp/eio-test.sock"))
+# run (test_address (`Unix "/tmp/eio-test.sock"));;
 +Connecting to server...
 +Server accepted connection from client
 +Server received: "Hello from client"
@@ -93,7 +93,7 @@ Handling one connection on an abstract Unix domain socket (this only works on Li
 
 <!-- $MDX non-deterministic=command -->
 ```ocaml
-# run (test_address (`Unix "\x00/tmp/eio-test.sock"))
+# run (test_address (`Unix "\x00/tmp/eio-test.sock"));;
 +Connecting to server...
 +Server accepted connection from client
 +Server received: "Hello from client"
@@ -126,7 +126,7 @@ Cancelling the read:
       Switch.turn_off read_switch Graceful_shutdown;
       let msg = read_all flow in
       traceln "Client received: %S" msg
-    )
+    );;
 +Connecting to server...
 +Connection opened - cancelling server's read
 +Client received: "Request cancelled"
@@ -140,6 +140,6 @@ Calling accept when the switch is already off:
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   Switch.turn_off sw (Failure "Simulated error");
   Eio.Net.accept_sub server ~sw (fun ~sw:_ _flow _addr -> assert false)
-    ~on_error:raise
+    ~on_error:raise;;
 Exception: Failure "Simulated error".
 ```

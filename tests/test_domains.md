@@ -19,7 +19,7 @@ Spawning a second domain:
 ```ocaml
 # run @@ fun mgr ->
   let response = Eio.Domain_manager.run_compute_unsafe mgr (fun () -> "Hello from new domain") in
-  traceln "Got %S from spawned domain" response
+  traceln "Got %S from spawned domain" response;;
 +Got "Hello from new domain" from spawned domain
 - : unit = ()
 ```
@@ -28,7 +28,7 @@ The domain raises an exception:
 
 ```ocaml
 # run @@ fun mgr ->
-  Eio.Domain_manager.run_compute_unsafe mgr (fun () -> failwith "Exception from new domain")
+  Eio.Domain_manager.run_compute_unsafe mgr (fun () -> failwith "Exception from new domain");;
 Exception: Failure "Exception from new domain".
 ```
 
@@ -54,7 +54,7 @@ Here, we use a mutex to check that the parent domain really did run while waitin
     (fun () ->
       traceln "Other fibres can still run";
       Mutex.unlock mutex
-    )
+    );;
 +Spawning new domain...
 +Other fibres can still run
 +Got "Hello from new domain" from spawned domain

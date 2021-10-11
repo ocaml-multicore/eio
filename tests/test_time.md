@@ -22,7 +22,7 @@ Check sleep works:
   let t0 = Unix.gettimeofday () in
   Eio.Time.sleep clock 0.01;
   let t1 = Unix.gettimeofday () in
-  assert (t1 -. t0 >= 0.01)
+  assert (t1 -. t0 >= 0.01);;
 - : unit = ()
 ```
 
@@ -34,7 +34,7 @@ Check sleep works with a switch:
   let t0 = Unix.gettimeofday () in
   Eio.Time.sleep ~sw clock 0.01;
   let t1 = Unix.gettimeofday () in
-  assert (t1 -. t0 >= 0.01)
+  assert (t1 -. t0 >= 0.01);;
 - : unit = ()
 ```
 
@@ -45,7 +45,7 @@ Cancelling sleep:
   Switch.top @@ fun sw ->
   Fibre.both ~sw
     (fun () -> Eio.Time.sleep ~sw clock 1200.; assert false)
-    (fun () -> Switch.turn_off sw (Failure "Simulated cancel"))
+    (fun () -> Switch.turn_off sw (Failure "Simulated cancel"));;
 Exception: Failure "Simulated cancel".
 ```
 
@@ -56,7 +56,7 @@ Switch is already off:
   Switch.top @@ fun sw ->
   Switch.turn_off sw (Failure "Simulated failure");
   Eio.Time.sleep ~sw clock 1200.0;
-  assert false
+  assert false;;
 Exception: Failure "Simulated failure".
 ```
 
@@ -67,7 +67,7 @@ Scheduling a timer that's already due:
   Switch.top @@ fun sw ->
   Fibre.both ~sw
     (fun () -> traceln "First fibre runs"; Eio.Time.sleep ~sw clock (-1.0); traceln "Sleep done")
-    (fun () -> traceln "Second fibre runs")
+    (fun () -> traceln "Second fibre runs");;
 +First fibre runs
 +Second fibre runs
 +Sleep done
@@ -88,7 +88,7 @@ Check ordering works:
       Eio.Time.sleep clock 0.1;
       traceln "Short timer finished";
       Switch.turn_off sw (Failure "Simulated cancel")
-    )
+    );;
 +Short timer finished
 Exception: Failure "Simulated cancel".
 ```
