@@ -9,12 +9,13 @@ homepage: "https://github.com/ocaml-multicore/eio"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "2.9"}
-  "eio_linux" {= version & os = "linux"}
+  "eio_linux" {= version}
+  "mdx" {>= "1.10.0" & with-test}
   "eio_luv" {= version}
   "odoc" {with-doc}
-  "mdx" {>= "1.10.0" & with-test}
 ]
 build: [
+  ["dune" "subst"] {dev}
   [
     "dune"
     "build"
@@ -22,8 +23,7 @@ build: [
     name
     "-j"
     jobs
-    "--promote-install-files"
-    "false"
+    "--promote-install-files=false"
     "@install"
     "@runtest" {with-test}
     "@doc" {with-doc}
