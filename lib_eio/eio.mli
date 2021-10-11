@@ -194,7 +194,7 @@ module Std : sig
       {[
         traceln "x = %d" x;
         traceln "x = %d" x ~__POSS__;   (* With location information *)
-      |}
+      ]}
       @param __POS__ Display [__POS__] as the location of the [traceln] call. *)
 end
 
