@@ -917,6 +917,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   (* TODO unify this allocation API around baregion/uring *)
   let fixed_buf_len = block_size * queue_depth in
   let uring = Uring.create ~fixed_buf_len ~queue_depth () in
+  Fun.protect ~finally:(fun () -> Uring.exit uring) @@ fun () ->
   let buf = Uring.buf uring in
   let mem = Uring.Region.init ~block_size buf queue_depth in
   let run_q = Queue.create () in
