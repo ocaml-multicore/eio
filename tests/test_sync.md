@@ -30,7 +30,7 @@ Create a promise, fork a thread waiting for it, then fulfull it:
     traceln "Thread before yield: %a" (pp_promise Fmt.string) thread;
     Fibre.yield ();
     traceln "Thread after yield: %a" (pp_promise Fmt.string) thread;
-    traceln "Final result: %s" (Promise.await thread)
+    traceln "Final result: %s" (Promise.await thread);;
 +Initial state: unresolved
 +After being fulfilled: fulfilled:ok
 +Thread before yield: unresolved
@@ -53,7 +53,7 @@ Create a promise, fork a thread waiting for it, then break it:
     traceln "Thread after yield: %a" (pp_promise Fmt.string) thread;
     match Promise.await thread with
     | x -> failwith x
-    | exception (Failure msg) -> traceln "Final result exception: %s" msg
+    | exception (Failure msg) -> traceln "Final result exception: %s" msg;;
 +Initial state: unresolved
 +After being broken: broken:test
 +Thread before yield: unresolved
@@ -79,7 +79,7 @@ Some simple tests of `fork_ignore`:
         );
       assert false
     with Exit ->
-      traceln "Forked code ran; i is now %d" !i
+      traceln "Forked code ran; i is now %d" !i;;
 +Forked code ran; i is now 1
 +Forked code waiting; i is still 1
 +Forked code ran; i is now 2
@@ -115,7 +115,7 @@ Basic semaphore tests:
     decr running;
     Semaphore.release sem;
     decr running;
-    Semaphore.release sem
+    Semaphore.release sem;;
 +Semaphore means that only 2 threads are running
 +One finished; now 1 is running
 +Yield allows C to start; now 2 are running
@@ -136,7 +136,7 @@ Releasing a semaphore when no-one is waiting for it:
     Semaphore.release sem;        (* Release with a non-empty wait-queue *)
     traceln "Now b running: %d" (Semaphore.get_value sem);
     Semaphore.release sem;        (* Release with an empty wait-queue *)
-    traceln "Finished: %d" (Semaphore.get_value sem)
+    traceln "Finished: %d" (Semaphore.get_value sem);;
 +Initial config: 1
 +A running: 0
 +Now b running: 0

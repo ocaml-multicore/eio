@@ -156,7 +156,7 @@ let main _env =
   Switch.top @@ fun sw ->
   Fibre.both ~sw
     (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield ~sw () done)
-    (fun () -> for y = 1 to 3 do traceln "y = %d" y; Fibre.yield ~sw () done)
+    (fun () -> for y = 1 to 3 do traceln "y = %d" y; Fibre.yield ~sw () done);;
 ```
 
 ```ocaml
@@ -299,7 +299,7 @@ Here's a simple implementation of `cat` using the standard OCaml functions:
         output stdout buf 0 got;
         copy ()
     in
-    copy ()
+    copy ();;
 ```
 
 And here is the equivalent using Eio:
@@ -309,7 +309,7 @@ And here is the equivalent using Eio:
     Eio_main.run @@ fun env ->
     Eio.Flow.copy
       (Eio.Stdenv.stdin env)
-      (Eio.Stdenv.stdout env)
+      (Eio.Stdenv.stdout env);;
 ```
 
 Testing on a fresh 10G file with [pv](https://www.ivarch.com/programs/pv.shtml) on my machine gives:
@@ -385,7 +385,7 @@ let main ~net ~addr =
 # Eio_main.run @@ fun env ->
   main
     ~net:(Eio.Stdenv.net env)
-    ~addr:(`Tcp (Unix.inet_addr_loopback, 8080))
+    ~addr:(`Tcp (Unix.inet_addr_loopback, 8080));;
 +Server ready...
 +Connecting to server...
 +Server accepted connection from client
@@ -466,7 +466,7 @@ let try_mkdir dir path =
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir cwd "dir1";
   try_mkdir cwd "../dir2";
-  try_mkdir cwd "/tmp/dir3";
+  try_mkdir cwd "/tmp/dir3";;
 +mkdir "dir1" -> ok
 +mkdir "../dir2" -> Eio.Dir.Permission_denied("../dir2", _)
 +mkdir "/tmp/dir3" -> Eio.Dir.Permission_denied("/tmp/dir3", _)
@@ -483,7 +483,7 @@ The checks also apply to following symlinks:
   let cwd = Eio.Stdenv.cwd env in
   try_write_file cwd "dir1/file1" "A";
   try_write_file cwd "link-to-dir1/file2" "B";
-  try_write_file cwd "link-to-tmp/file3" "C"
+  try_write_file cwd "link-to-tmp/file3" "C";;
 +write "dir1/file1" -> ok
 +write "link-to-dir1/file2" -> ok
 +write "link-to-tmp/file3" -> Eio.Dir.Permission_denied("link-to-tmp/file3", _)
@@ -497,7 +497,7 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
   let cwd = Eio.Stdenv.cwd env in
   Eio.Dir.with_open_dir cwd "dir1" @@ fun dir1 ->
   try_write_file dir1 "file4" "D";
-  try_write_file dir1 "../file5" "E"
+  try_write_file dir1 "../file5" "E";;
 +write "file4" -> ok
 +write "../file5" -> Eio.Dir.Permission_denied("../file5", _)
 - : unit = ()
@@ -522,7 +522,7 @@ The standard environment provides a clock with the usual POSIX time:
   let clock = Eio.Stdenv.clock env in
   traceln "The time is now %f" (Eio.Time.now clock);
   Eio.Time.sleep clock 1.0;
-  traceln "The time is now %f" (Eio.Time.now clock)
+  traceln "The time is now %f" (Eio.Time.now clock);;
 +The time is now 1623940778.270336
 +The time is now 1623940779.270336
 - : unit = ()
@@ -566,7 +566,7 @@ let main ~domain_mgr =
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
-  main ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+  main ~domain_mgr:(Eio.Stdenv.domain_mgr env);;
 +Starting CPU-intensive task...
 +Starting CPU-intensive task...
 +Finished

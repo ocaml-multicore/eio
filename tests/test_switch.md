@@ -19,7 +19,7 @@ A very basic example:
 ```ocaml
 # run (fun _sw ->
       traceln "Running"
-    );
+    );;
 +Running
 - : unit = ()
 ```
@@ -31,7 +31,7 @@ Turning off a switch still allows you to perform clean-up operations:
     traceln "Running";
     Switch.turn_off sw (Failure "Cancel");
     traceln "Clean up"
-  );
+  );;
 +Running
 +Clean up
 Exception: Failure "Cancel".
@@ -44,7 +44,7 @@ Exception: Failure "Cancel".
     Fibre.both ~sw
       (fun () -> for i = 1 to 2 do traceln "i = %d" i; Fibre.yield ~sw () done)
       (fun () -> for j = 1 to 2 do traceln "j = %d" j; Fibre.yield ~sw () done)
-  );
+  );;
 +i = 1
 +j = 1
 +i = 2
@@ -59,7 +59,7 @@ Exception: Failure "Cancel".
       Fibre.both ~sw
         (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield ~sw () done)
         (fun () -> failwith "Failed")
-    )
+    );;
 +i = 1
 Exception: Failure "Failed".
 ```
@@ -71,7 +71,7 @@ Exception: Failure "Failed".
       Fibre.both ~sw
         (fun () -> Fibre.yield ~sw (); failwith "Failed")
         (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield ~sw () done)
-    )
+    );;
 +i = 1
 Exception: Failure "Failed".
 ```
@@ -82,7 +82,7 @@ Exception: Failure "Failed".
 # run (fun sw ->
       Fibre.both ~sw (fun () -> failwith "Failed") ignore;
       traceln "Not reached"
-    )
+    );;
 Exception: Failure "Failed".
 ```
 
@@ -92,7 +92,7 @@ Exception: Failure "Failed".
 # run (fun sw ->
       Fibre.both ~sw ignore (fun () -> failwith "Failed");
       traceln "not reached"
-    )
+    );;
 Exception: Failure "Failed".
 ```
 
@@ -103,7 +103,7 @@ Exception: Failure "Failed".
       Fibre.both ~sw
         (fun () -> failwith "Failed 1")
         (fun () -> failwith "Failed 2")
-    )
+    );;
 Exception: Multiple exceptions:
 Failure("Failed 1")
 and
@@ -117,7 +117,7 @@ The switch is already turned off when we try to fork. The new fibre doesn't star
       Switch.turn_off sw (Failure "Cancel");
       Fibre.fork_ignore ~sw (fun () -> traceln "Not reached");
       traceln "Main continues"
-    )
+    );;
 +Main continues
 Exception: Failure "Cancel".
 ```
@@ -128,9 +128,9 @@ You can't use a switch after leaving its scope:
 # let sw =
     let x = ref None in
     run (fun sw -> x := Some sw);
-    Option.get !x
+    Option.get !x;;
 val sw : Switch.t = <abstr>
-# Switch.check sw
+# Switch.check sw;;
 Exception: Invalid_argument "Switch finished!".
 ```
 
@@ -147,7 +147,7 @@ Turning off a switch runs the cancel callbacks, unless they've been removed by t
       Switch.remove_hook h1;
       Switch.remove_hook h3;
       Switch.remove_hook h4
-    )
+    );;
 +Cancel 3
 +Cancel 1
 +Cancel 4
@@ -161,7 +161,7 @@ Wait for either a promise or a switch; switch cancelled first:
       Fibre.fork_ignore ~sw (fun () -> traceln "Waiting"; Promise.await ~sw p; traceln "Resolved");
       Switch.turn_off sw (Failure "Cancelled");
       Promise.fulfill r ()
-    )
+    );;
 +Waiting
 Exception: Failure "Cancelled".
 ```
@@ -176,7 +176,7 @@ Wait for either a promise or a switch; promise resolves first:
       Fibre.yield ();
       traceln "Now cancelling...";
       Switch.turn_off sw (Failure "Cancelled")
-    );
+    );;
 +Waiting
 +Resolved
 +Now cancelling...
@@ -191,7 +191,7 @@ Wait for either a promise or a switch; switch cancelled first. Result version.
       Fibre.fork_ignore ~sw (fun () -> traceln "Waiting"; ignore (Promise.await_result ~sw p); traceln "Resolved");
       Switch.turn_off sw (Failure "Cancelled");
       Promise.fulfill r ()
-    );
+    );;
 +Waiting
 Exception: Failure "Cancelled".
 ```
@@ -205,7 +205,7 @@ Wait for either a promise or a switch; promise resolves first but switch off wit
       Promise.fulfill r ();
       traceln "Now cancelling...";
       Switch.turn_off sw (Failure "Cancelled")
-    )
+    );;
 +Waiting
 +Now cancelling...
 Exception: Failure "Cancelled".
@@ -220,7 +220,7 @@ Child switches are cancelled when the parent is cancelled:
       Fibre.fork_sub_ignore ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await ~sw p);
       Fibre.fork_sub_ignore ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await ~sw p);
       Switch.turn_off sw (Failure "Cancel parent")
-    )
+    );;
 +Child 1
 +Child 2
 +child: Failure("Cancel parent")
@@ -241,7 +241,7 @@ A child can fail independently of the parent:
       Promise.fulfill r2 ();
       Fibre.yield ~sw ();
       traceln "Parent fibre is still running"
-    )
+    );;
 +Child 1
 +Child 2
 +child: Failure("Child error")
@@ -264,7 +264,7 @@ A child can be cancelled independently of the parent:
       Switch.turn_off (Option.get !child) (Failure "Cancel child");
       Fibre.yield ~sw ();
       traceln "Parent fibre is still running"
-    );
+    );;
 +Child 1
 +child: Failure("Cancel child")
 +Parent fibre is still running
@@ -281,7 +281,7 @@ A child error handle raises:
       Promise.break r (Failure "Child error escapes");
       Fibre.yield ~sw ();
       traceln "Not reached"
-    )
+    );;
 +Child
 Exception: Failure "Child error escapes".
 ```
@@ -293,7 +293,7 @@ A child error handler deals with the exception:
       let print ex = traceln "%s" (Printexc.to_string ex); 0 in
       let x = Switch.sub sw ~on_error:print (fun _sw -> failwith "Child error") in
       traceln "x = %d" x
-    )
+    );;
 +Failure("Child error")
 +x = 0
 - : unit = ()
@@ -305,7 +305,7 @@ The system deadlocks. The scheduler detects and reports this:
 # run (fun sw ->
       let p, _ = Promise.create () in
       Promise.await ~sw p
-    )
+    );;
 Exception:
 Failure
  "Deadlock detected: no events scheduled but main function hasn't returned".
@@ -319,7 +319,7 @@ Release on success:
 # run (fun sw ->
     Switch.on_release sw (fun () -> traceln "release 1");
     Switch.on_release sw (fun () -> traceln "release 2");
-  )
+  );;
 +release 2
 +release 1
 - : unit = ()
@@ -332,7 +332,7 @@ Release on error:
     Switch.on_release sw (fun () -> traceln "release 1");
     Switch.on_release sw (fun () -> traceln "release 2");
     failwith "Test error"
-  )
+  );;
 +release 2
 +release 1
 Exception: Failure "Test error".
@@ -345,7 +345,7 @@ A release operation itself fails:
     Switch.on_release sw (fun () -> traceln "release 1"; failwith "failure 1");
     Switch.on_release sw (fun () -> traceln "release 2");
     Switch.on_release sw (fun () -> traceln "release 3"; failwith "failure 3");
-  )
+  );;
 +release 3
 +release 2
 +release 1
@@ -375,7 +375,7 @@ Using switch from inside release handler:
       );
     );
     traceln "Main fibre done"
-  )
+  );;
 +Main fibre done
 +Starting release 2
 +Starting release 1
@@ -400,7 +400,7 @@ We release when `fork_sub_ignore` returns:
 ```ocaml
 # run (fun sw ->
     fork_sub_ignore_resource sw
-  )
+  );;
 +Allocate resource
 +Child fibre running
 +Free resource
@@ -413,7 +413,7 @@ We release when `fork_sub_ignore` fails due to parent switch being already off:
 # run (fun sw ->
     Switch.turn_off sw (Failure "Switch already off");
     fork_sub_ignore_resource sw
-  )
+  );;
 +Allocate resource
 +Free resource
 Exception: Failure "Switch already off".
@@ -426,7 +426,7 @@ We release when `fork_sub_ignore` fails due to parent switch being invalid:
     let copy = ref sw in
     Switch.sub sw ~on_error:raise (fun sub -> copy := sub);
     fork_sub_ignore_resource !copy
-  )
+  );;
 +Allocate resource
 +Free resource
 Exception: Invalid_argument "Switch finished!".
@@ -440,7 +440,7 @@ We release when `fork_sub_ignore`'s switch is turned off while running:
     Fibre.fork_sub_ignore ~sw ~on_error:raise
       ~on_release:(fun () -> traceln "Free resource")
       (fun _sw -> failwith "Simulated error")
-  )
+  );;
 +Allocate resource
 +Free resource
 Exception: Failure "Simulated error".
