@@ -18,8 +18,8 @@ let src = Logs.Src.create "eio_linux" ~doc:"Effect-based IO system for Linux/io-
 module Log = (val Logs.src_log src : Logs.LOG)
 
 open Eio.Std
-open Obj.Effect_handlers
-open Obj.Effect_handlers.Deep 
+open EffectHandlers
+open EffectHandlers.Deep
 
 module Suspended = Eunix.Suspended
 module Zzz = Eunix.Zzz

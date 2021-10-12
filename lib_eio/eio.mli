@@ -532,7 +532,7 @@ end
 (** API for use by the scheduler implementation. *)
 module Private : sig
   module Effects : sig
-    open Obj.Effect_handlers 
+    open EffectHandlers
 
     type 'a enqueue = ('a, exn) result -> unit
     (** A function provided by the scheduler to reschedule a previously-suspended thread. *)

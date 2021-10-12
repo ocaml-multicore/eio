@@ -18,8 +18,8 @@ let src = Logs.Src.create "eio_luv" ~doc:"Eio backend using luv"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 open Eio.Std
-open Obj.Effect_handlers 
-open Obj.Effect_handlers.Deep 
+open EffectHandlers
+open EffectHandlers.Deep
 
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)
