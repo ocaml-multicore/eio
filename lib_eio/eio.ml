@@ -1,4 +1,4 @@
-open Obj.Effect_handlers
+open EffectHandlers
 
 module Std = struct
   module Promise = Promise

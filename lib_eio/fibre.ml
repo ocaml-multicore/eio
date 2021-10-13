@@ -1,4 +1,4 @@
-open Obj.Effect_handlers
+open EffectHandlers
 
 type _ eff += Fork : (unit -> 'a) -> 'a Promise.t eff
 
