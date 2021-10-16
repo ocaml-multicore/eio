@@ -1,4 +1,4 @@
-open Obj.Effect_handlers.Deep
+open EffectHandlers.Deep
 
 type 'a t = {
   tid : Ctf.id;
