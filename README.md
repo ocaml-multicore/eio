@@ -59,7 +59,8 @@ The API is expected to change a great deal over the next year or so.
 If you're looking for a stable library for your application, you should continue using Lwt or Async for now.
 However, if you'd like to help with these experiments, please get in touch!
 
-At present, Linux with io-uring is the only backend available.
+At present, the library provides a generic backend based on libuv, which should work on most platforms,
+plus an optimised backend for Linux using io-uring.
 It's able to run a web-server with [good performance][http-bench], but many features are still missing.
 
 ## Structure of the Code
