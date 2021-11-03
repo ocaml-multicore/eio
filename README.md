@@ -88,10 +88,16 @@ git clone --recursive https://github.com/ocaml-multicore/eio.git
 cd eio
 opam pin -yn ./ocaml-uring
 opam pin -yn .
-opam depext -i eio_main utop		# (for opam 2.0)
-opam install eio_main utop		# (for opam 2.1)
 ```
-(Run `opam --version` if you're not sure which one you have installed.)
+Note the installation steps diverve for opam versions 2.0 and 2.1.  (Run `opam --version` if you're not sure which one you have installed.)
+```
+opam depext -i eio_main utop		# (for opam 2.0
+```
+```
+opam install uring              # (for opam 2.1)
+git submodule deinit --all      # (for opam 2.1)
+opam install eio_main utop      # (for opam 2.1)
+```
 
 Try out the examples interactively by running `utop` in the shell.
 
