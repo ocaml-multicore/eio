@@ -85,9 +85,8 @@ opam switch create 4.12.0+domains --repositories=multicore=git+https://github.co
 Then you'll need to install this library (and `utop` if you want to try it interactively):
 
 ```
-git clone --recursive https://github.com/ocaml-multicore/eio.git
+git clone https://github.com/ocaml-multicore/eio.git
 cd eio
-opam pin -yn ./ocaml-uring
 opam pin -yn .
 opam depext -i eio_main utop		# (for opam 2.0)
 opam install eio_main utop		# (for opam 2.1)

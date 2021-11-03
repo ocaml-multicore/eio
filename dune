@@ -3,4 +3,3 @@
   (packages eio_main)
   (preludes doc/prelude.ml)
   (files README.md))
-(vendored_dirs ocaml-uring)
