@@ -7,14 +7,14 @@ module Eio_main = struct
 
   let fake_clock real_clock = object (_ : #Eio.Time.clock)
     method now = !now
-    method sleep_until ?sw time =
+    method sleep_until time =
       (* The fake times are all in the past, so we just ask to wait until the
          fake time is due and it will happen immediately. If we wait for
          multiple times, they'll get woken in the right order. At the moment,
          the scheduler only checks for expired timers when the run-queue is
          empty, so this is a convenient way to wait for the system to be idle.
          Will need revising if we make the scheduler fair at some point. *)
-      Eio.Time.sleep_until ?sw real_clock time;
+      Eio.Time.sleep_until real_clock time;
       now := max !now time
   end
 

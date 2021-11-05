@@ -95,7 +95,6 @@ type rw_req = {
   buf : Uring.Region.chunk;
   mutable cur_off : int;
   action : int Suspended.t;
-  sw : Switch.t option;
 }
 
 type cancel_hook = Switch.hook ref
@@ -109,6 +108,7 @@ type io_job =
 
 type runnable =
   | Thread : 'a Suspended.t * 'a -> runnable
+  | Thread_checked : unit Suspended.t -> runnable
   | Failed_thread : 'a Suspended.t * exn -> runnable
 
 type t = {
@@ -127,6 +127,7 @@ let enqueue_thread st k x =
 let enqueue_failed_thread st k ex =
   Queue.push (Failed_thread (k, ex)) st.run_q
 
+type _ eff += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a eff
 type _ eff += Enter : (t -> 'a Suspended.t -> unit) -> 'a eff
 let enter fn = perform (Enter fn)
 
@@ -138,7 +139,7 @@ let rec enqueue_cancel job st action =
   | Some _ -> ()
 
 let cancel job =
-  let res = enter (enqueue_cancel job) in
+  let res = perform (Enter_unchecked (enqueue_cancel job)) in
   Log.debug (fun l -> l "cancel returned");
   if res = -2 then (
     Log.debug (fun f -> f "Cancel returned ENOENT - operation completed before cancel took effect")
@@ -175,27 +176,25 @@ let cancel job =
    When [fn cancel_hook] returns, it registers a cancellation callback with [sw] and stores its handle in [cancel_hook].
    If [sw] is already off, it schedules [action] to be discontinued.
    @return Whether to retry the operation later, once there is space. *)
-let with_cancel_hook ?sw ~action st fn =
+let with_cancel_hook ~action st fn =
   let release = ref Switch.null_hook in
-  match sw with
-  | None -> fn release = None
-  | Some sw ->
-    match Switch.get_error sw with
-    | Some ex -> enqueue_failed_thread st action ex; false
-    | None ->
-      match fn release with
-      | None -> true
-      | Some job ->
-        release := Switch.add_cancel_hook sw (fun _ -> cancel job);
-        false
+  let sw = action.Suspended.fibre.switch in
+  match Switch.get_error sw with
+  | Some ex -> enqueue_failed_thread st action ex; false
+  | None ->
+    match fn release with
+    | None -> true
+    | Some job ->
+      release := Switch.add_cancel_hook sw (fun _ -> cancel job);
+      false
 
-let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; sw; action} as req) =
+let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
   let fd = FD.get "submit_rw_req" fd in
   let {uring;io_q;_} = st in
   let off = Uring.Region.to_offset buf + cur_off in
   let len = match len with Exactly l | Upto l -> l in
   let len = len - cur_off in
-  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+  let retry = with_cancel_hook ~action st (fun cancel ->
       match op with
       |`R -> Uring.read_fixed uring ~file_offset fd ~off ~len (Read (req, cancel))
       |`W -> Uring.write_fixed uring ~file_offset fd ~off ~len (Write (req, cancel))
@@ -210,26 +209,26 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; sw; action} a
 (* TODO bind from unixsupport *)
 let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
-let enqueue_read st action (sw,file_offset,fd,buf,len) =
+let enqueue_read st action (file_offset,fd,buf,len) =
   let file_offset =
     match file_offset with
     | Some x -> x
     | None -> FD.uring_file_offset fd
   in
-  let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action; sw} in
+  let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action } in
   Log.debug (fun l -> l "read: submitting call");
   Ctf.label "read";
   submit_rw_req st req
 
 let rec enqueue_readv args st action =
-  let (sw,file_offset,fd,bufs) = args in
+  let (file_offset,fd,bufs) = args in
   let file_offset =
     match file_offset with
     | Some x -> x
     | None -> FD.uring_file_offset fd
   in
   Ctf.label "readv";
-  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+  let retry = with_cancel_hook ~action st (fun cancel ->
       Uring.readv st.uring ~file_offset (FD.get "readv" fd) bufs (Job (action, cancel))
     )
   in
@@ -237,29 +236,29 @@ let rec enqueue_readv args st action =
     Queue.push (fun st -> enqueue_readv args st action) st.io_q
 
 let rec enqueue_writev args st action =
-  let (sw,file_offset,fd,bufs) = args in
+  let (file_offset,fd,bufs) = args in
   let file_offset =
     match file_offset with
     | Some x -> x
     | None -> FD.uring_file_offset fd
   in
   Ctf.label "writev";
-  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+  let retry = with_cancel_hook ~action st (fun cancel ->
       Uring.writev st.uring ~file_offset (FD.get "writev" fd) bufs (Job (action, cancel))
     )
   in
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_writev args st action) st.io_q
 
-let rec enqueue_poll_add ?sw fd poll_mask st action =
+let rec enqueue_poll_add fd poll_mask st action =
   Log.debug (fun l -> l "poll_add: submitting call");
   Ctf.label "poll_add";
-  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+  let retry = with_cancel_hook ~action st (fun cancel ->
       Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Job (action, cancel))
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_poll_add ?sw fd poll_mask st action) st.io_q
+    Queue.push (fun st -> enqueue_poll_add fd poll_mask st action) st.io_q
 
 let rec enqueue_close st action fd =
   Log.debug (fun l -> l "close: submitting call");
@@ -268,57 +267,57 @@ let rec enqueue_close st action fd =
   if subm = None then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_close st action fd) st.io_q
 
-let enqueue_write st action (sw,file_offset,fd,buf,len) =
+let enqueue_write st action (file_offset,fd,buf,len) =
   let file_offset =
     match file_offset with
     | Some x -> x
     | None -> FD.uring_file_offset fd
   in
-  let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action; sw } in
+  let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action } in
   Log.debug (fun l -> l "write: submitting call");
   Ctf.label "write";
   submit_rw_req st req
 
-let rec enqueue_splice ?sw ~src ~dst ~len st action =
+let rec enqueue_splice ~src ~dst ~len st action =
   Log.debug (fun l -> l "splice: submitting call");
   Ctf.label "splice";
-  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+  let retry = with_cancel_hook ~action st (fun cancel ->
       Uring.splice st.uring (Job (action, cancel)) ~src:(FD.get "splice" src) ~dst:(FD.get "splice" dst) ~len
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_splice ?sw ~src ~dst ~len st action) st.io_q
+    Queue.push (fun st -> enqueue_splice ~src ~dst ~len st action) st.io_q
 
-let rec enqueue_openat2 ((sw, access, flags, perm, resolve, dir, path) as args) st action =
+let rec enqueue_openat2 ((access, flags, perm, resolve, dir, path) as args) st action =
   Log.debug (fun l -> l "openat2: submitting call");
   Ctf.label "openat2";
   let fd = Option.map (FD.get "openat2") dir in
-  let retry = with_cancel_hook ~sw ~action st (fun cancel ->
+  let retry = with_cancel_hook ~action st (fun cancel ->
       Uring.openat2 st.uring ~access ~flags ~perm ~resolve ?fd path (Job (action, cancel))
     )
   in
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_openat2 args st action) st.io_q
 
-let rec enqueue_connect ?sw fd addr st action =
+let rec enqueue_connect fd addr st action =
   Log.debug (fun l -> l "connect: submitting call");
   Ctf.label "connect";
-  let retry = with_cancel_hook ?sw ~action st (fun cancel ->
+  let retry = with_cancel_hook ~action st (fun cancel ->
       Uring.connect st.uring (FD.get "connect" fd) addr (Job (action, cancel))
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_connect ?sw fd addr st action) st.io_q
+    Queue.push (fun st -> enqueue_connect fd addr st action) st.io_q
 
-let rec enqueue_accept ~sw fd client_addr st action =
+let rec enqueue_accept fd client_addr st action =
   Log.debug (fun l -> l "accept: submitting call");
   Ctf.label "accept";
-  let retry = with_cancel_hook ~sw ~action st (fun cancel ->
+  let retry = with_cancel_hook ~action st (fun cancel ->
       Uring.accept st.uring (FD.get "accept" fd) client_addr (Job (action, cancel))
     ) in
   if retry then (
     (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_accept ~sw fd client_addr st action) st.io_q
+    Queue.push (fun st -> enqueue_accept fd client_addr st action) st.io_q
   )
 
 let rec enqueue_noop st action =
@@ -345,6 +344,11 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* Wakeup any paused fibres *)
   match Queue.take run_q with
   | Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
+  | Thread_checked k ->
+    begin match Switch.get_error k.fibre.switch with
+      | Some e -> Suspended.discontinue k e
+      | None -> Suspended.continue k ()
+    end
   | Failed_thread (k, ex) -> Suspended.discontinue k ex
   | exception Queue.Empty ->
     let now = Unix.gettimeofday () in
@@ -396,19 +400,26 @@ and handle_complete st ~runnable result =
     complete_rw_req st req result
   | Job (k, cancel) ->
     Switch.remove_hook !cancel;
-    Suspended.continue k result
+    begin match Switch.get_error k.fibre.switch with
+      | Some e -> Suspended.discontinue k e        (* If cancelled, report that instead. *)
+      | None -> Suspended.continue k result
+    end
   | Job_no_cancel k ->
     Suspended.continue k result
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res, len with
   | 0, _ -> Suspended.discontinue action End_of_file
   | e, _ when e < 0 ->
-    if errno_is_retry e then (
-      submit_rw_req st req;
-      schedule st
-    ) else (
-      Suspended.continue action e
-    )
+    begin match Switch.get_error action.fibre.switch with
+      | Some e -> Suspended.discontinue action e        (* If cancelled, report that instead. *)
+      | None ->
+        if errno_is_retry e then (
+          submit_rw_req st req;
+          schedule st
+        ) else (
+          Suspended.continue action e
+        )
+    end
   | n, Exactly len when n < len - cur_off ->
     req.cur_off <- req.cur_off + n;
     submit_rw_req st req;
@@ -434,25 +445,23 @@ let noop () =
   Log.debug (fun l -> l "noop returned");
   if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
-type _ eff += Sleep_until : Switch.t option * float -> unit eff
-let sleep_until ?sw d =
-  perform (Sleep_until (sw, d))
+type _ eff += Sleep_until : float -> unit eff
+let sleep_until d =
+  perform (Sleep_until d)
 
-type _ eff += ERead : (Switch.t option * Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
+type _ eff += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
 
-let read_exactly ?sw ?file_offset fd buf len =
-  let res = perform (ERead (sw, file_offset, fd, buf, Exactly len)) in
+let read_exactly ?file_offset fd buf len =
+  let res = perform (ERead (file_offset, fd, buf, Exactly len)) in
   Log.debug (fun l -> l "read_exactly: woken up after read");
   if res < 0 then (
-    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "read_exactly", ""))
   )
 
-let read_upto ?sw ?file_offset fd buf len =
-  let res = perform (ERead (sw, file_offset, fd, buf, Upto len)) in
+let read_upto ?file_offset fd buf len =
+  let res = perform (ERead (file_offset, fd, buf, Upto len)) in
   Log.debug (fun l -> l "read_upto: woken up after read");
   if res < 0 then (
-    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     let err = Uring.error_of_errno res in
     let ex = Unix.Unix_error (err, "read_upto", "") in
     if err = Unix.ECONNRESET then raise (Eio.Net.Connection_reset ex)
@@ -461,11 +470,10 @@ let read_upto ?sw ?file_offset fd buf len =
     res
   )
 
-let readv ?sw ?file_offset fd bufs =
-  let res = enter (enqueue_readv (sw, file_offset, fd, bufs)) in
+let readv ?file_offset fd bufs =
+  let res = enter (enqueue_readv (file_offset, fd, bufs)) in
   Log.debug (fun l -> l "readv: woken up after read");
   if res < 0 then (
-    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "readv", ""))
   ) else if res = 0 then (
     raise End_of_file
@@ -473,11 +481,10 @@ let readv ?sw ?file_offset fd bufs =
     res
   )
 
-let rec writev ?sw ?file_offset fd bufs =
-  let res = enter (enqueue_writev (sw, file_offset, fd, bufs)) in
+let rec writev ?file_offset fd bufs =
+  let res = enter (enqueue_writev (file_offset, fd, bufs)) in
   Log.debug (fun l -> l "writev: woken up after write");
   if res < 0 then (
-    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "writev", ""))
   ) else (
     match Cstruct.shiftv bufs res with
@@ -490,32 +497,29 @@ let rec writev ?sw ?file_offset fd bufs =
         | Some ofs when ofs = I63.minus_one -> Some I63.minus_one
         | Some ofs -> Some (I63.add ofs (I63.of_int res))
       in
-      writev ?sw ?file_offset fd bufs
+      writev ?file_offset fd bufs
   )
 
-let await_readable ?sw fd =
-  let res = enter (enqueue_poll_add ?sw fd (Uring.Poll_mask.(pollin + pollerr))) in
+let await_readable fd =
+  let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollin + pollerr))) in
   Log.debug (fun l -> l "await_readable: woken up");
   if res < 0 then (
-    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
   )
 
-let await_writable ?sw fd =
-  let res = enter (enqueue_poll_add ?sw fd (Uring.Poll_mask.(pollout + pollerr))) in
+let await_writable fd =
+  let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollout + pollerr))) in
   Log.debug (fun l -> l "await_writable: woken up");
   if res < 0 then (
-    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
   )
 
-type _ eff += EWrite : (Switch.t option * Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
+type _ eff += EWrite : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
 
-let write ?sw ?file_offset fd buf len =
-  let res = perform (EWrite (sw, file_offset, fd, buf, Exactly len)) in
+let write ?file_offset fd buf len =
+  let res = perform (EWrite (file_offset, fd, buf, Exactly len)) in
   Log.debug (fun l -> l "write: woken up after write");
   if res < 0 then (
-    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "write", ""))
   )
 
@@ -525,21 +529,17 @@ let alloc () = perform Alloc
 type _ eff += Free : Uring.Region.chunk -> unit eff
 let free buf = perform (Free buf)
 
-let splice ?sw src ~dst ~len =
-  let res = enter (enqueue_splice ?sw ~src ~dst ~len) in
+let splice src ~dst ~len =
+  let res = enter (enqueue_splice ~src ~dst ~len) in
   Log.debug (fun l -> l "splice returned");
   if res > 0 then res
   else if res = 0 then raise End_of_file
-  else (
-    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
-    raise (Unix.Unix_error (Uring.error_of_errno res, "splice", ""))
-  )
+  else raise (Unix.Unix_error (Uring.error_of_errno res, "splice", ""))
 
-let connect ?sw fd addr =
-  let res = enter (enqueue_connect ?sw fd addr) in
+let connect fd addr =
+  let res = enter (enqueue_connect fd addr) in
   Log.debug (fun l -> l "connect returned");
   if res < 0 then (
-    Option.iter Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
   )
 
@@ -554,7 +554,7 @@ let openfile ~sw path flags mode =
 
 let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
   wrap_errors path @@ fun () ->
-  let res = enter (enqueue_openat2 (sw, access, flags, perm, resolve, dir, path)) in
+  let res = enter (enqueue_openat2 (access, flags, perm, resolve, dir, path)) in
   Log.debug (fun l -> l "openat2 returned");
   if res < 0 then (
     Switch.check sw;    (* If cancelled, report that instead. *)
@@ -574,17 +574,17 @@ let fstat fd =
 external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
 
 (* We ignore [sw] because this isn't a uring operation yet. *)
-let mkdirat ?sw:_ ~perm dir path =
+let mkdirat ~perm dir path =
   wrap_errors path @@ fun () ->
   match dir with
   | None -> Unix.mkdir path perm
   | Some dir -> eio_mkdirat (FD.get "mkdirat" dir) path perm
 
-let mkdir_beneath ?sw ~perm ?dir path =
+let mkdir_beneath ~perm ?dir path =
   let dir_path = Filename.dirname path in
   let leaf = Filename.basename path in
   (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
-  Switch.sub_opt sw (fun sw ->
+  Switch.top (fun sw ->
       let parent =
         wrap_errors path @@ fun () ->
         openat2 ~sw ~seekable:false ?dir dir_path
@@ -593,19 +593,18 @@ let mkdir_beneath ?sw ~perm ?dir path =
           ~perm:0
           ~resolve:Uring.Resolve.beneath
       in
-      mkdirat ~sw ~perm (Some parent) leaf
+      mkdirat ~perm (Some parent) leaf
     )
 
 let shutdown socket command =
   Unix.shutdown (FD.get "shutdown" socket) command
 
-let accept_loose_fd ~sw socket =
+let accept_loose_fd socket =
   Ctf.label "accept";
   let client_addr = Uring.Sockaddr.create () in
-  let res = enter (enqueue_accept ~sw socket client_addr) in
+  let res = enter (enqueue_accept socket client_addr) in
   Log.debug (fun l -> l "accept returned");
   if res < 0 then (
-    Switch.check sw;    (* If cancelled, report that instead. *)
     raise (Unix.Unix_error (Uring.error_of_errno res, "accept", ""))
   ) else (
     let unix : Unix.file_descr = Obj.magic res in
@@ -615,7 +614,7 @@ let accept_loose_fd ~sw socket =
   )
 
 let accept ~sw fd =
-  let client, client_addr = accept_loose_fd ~sw fd in
+  let client, client_addr = accept_loose_fd fd in
   Switch.on_release sw (fun () -> FD.ensure_closed client);
   client, client_addr
 
@@ -643,46 +642,46 @@ module Objects = struct
 
   (* When copying between a source with an FD and a sink with an FD, we can share the chunk
      and avoid copying. *)
-  let fast_copy ?sw src dst =
+  let fast_copy src dst =
     with_chunk @@ fun chunk ->
     let chunk_size = Uring.Region.length chunk in
     try
       while true do
-        let got = read_upto ?sw src chunk chunk_size in
-        write ?sw dst chunk got
+        let got = read_upto src chunk chunk_size in
+        write dst chunk got
       done
     with End_of_file -> ()
 
   (* Try a fast copy using splice. If the FDs don't support that, switch to copying. *)
-  let fast_copy_try_splice ?sw src dst =
+  let fast_copy_try_splice src dst =
     try
       while true do
-        let _ : int = splice ?sw src ~dst ~len:max_int in
+        let _ : int = splice src ~dst ~len:max_int in
         ()
       done
     with
     | End_of_file -> ()
-    | Unix.Unix_error (Unix.EINVAL, "splice", _) -> fast_copy ?sw src dst
+    | Unix.Unix_error (Unix.EINVAL, "splice", _) -> fast_copy src dst
 
   (* Copy using the [Read_source_buffer] optimisation.
      Avoids a copy if the source already has the data. *)
-  let copy_with_rsb ?sw rsb dst =
+  let copy_with_rsb rsb dst =
     try
       while true do
-        rsb ?sw (writev ?sw dst)
+        rsb (writev dst)
       done
     with End_of_file -> ()
 
   (* Copy by allocating a chunk from the pre-shared buffer and asking
      the source to write into it. This used when the other methods
      aren't available. *)
-  let fallback_copy ?sw src dst =
+  let fallback_copy src dst =
     with_chunk @@ fun chunk ->
     let chunk_cs = Uring.Region.to_cstruct chunk in
     try
       while true do
-        let got = Eio.Flow.read_into ?sw src chunk_cs in
-        write ?sw dst chunk got
+        let got = Eio.Flow.read_into src chunk_cs in
+        write dst chunk got
       done
     with End_of_file -> ()
 
@@ -696,7 +695,7 @@ module Objects = struct
         | FD -> Some fd
         | _ -> None
 
-      method read_into ?sw buf =
+      method read_into buf =
         (* Inefficient copying fallback *)
         with_chunk @@ fun chunk ->
         let chunk_cs = Uring.Region.to_cstruct chunk in
@@ -704,22 +703,22 @@ module Objects = struct
         if Lazy.force is_tty then (
           (* Work-around for https://github.com/axboe/liburing/issues/354
              (should be fixed in Linux 5.14) *)
-          await_readable ?sw fd
+          await_readable fd
         );
-        let got = read_upto ?sw fd chunk max_len in
+        let got = read_upto fd chunk max_len in
         Cstruct.blit chunk_cs 0 buf 0 got;
         got
 
       method read_methods = []
 
-      method write ?sw src =
+      method write src =
         match get_fd_opt src with
-        | Some src -> fast_copy_try_splice ?sw src fd
+        | Some src -> fast_copy_try_splice src fd
         | None ->
           let rec aux = function
-            | Eio.Flow.Read_source_buffer rsb :: _ -> copy_with_rsb ?sw rsb fd
+            | Eio.Flow.Read_source_buffer rsb :: _ -> copy_with_rsb rsb fd
             | _ :: xs -> aux xs
-            | [] -> fallback_copy ?sw src fd
+            | [] -> fallback_copy src fd
           in
           aux (Eio.Flow.read_methods src)
 
@@ -739,7 +738,7 @@ module Objects = struct
     method close = FD.close fd
 
     method accept_sub ~sw ~on_error fn =
-      let client, client_addr = accept_loose_fd ~sw fd in
+      let client, client_addr = accept_loose_fd fd in
       Fibre.fork_sub_ignore ~sw ~on_error
         (fun sw ->
            let client_addr = match client_addr with
@@ -790,7 +789,7 @@ module Objects = struct
       in
       let sock_unix = Unix.socket socket_domain socket_type 0 in
       let sock = FD.of_unix ~sw ~seekable:false sock_unix in
-      connect ~sw sock addr;
+      connect sock addr;
       (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
   end
 
@@ -870,8 +869,8 @@ module Objects = struct
       in
       (new dir (Some fd) :> <Eio.Dir.t; Eio.Flow.close>)
 
-    method mkdir ?sw ~perm path =
-      mkdir_beneath ?sw ~perm ?dir:fd path
+    method mkdir ~perm path =
+      mkdir_beneath ~perm ?dir:fd path
 
     method close =
       FD.close (Option.get fd)
@@ -883,8 +882,8 @@ module Objects = struct
 
     val! resolve_flags = Uring.Resolve.empty
 
-    method! mkdir ?sw ~perm path =
-      mkdirat ?sw ~perm None path
+    method! mkdir ~perm path =
+      mkdirat ~perm None path
   end
 
   let stdenv () =
@@ -926,8 +925,9 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   let mem_q = Queue.create () in
   let st = { mem; uring; run_q; io_q; mem_q; sleep_q; io_jobs = 0 } in
   Log.debug (fun l -> l "starting main thread");
-  let rec fork ~tid fn =
+  let rec fork ~tid ~switch:initial_switch fn =
     Ctf.note_switch tid;
+    let fibre = { Suspended.tid; switch = initial_switch } in
     match_with fn () 
     { retc = (fun () -> schedule st);
       exnc = (fun e -> raise e);
@@ -935,60 +935,92 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
         match e with 
         | Enter fn ->
           Some (fun k ->
-            let k = { Suspended.k; tid } in
-            fn st k;
-            schedule st)
+              begin match Switch.get_error fibre.switch with
+                | Some e -> discontinue k e
+                | None ->
+                  let k = { Suspended.k; fibre } in
+                  fn st k;
+                  schedule st
+              end)
+        | Enter_unchecked fn ->
+          Some (fun k ->
+              let k = { Suspended.k; fibre } in
+              fn st k;
+              schedule st
+            )
         | ERead args ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
+            let k = { Suspended.k; fibre } in
             enqueue_read st k args;
             schedule st)
         | Close fd ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
+            let k = { Suspended.k; fibre } in
             enqueue_close st k fd;
             schedule st)
         | EWrite args ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
+            let k = { Suspended.k; fibre } in
             enqueue_write st k args;
             schedule st)
-        | Sleep_until (sw, time) ->
+        | Sleep_until time ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
+            let k = { Suspended.k; fibre } in
             let cancel_hook = ref Switch.null_hook in
-            begin match sw with
+            let sw = fibre.switch in
+            begin match Switch.get_error sw with
+              | Some ex -> Suspended.discontinue k ex
               | None ->
-                ignore (Zzz.add ~cancel_hook sleep_q time k : Zzz.Key.t);
+                let job = Zzz.add ~cancel_hook sleep_q time k in
+                cancel_hook := Switch.add_cancel_hook sw (fun ex ->
+                    Zzz.remove sleep_q job;
+                    enqueue_failed_thread st k ex
+                  );
                 schedule st
-              | Some sw ->
-                match Switch.get_error sw with
-                | Some ex -> Suspended.discontinue k ex
-                | None ->
-                  let job = Zzz.add ~cancel_hook sleep_q time k in
-                  cancel_hook := Switch.add_cancel_hook sw (fun ex ->
-                      Zzz.remove sleep_q job;
-                      enqueue_failed_thread st k ex
-                    );
-                  schedule st
             end)
+        | Eio.Private.Effects.Set_switch switch ->
+          Some (fun k ->
+              let old = fibre.switch in
+              fibre.switch <- switch;
+              continue k old
+            )
+        | Eio.Private.Effects.Yield ->
+          Some (fun k ->
+              let k = { Suspended.k; fibre } in
+              Queue.push (Thread_checked k) st.run_q;
+              schedule st
+            )
+        | Eio.Private.Effects.Suspend_unchecked f ->
+          Some (fun k -> 
+              let k = { Suspended.k; fibre } in
+              f tid (function
+                  | Ok v -> enqueue_thread st k v
+                  | Error ex -> enqueue_failed_thread st k ex
+                );
+              schedule st
+            )
         | Eio.Private.Effects.Suspend f ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
-            f tid (function
-                | Ok v -> enqueue_thread st k v
-                | Error ex -> enqueue_failed_thread st k ex
-              );
-            schedule st)
+            match Switch.get_error fibre.switch with
+              | Some e -> discontinue k e
+              | None ->
+                let k = { Suspended.k; fibre } in
+                f tid (function
+                    | Ok v -> enqueue_thread st k v
+                    | Error ex -> enqueue_failed_thread st k ex
+                  );
+                schedule st
+            )
         | Eio.Private.Effects.Fork f ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
+            let k = { Suspended.k; fibre } in
             let id = Ctf.mint_id () in
             Ctf.note_created id Ctf.Task;
             let promise, resolver = Promise.create_with_id id in
             enqueue_thread st k promise;
             fork
               ~tid:id
+              ~switch:fibre.switch
               (fun () ->
                  match f () with
                  | x -> Promise.fulfill resolver x
@@ -998,11 +1030,11 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
               ))
         | Eio.Private.Effects.Fork_ignore f ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
+            let k = { Suspended.k; fibre } in
             enqueue_thread st k ();
             let child = Ctf.note_fork () in
             Ctf.note_switch child;
-            fork ~tid:child (fun () ->
+            fork ~tid:child ~switch:fibre.switch (fun () ->
                 match f () with
                 | () ->
                   Ctf.note_resolved child ~ex:None
@@ -1012,7 +1044,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
         | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eunix.Trace.default_traceln)
         | Alloc ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
+            let k = { Suspended.k; fibre } in
             alloc_buf st k)
         | Free buf ->
           Some (fun k -> 
@@ -1022,9 +1054,10 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     }
   in
   let main_done = ref false in
-  let `Exit_scheduler = fork ~tid:(Ctf.mint_id ()) (fun () ->
-      Fun.protect (fun () -> main stdenv)
-        ~finally:(fun () -> main_done := true)
+  let `Exit_scheduler =
+    fork ~tid:(Ctf.mint_id ()) ~switch:Eio.Private.boot_switch (fun () ->
+        Fun.protect (fun () -> Switch.top (fun _sw -> main stdenv))
+          ~finally:(fun () -> main_done := true)
   ) in
   if not !main_done then
     failwith "Deadlock detected: no events scheduled but main function hasn't returned";

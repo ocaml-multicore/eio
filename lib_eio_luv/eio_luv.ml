@@ -50,16 +50,16 @@ let or_raise_path path = function
 
 module Suspended = struct
   type 'a t = {
-    tid : Ctf.id;
+    fibre : Eunix.Suspended.state;
     k : ('a, unit) continuation;
   }
 
   let continue t v =
-    Ctf.note_switch t.tid;
+    Ctf.note_switch t.fibre.tid;
     continue t.k v
 
   let discontinue t ex =
-    Ctf.note_switch t.tid;
+    Ctf.note_switch t.fibre.tid;
     discontinue t.k ex
 
   let continue_result t = function
@@ -67,11 +67,14 @@ module Suspended = struct
     | Error x -> discontinue t x
 end
 
-type _ eff += Await : (('a -> unit) -> unit) -> 'a eff
+type _ eff += Await : (Eunix.Suspended.state -> ('a -> unit) -> unit) -> 'a eff
 let await fn = perform (Await fn)
 
 type _ eff += Enter : ('a Suspended.t -> unit) -> 'a eff
+type _ eff += Enter_unchecked : ('a Suspended.t -> unit) -> 'a eff
+
 let enter fn = perform (Enter fn)
+let enter_unchecked fn = perform (Enter_unchecked fn)
 
 let await_exn fn =
   perform (Await fn) |> or_raise
@@ -88,13 +91,8 @@ let enqueue_failed_thread k ex =
   let yield = Luv.Timer.init () |> or_raise in
   Luv.Timer.start yield 0 (fun () -> Suspended.discontinue k ex) |> or_raise
 
-let yield ?sw () =
-  Option.iter Switch.check sw;
-  enter @@ fun k ->
-  enqueue_thread k ()
-
-let with_cancel ?sw ~request fn =
-  let cancel = Switch.add_cancel_hook_opt sw (fun _ ->
+let with_cancel fibre ~request fn =
+  let cancel = Switch.add_cancel_hook fibre.Eunix.Suspended.switch (fun _ ->
       match Luv.Request.cancel request with
       | Ok () -> ()
       | Error e -> Log.debug (fun f -> f "Cancel failed: %s" (Luv.Error.strerror e))
@@ -120,7 +118,7 @@ module Handle = struct
     let fd = get "close" t in
     t.fd <- `Closed;
     Switch.remove_hook t.release_hook;
-    enter @@ fun k ->
+    enter_unchecked @@ fun k ->
     Luv.Handle.close fd (Suspended.continue k)
 
   let ensure_closed t =
@@ -156,7 +154,7 @@ module File = struct
     let fd = get "close" t in
     t.fd <- `Closed;
     Switch.remove_hook t.release_hook;
-    await_exn (Luv.File.close fd)
+    await_exn (fun _fibre -> Luv.File.close fd)
 
   let ensure_closed t =
     if is_open t then close t
@@ -171,45 +169,45 @@ module File = struct
     t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
     t
 
+  let await_with_cancel ~request fn =
+    await (fun fibre k ->
+        with_cancel fibre ~request (fun () -> fn k)
+      )
+
   let open_ ~sw ?mode path flags =
     let request = Luv.File.Request.make () in
-    with_cancel ~sw ~request @@ fun () ->
-    await (Luv.File.open_ ?mode ~request path flags) |> Result.map (of_luv ~sw)
+    await_with_cancel ~request (Luv.File.open_ ?mode ~request path flags)
+    |> Result.map (of_luv ~sw)
 
-  let read ?sw fd bufs =
+  let read fd bufs =
     let request = Luv.File.Request.make () in
-    with_cancel ?sw ~request @@ fun () ->
-    await (Luv.File.read ~request (get "read" fd) bufs)
+    await_with_cancel ~request (Luv.File.read ~request (get "read" fd) bufs)
 
-  let rec write ?sw fd bufs =
+  let rec write fd bufs =
     let request = Luv.File.Request.make () in
-    with_cancel ?sw ~request @@ fun () ->
-    let sent = await_exn (Luv.File.write ~request (get "write" fd) bufs) in
+    let sent = await_with_cancel ~request (Luv.File.write ~request (get "write" fd) bufs) |> or_raise in
     let rec aux = function
       | [] -> ()
       | x :: xs when Luv.Buffer.size x = 0 -> aux xs
-      | bufs -> write ?sw fd bufs
+      | bufs -> write fd bufs
     in
     aux @@ Luv.Buffer.drop bufs (Unsigned.Size_t.to_int sent)
 
-  let realpath ?sw path =
+  let realpath path =
     let request = Luv.File.Request.make () in
-    with_cancel ?sw ~request @@ fun () ->
-    await (Luv.File.realpath ~request path)
+    await_with_cancel ~request (Luv.File.realpath ~request path)
 
-  let mkdir ?sw ~mode path =
+  let mkdir ~mode path =
     let request = Luv.File.Request.make () in
-    with_cancel ?sw ~request @@ fun () ->
-    await (Luv.File.mkdir ~request ~mode path)
+    await_with_cancel ~request (Luv.File.mkdir ~request ~mode path)
 end
 
 module Stream = struct
   type 'a t = [`Stream of 'a] Handle.t
 
-  let rec read_into ?sw (sock:'a t) buf =
-    Option.iter Switch.check sw;
+  let rec read_into (sock:'a t) buf =
     let r = enter (fun k ->
-        let cancel = Switch.add_cancel_hook_opt sw (fun ex ->
+        let cancel = Switch.add_cancel_hook k.fibre.switch (fun ex ->
             Luv.Stream.read_stop (Handle.get "read_into:cancel" sock) |> or_raise;
             enqueue_failed_thread k (Switch.Cancelled ex)
           ) in
@@ -223,7 +221,7 @@ module Stream = struct
     | Ok buf' ->
       let len = Luv.Buffer.size buf' in
       if len > 0 then len
-      else read_into ?sw sock buf       (* Luv uses a zero-length read to mean EINTR! *)
+      else read_into sock buf       (* Luv uses a zero-length read to mean EINTR! *)
     | Error `EOF -> raise End_of_file
     | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
     | Error x -> raise (Luv_error x)
@@ -232,7 +230,7 @@ module Stream = struct
     | empty :: xs when Luv.Buffer.size empty = 0 -> skip_empty xs
     | xs -> xs
 
-  let rec write ?sw t bufs =
+  let rec write t bufs =
     let err, n = 
       (* note: libuv doesn't seem to allow cancelling stream writes *)
       enter (fun k ->
@@ -243,15 +241,14 @@ module Stream = struct
     or_raise err;
     match Luv.Buffer.drop bufs n |> skip_empty with
     | [] -> ()
-    | bufs -> write ?sw t bufs
+    | bufs -> write t bufs
 end
 
-let sleep_until ?sw due =
-  Option.iter Switch.check sw;
+let sleep_until due =
   let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
   let timer = Luv.Timer.init () |> or_raise in
   enter @@ fun k ->
-  let cancel = Switch.add_cancel_hook_opt sw (fun ex ->
+  let cancel = Switch.add_cancel_hook k.fibre.switch (fun ex ->
       Luv.Timer.stop timer |> or_raise;
       Luv.Handle.close timer (fun () -> ());
       enqueue_failed_thread k ex
@@ -291,21 +288,21 @@ module Objects = struct
       | FD -> Some fd
       | _ -> None
 
-    method read_into ?sw buf =
+    method read_into buf =
       let buf = Cstruct.to_bigarray buf in
-      match File.read ?sw fd [buf] |> or_raise |> Unsigned.Size_t.to_int with
+      match File.read fd [buf] |> or_raise |> Unsigned.Size_t.to_int with
       | 0 -> raise End_of_file
       | got -> got
 
     method read_methods = []
 
-    method write ?sw src =
+    method write src =
       let buf = Luv.Buffer.create 4096 in
       try
         while true do
           let got = Eio.Flow.read_into src (Cstruct.of_bigarray buf) in
           let sub = Luv.Buffer.sub buf ~offset:0 ~length:got in
-          File.write ?sw fd [sub]
+          File.write fd [sub]
         done
       with End_of_file -> ()
   end
@@ -316,19 +313,19 @@ module Objects = struct
   let socket sock = object
     inherit Eio.Flow.two_way
 
-    method read_into ?sw buf =
+    method read_into buf =
       let buf = Cstruct.to_bigarray buf in
-      Stream.read_into ?sw sock buf
+      Stream.read_into sock buf
 
     method read_methods = []
 
-    method write ?sw src =
+    method write src =
       let buf = Luv.Buffer.create 4096 in
       try
         while true do
           let got = Eio.Flow.read_into src (Cstruct.of_bigarray buf) in
           let buf' = Luv.Buffer.sub buf ~offset:0 ~length:got in
-          Stream.write ?sw sock [buf']
+          Stream.write sock [buf']
         done
       with End_of_file -> ()
 
@@ -336,11 +333,11 @@ module Objects = struct
       Handle.close sock
 
     method shutdown = function
-      | `Send -> await_exn @@ Luv.Stream.shutdown (Handle.get "shutdown" sock)
+      | `Send -> await_exn (fun _fibre -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
       | `Receive -> failwith "shutdown receive not supported"
       | `All ->
         Log.warn (fun f -> f "shutdown receive not supported");
-        await_exn @@ Luv.Stream.shutdown (Handle.get "shutdown" sock)
+        await_exn (fun _fibre -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
   end
 
   class virtual ['a] listening_socket ~backlog sock = object (self)
@@ -438,11 +435,11 @@ module Objects = struct
       | `Tcp (host, port) ->
         let sock = Luv.TCP.init () |> or_raise |> Handle.of_luv ~sw in
         let addr = luv_addr_of_unix host port in
-        await_exn (Luv.TCP.connect (Handle.get "connect" sock) addr);
+        await_exn (fun _fibre -> Luv.TCP.connect (Handle.get "connect" sock) addr);
         socket sock
       | `Unix path ->
         let sock = Luv.Pipe.init () |> or_raise |> Handle.of_luv ~sw in
-        await_exn (Luv.Pipe.connect (Handle.get "connect" sock) path);
+        await_exn (fun _fibre -> Luv.Pipe.connect (Handle.get "connect" sock) path);
         socket sock
   end
 
@@ -498,10 +495,10 @@ module Objects = struct
 
     (* Resolve a relative path to an absolute one, with no symlinks.
        @raise Eio.Dir.Permission_denied if it's outside of [dir_path]. *)
-    method private resolve ?sw path =
+    method private resolve path =
       if Filename.is_relative path then (
-        let dir_path = File.realpath ?sw dir_path |> or_raise_path dir_path in
-        let full = File.realpath ?sw (Filename.concat dir_path path) |> or_raise_path path in
+        let dir_path = File.realpath dir_path |> or_raise_path dir_path in
+        let full = File.realpath (Filename.concat dir_path path) |> or_raise_path path in
         let prefix_len = String.length dir_path + 1 in
         if String.length full >= prefix_len && String.sub full 0 prefix_len = dir_path ^ Filename.dir_sep then
           full
@@ -514,16 +511,16 @@ module Objects = struct
       )
 
     (* We want to create [path]. Check that the parent is in the sandbox. *)
-    method private resolve_new ?sw path =
+    method private resolve_new path =
       let dir, leaf = Filename.dirname path, Filename.basename path in
       if leaf = ".." then Fmt.failwith "New path %S ends in '..'!" path
-      else match self#resolve ?sw dir with
+      else match self#resolve dir with
         | dir -> Filename.concat dir leaf
         | exception Eio.Dir.Permission_denied (dir, ex) ->
           raise (Eio.Dir.Permission_denied (Filename.concat dir leaf, ex))
 
     method open_in ~sw path =
-      let fd = File.open_ ~sw (self#resolve ~sw path) [`NOFOLLOW; `RDONLY] |> or_raise_path path in
+      let fd = File.open_ ~sw (self#resolve path) [`NOFOLLOW; `RDONLY] |> or_raise_path path in
       (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
 
     method open_out ~sw ~append ~create path =
@@ -545,11 +542,11 @@ module Objects = struct
 
     method open_dir ~sw path =
       Switch.check sw;
-      new dir (self#resolve ~sw path)
+      new dir (self#resolve path)
 
     (* libuv doesn't seem to provide a race-free way to do this. *)
-    method mkdir ?sw ~perm path =
-      let real_path = self#resolve_new ?sw path in
+    method mkdir ~perm path =
+      let real_path = self#resolve_new path in
       File.mkdir ~mode:[`NUMERIC perm] real_path |> or_raise_path path
 
     method close = ()
@@ -560,7 +557,7 @@ module Objects = struct
     inherit dir "/"
 
     (* No checks *)
-    method! private resolve ?sw:_ path = path
+    method! private resolve path = path
   end
 
   let cwd = object
@@ -586,8 +583,9 @@ end
 let run main =
   Log.debug (fun l -> l "starting run");
   let stdenv = Objects.stdenv () in
-  let rec fork ~tid fn =
+  let rec fork ~tid ~switch:initial_switch fn =
     Ctf.note_switch tid;
+    let fibre = { Eunix.Suspended.tid; switch = initial_switch } in
     match_with fn () 
     { retc = (fun () -> ());
       exnc = (fun e -> raise e);
@@ -595,19 +593,20 @@ let run main =
         match e with
         | Await fn ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
-            fn (Suspended.continue k))
+            let k = { Suspended.k; fibre } in
+            fn fibre (Suspended.continue k))
         | Eio.Private.Effects.Trace ->
           Some (fun k -> continue k Eunix.Trace.default_traceln)
         | Eio.Private.Effects.Fork f ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
+            let k = { Suspended.k; fibre } in
             let id = Ctf.mint_id () in
             Ctf.note_created id Ctf.Task;
             let promise, resolver = Promise.create_with_id id in
             enqueue_thread k promise;
             fork
               ~tid:id
+              ~switch:fibre.switch
               (fun () ->
                  match f () with
                  | x -> Promise.fulfill resolver x
@@ -617,28 +616,60 @@ let run main =
               ))
         | Eio.Private.Effects.Fork_ignore f ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
+            let k = { Suspended.k; fibre } in
             enqueue_thread k ();
             let child = Ctf.note_fork () in
             Ctf.note_switch child;
-            fork ~tid:child (fun () ->
+            fork ~tid:child ~switch:fibre.switch (fun () ->
                 match f () with
                 | () ->
                   Ctf.note_resolved child ~ex:None
                 | exception ex ->
                   Ctf.note_resolved child ~ex:(Some ex)
               ))
-        | Enter fn -> Some (fun k -> fn { Suspended.k; tid })
+        | Eio.Private.Effects.Set_switch switch ->
+          Some (fun k ->
+              let old = fibre.switch in
+              fibre.switch <- switch;
+              continue k old
+            )
+        | Enter_unchecked fn -> Some (fun k ->
+            fn { Suspended.k; fibre }
+          )
+        | Enter fn -> Some (fun k ->
+            match Switch.get_error fibre.switch with
+            | Some e -> discontinue k e
+            | None -> fn { Suspended.k; fibre }
+          )
+        | Eio.Private.Effects.Yield ->
+          Some (fun k ->
+              let yield = Luv.Timer.init () |> or_raise in
+              Luv.Timer.start yield 0 (fun () ->
+                  match Switch.get_error fibre.switch with
+                  | Some e -> discontinue k e
+                  | None -> continue k ()
+                )
+              |> or_raise
+            )
+        | Eio.Private.Effects.Suspend_unchecked fn ->
+          Some (fun k -> 
+              let k = { Suspended.k; fibre } in
+              fn tid (enqueue_result_thread k)
+            )
         | Eio.Private.Effects.Suspend fn ->
           Some (fun k -> 
-            let k = { Suspended.k; tid } in
-            fn tid (enqueue_result_thread k))
+            begin match Switch.get_error fibre.switch with
+              | Some e -> discontinue k e
+              | None ->
+                let k = { Suspended.k; fibre } in
+                fn tid (enqueue_result_thread k)
+            end)
         | _ -> None
     }
   in
   let main_status = ref `Running in
-  fork ~tid:(Ctf.mint_id ()) (fun () ->
-      match main stdenv with
+  fork ~tid:(Ctf.mint_id ()) ~switch:Eio.Private.boot_switch (fun () ->
+      match Switch.top (fun _sw -> main stdenv) with
       | () -> main_status := `Done
       | exception ex -> main_status := `Ex (ex, Printexc.get_raw_backtrace ())
     );

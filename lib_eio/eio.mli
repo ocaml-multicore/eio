@@ -170,10 +170,9 @@ module Std : sig
         The new fibre is attached to [sw] (which can't finish until the fibre ends).
         @param exn_turn_off If [true] and [fn] raises an exception, [sw] is turned off (in addition to breaking the promise). *)
 
-    val yield : ?sw:Switch.t -> unit -> unit
+    val yield : unit -> unit
     (** [yield ()] asks the scheduler to switch to the next runnable task.
-        The current task remains runnable, but goes to the back of the queue.
-        @param sw Ensure that the switch is still on before returning. *)
+        The current task remains runnable, but goes to the back of the queue. *)
   end
 
   val traceln :
@@ -266,7 +265,7 @@ module Flow : sig
   type read_method = ..
   (** Sources can offer a list of ways to read them, in order of preference. *)
 
-  type read_method += Read_source_buffer of (?sw:Switch.t -> (Cstruct.t list -> unit) -> unit)
+  type read_method += Read_source_buffer of ((Cstruct.t list -> unit) -> unit)
   (** If a source offers [Read_source_buffer rsb] then the user can call [rsb fn]
       to borrow a view of the source's buffers.
       [rb] will raise [End_of_file] if no more data will be produced.
@@ -282,15 +281,14 @@ module Flow : sig
 
   class virtual read : object
     method virtual read_methods : read_method list
-    method virtual read_into : ?sw:Switch.t -> Cstruct.t -> int
+    method virtual read_into : Cstruct.t -> int
   end
 
-  val read_into : ?sw:Switch.t -> #read -> Cstruct.t -> int
+  val read_into : #read -> Cstruct.t -> int
   (** [read_into reader buf] reads one or more bytes into [buf].
       It returns the number of bytes written (which may be less than the
       buffer size even if there is more data to be read).
       [buf] must not be zero-length.
-      @param sw Abort the read if [sw] is turned off.
       @raise End_of_file if there is no more data to read *)
 
   val read_methods : #read -> read_method list
@@ -309,13 +307,13 @@ module Flow : sig
   val cstruct_source : Cstruct.t list -> source
 
   class virtual write : object
-    method virtual write : 'a. ?sw:Switch.t -> (#source as 'a) -> unit
+    method virtual write : 'a. (#source as 'a) -> unit
   end
 
-  val copy : ?sw:Switch.t -> #source -> #write -> unit
+  val copy : #source -> #write -> unit
   (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
 
-  val copy_string : ?sw:Switch.t -> string -> #write -> unit
+  val copy_string : string -> #write -> unit
 
   (** Consumer base class. *)
   class virtual sink : object
@@ -404,19 +402,17 @@ end
 module Time : sig
   class virtual clock : object
     method virtual now : float
-    method virtual sleep_until : ?sw:Switch.t -> float -> unit
+    method virtual sleep_until : float -> unit
   end
 
   val now : #clock -> float
   (** [now t] is the current time according to [t]. *)
 
-  val sleep_until : ?sw:Switch.t -> #clock -> float -> unit
-  (** [sleep_until t time] waits until the given time is reached.
-      @param sw The sleep is aborted if the switch is turned off. *)
+  val sleep_until : #clock -> float -> unit
+  (** [sleep_until t time] waits until the given time is reached. *)
 
-  val sleep : ?sw:Switch.t -> #clock -> float -> unit
-  (** [sleep t d] waits for [d] seconds.
-      @param sw The sleep is aborted if the switch is turned off. *)
+  val sleep : #clock -> float -> unit
+  (** [sleep t d] waits for [d] seconds. *)
 end
 
 module Dir : sig
@@ -448,7 +444,7 @@ module Dir : sig
       append:bool ->
       create:create ->
       path -> <rw; Flow.close>
-    method virtual mkdir : ?sw:Switch.t -> perm:Unix.file_perm -> path -> unit
+    method virtual mkdir : perm:Unix.file_perm -> path -> unit
     method virtual open_dir : sw:Switch.t -> path -> t_with_close
   end
   and virtual t_with_close : object
@@ -482,7 +478,7 @@ module Dir : sig
   (** [with_open_out] is like [open_out], but calls [fn flow] with the new flow and closes
       it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
-  val mkdir : ?sw:Switch.t -> #t -> perm:Unix.file_perm -> path -> unit
+  val mkdir : #t -> perm:Unix.file_perm -> path -> unit
   (** [mkdir t ~perm path] creates a new directory [t/path] with permissions [perm]. *)
 
   val open_dir : sw:Switch.t -> #t -> path -> <t; Flow.close>
@@ -543,7 +539,11 @@ module Private : sig
           (e.g. because it called {!Promise.await} on an unresolved promise).
           The effect handler runs [fn tid enqueue] in the scheduler context,
           passing it the suspended fibre's thread ID (for tracing) and a function to resume it.
-          [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
+          [fn] should arrange for [enqueue] to be called once the thread is ready to run again.
+          If a cancellation is pending, this will raise it. *)
+
+      | Suspend_unchecked : (Ctf.id -> 'a enqueue -> unit) -> 'a eff
+      (** [Suspend_unchecked] is like [Suspend], but doesn't raise pending exceptions. *)
 
       | Fork : (unit -> 'a) -> 'a Promise.t eff
       (** See {!Fibre.fork} *)
@@ -551,12 +551,18 @@ module Private : sig
       | Fork_ignore : (unit -> unit) -> unit eff
       (** See {!Fibre.fork_ignore} *)
 
+      | Yield : unit eff
+
       | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
       (** [perform Trace fmt] writes trace logging to the configured trace output.
           It must not switch fibres, as tracing must not affect scheduling.
           If the system is not ready to receive the trace output,
           the whole domain must block until it is. *)
+
+      | Set_switch : Switch.t -> Switch.t eff
   end
+
+  val boot_switch : Switch.t
 end
 
 

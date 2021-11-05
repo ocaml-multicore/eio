@@ -90,14 +90,14 @@ let test_iovec () =
   let rec recv = function
     | [] -> ()
     | cs ->
-      let got = Eio_linux.readv ~sw from_pipe cs in
+      let got = Eio_linux.readv from_pipe cs in
       recv (Cstruct.shiftv cs got)
   in
   Fibre.both ~sw
     (fun () -> recv [Cstruct.sub message 5 3; Cstruct.sub message 15 3])
     (fun () ->
        let b = Cstruct.of_string "barfoo" in
-       Eio_linux.writev ~sw to_pipe [Cstruct.sub b 3 3; Cstruct.sub b 0 3];
+       Eio_linux.writev to_pipe [Cstruct.sub b 3 3; Cstruct.sub b 0 3];
        Eio_linux.FD.close to_pipe
     );
   Alcotest.(check string) "Transfer correct" "Got [foo] and [bar]" (Cstruct.to_string message)

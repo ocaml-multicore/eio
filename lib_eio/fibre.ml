@@ -1,6 +1,7 @@
 open EffectHandlers
 
 type _ eff += Fork : (unit -> 'a) -> 'a Promise.t eff
+type _ eff += Yield : unit eff
 
 let fork ~sw ~exn_turn_off f =
   let f () =
@@ -24,9 +25,8 @@ let fork_ignore ~sw f =
   in
   perform (Fork_ignore f)
 
-let yield ?sw () =
-  Suspend.enter (fun _id enqueue -> enqueue (Ok ()));
-  Option.iter Switch.check sw
+let yield () =
+  perform Yield
 
 let both ~sw f g =
   let x = fork ~sw ~exn_turn_off:true f in
@@ -34,8 +34,12 @@ let both ~sw f g =
     try g ()
     with ex -> Switch.turn_off sw ex
   end;
-  Promise.await x;
-  Switch.check sw
+  ignore (Promise.await_result x : (unit, exn) result);
+  match sw.state with
+  | On _ -> ()
+  | Off (ex, bt) ->
+    Switch.raise_with_extras sw ex bt
+  | Finished -> assert false
 
 let fork_sub_ignore ?on_release ~sw ~on_error f =
   if Switch.is_finished sw then (

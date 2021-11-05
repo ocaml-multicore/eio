@@ -30,7 +30,7 @@ module Flow = struct
   type shutdown_command = [ `Receive | `Send | `All ]
 
   type read_method = ..
-  type read_method += Read_source_buffer of (?sw:Switch.t -> (Cstruct.t list -> unit) -> unit)
+  type read_method += Read_source_buffer of ((Cstruct.t list -> unit) -> unit)
 
   class type close = object
     method close : unit
@@ -40,11 +40,11 @@ module Flow = struct
 
   class virtual read = object
     method virtual read_methods : read_method list
-    method virtual read_into : ?sw:Switch.t -> Cstruct.t -> int
+    method virtual read_into : Cstruct.t -> int
   end
 
-  let read_into ?sw (t : #read) buf =
-    let got = t#read_into ?sw buf in
+  let read_into (t : #read) buf =
+    let got = t#read_into buf in
     assert (got > 0);
     got
 
@@ -61,8 +61,8 @@ module Flow = struct
 
       inherit source
 
-      method private read_source_buffer ?sw fn =
-        Option.iter Switch.check sw;
+      method private read_source_buffer fn =
+        Fibre.yield ();
         let rec aux () =
           match data with
           | [] -> raise End_of_file
@@ -74,8 +74,8 @@ module Flow = struct
       method read_methods =
         [ Read_source_buffer self#read_source_buffer ]
 
-      method read_into ?sw dst =
-        Option.iter Switch.check sw;
+      method read_into dst =
+        Fibre.yield ();
         let avail, src = Cstruct.fillv ~dst ~src:data in
         if avail = 0 then raise End_of_file;
         data <- src;
@@ -85,12 +85,12 @@ module Flow = struct
   let string_source s = cstruct_source [Cstruct.of_string s]
 
   class virtual write = object
-    method virtual write : 'a. ?sw:Switch.t -> (#source as 'a) -> unit
+    method virtual write : 'a. (#source as 'a) -> unit
   end
 
-  let copy ?sw (src : #source) (dst : #write) = dst#write ?sw src
+  let copy (src : #source) (dst : #write) = dst#write src
 
-  let copy_string ?sw s = copy ?sw (string_source s)
+  let copy_string s = copy (string_source s)
 
   class virtual sink = object (_ : #Generic.t)
     method probe _ = None
@@ -101,11 +101,11 @@ module Flow = struct
     object
       inherit sink
 
-      method write ?sw src =
+      method write src =
         let buf = Cstruct.create 4096 in
         try
           while true do
-            let got = src#read_into ?sw buf in
+            let got = src#read_into buf in
             Buffer.add_string b (Cstruct.to_string ~len:got buf)
           done
         with End_of_file -> ()
@@ -171,14 +171,14 @@ end
 module Time = struct
   class virtual clock = object
     method virtual now : float
-    method virtual sleep_until : ?sw:Switch.t -> float -> unit
+    method virtual sleep_until : float -> unit
   end
 
   let now (t : #clock) = t#now
 
-  let sleep_until ?sw (t : #clock) time = t#sleep_until ?sw time
+  let sleep_until (t : #clock) time = t#sleep_until time
 
-  let sleep ?sw t d = sleep_until ?sw t (now t +. d)
+  let sleep t d = sleep_until t (now t +. d)
 end
 
 module Dir = struct
@@ -203,7 +203,7 @@ module Dir = struct
       append:bool ->
       create:create ->
       path -> <rw; Flow.close>
-    method virtual mkdir : ?sw:Switch.t -> perm:Unix.file_perm -> path -> unit
+    method virtual mkdir : perm:Unix.file_perm -> path -> unit
     method virtual open_dir : sw:Switch.t -> path -> t_with_close
   end
   and virtual t_with_close = object
@@ -215,7 +215,7 @@ module Dir = struct
   let open_in ~sw (t:#t) = t#open_in ~sw
   let open_out ~sw ?(append=false) ~create (t:#t) path = t#open_out ~sw ~append ~create path
   let open_dir ~sw (t:#t) = t#open_dir ~sw
-  let mkdir ?sw (t:#t) = t#mkdir ?sw
+  let mkdir (t:#t) = t#mkdir
 
   let with_open_in ?sw (t:#t) path fn =
     Switch.sub_opt sw @@ fun sw -> fn (open_in ~sw t path)
@@ -254,9 +254,12 @@ module Private = struct
     type 'a enqueue = 'a Suspend.enqueue
     type _ eff += 
       | Suspend = Suspend.Suspend 
+      | Suspend_unchecked = Suspend.Suspend_unchecked
       | Fork = Fibre.Fork
       | Fork_ignore = Fibre.Fork_ignore
       | Trace = Std.Trace
+      | Yield = Fibre.Yield
+      | Set_switch = Switch.Set_switch
   end
-  module Switch = Switch
+  let boot_switch = Switch.boot_switch
 end

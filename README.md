@@ -155,8 +155,8 @@ Here's an example running two threads of execution (fibres) concurrently:
 let main _env =
   Switch.top @@ fun sw ->
   Fibre.both ~sw
-    (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield ~sw () done)
-    (fun () -> for y = 1 to 3 do traceln "y = %d" y; Fibre.yield ~sw () done);;
+    (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield () done)
+    (fun () -> for y = 1 to 3 do traceln "y = %d" y; Fibre.yield () done);;
 ```
 
 ```ocaml
@@ -170,12 +170,8 @@ let main _env =
 - : unit = ()
 ```
 
-Notes:
-
-- The two fibres run on a single core, so only one can be running at a time.
-  Calling an operation that performs an effect (such as `yield`) can switch to a different thread.
-
-- The `sw` argument is used to handle exceptions (described later).
+The two fibres run on a single core, so only one can be running at a time.
+Calling an operation that performs an effect (such as `yield`) can switch to a different thread.
 
 ## Tracing
 
@@ -219,7 +215,7 @@ Here's what happens if one of the two threads above fails:
 # Eio_main.run @@ fun _env ->
   Switch.top @@ fun sw ->
   Fibre.both ~sw
-    (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield ~sw () done)
+    (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield () done)
     (fun () -> failwith "Simulated error");;
 +x = 1
 Exception: Failure "Simulated error".
@@ -230,13 +226,8 @@ What happened here was:
 1. The first fibre ran, printed `x = 1` and yielded.
 2. The second fibre raised an exception.
 3. `Fibre.both` caught the exception and turned off the switch.
-4. The first thread's `yield` saw the switch was off and raised the exception there too.
+4. The first thread's `yield` saw the switch was off and raised a `Cancelled` exception there.
 5. Once both threads had finished, `Fibre.both` re-raised the exception.
-
-Please note: turning off a switch only asks the other thread(s) to cancel.
-A thread is free to ignore the switch and continue (perhaps to clean up some resources).
-
-Any operation that can be cancelled should take a `~sw` argument.
 
 Switches can also be used to wait for threads even when there isn't an error. e.g.
 
@@ -244,10 +235,10 @@ Switches can also be used to wait for threads even when there isn't an error. e.
 # Eio_main.run @@ fun _env ->
   Switch.top (fun sw ->
     Fibre.fork_ignore ~sw
-      (fun () -> for i = 1 to 3 do traceln "i = %d" i; Fibre.yield ~sw () done);
+      (fun () -> for i = 1 to 3 do traceln "i = %d" i; Fibre.yield () done);
     traceln "First thread forked";
     Fibre.fork_ignore ~sw
-      (fun () -> for j = 1 to 3 do traceln "j = %d" j; Fibre.yield ~sw () done);
+      (fun () -> for j = 1 to 3 do traceln "j = %d" j; Fibre.yield () done);
     traceln "Second thread forked; top-level code is finished"
   );
   traceln "Switch is finished";;
@@ -269,6 +260,8 @@ Turning off the parent switch will also turn off the child switch, but turning o
 For example, a web-server might use one switch for the whole server and then create one sub-switch for each incoming connection.
 This allows you to end all fibres handling a single connection by turning off that connection's switch,
 or to exit the whole application using the top-level switch.
+
+If you want to make an operation non-cancellable, wrap it in a `Switch.top` to create a fresh switch.
 
 ## Design Note: Results vs Exceptions
 

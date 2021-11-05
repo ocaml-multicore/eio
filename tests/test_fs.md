@@ -22,22 +22,22 @@ let run (fn : sw:Switch.t -> Eio.Stdenv.t -> unit) =
   Switch.top @@ fun sw ->
   fn ~sw env
 
-let read_all ?sw flow =
+let read_all flow =
   let b = Buffer.create 100 in
-  Eio.Flow.copy ?sw flow (Eio.Flow.buffer_sink b);
+  Eio.Flow.copy flow (Eio.Flow.buffer_sink b);
   Buffer.contents b
 
-let write_file ?sw ~create ?append dir path content =
-  Eio.Dir.with_open_out ?sw ~create ?append dir path @@ fun flow ->
+let write_file ~create ?append dir path content =
+  Eio.Dir.with_open_out ~create ?append dir path @@ fun flow ->
   Eio.Flow.copy_string content flow
 
-let try_write_file ~sw ~create ?append dir path content =
-  match write_file ~sw ~create ?append dir path content with
+let try_write_file ~create ?append dir path content =
+  match write_file ~create ?append dir path content with
   | () -> traceln "write %S -> ok" path
   | exception ex -> traceln "write %S -> %a" path Fmt.exn ex
 
-let read_file ?sw dir path =
-  Eio.Dir.with_open_in ?sw dir path read_all
+let read_file dir path =
+  Eio.Dir.with_open_in dir path read_all
 
 let try_mkdir dir path =
   match Eio.Dir.mkdir dir path ~perm:0o700 with
@@ -55,8 +55,8 @@ Creating a file and reading it back:
 ```ocaml
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
-  write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "my-data";
-  traceln "Got %S" @@ read_file ~sw cwd "test-file";;
+  write_file ~create:(`Exclusive 0o666) cwd "test-file" "my-data";
+  traceln "Got %S" @@ read_file cwd "test-file";;
 +Got "my-data"
 - : unit = ()
 ```
@@ -74,7 +74,7 @@ Trying to use cwd to access a file outside of that subtree fails:
 ```ocaml
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
-  write_file ~sw ~create:(`Exclusive 0o666) cwd "../test-file" "my-data";
+  write_file ~create:(`Exclusive 0o666) cwd "../test-file" "my-data";
   failwith "Should have failed";;
 Exception: Eio.Dir.Permission_denied ("../test-file", _)
 ```
@@ -83,7 +83,7 @@ Trying to use cwd to access an absolute path fails:
 ```ocaml
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
-  write_file ~sw ~create:(`Exclusive 0o666) cwd "/tmp/test-file" "my-data";
+  write_file ~create:(`Exclusive 0o666) cwd "/tmp/test-file" "my-data";
   failwith "Should have failed";;
 Exception: Eio.Dir.Permission_denied ("/tmp/test-file", _)
 ```
@@ -94,8 +94,8 @@ Exclusive create fails if already exists:
 ```ocaml
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
-  write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
-  write_file ~sw ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
+  write_file ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
+  write_file ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
   failwith "Should have failed";;
 Exception: Eio.Dir.Already_exists ("test-file", _)
 ```
@@ -104,9 +104,9 @@ If-missing create succeeds if already exists:
 ```ocaml
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
-  write_file ~sw ~create:(`If_missing 0o666) cwd "test-file" "1st-write-original";
-  write_file ~sw ~create:(`If_missing 0o666) cwd "test-file" "2nd-write";
-  traceln "Got %S" @@ read_file ~sw cwd "test-file";;
+  write_file ~create:(`If_missing 0o666) cwd "test-file" "1st-write-original";
+  write_file ~create:(`If_missing 0o666) cwd "test-file" "2nd-write";
+  traceln "Got %S" @@ read_file cwd "test-file";;
 +Got "2nd-write-original"
 - : unit = ()
 ```
@@ -115,9 +115,9 @@ Truncate create succeeds if already exists, and truncates:
 ```ocaml
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
-  write_file ~sw ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
-  write_file ~sw ~create:(`Or_truncate 0o666) cwd "test-file" "2nd-write";
-  traceln "Got %S" @@ read_file ~sw cwd "test-file";;
+  write_file ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
+  write_file ~create:(`Or_truncate 0o666) cwd "test-file" "2nd-write";
+  traceln "Got %S" @@ read_file cwd "test-file";;
 +Got "2nd-write"
 - : unit = ()
 # Unix.unlink "test-file";;
@@ -128,8 +128,8 @@ Error if no create and doesn't exist:
 ```ocaml
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
-  write_file ~sw ~create:`Never cwd "test-file" "1st-write-original";
-  traceln "Got %S" @@ read_file ~sw cwd "test-file";;
+  write_file ~create:`Never cwd "test-file" "1st-write-original";
+  traceln "Got %S" @@ read_file cwd "test-file";;
 Exception: Eio.Dir.Not_found ("test-file", _)
 ```
 
@@ -137,9 +137,9 @@ Appending to an existing file:
 ```ocaml
 # run @@ fun ~sw env ->
   let cwd = Eio.Stdenv.cwd env in
-  write_file ~sw ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
-  write_file ~sw ~create:`Never ~append:true cwd "test-file" "2nd-write";
-  traceln "Got %S" @@ read_file ~sw cwd "test-file";;
+  write_file ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
+  write_file ~create:`Never ~append:true cwd "test-file" "2nd-write";
+  traceln "Got %S" @@ read_file cwd "test-file";;
 +Got "1st-write-original2nd-write"
 - : unit = ()
 # Unix.unlink "test-file";;
@@ -153,7 +153,7 @@ Appending to an existing file:
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir cwd "subdir";
   try_mkdir cwd "subdir/nested";
-  write_file ~sw ~create:(`Exclusive 0o600) cwd "subdir/nested/test-file" "data";
+  write_file ~create:(`Exclusive 0o600) cwd "subdir/nested/test-file" "data";
   ();;
 +mkdir "subdir" -> ok
 +mkdir "subdir/nested" -> ok
@@ -196,9 +196,9 @@ Create a sandbox, write a file with it, then read it from outside:
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir cwd "sandbox";
   let subdir = Eio.Dir.open_dir ~sw cwd "sandbox" in
-  write_file ~sw ~create:(`Exclusive 0o600) subdir "test-file" "data";
+  write_file ~create:(`Exclusive 0o600) subdir "test-file" "data";
   try_mkdir subdir "../new-sandbox";
-  traceln "Got %S" @@ read_file ~sw cwd "sandbox/test-file";;
+  traceln "Got %S" @@ read_file cwd "sandbox/test-file";;
 +mkdir "sandbox" -> ok
 +mkdir "../new-sandbox" -> Eio.Dir.Permission_denied ("../new-sandbox", _)
 +Got "data"
@@ -217,9 +217,9 @@ Using `cwd` we can't access the parent, but using `fs` we can:
   chdir "fs-test";
   Fun.protect ~finally:(fun () -> chdir "..") (fun () ->
     try_mkdir cwd "../outside-cwd";
-    try_write_file ~sw ~create:(`Exclusive 0o600) cwd "../test-file" "data";
+    try_write_file ~create:(`Exclusive 0o600) cwd "../test-file" "data";
     try_mkdir fs "../outside-cwd";
-    try_write_file ~sw ~create:(`Exclusive 0o600) fs "../test-file" "data";
+    try_write_file ~create:(`Exclusive 0o600) fs "../test-file" "data";
   );
   Unix.unlink "test-file";
   Unix.rmdir "outside-cwd";;

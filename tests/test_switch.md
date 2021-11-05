@@ -42,8 +42,8 @@ Exception: Failure "Cancel".
 ```ocaml
 # run (fun sw ->
     Fibre.both ~sw
-      (fun () -> for i = 1 to 2 do traceln "i = %d" i; Fibre.yield ~sw () done)
-      (fun () -> for j = 1 to 2 do traceln "j = %d" j; Fibre.yield ~sw () done)
+      (fun () -> for i = 1 to 2 do traceln "i = %d" i; Fibre.yield () done)
+      (fun () -> for j = 1 to 2 do traceln "j = %d" j; Fibre.yield () done)
   );;
 +i = 1
 +j = 1
@@ -57,7 +57,7 @@ Exception: Failure "Cancel".
 ```ocaml
 # run (fun sw ->
       Fibre.both ~sw
-        (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield ~sw () done)
+        (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield () done)
         (fun () -> failwith "Failed")
     );;
 +i = 1
@@ -69,8 +69,8 @@ Exception: Failure "Failed".
 ```ocaml
 # run (fun sw ->
       Fibre.both ~sw
-        (fun () -> Fibre.yield ~sw (); failwith "Failed")
-        (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield ~sw () done)
+        (fun () -> Fibre.yield (); failwith "Failed")
+        (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield () done)
     );;
 +i = 1
 Exception: Failure "Failed".
@@ -239,7 +239,7 @@ A child can fail independently of the parent:
       Fibre.fork_sub_ignore ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await ~sw p2);
       Promise.break r1 (Failure "Child error");
       Promise.fulfill r2 ();
-      Fibre.yield ~sw ();
+      Fibre.yield ();
       traceln "Parent fibre is still running"
     );;
 +Child 1
@@ -262,7 +262,7 @@ A child can be cancelled independently of the parent:
           Promise.await ~sw p
         );
       Switch.turn_off (Option.get !child) (Failure "Cancel child");
-      Fibre.yield ~sw ();
+      Fibre.yield ();
       traceln "Parent fibre is still running"
     );;
 +Child 1
@@ -279,7 +279,7 @@ A child error handle raises:
       let on_error = raise in
       Fibre.fork_sub_ignore ~sw ~on_error (fun sw -> traceln "Child"; Promise.await ~sw p);
       Promise.break r (Failure "Child error escapes");
-      Fibre.yield ~sw ();
+      Fibre.yield ();
       traceln "Not reached"
     );;
 +Child

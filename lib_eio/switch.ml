@@ -1,3 +1,5 @@
+open EffectHandlers
+
 exception Multiple_exceptions of exn list
 
 exception Cancelled of exn
@@ -23,6 +25,23 @@ type t = {
   on_release : (unit -> unit) Lwt_dllist.t;
   waiter : unit Waiters.t;              (* The main [top]/[sub] function may wait here for fibres to finish. *)
 }
+
+(* A dummy switch for bootstrapping *)
+let boot_switch = {
+  id = Ctf.mint_id ();
+  state = Finished;
+  fibres = 0;
+  extra_exceptions = [];
+  on_release = Lwt_dllist.create ();
+  waiter = Waiters.create ();
+}
+
+type _ eff += Set_switch : t -> t eff
+
+let with_switch t fn =
+  let old = perform (Set_switch t) in
+  Fun.protect fn
+    ~finally:(fun () -> ignore (perform (Set_switch old)))
 
 let null_hook = ignore
 
@@ -52,6 +71,7 @@ let rec turn_off t ex =
   | Off _ ->
     begin match ex with
       | Cancelled _ -> ()       (* The original exception will be reported elsewhere *)
+      | Multiple_exceptions exns -> List.iter (turn_off t) exns
       | _ -> t.extra_exceptions <- ex :: t.extra_exceptions
     end
   | On q ->
@@ -108,7 +128,7 @@ let await_internal ?sw waiters id tid enqueue =
   Queue.add resolved_waiter cleanup_hooks
 
 let await ?sw waiters id =
-  Suspend.enter (await_internal ?sw waiters id)
+  Suspend.enter_unchecked (await_internal ?sw waiters id)
 
 let rec await_idle t =
   (* Wait for fibres to finish: *)
@@ -149,6 +169,7 @@ let top fn =
     waiter = Waiters.create ();
     on_release = Lwt_dllist.create ();
   } in
+  with_switch t @@ fun () ->
   match fn t with
   | v ->
     await_idle t;

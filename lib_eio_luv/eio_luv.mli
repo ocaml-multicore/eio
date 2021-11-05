@@ -23,17 +23,15 @@ exception Luv_error of Luv.Error.t
 val or_raise : 'a or_error -> 'a
 (** [or_error (Error e)] raises [Luv_error e]. *)
 
-val await : (('a -> unit) -> unit) -> 'a
+val await : (Eunix.Suspended.state -> ('a -> unit) -> unit) -> 'a
 (** [await fn] converts a function using a luv-style callback to one using effects.
-    Use it as e.g. [await (Luv.File.realpath path)]. *)
+    Use it as e.g. [await (fun fibre -> Luv.File.realpath path)].
+    Use [fibre] to implement cancellation. *)
 
 (** {1 Time functions} *)
 
-val sleep_until : ?sw:Switch.t -> float -> unit
-(** [sleep_until time] blocks until the current time is [time].
-    @param sw Cancel the sleep if [sw] is turned off. *)
-
-val yield : ?sw:Switch.t -> unit -> unit
+val sleep_until : float -> unit
+(** [sleep_until time] blocks until the current time is [time]. *)
 
 (** {1 Low-level wrappers for Luv functions} *)
 
@@ -63,16 +61,16 @@ module File : sig
     string -> Luv.File.Open_flag.t list -> t or_error
   (** Wraps {!Luv.File.open_} *)
 
-  val read : ?sw:Switch.t -> t -> Luv.Buffer.t list -> Unsigned.Size_t.t or_error
+  val read : t -> Luv.Buffer.t list -> Unsigned.Size_t.t or_error
   (** Wraps {!Luv.File.read} *)
 
-  val write : ?sw:Switch.t -> t -> Luv.Buffer.t list -> unit
+  val write : t -> Luv.Buffer.t list -> unit
   (** [write t bufs] writes all the data in [bufs] (which may take several calls to {!Luv.File.write}). *)
 
-  val realpath : ?sw:Switch.t -> string -> string or_error
+  val realpath : string -> string or_error
   (** Wraps {!Luv.File.realpath} *)
 
-  val mkdir : ?sw:Switch.t -> mode:Luv.File.Mode.t list -> string -> unit or_error
+  val mkdir : mode:Luv.File.Mode.t list -> string -> unit or_error
   (** Wraps {!Luv.File.mkdir} *)
 end
 
