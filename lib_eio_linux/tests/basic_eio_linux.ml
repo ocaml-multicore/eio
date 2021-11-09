@@ -12,7 +12,7 @@ let setup_log level =
 let () =
   setup_log (Some Logs.Debug);
   run @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   let fd = Unix.handle_unix_error (openfile ~sw "test.txt" Unix.[O_RDONLY]) 0 in
   let buf = alloc () in
   let _ = read_exactly fd buf 5 in

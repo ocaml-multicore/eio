@@ -1,7 +1,5 @@
 (** Keep track of scheduled alarms. *)
 
-open Eio.Std
-
 module Key = struct
   type t = Optint.Int63.t
   let compare = Optint.Int63.compare
@@ -11,7 +9,7 @@ module Job = struct
   type t = {
     time : float;
     thread : unit Suspended.t;
-    cancel_hook : Switch.hook ref;
+    cancel_hook : Eio.Hook.t ref;
   }
 
   let compare a b = Float.compare a.time b.time
@@ -39,7 +37,7 @@ let remove t id =
 let pop t ~now =
   match Q.min t.sleep_queue with
   | Some (_, { Job.time; thread; cancel_hook }) when time <= now ->
-    Switch.remove_hook !cancel_hook;
+    Eio.Hook.remove !cancel_hook;
     t.sleep_queue <- Option.get (Q.rest t.sleep_queue);
     `Due thread
   | Some (_, { Job.time; _ }) -> `Wait_until time

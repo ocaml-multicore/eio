@@ -1,8 +1,17 @@
 open EffectHandlers
 
-type 'a enqueue = ('a, exn) result -> unit
-type _ eff += Suspend : (Ctf.id -> 'a enqueue -> unit) -> 'a eff
-type _ eff += Suspend_unchecked : (Ctf.id -> 'a enqueue -> unit) -> 'a eff
+type context = {
+  tid : Ctf.id;
+  mutable cancel : Cancel.t;
+}
 
-let enter fn = perform (Suspend fn)
-let enter_unchecked fn = perform (Suspend_unchecked fn)
+type 'a enqueue = ('a, exn) result -> unit
+type _ eff += Suspend : (context -> 'a enqueue -> unit) -> 'a eff
+
+let enter_unchecked fn = perform (Suspend fn)
+
+let enter fn =
+  enter_unchecked @@ fun fibre enqueue ->
+  match Cancel.get_error fibre.cancel with
+  | None -> fn fibre enqueue
+  | Some ex -> enqueue (Error ex)

@@ -32,7 +32,7 @@ Hello, world!
 
 ```ocaml
 let main _stdenv =
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   let fd = Eio_luv.File.open_ ~sw "/dev/zero" [] |> Eio_luv.or_raise in
   let buf = Luv.Buffer.create 4 in
   read_exactly fd buf;

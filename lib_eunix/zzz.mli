@@ -1,5 +1,3 @@
-open Eio.Std
-
 module Key : sig
   type t
 end
@@ -10,7 +8,7 @@ type t
 val create : unit -> t
 (** [create ()] is a fresh empty queue. *)
 
-val add : cancel_hook:Switch.hook ref -> t -> float -> unit Suspended.t -> Key.t
+val add : cancel_hook:Eio.Hook.t ref -> t -> float -> unit Suspended.t -> Key.t
 (** [add ~cancel_hook t time thread] adds a new event, due at [time], and returns its ID.
     [cancel_hook] will be released when the event is later returned by {!pop}. *)
 

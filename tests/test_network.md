@@ -10,7 +10,7 @@ open Eio.Std
 let run (fn : net:Eio.Net.t -> Switch.t -> unit) =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
-  Switch.top (fn ~net)
+  Switch.run (fn ~net)
 
 let addr = `Tcp (Unix.inet_addr_loopback, 8081)
 
@@ -56,7 +56,7 @@ let run_server ~sw socket =
 
 let test_address addr ~net sw =
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
-  Fibre.both ~sw
+  Fibre.both
     (fun () -> run_server ~sw server)
     (fun () ->
       run_client ~sw ~net ~addr;
@@ -108,19 +108,18 @@ Cancelling the read:
 # run @@ fun ~net sw ->
   let shutdown, set_shutdown = Promise.create () in
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
-  Fibre.both ~sw
+  Fibre.both
     (fun () ->
         Eio.Net.accept_sub server ~sw (fun ~sw flow _addr ->
           try
-            Fibre.both ~sw
+            Fibre.both
               (fun () -> raise (Promise.await shutdown))
               (fun () ->
                 let msg = read_all flow in
                 traceln "Server received: %S" msg
               )
           with Graceful_shutdown ->
-            Switch.top @@ fun _sw ->
-            Eio.Flow.copy_string "Request cancelled" flow;
+            Eio.Flow.copy_string "Request cancelled" flow
         ) ~on_error:raise
     )
     (fun () ->
@@ -135,7 +134,7 @@ Cancelling the read:
 +Connecting to server...
 +Connection opened - cancelling server's read
 +Client received: "Request cancelled"
-Exception: Graceful_shutdown.
+- : unit = ()
 ```
 
 Calling accept when the switch is already off:

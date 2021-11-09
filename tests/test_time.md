@@ -41,8 +41,7 @@ Cancelling sleep:
 
 ```ocaml
 # run @@ fun ~clock ->
-  Switch.top @@ fun sw ->
-  Fibre.both ~sw
+  Fibre.both
     (fun () -> Eio.Time.sleep clock 1200.; assert false)
     (fun () -> failwith "Simulated cancel");;
 Exception: Failure "Simulated cancel".
@@ -52,7 +51,7 @@ Switch is already off:
 
 ```ocaml
 # run @@ fun ~clock ->
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   Switch.turn_off sw (Failure "Simulated failure");
   Eio.Time.sleep clock 1200.0;
   assert false;;
@@ -63,8 +62,8 @@ Scheduling a timer that's already due:
 
 ```ocaml
 # run @@ fun ~clock ->
-  Switch.top @@ fun sw ->
-  Fibre.both ~sw
+  Switch.run @@ fun sw ->
+  Fibre.both
     (fun () -> traceln "First fibre runs"; Eio.Time.sleep clock (-1.0); traceln "Sleep done")
     (fun () -> traceln "Second fibre runs");;
 +First fibre runs
@@ -77,8 +76,8 @@ Check ordering works:
 
 ```ocaml
 # run @@ fun ~clock ->
-  Switch.top @@ fun sw ->
-  Fibre.both ~sw
+  Switch.run @@ fun sw ->
+  Fibre.both
     (fun () ->
       Eio.Time.sleep clock 1200.0;
       assert false

@@ -48,8 +48,7 @@ val noop : unit -> unit
 (** {1 Time functions} *)
 
 val sleep_until : float -> unit
-(** [sleep_until time] blocks until the current time is [time].
-    @param sw Cancel the sleep if [sw] is turned off. *)
+(** [sleep_until time] blocks until the current time is [time]. *)
 
 (** {1 Memory allocation functions} *)
 

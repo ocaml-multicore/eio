@@ -1,5 +1,8 @@
 open EffectHandlers
 
+module Hook = Hook
+module Cancel = Cancel
+
 module Std = struct
   module Promise = Promise
   module Fibre = Fibre
@@ -13,6 +16,7 @@ end
 
 module Semaphore = Semaphore
 module Stream = Stream
+module Multiple_exn = Multiple_exn
 
 open Std
 
@@ -62,7 +66,6 @@ module Flow = struct
       inherit source
 
       method private read_source_buffer fn =
-        Fibre.yield ();
         let rec aux () =
           match data with
           | [] -> raise End_of_file
@@ -75,7 +78,6 @@ module Flow = struct
         [ Read_source_buffer self#read_source_buffer ]
 
       method read_into dst =
-        Fibre.yield ();
         let avail, src = Cstruct.fillv ~dst ~src:data in
         if avail = 0 then raise End_of_file;
         data <- src;
@@ -217,14 +219,14 @@ module Dir = struct
   let open_dir ~sw (t:#t) = t#open_dir ~sw
   let mkdir (t:#t) = t#mkdir
 
-  let with_open_in ?sw (t:#t) path fn =
-    Switch.sub_opt sw @@ fun sw -> fn (open_in ~sw t path)
+  let with_open_in (t:#t) path fn =
+    Switch.run @@ fun sw -> fn (open_in ~sw t path)
 
-  let with_open_out ?sw ?append ~create (t:#t) path fn =
-    Switch.sub_opt sw @@ fun sw -> fn (open_out ~sw ?append ~create t path)
+  let with_open_out ?append ~create (t:#t) path fn =
+    Switch.run @@ fun sw -> fn (open_out ~sw ?append ~create t path)
 
-  let with_open_dir ?sw (t:#t) path fn =
-    Switch.sub_opt sw @@ fun sw -> fn (open_dir ~sw t path)
+  let with_open_dir (t:#t) path fn =
+    Switch.run @@ fun sw -> fn (open_dir ~sw t path)
 end
 
 module Stdenv = struct
@@ -250,16 +252,19 @@ module Stdenv = struct
 end
 
 module Private = struct
+  type context = Suspend.context = {
+    tid : Ctf.id;
+    mutable cancel : Cancel.t;
+  }
+
   module Effects = struct
     type 'a enqueue = 'a Suspend.enqueue
     type _ eff += 
-      | Suspend = Suspend.Suspend 
-      | Suspend_unchecked = Suspend.Suspend_unchecked
+      | Suspend = Suspend.Suspend
       | Fork = Fibre.Fork
       | Fork_ignore = Fibre.Fork_ignore
       | Trace = Std.Trace
-      | Yield = Fibre.Yield
-      | Set_switch = Switch.Set_switch
+      | Set_cancel = Cancel.Set_cancel
   end
-  let boot_switch = Switch.boot_switch
+  let boot_cancel = Cancel.boot
 end

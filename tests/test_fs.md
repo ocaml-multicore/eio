@@ -17,10 +17,9 @@ let () =
 
 open Eio.Std
 
-let run (fn : sw:Switch.t -> Eio.Stdenv.t -> unit) =
+let run (fn : Eio.Stdenv.t -> unit) =
   Eio_main.run @@ fun env ->
-  Switch.top @@ fun sw ->
-  fn ~sw env
+  fn env
 
 let read_all flow =
   let b = Buffer.create 100 in
@@ -53,7 +52,7 @@ let chdir path =
 
 Creating a file and reading it back:
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~create:(`Exclusive 0o666) cwd "test-file" "my-data";
   traceln "Got %S" @@ read_file cwd "test-file";;
@@ -72,7 +71,7 @@ Perm = 644
 
 Trying to use cwd to access a file outside of that subtree fails:
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~create:(`Exclusive 0o666) cwd "../test-file" "my-data";
   failwith "Should have failed";;
@@ -81,7 +80,7 @@ Exception: Eio.Dir.Permission_denied ("../test-file", _)
 
 Trying to use cwd to access an absolute path fails:
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~create:(`Exclusive 0o666) cwd "/tmp/test-file" "my-data";
   failwith "Should have failed";;
@@ -92,7 +91,7 @@ Exception: Eio.Dir.Permission_denied ("/tmp/test-file", _)
 
 Exclusive create fails if already exists:
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
   write_file ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
@@ -102,7 +101,7 @@ Exception: Eio.Dir.Already_exists ("test-file", _)
 
 If-missing create succeeds if already exists:
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~create:(`If_missing 0o666) cwd "test-file" "1st-write-original";
   write_file ~create:(`If_missing 0o666) cwd "test-file" "2nd-write";
@@ -113,7 +112,7 @@ If-missing create succeeds if already exists:
 
 Truncate create succeeds if already exists, and truncates:
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
   write_file ~create:(`Or_truncate 0o666) cwd "test-file" "2nd-write";
@@ -126,7 +125,7 @@ Truncate create succeeds if already exists, and truncates:
 
 Error if no create and doesn't exist:
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~create:`Never cwd "test-file" "1st-write-original";
   traceln "Got %S" @@ read_file cwd "test-file";;
@@ -135,7 +134,7 @@ Exception: Eio.Dir.Not_found ("test-file", _)
 
 Appending to an existing file:
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   write_file ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
   write_file ~create:`Never ~append:true cwd "test-file" "2nd-write";
@@ -149,7 +148,7 @@ Appending to an existing file:
 # Mkdir
 
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir cwd "subdir";
   try_mkdir cwd "subdir/nested";
@@ -170,7 +169,7 @@ Creating directories with nesting, symlinks, etc:
 - : unit = ()
 # Unix.symlink "foo" "dangle";;
 - : unit = ()
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir cwd "subdir";
   try_mkdir cwd "to-subdir/nested";
@@ -192,7 +191,8 @@ Creating directories with nesting, symlinks, etc:
 
 Create a sandbox, write a file with it, then read it from outside:
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
+  Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir cwd "sandbox";
   let subdir = Eio.Dir.open_dir ~sw cwd "sandbox" in
@@ -210,7 +210,7 @@ Create a sandbox, write a file with it, then read it from outside:
 We create a directory and chdir into it.
 Using `cwd` we can't access the parent, but using `fs` we can:
 ```ocaml
-# run @@ fun ~sw env ->
+# run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let fs = Eio.Stdenv.fs env in
   try_mkdir cwd "fs-test";

@@ -1,12 +1,7 @@
 open EffectHandlers.Deep
 
-type state = {
-  tid : Ctf.id;
-  mutable switch : Eio.Std.Switch.t;
-}
-
 type 'a t = {
-  fibre : state;
+  fibre : Eio.Private.context;
   k : ('a, [`Exit_scheduler]) continuation;
 }
 

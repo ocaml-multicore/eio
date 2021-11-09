@@ -43,7 +43,7 @@ type _ eff += Close : Unix.file_descr -> int eff
 module FD = struct
   type t = {
     seekable : bool;
-    mutable release_hook : Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
+    mutable release_hook : Eio.Hook.t;        (* Use this on close to remove switch's [on_release] hook. *)
     mutable fd : [`Open of Unix.file_descr | `Closed]
   }
 
@@ -59,7 +59,7 @@ module FD = struct
     Ctf.label "close";
     let fd = get "close" t in
     t.fd <- `Closed;
-    Switch.remove_hook t.release_hook;
+    Eio.Hook.remove t.release_hook;
     let res = perform (Close fd) in
     Log.debug (fun l -> l "close: woken up");
     if res < 0 then
@@ -76,7 +76,7 @@ module FD = struct
   let to_unix = get "to_unix"
 
   let of_unix_no_hook ~seekable fd =
-    { seekable; fd = `Open fd; release_hook = Switch.null_hook }
+    { seekable; fd = `Open fd; release_hook = Eio.Hook.null }
 
   let of_unix ~sw ~seekable fd =
     let t = of_unix_no_hook ~seekable fd in
@@ -97,7 +97,7 @@ type rw_req = {
   action : int Suspended.t;
 }
 
-type cancel_hook = Switch.hook ref
+type cancel_hook = Eio.Hook.t ref
 
 (* Type of user-data attached to jobs. *)
 type io_job =
@@ -108,7 +108,6 @@ type io_job =
 
 type runnable =
   | Thread : 'a Suspended.t * 'a -> runnable
-  | Thread_checked : unit Suspended.t -> runnable
   | Failed_thread : 'a Suspended.t * exn -> runnable
 
 type t = {
@@ -152,40 +151,40 @@ let cancel job =
 (* Cancellation
 
    For operations that can be cancelled we need to attach a callback to the
-   switch to trigger the cancellation, and we need to remove that callback once
-   the operation is complete. The typical sequence is:
+   cancellation context, and we need to remove that callback once the operation
+   is complete. The typical sequence is:
 
    1. We create an io_job with an empty [cancel_hook] (because we haven't registered it yet).
    2. We submit the operation, getting back a uring job (needed for cancellation).
-   3. We register a cancellation hook with the switch. The hook uses the uring job to cancel.
+   3. We register a cancellation hook with the context. The hook uses the uring job to cancel.
    4. We update the [cancel_hook] with the waiter for removing the cancellation hook.
       This is the reason that [cancel_hook] is mutable.
 
    When the job completes, we get the cancellation hook from the io_job and
-   ensure it is removed from the switch, as it's no longer needed. The hook
-   must have been set by this point because we don't poll for completions until
-   the above steps have all finished.
+   ensure it is removed, as it's no longer needed. The hook must have been set
+   by this point because we don't poll for completions until the above steps
+   have all finished.
 
-   If the switch is turned off while the operation is running, the switch will start calling
-   the hooks. If it gets to ours before it's removed, we will submit a cancellation request to uring.
+   If the context is cancelled while the operation is running, the hooks will start being called.
+   If it gets to ours before it's removed, we will submit a cancellation request to uring.
    If the operation completes before Linux processes the cancellation, we get [ENOENT], which we ignore.
 
-   If the switch is turned off before starting then we discontinue the fibre. *)
+   If the context is cancelled before starting then we discontinue the fibre. *)
 
-(* [with_cancel_hook ~sw ~action st fn] calls [fn] with a fresh cancel hook.
-   When [fn cancel_hook] returns, it registers a cancellation callback with [sw] and stores its handle in [cancel_hook].
-   If [sw] is already off, it schedules [action] to be discontinued.
+(* [with_cancel_hook ~action st fn] calls [fn] with a fresh cancel hook.
+   When [fn cancel_hook] returns, it registers a cancellation callback with [action] and stores its handle in [cancel_hook].
+   If [action] is already cancelled, it schedules [action] to be discontinued.
    @return Whether to retry the operation later, once there is space. *)
 let with_cancel_hook ~action st fn =
-  let release = ref Switch.null_hook in
-  let sw = action.Suspended.fibre.switch in
-  match Switch.get_error sw with
+  let release = ref Eio.Hook.null in
+  let ctx = action.Suspended.fibre.cancel in
+  match Eio.Cancel.get_error ctx with
   | Some ex -> enqueue_failed_thread st action ex; false
   | None ->
     match fn release with
     | None -> true
     | Some job ->
-      release := Switch.add_cancel_hook sw (fun _ -> cancel job);
+      release := Eio.Cancel.add_hook ctx (fun _ -> cancel job);
       false
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
@@ -344,11 +343,6 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* Wakeup any paused fibres *)
   match Queue.take run_q with
   | Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
-  | Thread_checked k ->
-    begin match Switch.get_error k.fibre.switch with
-      | Some e -> Suspended.discontinue k e
-      | None -> Suspended.continue k ()
-    end
   | Failed_thread (k, ex) -> Suspended.discontinue k ex
   | exception Queue.Empty ->
     let now = Unix.gettimeofday () in
@@ -392,17 +386,21 @@ and handle_complete st ~runnable result =
   match runnable with
   | Read (req, cancel) ->
     Log.debug (fun l -> l "read returned");
-    Switch.remove_hook !cancel;
+    Eio.Hook.remove !cancel;
     complete_rw_req st req result
   | Write (req, cancel) ->
     Log.debug (fun l -> l "write returned");
-    Switch.remove_hook !cancel;
+    Eio.Hook.remove !cancel;
     complete_rw_req st req result
   | Job (k, cancel) ->
-    Switch.remove_hook !cancel;
-    begin match Switch.get_error k.fibre.switch with
-      | Some e -> Suspended.discontinue k e        (* If cancelled, report that instead. *)
+    Eio.Hook.remove !cancel;
+    begin match Eio.Cancel.get_error k.fibre.cancel with
       | None -> Suspended.continue k result
+      | Some e ->
+        (* If cancelled, report that instead.
+           Should we only do this on error, to avoid losing the return value?
+           We already do that with rw jobs. *)
+        Suspended.discontinue k e
     end
   | Job_no_cancel k ->
     Suspended.continue k result
@@ -410,7 +408,7 @@ and complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res, len with
   | 0, _ -> Suspended.discontinue action End_of_file
   | e, _ when e < 0 ->
-    begin match Switch.get_error action.fibre.switch with
+    begin match Eio.Cancel.get_error action.fibre.cancel with
       | Some e -> Suspended.discontinue action e        (* If cancelled, report that instead. *)
       | None ->
         if errno_is_retry e then (
@@ -584,7 +582,7 @@ let mkdir_beneath ~perm ?dir path =
   let dir_path = Filename.dirname path in
   let leaf = Filename.basename path in
   (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
-  Switch.top (fun sw ->
+  Switch.run (fun sw ->
       let parent =
         wrap_errors path @@ fun () ->
         openat2 ~sw ~seekable:false ?dir dir_path
@@ -738,6 +736,7 @@ module Objects = struct
     method close = FD.close fd
 
     method accept_sub ~sw ~on_error fn =
+      Switch.check sw;
       let client, client_addr = accept_loose_fd fd in
       Fibre.fork_sub_ignore ~sw ~on_error
         (fun sw ->
@@ -925,140 +924,115 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   let mem_q = Queue.create () in
   let st = { mem; uring; run_q; io_q; mem_q; sleep_q; io_jobs = 0 } in
   Log.debug (fun l -> l "starting main thread");
-  let rec fork ~tid ~switch:initial_switch fn =
+  let rec fork ~tid ~cancel:initial_cancel fn =
     Ctf.note_switch tid;
-    let fibre = { Suspended.tid; switch = initial_switch } in
+    let fibre = { Eio.Private.tid; cancel = initial_cancel } in
     match_with fn () 
-    { retc = (fun () -> schedule st);
-      exnc = (fun e -> raise e);
-      effc = fun (type a) (e : a eff) ->  
-        match e with 
-        | Enter fn ->
-          Some (fun k ->
-              begin match Switch.get_error fibre.switch with
-                | Some e -> discontinue k e
-                | None ->
-                  let k = { Suspended.k; fibre } in
-                  fn st k;
-                  schedule st
-              end)
-        | Enter_unchecked fn ->
-          Some (fun k ->
+      { retc = (fun () -> schedule st);
+        exnc = raise;
+        effc = fun (type a) (e : a eff) ->  
+          match e with 
+          | Enter fn -> Some (fun k ->
+              match Eio.Cancel.get_error fibre.cancel with
+              | Some e -> discontinue k e
+              | None ->
+                let k = { Suspended.k; fibre } in
+                fn st k;
+                schedule st
+            )
+          | Enter_unchecked fn -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               fn st k;
               schedule st
             )
-        | ERead args ->
-          Some (fun k -> 
-            let k = { Suspended.k; fibre } in
-            enqueue_read st k args;
-            schedule st)
-        | Close fd ->
-          Some (fun k -> 
-            let k = { Suspended.k; fibre } in
-            enqueue_close st k fd;
-            schedule st)
-        | EWrite args ->
-          Some (fun k -> 
-            let k = { Suspended.k; fibre } in
-            enqueue_write st k args;
-            schedule st)
-        | Sleep_until time ->
-          Some (fun k -> 
-            let k = { Suspended.k; fibre } in
-            let cancel_hook = ref Switch.null_hook in
-            let sw = fibre.switch in
-            begin match Switch.get_error sw with
+          | ERead args -> Some (fun k -> 
+              let k = { Suspended.k; fibre } in
+              enqueue_read st k args;
+              schedule st)
+          | Close fd -> Some (fun k -> 
+              let k = { Suspended.k; fibre } in
+              enqueue_close st k fd;
+              schedule st
+            )
+          | EWrite args -> Some (fun k -> 
+              let k = { Suspended.k; fibre } in
+              enqueue_write st k args;
+              schedule st
+            )
+          | Sleep_until time -> Some (fun k -> 
+              let k = { Suspended.k; fibre } in
+              match Eio.Cancel.get_error fibre.cancel with
               | Some ex -> Suspended.discontinue k ex
               | None ->
+                let cancel_hook = ref Eio.Hook.null in
                 let job = Zzz.add ~cancel_hook sleep_q time k in
-                cancel_hook := Switch.add_cancel_hook sw (fun ex ->
+                cancel_hook := Eio.Cancel.add_hook fibre.cancel (fun ex ->
                     Zzz.remove sleep_q job;
                     enqueue_failed_thread st k ex
                   );
                 schedule st
-            end)
-        | Eio.Private.Effects.Set_switch switch ->
-          Some (fun k ->
-              let old = fibre.switch in
-              fibre.switch <- switch;
+            )
+          | Eio.Private.Effects.Set_cancel cancel -> Some (fun k ->
+              let old = fibre.cancel in
+              fibre.cancel <- cancel;
               continue k old
             )
-        | Eio.Private.Effects.Yield ->
-          Some (fun k ->
+          | Eio.Private.Effects.Suspend f -> Some (fun k -> 
               let k = { Suspended.k; fibre } in
-              Queue.push (Thread_checked k) st.run_q;
-              schedule st
-            )
-        | Eio.Private.Effects.Suspend_unchecked f ->
-          Some (fun k -> 
-              let k = { Suspended.k; fibre } in
-              f tid (function
+              f fibre (function
                   | Ok v -> enqueue_thread st k v
                   | Error ex -> enqueue_failed_thread st k ex
                 );
               schedule st
             )
-        | Eio.Private.Effects.Suspend f ->
-          Some (fun k -> 
-            match Switch.get_error fibre.switch with
-              | Some e -> discontinue k e
-              | None ->
-                let k = { Suspended.k; fibre } in
-                f tid (function
-                    | Ok v -> enqueue_thread st k v
-                    | Error ex -> enqueue_failed_thread st k ex
-                  );
-                schedule st
+          | Eio.Private.Effects.Fork f -> Some (fun k -> 
+              let k = { Suspended.k; fibre } in
+              let id = Ctf.mint_id () in
+              Ctf.note_created id Ctf.Task;
+              let promise, resolver = Promise.create_with_id id in
+              enqueue_thread st k promise;
+              fork
+                ~tid:id
+                ~cancel:fibre.cancel
+                (fun () ->
+                   match f () with
+                   | x -> Promise.fulfill resolver x
+                   | exception ex ->
+                     Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
+                     Promise.break resolver ex
+                )
             )
-        | Eio.Private.Effects.Fork f ->
-          Some (fun k -> 
-            let k = { Suspended.k; fibre } in
-            let id = Ctf.mint_id () in
-            Ctf.note_created id Ctf.Task;
-            let promise, resolver = Promise.create_with_id id in
-            enqueue_thread st k promise;
-            fork
-              ~tid:id
-              ~switch:fibre.switch
-              (fun () ->
-                 match f () with
-                 | x -> Promise.fulfill resolver x
-                 | exception ex ->
-                   Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
-                   Promise.break resolver ex
-              ))
-        | Eio.Private.Effects.Fork_ignore f ->
-          Some (fun k -> 
-            let k = { Suspended.k; fibre } in
-            enqueue_thread st k ();
-            let child = Ctf.note_fork () in
-            Ctf.note_switch child;
-            fork ~tid:child ~switch:fibre.switch (fun () ->
-                match f () with
-                | () ->
-                  Ctf.note_resolved child ~ex:None
-                | exception ex ->
-                  Ctf.note_resolved child ~ex:(Some ex)
-              ))
-        | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eunix.Trace.default_traceln)
-        | Alloc ->
-          Some (fun k -> 
-            let k = { Suspended.k; fibre } in
-            alloc_buf st k)
-        | Free buf ->
-          Some (fun k -> 
-            free_buf st buf;
-            continue k ())
-        | _ -> None
-    }
+          | Eio.Private.Effects.Fork_ignore f -> Some (fun k -> 
+              let k = { Suspended.k; fibre } in
+              enqueue_thread st k ();
+              let child = Ctf.note_fork () in
+              Ctf.note_switch child;
+              fork ~tid:child ~cancel:fibre.cancel (fun () ->
+                  match f () with
+                  | () ->
+                    Ctf.note_resolved child ~ex:None
+                  | exception ex ->
+                    Ctf.note_resolved child ~ex:(Some ex)
+                )
+            )
+          | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eunix.Trace.default_traceln)
+          | Alloc -> Some (fun k -> 
+              let k = { Suspended.k; fibre } in
+              alloc_buf st k
+            )
+          | Free buf -> Some (fun k -> 
+              free_buf st buf;
+              continue k ()
+            )
+          | _ -> None
+      }
   in
   let main_done = ref false in
   let `Exit_scheduler =
-    fork ~tid:(Ctf.mint_id ()) ~switch:Eio.Private.boot_switch (fun () ->
-        Fun.protect (fun () -> Switch.top (fun _sw -> main stdenv))
+    fork ~tid:(Ctf.mint_id ()) ~cancel:Eio.Private.boot_cancel (fun () ->
+        Fun.protect (fun () -> Eio.Cancel.protect (fun () -> main stdenv))
           ~finally:(fun () -> main_done := true)
-  ) in
+      ) in
   if not !main_done then
     failwith "Deadlock detected: no events scheduled but main function hasn't returned";
   Log.debug (fun l -> l "exit")

@@ -27,14 +27,14 @@ let release t =
     | `Queue_empty ->
       t.state <- Free 1
 
-let rec acquire ?sw t =
+let rec acquire t =
   match t.state with
   | Waiting q ->
     Ctf.note_try_read t.id;
-    Switch.await ?sw q t.id
+    Switch.await q t.id |> Switch.or_raise
   | Free 0 ->
     t.state <- Waiting (Waiters.create ());
-    acquire ?sw t
+    acquire t
   | Free n ->
     Ctf.note_read t.id;
     t.state <- Free (pred n)

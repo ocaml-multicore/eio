@@ -50,7 +50,7 @@ let or_raise_path path = function
 
 module Suspended = struct
   type 'a t = {
-    fibre : Eunix.Suspended.state;
+    fibre : Eio.Private.context;
     k : ('a, unit) continuation;
   }
 
@@ -67,7 +67,7 @@ module Suspended = struct
     | Error x -> discontinue t x
 end
 
-type _ eff += Await : (Eunix.Suspended.state -> ('a -> unit) -> unit) -> 'a eff
+type _ eff += Await : (Eio.Private.context -> ('a -> unit) -> unit) -> 'a eff
 let await fn = perform (Await fn)
 
 type _ eff += Enter : ('a Suspended.t -> unit) -> 'a eff
@@ -92,16 +92,16 @@ let enqueue_failed_thread k ex =
   Luv.Timer.start yield 0 (fun () -> Suspended.discontinue k ex) |> or_raise
 
 let with_cancel fibre ~request fn =
-  let cancel = Switch.add_cancel_hook fibre.Eunix.Suspended.switch (fun _ ->
+  let cancel = Eio.Cancel.add_hook fibre.Eio.Private.cancel (fun _ ->
       match Luv.Request.cancel request with
       | Ok () -> ()
       | Error e -> Log.debug (fun f -> f "Cancel failed: %s" (Luv.Error.strerror e))
     ) in
-  Fun.protect fn ~finally:(fun () -> Switch.remove_hook cancel)
+  Fun.protect fn ~finally:(fun () -> Eio.Hook.remove cancel)
 
 module Handle = struct
   type 'a t = {
-    mutable release_hook : Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
+    mutable release_hook : Eio.Hook.t;        (* Use this on close to remove switch's [on_release] hook. *)
     mutable fd : [`Open of 'a Luv.Handle.t | `Closed]
   }
 
@@ -117,7 +117,7 @@ module Handle = struct
     Ctf.label "close";
     let fd = get "close" t in
     t.fd <- `Closed;
-    Switch.remove_hook t.release_hook;
+    Eio.Hook.remove t.release_hook;
     enter_unchecked @@ fun k ->
     Luv.Handle.close fd (Suspended.continue k)
 
@@ -127,7 +127,7 @@ module Handle = struct
   let to_luv x = get "to_luv" x
 
   let of_luv_no_hook fd =
-    { fd = `Open fd; release_hook = Switch.null_hook }
+    { fd = `Open fd; release_hook = Eio.Hook.null }
 
   let of_luv ~sw fd =
     let t = of_luv_no_hook fd in
@@ -137,7 +137,7 @@ end
 
 module File = struct
   type t = {
-    mutable release_hook : Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
+    mutable release_hook : Eio.Hook.t;        (* Use this on close to remove switch's [on_release] hook. *)
     mutable fd : [`Open of Luv.File.t | `Closed]
   }
 
@@ -153,7 +153,7 @@ module File = struct
     Ctf.label "close";
     let fd = get "close" t in
     t.fd <- `Closed;
-    Switch.remove_hook t.release_hook;
+    Eio.Hook.remove t.release_hook;
     await_exn (fun _fibre -> Luv.File.close fd)
 
   let ensure_closed t =
@@ -162,7 +162,7 @@ module File = struct
   let to_luv = get "to_luv"
 
   let of_luv_no_hook fd =
-    { fd = `Open fd; release_hook = Switch.null_hook }
+    { fd = `Open fd; release_hook = Eio.Hook.null }
 
   let of_luv ~sw fd =
     let t = of_luv_no_hook fd in
@@ -207,12 +207,12 @@ module Stream = struct
 
   let rec read_into (sock:'a t) buf =
     let r = enter (fun k ->
-        let cancel = Switch.add_cancel_hook k.fibre.switch (fun ex ->
+        let cancel = Eio.Cancel.add_hook k.fibre.cancel (fun ex ->
             Luv.Stream.read_stop (Handle.get "read_into:cancel" sock) |> or_raise;
-            enqueue_failed_thread k (Switch.Cancelled ex)
+            enqueue_failed_thread k (Eio.Cancel.Cancelled ex)
           ) in
         Luv.Stream.read_start (Handle.get "read_start" sock) ~allocate:(fun _ -> buf) (fun r ->
-            Switch.remove_hook cancel;
+            Eio.Hook.remove cancel;
             Luv.Stream.read_stop (Handle.get "read_stop" sock) |> or_raise;
             Suspended.continue k r
           )
@@ -248,13 +248,13 @@ let sleep_until due =
   let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
   let timer = Luv.Timer.init () |> or_raise in
   enter @@ fun k ->
-  let cancel = Switch.add_cancel_hook k.fibre.switch (fun ex ->
+  let cancel = Eio.Cancel.add_hook k.fibre.cancel (fun ex ->
       Luv.Timer.stop timer |> or_raise;
       Luv.Handle.close timer (fun () -> ());
       enqueue_failed_thread k ex
     ) in
   Luv.Timer.start timer delay (fun () ->
-      Switch.remove_hook cancel;
+      Eio.Hook.remove cancel;
       Suspended.continue k ()
     ) |> or_raise
 
@@ -351,7 +351,7 @@ module Objects = struct
     method close = Handle.close sock
 
     method accept_sub ~sw ~on_error fn =
-      Eio.Semaphore.acquire ~sw ready;
+      Eio.Semaphore.acquire ready;
       let client = self#make_client |> Handle.of_luv_no_hook in
       match Luv.Stream.accept ~server:(Handle.get "accept" sock) ~client:(Handle.get "accept" client) with
       | Error e ->
@@ -583,9 +583,9 @@ end
 let run main =
   Log.debug (fun l -> l "starting run");
   let stdenv = Objects.stdenv () in
-  let rec fork ~tid ~switch:initial_switch fn =
+  let rec fork ~tid ~cancel:initial_cancel fn =
     Ctf.note_switch tid;
-    let fibre = { Eunix.Suspended.tid; switch = initial_switch } in
+    let fibre = { Eio.Private.tid; cancel = initial_cancel } in
     match_with fn () 
     { retc = (fun () -> ());
       exnc = (fun e -> raise e);
@@ -606,7 +606,7 @@ let run main =
             enqueue_thread k promise;
             fork
               ~tid:id
-              ~switch:fibre.switch
+              ~cancel:fibre.cancel
               (fun () ->
                  match f () with
                  | x -> Promise.fulfill resolver x
@@ -620,56 +620,38 @@ let run main =
             enqueue_thread k ();
             let child = Ctf.note_fork () in
             Ctf.note_switch child;
-            fork ~tid:child ~switch:fibre.switch (fun () ->
+            fork ~tid:child ~cancel:fibre.cancel (fun () ->
                 match f () with
                 | () ->
                   Ctf.note_resolved child ~ex:None
                 | exception ex ->
                   Ctf.note_resolved child ~ex:(Some ex)
               ))
-        | Eio.Private.Effects.Set_switch switch ->
+        | Eio.Private.Effects.Set_cancel cancel ->
           Some (fun k ->
-              let old = fibre.switch in
-              fibre.switch <- switch;
+              let old = fibre.cancel in
+              fibre.cancel <- cancel;
               continue k old
             )
         | Enter_unchecked fn -> Some (fun k ->
             fn { Suspended.k; fibre }
           )
         | Enter fn -> Some (fun k ->
-            match Switch.get_error fibre.switch with
+            match Eio.Cancel.get_error fibre.cancel with
             | Some e -> discontinue k e
             | None -> fn { Suspended.k; fibre }
           )
-        | Eio.Private.Effects.Yield ->
-          Some (fun k ->
-              let yield = Luv.Timer.init () |> or_raise in
-              Luv.Timer.start yield 0 (fun () ->
-                  match Switch.get_error fibre.switch with
-                  | Some e -> discontinue k e
-                  | None -> continue k ()
-                )
-              |> or_raise
-            )
-        | Eio.Private.Effects.Suspend_unchecked fn ->
-          Some (fun k -> 
-              let k = { Suspended.k; fibre } in
-              fn tid (enqueue_result_thread k)
-            )
         | Eio.Private.Effects.Suspend fn ->
           Some (fun k -> 
-            begin match Switch.get_error fibre.switch with
-              | Some e -> discontinue k e
-              | None ->
-                let k = { Suspended.k; fibre } in
-                fn tid (enqueue_result_thread k)
-            end)
+              let k = { Suspended.k; fibre } in
+              fn fibre (enqueue_result_thread k)
+            )
         | _ -> None
     }
   in
   let main_status = ref `Running in
-  fork ~tid:(Ctf.mint_id ()) ~switch:Eio.Private.boot_switch (fun () ->
-      match Switch.top (fun _sw -> main stdenv) with
+  fork ~tid:(Ctf.mint_id ()) ~cancel:Eio.Private.boot_cancel (fun () ->
+      match Eio.Cancel.protect (fun () -> main stdenv) with
       | () -> main_status := `Done
       | exception ex -> main_status := `Ex (ex, Printexc.get_raw_backtrace ())
     );

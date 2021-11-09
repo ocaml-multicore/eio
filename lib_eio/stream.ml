@@ -29,8 +29,7 @@ let create capacity =
     writers = Waiters.create ();
   }
 
-let add ?sw t item =
-  Option.iter Switch.check sw;
+let add t item =
   match Waiters.wake_one t.readers (Ok item) with
   | `Ok -> ()
   | `Queue_empty ->
@@ -38,8 +37,8 @@ let add ?sw t item =
     if Queue.length t.items < t.capacity then Queue.add item t.items
     else (
       (* The queue is full. Wait for our turn first. *)
-      Suspend.enter @@ fun tid enqueue ->
-      Switch.await_internal ?sw t.writers t.id tid (fun r ->
+      Suspend.enter @@ fun ctx enqueue ->
+      Switch.await_internal t.writers t.id ctx (fun r ->
           if Result.is_ok r then (
             (* We get here immediately when called by [take], either:
                1. after removing an item, so there is space, or
@@ -48,17 +47,16 @@ let add ?sw t item =
           );
           enqueue r
         )
-    )
+    ) |> Switch.or_raise
 
-let take ?sw t =
-  Option.iter Switch.check sw;
+let take t =
   match Queue.take_opt t.items with
   | None ->
     (* There aren't any items, so we probably need to wait for one.
        However, there's also the special case of a zero-capacity queue to deal with.
        [is_empty writers || capacity = 0] *)
     begin match Waiters.wake_one t.writers (Ok ()) with
-      | `Queue_empty -> Switch.await ?sw t.readers t.id
+      | `Queue_empty -> Switch.await t.readers t.id |> Switch.or_raise
       | `Ok ->
         (* [capacity = 0] (this is the only way we can get waiters and no items).
            [wake_one] has just added an item to the queue, so remove it quickly to restore the invariant. *)
