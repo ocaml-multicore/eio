@@ -47,9 +47,8 @@ val noop : unit -> unit
 
 (** {1 Time functions} *)
 
-val sleep_until : ?sw:Switch.t -> float -> unit
-(** [sleep_until time] blocks until the current time is [time].
-    @param sw Cancel the sleep if [sw] is turned off. *)
+val sleep_until : float -> unit
+(** [sleep_until time] blocks until the current time is [time]. *)
 
 (** {1 Memory allocation functions} *)
 
@@ -76,48 +75,47 @@ val openat2 :
 (** [openat2 ~sw ~flags ~perm ~resolve ~dir path] opens [dir/path].
     See {!Uring.openat2} for details. *)
 
-val read_upto : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> int
+val read_upto : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> int
 (** [read_upto fd chunk len] reads at most [len] bytes from [fd],
     returning as soon as some data is available.
-    @param sw Abort the read if [sw] is turned off.
     @param file_offset Read from the given position in [fd] (default: 0).
     @raise End_of_file Raised if all data has already been read. *)
 
-val read_exactly : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
+val read_exactly : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
 (** [read_exactly fd chunk len] reads exactly [len] bytes from [fd],
     performing multiple read operations if necessary.
     @param file_offset Read from the given position in [fd] (default: 0).
     @raise End_of_file Raised if the stream ends before [len] bytes have been read. *)
 
-val readv : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> int
+val readv : ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> int
 (** [readv] is like {!read_upto} but can read into any cstruct(s),
     not just chunks of the pre-shared buffer.
     If multiple buffers are given, they are filled in order. *)
 
-val write : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
+val write : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
 (** [write fd buf len] writes exactly [len] bytes from [buf] to [fd].
     It blocks until the OS confirms the write is done,
     and resubmits automatically if the OS doesn't write all of it at once. *)
 
-val writev : ?sw:Switch.t -> ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> unit
+val writev : ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> unit
 (** [writev] is like {!write} but can write from any cstruct(s),
     not just chunks of the pre-shared buffer.
     If multiple buffers are given, they are sent in order.
     It will make multiple OS calls if the OS doesn't write all of it at once. *)
 
-val splice : ?sw:Switch.t -> FD.t -> dst:FD.t -> len:int -> int
+val splice : FD.t -> dst:FD.t -> len:int -> int
 (** [splice src ~dst ~len] attempts to copy up to [len] bytes of data from [src] to [dst].
     @return The number of bytes copied.
     @raise End_of_file [src] is at the end of the file.
     @raise Unix.Unix_error(EINVAL, "splice", _) if splice is not supported for these FDs. *)
 
-val connect : ?sw:Switch.t -> FD.t -> Unix.sockaddr -> unit
+val connect : FD.t -> Unix.sockaddr -> unit
 (** [connect fd addr] attempts to connect socket [fd] to [addr]. *)
 
-val await_readable : ?sw:Switch.t -> FD.t -> unit
+val await_readable : FD.t -> unit
 (** [await_readable fd] blocks until [fd] is readable (or has an error). *)
 
-val await_writable : ?sw:Switch.t -> FD.t -> unit
+val await_writable : FD.t -> unit
 (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
 val fstat : FD.t -> Unix.stats

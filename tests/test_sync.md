@@ -21,7 +21,7 @@ Create a promise, fork a thread waiting for it, then fulfull it:
 ```ocaml
 # let () =
     Eio_main.run @@ fun _stdenv ->
-    Switch.top @@ fun sw ->
+    Switch.run @@ fun sw ->
     let p, r = Promise.create () in
     traceln "Initial state: %a" (pp_promise Fmt.string) p;
     let thread = Fibre.fork ~sw ~exn_turn_off:false (fun () -> Promise.await p) in
@@ -42,7 +42,7 @@ Create a promise, fork a thread waiting for it, then break it:
 ```ocaml
 # let () =
     Eio_main.run @@ fun _stdenv ->
-    Switch.top @@ fun sw ->
+    Switch.run @@ fun sw ->
     let p, r = Promise.create () in
     traceln "Initial state: %a" (pp_promise Fmt.string) p;
     let thread = Fibre.fork ~sw ~exn_turn_off:false (fun () -> Promise.await p) in
@@ -66,13 +66,13 @@ Some simple tests of `fork_ignore`:
 # let () =
     Eio_main.run @@ fun _stdenv ->
     let i = ref 0 in
-    Switch.top (fun sw ->
+    Switch.run (fun sw ->
         Fibre.fork_ignore ~sw (fun () -> incr i);
       );
     traceln "Forked code ran; i is now %d" !i;
     let p1, r1 = Promise.create () in
     try
-      Switch.top (fun sw ->
+      Switch.run (fun sw ->
           Fibre.fork_ignore ~sw (fun () -> Promise.await p1; incr i; raise Exit);
           traceln "Forked code waiting; i is still %d" !i;
           Promise.fulfill r1 ()
@@ -90,7 +90,7 @@ Basic semaphore tests:
 # let () =
     let module Semaphore = Eio.Semaphore in
     Eio_main.run @@ fun _stdenv ->
-    Switch.top @@ fun sw ->
+    Switch.run @@ fun sw ->
     let running = ref 0 in
     let sem = Semaphore.make 2 in
     let fork = Fibre.fork ~sw ~exn_turn_off:false in
@@ -126,7 +126,7 @@ Releasing a semaphore when no-one is waiting for it:
 # let () =
     let module Semaphore = Eio.Semaphore in
     Eio_main.run @@ fun _stdenv ->
-    Switch.top @@ fun sw ->
+    Switch.run @@ fun sw ->
     let sem = Semaphore.make 0 in
     Semaphore.release sem;        (* Release with free-counter *)
     traceln "Initial config: %d" (Semaphore.get_value sem);

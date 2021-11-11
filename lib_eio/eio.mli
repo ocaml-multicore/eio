@@ -1,47 +1,44 @@
 (** Effects based parallel IO for OCaml *)
 
+(** Reporting multiple failures at once. *)
+module Multiple_exn : sig
+  exception T of exn list
+  (** Raised if multiple fibres fail, to report all the exceptions. *)
+end
+
+(** Handles for removing callbacks. *)
+module Hook : sig
+  type t
+
+  val remove : t -> unit
+  (** [remove t] removes a previously-added hook.
+      If the hook has already been removed, this does nothing. *)
+
+  val null : t
+  (** A dummy hook. Removing it does nothing. *)
+end
+
 (** {1 Concurrency primitives} *)
 
 (** Commonly used standard features. This module is intended to be [open]ed. *)
 module Std : sig
-  (** Controlling the lifetime of fibres (groups, exceptions, cancellations, timeouts). *)
+
+  (** Grouping fibres and other resources. *)
   module Switch : sig
     type t
-    (** A switch controls a group of fibres.
-        Once a switch is turned off, all activities in that context should cancel themselves. *)
+    (** A switch contains a group of fibres and other resources (such as open file handles).
+        Once a switch is turned off, the fibres should cancel themselves.
+        A switch is created with [Switch.run fn],
+        which does not return until all fibres attached to the switch have finished,
+        and all attached resources have been closed.
+        Each switch includes its own {!Cancel.t} context. *)
 
-    type hook
-    (** A handle to a cancellation hook. *)
-
-    exception Multiple_exceptions of exn list
-
-    exception Cancelled of exn
-    (** [Cancelled ex] indicates that the switch was turned off with exception [ex].
-        It is usually not necessary to report a [Cancelled] exception to the user,
-        as the original problem will be handled elsewhere. *)
-
-    val top : (t -> 'a) -> 'a
-    (** [top fn] runs [fn] with a fresh top-level switch (initially on).
-        When [fn] exits, [top] waits for all operations registered with the switch to finish
+    val run : (t -> 'a) -> 'a
+    (** [run fn] runs [fn] with a fresh switch (initially on).
+        When [fn] exits, [run] waits for all operations registered with the switch to finish
         (it does not turn the switch off itself).
-        If the switch is turned off before it returns, [top] re-raises the switch's exception(s).
-        @raise Multiple_exceptions If [turn_off] is called more than once. *)
-
-    val sub : ?on_release:(unit -> unit) -> t -> on_error:(exn -> 'a) -> (t -> 'a) -> 'a
-    (** [sub sw ~on_error fn] is like [top fn], but the new switch is a child of [t], so that
-        cancelling [t] also cancels the child (but not the other way around).
-        If [fn] raises an exception then it is passed to [on_error].
-        If you only want to use [sub] to wait for a group of threads to finish, but not to contain
-        errors, you can use [~on_error:raise].
-        @param on_release Register this function with [Switch.on_release sub] once the sub-switch is created.
-                          If creating the sub-switch fails, run it immediately. *)
-
-    val sub_opt : ?on_release:(unit -> unit) -> t option -> (t -> 'a) -> 'a
-    (** Run a function with a new switch, optionally a child of another switch.
-        [sub_opt (Some sw)] is [sub sw ~on_error:raise].
-        [sub None] is [top].
-        @param on_release Register this function with [Switch.on_release sub] once the new switch is created.
-                          If creating the switch fails, run it immediately. *)
+        If the switch is turned off before it returns, [run] re-raises the switch's exception(s).
+        @raise Multiple_exn.T If [turn_off] is called more than once. *)
 
     val check : t -> unit
     (** [check t] checks that [t] is still on.
@@ -66,27 +63,18 @@ module Std : sig
         If you want to allow other release handlers to run concurrently, you can start the release
         operation and then call [on_release] again from within [fn] to register a function to await the result.
         This will be added to a fresh batch of handlers, run after the original set have finished.
-        Note that [fn] must work even if the switch has been turned off,
-        so using [sub t] or similar within [fn] is usually a bad idea. *)
+        Note that [fn] is called within a {!Cancel.protect}, since aborting clean-up actions is usually a bad idea
+        and the switch may have been cancelled by the time it runs. *)
 
-    val on_release_cancellable : t -> (unit -> unit) -> hook
+    val on_release_cancellable : t -> (unit -> unit) -> Hook.t
     (** Like [on_release], but the handler can be removed later. *)
 
-    val add_cancel_hook : t -> (exn -> unit) -> hook
-    (** [add_cancel_hook t cancel] registers shutdown function [cancel] with [t].
+    val add_cancel_hook : t -> (exn -> unit) -> Hook.t
+    (** [add_cancel_hook t cancel] registers cancel function [cancel] with [t].
         When [t] is turned off, [cancel] is called.
+        This can be used to encourage other fibres to exit.
+        If [Switch.run] returns successfully, the hook will not run.
         If [t] is already off, it calls [cancel] immediately. *)
-
-    val add_cancel_hook_opt : t option -> (exn -> unit) -> hook
-    (**[add_cancel_hook_opt (Some t)] is [add_cancel_hook t].
-       If called with [None], it does nothing and returns {!null_hook}. *)
-
-    val remove_hook : hook -> unit
-    (** [remove_hook h] removes a hook.
-        If the hook has already been removed, this does nothing. *)
-
-    val null_hook : hook
-    (** A dummy hook. Removing it does nothing. *)
   end
 
   module Promise : sig
@@ -100,16 +88,15 @@ module Std : sig
     (** [create ()] is a fresh promise/resolver pair.
         The promise is initially unresolved. *)
 
-    val await : ?sw:Switch.t -> 'a t -> 'a
+    val await : 'a t -> 'a
     (** [await t] blocks until [t] is resolved.
         If [t] is already resolved then this returns immediately.
-        If [t] is broken, it raises the exception.
-        @param sw Cancel wait if [sw] is turned off. *)
+        If [t] is broken, it raises the exception. *)
 
-    val await_result : ?sw:Switch.t -> 'a t -> ('a, exn) result
+    val await_result : 'a t -> ('a, exn) result
     (** [await_result t] is like [await t], but returns [Error ex] if [t] is broken
         instead of raising an exception.
-        Note that turning off [sw] still raises an exception. *)
+        Note that if the [await_result] itself is cancelled then it still raises. *)
 
     val fulfill : 'a u -> 'a -> unit
     (** [fulfill u v] successfully resolves [u]'s promise with the value [v].
@@ -149,31 +136,38 @@ module Std : sig
   end
 
   module Fibre : sig
-    val both : sw:Switch.t -> (unit -> unit) -> (unit -> unit) -> unit
-    (** [both ~sw f g] runs [f ()] and [g ()] concurrently.
-        If either raises an exception, [sw] is turned off.
-        [both] waits for both functions to finish even if one raises. *)
+    val both : (unit -> unit) -> (unit -> unit) -> unit
+    (** [both f g] runs [f ()] and [g ()] concurrently.
+        They run in a new cancellation sub-context, and
+        if either raises an exception, the other is cancelled.
+        [both] waits for both functions to finish even if one raises
+        (it will then re-raise the original exception).
+        @raise Multiple_exn.T if both fibres raise exceptions (excluding {!Cancel.Cancelled}). *)
 
     val fork_ignore : sw:Switch.t -> (unit -> unit) -> unit
     (** [fork_ignore ~sw fn] runs [fn ()] in a new fibre, but does not wait for it to complete.
         The new fibre is attached to [sw] (which can't finish until the fibre ends).
+        The new fibre inherits [sw]'s cancellation context.
         If the fibre raises an exception, [sw] is turned off.
         If [sw] is already off then [fn] fails immediately, but the calling thread continues. *)
 
     val fork_sub_ignore : ?on_release:(unit -> unit) -> sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
     (** [fork_sub_ignore ~sw ~on_error fn] is like [fork_ignore], but it creates a new sub-switch for the fibre.
         This means that you can cancel the child switch without cancelling the parent.
-        This is a convenience function for running {!Switch.sub} inside a {!fork_ignore}. *)
+        This is a convenience function for running {!Switch.run} inside a {!fork_ignore}.
+        @param on_release If given, this function is called when the new fibre ends.
+                          If the fibre cannot be created (e.g. because [sw] is already off), it runs immediately.
+        @param on_error This is called if the fibre raises an exception.
+                        If it raises in turn, the parent switch is turned off. *)
 
     val fork : sw:Switch.t -> exn_turn_off:bool -> (unit -> 'a) -> 'a Promise.t
     (** [fork ~sw ~exn_turn_off fn] starts running [fn ()] in a new fibre and returns a promise for its result.
         The new fibre is attached to [sw] (which can't finish until the fibre ends).
         @param exn_turn_off If [true] and [fn] raises an exception, [sw] is turned off (in addition to breaking the promise). *)
 
-    val yield : ?sw:Switch.t -> unit -> unit
+    val yield : unit -> unit
     (** [yield ()] asks the scheduler to switch to the next runnable task.
-        The current task remains runnable, but goes to the back of the queue.
-        @param sw Ensure that the switch is still on before returning. *)
+        The current task remains runnable, but goes to the back of the queue. *)
   end
 
   val traceln :
@@ -216,10 +210,9 @@ module Semaphore : sig
       If other fibres are waiting on [t], the one that has been waiting the longest is resumed.
       @raise Sys_error if the value of the semaphore would overflow [max_int] *)
 
-  val acquire : ?sw:Switch.t -> t -> unit
+  val acquire : t -> unit
   (** [acquire t] blocks the calling fibre until the value of semaphore [t]
-      is not zero, then atomically decrements the value of [t] and returns.
-      @param sw Abort if the switch is turned off. *)
+      is not zero, then atomically decrements the value of [t] and returns. *)
 
   val get_value : t -> int
   (** [get_value t] returns the current value of semaphore [t]. *)
@@ -234,16 +227,63 @@ module Stream : sig
   (** [create capacity] is a new stream which can hold up to [capacity] items without blocking writers.
       If [capacity = 0] then writes block until a reader is ready. *)
 
-  val add : ?sw:Switch.t -> 'a t -> 'a -> unit
+  val add : 'a t -> 'a -> unit
   (** [add t item] adds [item] to [t].
-      If this would take [t] over capacity, it blocks until there is space.
-      @param sw Stop waiting if the switch is turned off. *)
+      If this would take [t] over capacity, it blocks until there is space. *)
 
-  val take : ?sw:Switch.t -> 'a t -> 'a
+  val take : 'a t -> 'a
   (** [take t] takes the next item from the head of [t].
-      If no items are available, it waits until one becomes available.
-      @param sw Stop waiting if the switch is turned off. *)
+      If no items are available, it waits until one becomes available. *)
 end  
+
+(** Cancelling other fibres when an exception occurs. *)
+module Cancel : sig
+  (** This is the low-level interface to cancellation.
+      Every {!Switch} includes a cancellation context and most users will just use that API instead. *)
+
+  type t
+  (** A cancellation context. *)
+
+  exception Cancelled of exn
+  (** [Cancelled ex] indicates that the context was cancelled with exception [ex].
+      It is usually not necessary to report a [Cancelled] exception to the user,
+      as the original problem will be handled elsewhere. *)
+
+  exception Cancel_hook_failed of exn list
+  (** Raised by {!cancel} if any of the cancellation hooks themselves fail. *)
+
+  val sub : (t -> 'a) -> 'a
+  (** [sub fn] installs a new cancellation context [t], runs [fn t] inside it, and then restores the old context.
+      If the old context is cancelled while [fn] is running then [t] is cancelled too.
+      [t] cannot be used after [sub] returns. *)
+
+  val protect : (unit -> 'a) -> 'a
+  (** [protect fn] runs [fn] in a new cancellation context that isn't cancelled when its parent is.
+      This can be used to clean up resources on cancellation.
+      However, it is usually better to use {!Switch.on_release} (which calls this for you). *)
+
+  val protect_full : (t -> 'a) -> 'a
+  (** [protect_full fn] is like {!protect}, but also gives access to the new context. *)
+
+  val check : t -> unit
+  (** [check t] checks that [t] hasn't been cancelled.
+      @raise Cancelled If the context has been cancelled. *)
+
+  val get_error : t -> exn option
+  (** [get_error t] is like [check t] except that it returns the exception instead of raising it.
+      If [t] is finished, this returns (rather than raising) the [Invalid_argument] exception too. *)
+
+  val add_hook : t -> (exn -> unit) -> Hook.t
+  (** [add_hook t fn] registers cancellation function [fn] with [t].
+      When [t] is cancelled, [protect (fun () -> fn ex)] is called.
+      If [t] is already cancelled, it calls [fn] immediately. *)
+
+  val cancel : t -> exn -> unit
+  (** [cancel t ex] marks [t] as cancelled and then calls all registered hooks,
+      passing [ex] as the argument.
+      All hooks are run, even if some of them raise exceptions.
+      @raise Cancel_hook_failed if one or more hooks fail. *)
+end
 
 (** {1 Cross-platform OS API} *)
 
@@ -266,7 +306,7 @@ module Flow : sig
   type read_method = ..
   (** Sources can offer a list of ways to read them, in order of preference. *)
 
-  type read_method += Read_source_buffer of (?sw:Switch.t -> (Cstruct.t list -> unit) -> unit)
+  type read_method += Read_source_buffer of ((Cstruct.t list -> unit) -> unit)
   (** If a source offers [Read_source_buffer rsb] then the user can call [rsb fn]
       to borrow a view of the source's buffers.
       [rb] will raise [End_of_file] if no more data will be produced.
@@ -282,15 +322,14 @@ module Flow : sig
 
   class virtual read : object
     method virtual read_methods : read_method list
-    method virtual read_into : ?sw:Switch.t -> Cstruct.t -> int
+    method virtual read_into : Cstruct.t -> int
   end
 
-  val read_into : ?sw:Switch.t -> #read -> Cstruct.t -> int
+  val read_into : #read -> Cstruct.t -> int
   (** [read_into reader buf] reads one or more bytes into [buf].
       It returns the number of bytes written (which may be less than the
       buffer size even if there is more data to be read).
       [buf] must not be zero-length.
-      @param sw Abort the read if [sw] is turned off.
       @raise End_of_file if there is no more data to read *)
 
   val read_methods : #read -> read_method list
@@ -309,13 +348,13 @@ module Flow : sig
   val cstruct_source : Cstruct.t list -> source
 
   class virtual write : object
-    method virtual write : 'a. ?sw:Switch.t -> (#source as 'a) -> unit
+    method virtual write : 'a. (#source as 'a) -> unit
   end
 
-  val copy : ?sw:Switch.t -> #source -> #write -> unit
+  val copy : #source -> #write -> unit
   (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
 
-  val copy_string : ?sw:Switch.t -> string -> #write -> unit
+  val copy_string : string -> #write -> unit
 
   (** Consumer base class. *)
   class virtual sink : object
@@ -404,19 +443,17 @@ end
 module Time : sig
   class virtual clock : object
     method virtual now : float
-    method virtual sleep_until : ?sw:Switch.t -> float -> unit
+    method virtual sleep_until : float -> unit
   end
 
   val now : #clock -> float
   (** [now t] is the current time according to [t]. *)
 
-  val sleep_until : ?sw:Switch.t -> #clock -> float -> unit
-  (** [sleep_until t time] waits until the given time is reached.
-      @param sw The sleep is aborted if the switch is turned off. *)
+  val sleep_until : #clock -> float -> unit
+  (** [sleep_until t time] waits until the given time is reached. *)
 
-  val sleep : ?sw:Switch.t -> #clock -> float -> unit
-  (** [sleep t d] waits for [d] seconds.
-      @param sw The sleep is aborted if the switch is turned off. *)
+  val sleep : #clock -> float -> unit
+  (** [sleep t d] waits for [d] seconds. *)
 end
 
 module Dir : sig
@@ -448,7 +485,7 @@ module Dir : sig
       append:bool ->
       create:create ->
       path -> <rw; Flow.close>
-    method virtual mkdir : ?sw:Switch.t -> perm:Unix.file_perm -> path -> unit
+    method virtual mkdir : perm:Unix.file_perm -> path -> unit
     method virtual open_dir : sw:Switch.t -> path -> t_with_close
   end
   and virtual t_with_close : object
@@ -460,7 +497,7 @@ module Dir : sig
   (** [open_in ~sw t path] opens [t/path] for reading.
       Note: files are always opened in binary mode. *)
 
-  val with_open_in : ?sw:Switch.t -> #t -> path -> (<Flow.source; Flow.close> -> 'a) -> 'a
+  val with_open_in : #t -> path -> (<Flow.source; Flow.close> -> 'a) -> 'a
   (** [with_open_in] is like [open_in], but calls [fn flow] with the new flow and closes
       it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
@@ -475,21 +512,20 @@ module Dir : sig
       @param create Controls whether to create the file, and what permissions to give it if so. *)
 
   val with_open_out :
-    ?sw:Switch.t ->
     ?append:bool ->
     create:create ->
     #t -> path -> (<rw; Flow.close> -> 'a) -> 'a
   (** [with_open_out] is like [open_out], but calls [fn flow] with the new flow and closes
       it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
-  val mkdir : ?sw:Switch.t -> #t -> perm:Unix.file_perm -> path -> unit
+  val mkdir : #t -> perm:Unix.file_perm -> path -> unit
   (** [mkdir t ~perm path] creates a new directory [t/path] with permissions [perm]. *)
 
   val open_dir : sw:Switch.t -> #t -> path -> <t; Flow.close>
   (** [open_dir ~sw t path] opens [t/path].
       This can be passed to functions to grant access only to the subtree [t/path]. *)
 
-  val with_open_dir : ?sw:Switch.t -> #t -> path -> (<t; Flow.close> -> 'a) -> 'a
+  val with_open_dir : #t -> path -> (<t; Flow.close> -> 'a) -> 'a
   (** [with_open_dir] is like [open_dir], but calls [fn dir] with the new directory and closes
       it automatically when [fn] returns (if it hasn't already been closed by then). *)
 end
@@ -531,6 +567,11 @@ end
 
 (** API for use by the scheduler implementation. *)
 module Private : sig
+  type context = {
+    tid : Ctf.id;
+    mutable cancel : Cancel.t;
+  }
+
   module Effects : sig
     open EffectHandlers
 
@@ -538,11 +579,11 @@ module Private : sig
     (** A function provided by the scheduler to reschedule a previously-suspended thread. *)
 
     type _ eff += 
-      | Suspend : (Ctf.id -> 'a enqueue -> unit) -> 'a eff
+      | Suspend : (context -> 'a enqueue -> unit) -> 'a eff
       (** [Suspend fn] is performed when a fibre must be suspended
           (e.g. because it called {!Promise.await} on an unresolved promise).
-          The effect handler runs [fn tid enqueue] in the scheduler context,
-          passing it the suspended fibre's thread ID (for tracing) and a function to resume it.
+          The effect handler runs [fn fibre enqueue] in the scheduler context,
+          passing it the suspended fibre's context and a function to resume it.
           [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
 
       | Fork : (unit -> 'a) -> 'a Promise.t eff
@@ -556,7 +597,12 @@ module Private : sig
           It must not switch fibres, as tracing must not affect scheduling.
           If the system is not ready to receive the trace output,
           the whole domain must block until it is. *)
+
+      | Set_cancel : Cancel.t -> Cancel.t eff
+      (** [Set_cancel c] sets the running fibre's cancel context to [c] and returns the previous context. *)
   end
+
+  val boot_cancel : Cancel.t
+  (** A dummy context which is useful briefly during start up before the backend calls {!Cancel.protect}
+      to install a proper context. *)
 end
-
-

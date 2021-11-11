@@ -17,7 +17,7 @@ let read_one_byte ~sw r =
 
 let test_poll_add () =
   Eio_linux.run @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   let r, w = Eio_linux.pipe sw in
   let thread = read_one_byte ~sw r in
   Fibre.yield ();
@@ -30,7 +30,7 @@ let test_poll_add () =
 
 let test_poll_add_busy () =
   Eio_linux.run ~queue_depth:1 @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   let r, w = Eio_linux.pipe sw in
   let a = read_one_byte ~sw r in
   let b = read_one_byte ~sw r in
@@ -46,11 +46,11 @@ let test_poll_add_busy () =
 (* Write a string to a pipe and read it out again. *)
 let test_copy () =
   Eio_linux.run ~queue_depth:2 @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   let msg = "Hello!" in
   let from_pipe, to_pipe = Eio_linux.pipe sw in
   let buffer = Buffer.create 20 in
-  Fibre.both ~sw
+  Fibre.both
     (fun () -> Eio.Flow.copy from_pipe (Eio.Flow.buffer_sink buffer))
     (fun () ->
        Eio.Flow.copy (Eio.Flow.string_source msg) to_pipe;
@@ -63,13 +63,13 @@ let test_copy () =
 (* Write a string via 2 pipes. The copy from the 1st to 2nd pipe will be optimised and so tests a different code-path. *)
 let test_direct_copy () =
   Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   let msg = "Hello!" in
   let from_pipe1, to_pipe1 = Eio_linux.pipe sw in
   let from_pipe2, to_pipe2 = Eio_linux.pipe sw in
   let buffer = Buffer.create 20 in
   let to_output = Eio.Flow.buffer_sink buffer in
-  Switch.top (fun sw ->
+  Switch.run (fun sw ->
       Fibre.fork_ignore ~sw (fun () -> Ctf.label "copy1"; Eio.Flow.copy from_pipe1 to_pipe2; Eio.Flow.close to_pipe2);
       Fibre.fork_ignore ~sw (fun () -> Ctf.label "copy2"; Eio.Flow.copy from_pipe2 to_output);
       Eio.Flow.copy (Eio.Flow.string_source msg) to_pipe1;
@@ -82,7 +82,7 @@ let test_direct_copy () =
 (* Read and write using IO vectors rather than the fixed buffers. *)
 let test_iovec () =
   Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   let from_pipe, to_pipe = Eio_linux.pipe sw in
   let from_pipe = Eio_linux.Objects.get_fd from_pipe in
   let to_pipe = Eio_linux.Objects.get_fd to_pipe in
@@ -90,14 +90,14 @@ let test_iovec () =
   let rec recv = function
     | [] -> ()
     | cs ->
-      let got = Eio_linux.readv ~sw from_pipe cs in
+      let got = Eio_linux.readv from_pipe cs in
       recv (Cstruct.shiftv cs got)
   in
-  Fibre.both ~sw
+  Fibre.both
     (fun () -> recv [Cstruct.sub message 5 3; Cstruct.sub message 15 3])
     (fun () ->
        let b = Cstruct.of_string "barfoo" in
-       Eio_linux.writev ~sw to_pipe [Cstruct.sub b 3 3; Cstruct.sub b 0 3];
+       Eio_linux.writev to_pipe [Cstruct.sub b 3 3; Cstruct.sub b 0 3];
        Eio_linux.FD.close to_pipe
     );
   Alcotest.(check string) "Transfer correct" "Got [foo] and [bar]" (Cstruct.to_string message)

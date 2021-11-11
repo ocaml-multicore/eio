@@ -7,7 +7,7 @@ let main ~clock =
   n_fibres |> List.iter (fun n_fibres ->
       let n_iters = 1000000 / n_fibres in
       let t0 = Eio.Time.now clock in
-      Switch.top (fun sw ->
+      Switch.run (fun sw ->
           for _ = 1 to n_fibres do
             Fibre.fork_ignore ~sw (fun () ->
                 for _ = 1 to n_iters do

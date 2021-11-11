@@ -14,7 +14,7 @@ let read_then_write_chunk infd outfd file_offset len =
   U.free buf
 
 let copy_file infd outfd insize block_size =
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   let rec copy_block file_offset =
     let remaining = Int63.(sub insize file_offset) in
     if remaining <> Int63.zero then (
@@ -27,7 +27,7 @@ let copy_file infd outfd insize block_size =
 
 let run_cp block_size queue_depth infile outfile () =
   U.run ~queue_depth ~block_size @@ fun _stdenv ->
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   let open Unix in
   let infd = Eio_linux.openfile ~sw infile [O_RDONLY] 0 in
   let outfd = Eio_linux.openfile ~sw outfile [O_WRONLY; O_CREAT; O_TRUNC] 0o644 in

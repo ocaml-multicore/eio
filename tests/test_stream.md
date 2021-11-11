@@ -15,14 +15,14 @@ let run fn =
   Eio_main.run @@ fun _ ->
   fn ()
 
-let add ?sw t v =
+let add t v =
   traceln "Adding %d to stream" v;
-  S.add ?sw t v;
+  S.add t v;
   traceln "Added %d to stream" v
 
-let take ?sw t =
+let take t =
   traceln "Reading from stream";
-  traceln "Got %d from stream" (S.take ?sw t)
+  traceln "Got %d from stream" (S.take t)
 ```
 
 # Test cases
@@ -51,10 +51,9 @@ Readers have to wait when the stream is empty:
 
 ```ocaml
 # run @@ fun () ->
-  Switch.top @@ fun sw ->
   let t = S.create 2 in
   add t 1;
-  Fibre.both ~sw
+  Fibre.both
     (fun () -> take t; take t)
     (fun () -> add t 2);;
 +Adding 1 to stream
@@ -72,10 +71,9 @@ Writers have to wait when the stream is full:
 
 ```ocaml
 # run @@ fun () ->
-  Switch.top @@ fun sw ->
   let t = S.create 3 in
   add t 1;
-  Fibre.both ~sw
+  Fibre.both
     (fun () ->
       add t 2;
       add t 3;
@@ -110,9 +108,8 @@ A zero-length queue is synchronous:
 
 ```ocaml
 # run @@ fun () ->
-  Switch.top @@ fun sw ->
   let t = S.create 0 in
-  Fibre.both ~sw
+  Fibre.both
     (fun () ->
       add t 1;
       add t 2;
@@ -138,10 +135,9 @@ Cancel reading from a stream:
 # run @@ fun () ->
   let t = S.create 1 in
   try
-    Switch.top @@ fun sw ->
-    Fibre.both ~sw
-      (fun () -> take ~sw t)
-      (fun () -> Switch.turn_off sw Cancel);
+    Fibre.both
+      (fun () -> take t)
+      (fun () -> raise Cancel);
     assert false;
   with Cancel ->
     traceln "Cancelled";
@@ -162,10 +158,9 @@ Cancel writing to a stream:
 # run @@ fun () ->
   let t = S.create 1 in
   try
-    Switch.top @@ fun sw ->
-    Fibre.both ~sw
-      (fun () -> add ~sw t 1; add ~sw t 2)
-      (fun () -> Switch.turn_off sw Cancel);
+    Fibre.both
+      (fun () -> add t 1; add t 2)
+      (fun () -> raise Cancel);
     assert false;
   with Cancel ->
     traceln "Cancelled";
@@ -191,17 +186,15 @@ Cancel writing to a zero-length stream:
 # run @@ fun () ->
   let t = S.create 0 in
   try
-    Switch.top @@ fun sw ->
-    Fibre.both ~sw
-      (fun () -> add ~sw t 1)
-      (fun () -> Switch.turn_off sw Cancel);
+    Fibre.both
+      (fun () -> add t 1)
+      (fun () -> raise Cancel);
     assert false;
   with Cancel ->
     traceln "Cancelled";
-    Switch.top @@ fun sw ->
-    Fibre.both ~sw
-      (fun () -> add ~sw t 2)
-      (fun () -> take ~sw t);;
+    Fibre.both
+      (fun () -> add t 2)
+      (fun () -> take t);;
 +Adding 1 to stream
 +Cancelled
 +Adding 2 to stream
@@ -211,20 +204,20 @@ Cancel writing to a zero-length stream:
 - : unit = ()
 ```
 
-Trying to use a stream with a turned-off switch:
+Trying to use a stream with a cancelled context:
 
 ```ocaml
 # run @@ fun () ->
   let t = S.create 0 in
-  Switch.top @@ fun sw ->
-  Switch.turn_off sw Cancel;
-  begin try add  ~sw t 1 with ex -> traceln "%a" Fmt.exn ex end;
-  begin try take ~sw t   with ex -> traceln "%a" Fmt.exn ex end;;
+  Eio.Cancel.sub @@ fun c ->
+  Eio.Cancel.cancel c Cancel;
+  begin try add  t 1 with ex -> traceln "%a" Fmt.exn ex end;
+  begin try take t   with ex -> traceln "%a" Fmt.exn ex end;;
 +Adding 1 to stream
 +Cancelled: Cancel
 +Reading from stream
 +Cancelled: Cancel
-Exception: Cancel.
+Exception: Cancelled: Cancel
 ```
 
 Readers queue up:
@@ -232,7 +225,7 @@ Readers queue up:
 ```ocaml
 # run @@ fun () ->
   let t = S.create 0 in
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   Fibre.fork_ignore ~sw (fun () -> take t; traceln "a done");
   Fibre.fork_ignore ~sw (fun () -> take t; traceln "b done");
   Fibre.fork_ignore ~sw (fun () -> take t; traceln "c done");
@@ -262,7 +255,7 @@ Writers queue up:
 ```ocaml
 # run @@ fun () ->
   let t = S.create 0 in
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   Fibre.fork_ignore ~sw (fun () -> add t 1);
   Fibre.fork_ignore ~sw (fun () -> add t 2);
   Fibre.fork_ignore ~sw (fun () -> add t 3);

@@ -15,7 +15,8 @@ This is an unreleased repository, as it's very much a work-in-progress.
 * [Testing with Mocks](#testing-with-mocks)
 * [Fibres](#fibres)
 * [Tracing](#tracing)
-* [Switches, Errors, and Cancellation](#switches-errors-and-cancellation)
+* [Cancellation](#cancellation)
+* [Switches](#switches)
 * [Design Note: Results vs Exceptions](#design-note-results-vs-exceptions)
 * [Performance](#performance)
 * [Networking](#networking)
@@ -153,10 +154,9 @@ Here's an example running two threads of execution (fibres) concurrently:
 
 ```ocaml
 let main _env =
-  Switch.top @@ fun sw ->
-  Fibre.both ~sw
-    (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield ~sw () done)
-    (fun () -> for y = 1 to 3 do traceln "y = %d" y; Fibre.yield ~sw () done);;
+  Fibre.both
+    (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield () done)
+    (fun () -> for y = 1 to 3 do traceln "y = %d" y; Fibre.yield () done);;
 ```
 
 ```ocaml
@@ -170,12 +170,8 @@ let main _env =
 - : unit = ()
 ```
 
-Notes:
-
-- The two fibres run on a single core, so only one can be running at a time.
-  Calling an operation that performs an effect (such as `yield`) can switch to a different thread.
-
-- The `sw` argument is used to handle exceptions (described later).
+The two fibres run on a single core, so only one can be running at a time.
+Calling an operation that performs an effect (such as `yield`) can switch to a different thread.
 
 ## Tracing
 
@@ -208,18 +204,15 @@ The file is a ring buffer, so when it gets full, old events will start to be ove
 This shows the two counting threads and the lifetime of the `sw` switch.
 Note that the output from `traceln` appears in the trace as well as on the console.
 
-## Switches, Errors, and Cancellation
+## Cancellation
 
-A switch is used to group fibres together, so they can be cancelled or waited on together.
-This is a form of [structured concurrency][].
-
-Here's what happens if one of the two threads above fails:
+Every fibre has a cancellation context.
+If one of the `Fibre.both` fibres fails, the other is cancelled:
 
 ```ocaml
 # Eio_main.run @@ fun _env ->
-  Switch.top @@ fun sw ->
-  Fibre.both ~sw
-    (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield ~sw () done)
+  Fibre.both
+    (fun () -> for x = 1 to 3 do traceln "x = %d" x; Fibre.yield () done)
     (fun () -> failwith "Simulated error");;
 +x = 1
 Exception: Failure "Simulated error".
@@ -227,27 +220,32 @@ Exception: Failure "Simulated error".
 
 What happened here was:
 
-1. The first fibre ran, printed `x = 1` and yielded.
-2. The second fibre raised an exception.
-3. `Fibre.both` caught the exception and turned off the switch.
-4. The first thread's `yield` saw the switch was off and raised the exception there too.
-5. Once both threads had finished, `Fibre.both` re-raised the exception.
+1. `Fibre.both` created a new cancellation context for the child fibres.
+2. The first fibre ran, printed `x = 1` and yielded.
+3. The second fibre raised an exception.
+4. `Fibre.both` caught the exception and cancelled the context.
+5. The first thread's `yield` raised a `Cancelled` exception there.
+6. Once both threads had finished, `Fibre.both` re-raised the original exception.
 
-Please note: turning off a switch only asks the other thread(s) to cancel.
-A thread is free to ignore the switch and continue (perhaps to clean up some resources).
+You should assume that any operation that can switch fibres can also raise a `Cancelled` exception if a sibling fibre crashes. 
 
-Any operation that can be cancelled should take a `~sw` argument.
+If you want to make an operation non-cancellable, wrap it with `Cancel.protect`
+(this creates a new context that isn't cancelled with its parent).
 
-Switches can also be used to wait for threads even when there isn't an error. e.g.
+## Switches
+
+A switch is used to group fibres together, so they can be waited on together.
+This is a form of [structured concurrency][].
+For example:
 
 ```ocaml
 # Eio_main.run @@ fun _env ->
-  Switch.top (fun sw ->
+  Switch.run (fun sw ->
     Fibre.fork_ignore ~sw
-      (fun () -> for i = 1 to 3 do traceln "i = %d" i; Fibre.yield ~sw () done);
+      (fun () -> for i = 1 to 3 do traceln "i = %d" i; Fibre.yield () done);
     traceln "First thread forked";
     Fibre.fork_ignore ~sw
-      (fun () -> for j = 1 to 3 do traceln "j = %d" j; Fibre.yield ~sw () done);
+      (fun () -> for j = 1 to 3 do traceln "j = %d" j; Fibre.yield () done);
     traceln "Second thread forked; top-level code is finished"
   );
   traceln "Switch is finished";;
@@ -263,7 +261,25 @@ Switches can also be used to wait for threads even when there isn't an error. e.
 - : unit = ()
 ```
 
-`Switch.top` is used for top-level switches. You can also use `Fibre.fork_sub_ignore` to create a child sub-switch.
+`Switch.run fn` creates a new switch `sw` and runs `fn sw`.
+`fn` may spawn new fibres and attach them to the switch.
+It may also attach other resources such as open file handles.
+`Switch.run` waits until `fn` and all other attached fibres have finished, and then
+releases any attached resources (e.g. closing all attached file handles).
+
+If you call a function without giving it access to a switch,
+then when the function returns you can be sure that any fibres it spawned have finished,
+and any files it opened have been closed.
+So, a `Switch.run` puts a bound on the lifetime of things created within it,
+leading to clearer code and avoiding resource leaks.
+
+For example, `fork_ignore` creates a new fibre that continues running after `fork_ignore` returns,
+so it needs to take a switch argument.
+
+Every switch also creates a new cancellation context,
+and you can turn off the switch to cancel all fibres within it.
+
+You can also use `Fibre.fork_sub_ignore` to create a child sub-switch.
 Turning off the parent switch will also turn off the child switch, but turning off the child doesn't disable the parent.
 
 For example, a web-server might use one switch for the whole server and then create one sub-switch for each incoming connection.
@@ -341,11 +357,11 @@ Eio provides a simple high-level API for networking.
 Here is a client that connects to address `addr` using `network` and sends a message:
 
 ```ocaml
-let run_client ~sw ~net ~addr =
+let run_client ~net ~addr =
   traceln "Connecting to server...";
+  Switch.run @@ fun sw ->
   let flow = Eio.Net.connect ~sw net addr in
-  Eio.Flow.copy_string "Hello from client" flow;
-  Eio.Flow.shutdown flow `Send
+  Eio.Flow.copy_string "Hello from client" flow
 ```
 
 Note: the `flow` is attached to `sw` and will be closed automatically when it finishes.
@@ -353,13 +369,14 @@ Note: the `flow` is attached to `sw` and will be closed automatically when it fi
 Here is a server that listens on `socket` and handles a single connection by reading a message:
 
 ```ocaml
-let run_server ~sw socket =
+let run_server socket =
+  Switch.run @@ fun sw ->
   Eio.Net.accept_sub socket ~sw (fun ~sw flow _addr ->
     traceln "Server accepted connection from client";
     let b = Buffer.create 100 in
     Eio.Flow.copy flow (Eio.Flow.buffer_sink b);
     traceln "Server received: %S" (Buffer.contents b)
-  ) ~on_error:(fun ex -> traceln "Error handling connection: %s" (Printexc.to_string ex));
+  ) ~on_error:(traceln "Error handling connection: %a" Fmt.exn);
   traceln "(normally we'd loop and accept more connections here)"
 ```
 
@@ -373,12 +390,12 @@ We can test them in a single process using `Fibre.both`:
 
 ```ocaml
 let main ~net ~addr =
-  Switch.top @@ fun sw ->
+  Switch.run @@ fun sw ->
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   traceln "Server ready...";
-  Fibre.both ~sw
-    (fun () -> run_server ~sw server)
-    (fun () -> run_client ~sw ~net ~addr)
+  Fibre.both
+    (fun () -> run_server server)
+    (fun () -> run_client ~net ~addr)
 ```
 
 ```ocaml
@@ -503,7 +520,7 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
 - : unit = ()
 ```
 
-Please note: you only need to use `open_dir` if you want to create a new sandboxed environment.
+You only need to use `open_dir` if you want to create a new sandboxed environment.
 You can use a single directory object to access all paths beneath it,
 and this allows following symlinks within that subtree.
 
@@ -552,13 +569,12 @@ We can use `Eio.Domain_manager` to run this in a separate domain:
 
 ```ocaml
 let main ~domain_mgr =
-  Switch.top @@ fun sw ->
   let test n =
     traceln "sum 1..%d = %d" n
       (Eio.Domain_manager.run_compute_unsafe domain_mgr
         (fun () -> sum_to n))
   in
-  Fibre.both ~sw
+  Fibre.both
     (fun () -> test 100000)
     (fun () -> test 50000)
 ```

@@ -38,10 +38,9 @@ Here, we use a mutex to check that the parent domain really did run while waitin
 
 ```ocaml
 # run @@ fun mgr ->
-  Switch.top @@ fun sw ->
   let mutex = Stdlib.Mutex.create () in
   Mutex.lock mutex;
-  Fibre.both ~sw
+  Fibre.both
     (fun () ->
       traceln "Spawning new domain...";
       let response = Eio.Domain_manager.run_compute_unsafe mgr (fun () ->
