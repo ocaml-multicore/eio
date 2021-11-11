@@ -198,10 +198,11 @@ This should work even while the program is still running.
 The file is a ring buffer, so when it gets full, old events will start to be overwritten with new ones.
 
 <p align='center'>
-  <img src="./doc/switch.svg"/>
+  <img src="./doc/trace.svg"/>
 </p>
 
-This shows the two counting threads and the lifetime of the `sw` switch.
+This shows the two counting threads as two horizonal lines.
+The white regions indicate when each thread was running.
 Note that the output from `traceln` appears in the trace as well as on the console.
 
 ## Cancellation
