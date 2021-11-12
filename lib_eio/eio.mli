@@ -163,7 +163,7 @@ module Std : sig
         This is a convenience function for running {!Switch.run} inside a {!fork_ignore}.
         @param on_release If given, this function is called when the new fibre ends.
                           If the fibre cannot be created (e.g. because [sw] is already off), it runs immediately.
-        @param on_error This is called if the fibre raises an exception.
+        @param on_error This is called if the fibre raises an exception (other than {!Cancel.Cancelled}).
                         If it raises in turn, the parent switch is turned off. *)
 
     val fork : sw:Switch.t -> exn_turn_off:bool -> (unit -> 'a) -> 'a Promise.t

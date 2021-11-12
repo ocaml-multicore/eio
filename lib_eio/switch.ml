@@ -31,11 +31,7 @@ let rec turn_off t ex =
     Cancel.cancel t.cancel ex
 
 let add_cancel_hook t hook = Cancel.add_hook t.cancel hook
-
-let add_cancel_hook_opt t hook =
-  match t with
-  | Some t -> add_cancel_hook t hook
-  | None -> ignore
+let add_cancel_hook_unwrapped t hook = Cancel.add_hook_unwrapped t.cancel hook
 
 let with_op t fn =
   check t;

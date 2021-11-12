@@ -228,7 +228,7 @@ Wait for either a promise or a switch; promise resolves first but switch off wit
 Exception: Failure "Cancelled".
 ```
 
-Child switches are cancelled when the parent is cancelled:
+Child switches are cancelled when the parent is cancelled, but `on_error` isn't notified:
 
 ```ocaml
 # run (fun sw ->
@@ -240,8 +240,6 @@ Child switches are cancelled when the parent is cancelled:
     );;
 +Child 1
 +Child 2
-+child: Cancelled: Failure("Cancel parent")
-+child: Cancelled: Failure("Cancel parent")
 Exception: Failure "Cancel parent".
 ```
 

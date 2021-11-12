@@ -142,3 +142,25 @@ Cancelled from parent while already cancelling:
 +Cancelling parent
 Exception: Failure "Parent cancel".
 ```
+
+Cancelling in a sub-switch. We see the exception as `Cancelled Exit` when we're being asked to cancel,
+but just as plain `Exit` after we leave the context in which the cancellation started:
+
+```ocaml
+# run @@ fun () ->
+  let p, r = Promise.create () in
+  Fibre.both
+    (fun () ->
+      try
+        Switch.run (fun _ ->
+          try Promise.await p
+          with ex -> traceln "Nested exception: %a" Fmt.exn ex; raise ex
+        )
+      with ex -> traceln "Parent exception: %a" Fmt.exn ex; raise ex
+    )
+    (fun () -> raise Exit);
+  failwith "not-reached";;
++Nested exception: Cancelled: Stdlib.Exit
++Parent exception: Cancelled: Stdlib.Exit
+Exception: Stdlib.Exit.
+```
