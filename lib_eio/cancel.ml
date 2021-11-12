@@ -26,6 +26,12 @@ let boot = {
 
 type _ eff += Set_cancel : t -> t eff
 
+let cancelled t =
+  match t.state with
+  | On _ -> false
+  | Cancelling _ -> true
+  | Finished -> invalid_arg "Cancellation context finished!"
+
 let check t =
   match t.state with
   | On _ -> ()
@@ -43,14 +49,15 @@ let is_finished t =
   | Finished -> true
   | On _ | Cancelling _ -> false
 
-let with_t fn =
+(* Runs [fn] with a fresh cancellation context value (but does not install it). *)
+let with_cc fn =
   let q = Lwt_dllist.create () in
   let t = { state = On q } in
   Fun.protect (fun () -> fn t)
     ~finally:(fun () -> t.state <- Finished)
 
 let protect_full fn =
-  with_t @@ fun t ->
+  with_cc @@ fun t ->
   let x =
     let old = perform (Set_cancel t) in
     Fun.protect (fun () -> fn t)
@@ -91,7 +98,7 @@ let cancel t ex =
     | exns -> raise (Cancel_hook_failed exns)
 
 let sub fn =
-  with_t @@ fun t ->
+  with_cc @@ fun t ->
   let x =
     let old = perform (Set_cancel t) in
     Fun.protect (fun () ->
@@ -102,3 +109,15 @@ let sub fn =
   in
   check t;
   x
+
+(* Like [sub], but it's OK if the new context is cancelled.
+   (instead, return the parent context on exit so the caller can check that) *)
+let sub_unchecked fn =
+  with_cc @@ fun t ->
+  let old = perform (Set_cancel t) in
+  Fun.protect (fun () ->
+      let unhook = add_hook_unwrapped old (cancel t) in
+      Fun.protect (fun () -> fn t) ~finally:unhook
+    )
+    ~finally:(fun () -> ignore (perform (Set_cancel old)));
+  old
