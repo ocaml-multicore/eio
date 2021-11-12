@@ -16,6 +16,7 @@ This is an unreleased repository, as it's very much a work-in-progress.
 * [Fibres](#fibres)
 * [Tracing](#tracing)
 * [Cancellation](#cancellation)
+* [Racing](#racing)
 * [Switches](#switches)
 * [Design Note: Results vs Exceptions](#design-note-results-vs-exceptions)
 * [Performance](#performance)
@@ -232,6 +233,28 @@ You should assume that any operation that can switch fibres can also raise a `Ca
 
 If you want to make an operation non-cancellable, wrap it with `Cancel.protect`
 (this creates a new context that isn't cancelled with its parent).
+
+## Racing
+
+`Fibre.first` returns the result of the first fibre to finish, cancelling the other one:
+
+```ocaml
+# Eio_main.run @@ fun _env ->
+  let x =
+    Fibre.first
+      (fun () ->
+        traceln "first fibre delayed...";
+        Fibre.yield ();
+        traceln "delay over";
+        "a"
+      )
+      (fun () -> "b")
+  in
+  traceln "x = %S" x;;
++first fibre delayed...
++x = "b"
+- : unit = ()
+```
 
 ## Switches
 

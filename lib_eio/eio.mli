@@ -144,6 +144,12 @@ module Std : sig
         (it will then re-raise the original exception).
         @raise Multiple_exn.T if both fibres raise exceptions (excluding {!Cancel.Cancelled}). *)
 
+    val first : (unit -> 'a) -> (unit -> 'a) -> 'a
+    (** [first f g] runs [f ()] and [g ()] concurrently.
+        They run in a new cancellation sub-context, and when one finishes the other is cancelled.
+        If one raises, the other is cancelled and the exception is reported.
+        @raise Multiple_exn.T if both fibres raise exceptions (excluding {!Cancel.Cancelled} when cancelled). *)
+
     val fork_ignore : sw:Switch.t -> (unit -> unit) -> unit
     (** [fork_ignore ~sw fn] runs [fn ()] in a new fibre, but does not wait for it to complete.
         The new fibre is attached to [sw] (which can't finish until the fibre ends).

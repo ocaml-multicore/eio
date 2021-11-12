@@ -68,3 +68,37 @@ let fork_sub_ignore ?on_release ~sw ~on_error f =
     Switch.check sw;
     assert false
   )
+
+exception Not_first
+
+(* Similar to [both], except that we cancel the other thread even on success and return a result. *)
+let first f g =
+  let r = ref `None in
+  let parent_c =
+    Cancel.sub_unchecked (fun c ->
+        let wrap h () =
+          match h () with
+          | x ->
+            begin match !r with
+              | `None -> r := `Ok x; Cancel.cancel c Not_first
+              | `Ex _ | `Ok _ -> ()
+            end
+          | exception Cancel.Cancelled _ when Cancel.cancelled c -> ()
+          | exception ex ->
+            begin match !r with
+              | `None -> r := `Ex ex; Cancel.cancel c ex
+              | `Ok _ -> r := `Ex ex
+              | `Ex e1 -> r := `Ex (Multiple_exn.T [e1; ex])
+            end
+        in
+        let x = perform (Fork (wrap f)) in
+        wrap g ();
+        Cancel.protect (fun () -> Promise.await x)
+      )
+  in
+  match !r, Cancel.get_error parent_c with
+  | `Ok r, None -> r
+  | (`Ok _ | `None), Some ex -> raise ex
+  | `Ex ex, None -> raise ex
+  | `Ex ex, Some ex2 -> raise (Multiple_exn.T [ex; ex2])
+  | `None, None -> assert false
