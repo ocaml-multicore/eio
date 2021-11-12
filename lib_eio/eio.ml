@@ -171,6 +171,8 @@ module Domain_manager = struct
 end
 
 module Time = struct
+  exception Timeout
+
   class virtual clock = object
     method virtual now : float
     method virtual sleep_until : float -> unit
@@ -181,6 +183,9 @@ module Time = struct
   let sleep_until (t : #clock) time = t#sleep_until time
 
   let sleep t d = sleep_until t (now t +. d)
+
+  let with_timeout t d = Fibre.first (fun () -> sleep t d; Error `Timeout)
+  let with_timeout_exn t d = Fibre.first (fun () -> sleep t d; raise Timeout)
 end
 
 module Dir = struct
