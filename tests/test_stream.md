@@ -217,7 +217,7 @@ Trying to use a stream with a cancelled context:
 +Cancelled: Cancel
 +Reading from stream
 +Cancelled: Cancel
-Exception: Cancelled: Cancel
+Exception: Cancel.
 ```
 
 Readers queue up:

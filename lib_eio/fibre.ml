@@ -19,7 +19,7 @@ let fork_ignore ~sw f =
     Switch.with_op sw @@ fun () ->
     try
       Cancel.protect_full @@ fun c ->
-      let hook = Switch.add_cancel_hook sw (Cancel.cancel c) in
+      let hook = Switch.add_cancel_hook_unwrapped sw (Cancel.cancel c) in
       Fun.protect f
         ~finally:(fun () -> Hook.remove hook)
     with ex ->
@@ -57,7 +57,11 @@ let fork_sub_ignore ?on_release ~sw ~on_error f =
   let did_attach = ref false in
   fork_ignore ~sw (fun () ->
       try Switch.run (fun sw -> Option.iter (Switch.on_release sw) on_release; did_attach := true; f sw)
-      with ex ->
+      with
+      | Cancel.Cancelled _ as ex ->
+        (* Don't report cancellation to [on_error] *)
+        Switch.turn_off sw ex
+      | ex ->
         try on_error ex
         with ex2 ->
           Switch.turn_off sw ex;

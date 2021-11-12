@@ -100,15 +100,25 @@ let cancel t ex =
 let sub fn =
   with_cc @@ fun t ->
   let x =
+    (* Can't use Fun.protect here because of [Fun.Finally_raised]. *)
     let old = perform (Set_cancel t) in
-    Fun.protect (fun () ->
-        let unhook = add_hook_unwrapped old (cancel t) in
-        Fun.protect (fun () -> fn t) ~finally:unhook
-      )
-      ~finally:(fun () -> ignore (perform (Set_cancel old)))
+    match 
+      let unhook = add_hook_unwrapped old (cancel t) in
+      Fun.protect (fun () -> fn t) ~finally:unhook
+    with
+    | x ->
+      ignore (perform (Set_cancel old));
+      check old;
+      x
+    | exception ex ->
+      ignore (perform (Set_cancel old));
+      check old;
+      raise ex
   in
-  check t;
-  x
+  match t.state with
+  | On _ -> x
+  | Cancelling (ex, bt) -> Printexc.raise_with_backtrace ex bt
+  | Finished -> invalid_arg "Cancellation context finished!"
 
 (* Like [sub], but it's OK if the new context is cancelled.
    (instead, return the parent context on exit so the caller can check that) *)
