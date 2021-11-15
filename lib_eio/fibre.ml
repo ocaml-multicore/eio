@@ -35,7 +35,13 @@ let yield () =
     );
   Cancel.check !c
 
-let both f g =
+let all xs =
+  Switch.run @@ fun sw ->
+  List.iter (fork_ignore ~sw) xs
+
+let both f g = all [f; g]
+
+let pair f g =
   Cancel.sub @@ fun cancel ->
   let f () =
     try f ()
@@ -43,11 +49,11 @@ let both f g =
   in
   let x = perform (Fork f) in
   match g () with
-  | () -> Promise.await x               (* [g] succeeds - just report [f]'s result *)
+  | gr -> Promise.await x, gr               (* [g] succeeds - just report [f]'s result *)
   | exception gex ->
     Cancel.cancel cancel gex;
     match Cancel.protect (fun () -> Promise.await_result x) with
-    | Ok () | Error (Cancel.Cancelled _) -> raise gex    (* [g] fails, nothing to report for [f] *)
+    | Ok _ | Error (Cancel.Cancelled _) -> raise gex    (* [g] fails, nothing to report for [f] *)
     | Error fex ->
       match gex with
       | Cancel.Cancelled _ -> raise fex                         (* [f] fails, nothing to report for [g] *)
@@ -75,8 +81,12 @@ let fork_sub_ignore ?on_release ~sw ~on_error f =
 
 exception Not_first
 
-(* Similar to [both], except that we cancel the other thread even on success and return a result. *)
-let first f g =
+let await_cancel () =
+  Suspend.enter @@ fun fibre enqueue ->
+  let _ : Hook.t = Cancel.add_hook fibre.cancel (fun ex -> enqueue (Error ex)) in
+  ()
+
+let any fs =
   let r = ref `None in
   let parent_c =
     Cancel.sub_unchecked (fun c ->
@@ -95,9 +105,15 @@ let first f g =
               | `Ex e1 -> r := `Ex (Multiple_exn.T [e1; ex])
             end
         in
-        let x = perform (Fork (wrap f)) in
-        wrap g ();
-        Cancel.protect (fun () -> Promise.await x)
+        let rec aux = function
+          | [] -> await_cancel ()
+          | [f] -> wrap f (); []
+          | f :: fs ->
+            let p = perform (Fork (wrap f)) in
+            p :: aux fs
+        in
+        let ps = aux fs in
+        Cancel.protect (fun () -> List.iter Promise.await ps)
       )
   in
   match !r, Cancel.get_error parent_c with
@@ -106,3 +122,5 @@ let first f g =
   | `Ex ex, None -> raise ex
   | `Ex ex, Some ex2 -> raise (Multiple_exn.T [ex; ex2])
   | `None, None -> assert false
+
+let first f g = any [f; g]

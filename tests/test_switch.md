@@ -101,8 +101,8 @@ Exception: Failure "Failed".
 ```ocaml
 # run (fun sw ->
       Fibre.both
-        (fun () -> failwith "Failed 1")
-        (fun () -> failwith "Failed 2")
+        (fun () -> Eio.Cancel.protect Fibre.yield; failwith "Failed 1")
+        (fun () -> Eio.Cancel.protect Fibre.yield; failwith "Failed 2")
     );;
 Exception: Multiple exceptions:
 Failure("Failed 1")
