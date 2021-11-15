@@ -460,6 +460,15 @@ module Time : sig
 
   val sleep : #clock -> float -> unit
   (** [sleep t d] waits for [d] seconds. *)
+
+  val with_timeout : #clock -> float -> (unit -> ('a, 'e) result) -> ('a, [> `Timeout] as 'e) result
+  (** [with_timeout clock d fn] runs [fn ()] but cancels it after [d] seconds. *)
+
+  exception Timeout
+
+  val with_timeout_exn : #clock -> float -> (unit -> 'a) -> 'a
+  (** [with_timeout_exn clock d fn] runs [fn ()] but cancels it after [d] seconds,
+      raising exception [Timeout]. *)
 end
 
 module Dir : sig
