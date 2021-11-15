@@ -164,3 +164,57 @@ but just as plain `Exit` after we leave the context in which the cancellation st
 +Parent exception: Cancelled: Stdlib.Exit
 Exception: Stdlib.Exit.
 ```
+
+# Fibre.pair
+
+```ocaml
+# run @@ fun () ->
+  let x, y = Fibre.pair (fun () -> "a") (fun () -> "b") in
+  x ^ y
++ab
+- : unit = ()
+```
+
+# Fibre.all
+
+```ocaml
+# run @@ fun () ->
+  Fibre.all [];
+  Fibre.all (List.init 3 (fun x () -> traceln "fibre %d" x));
+  "done"
++fibre 0
++fibre 1
++fibre 2
++done
+- : unit = ()
+```
+
+# Fibre.any
+
+```ocaml
+# run @@ fun () ->
+  string_of_int @@
+  Fibre.any (List.init 3 (fun x () -> traceln "%d" x; Fibre.yield (); x));
++0
++1
++2
++0
+- : unit = ()
+```
+
+# Fibre.await_cancel
+
+```ocaml
+# run @@ fun () ->
+  Fibre.both
+    (fun () ->
+       try Fibre.await_cancel ()
+       with Eio.Cancel.Cancelled _ as ex ->
+         traceln "Caught: %a" Fmt.exn ex;
+         raise ex
+    )
+    (fun () -> failwith "simulated error");
+  "not reached"
++Caught: Cancelled: Failure("simulated error")
+Exception: Failure "simulated error".
+```
