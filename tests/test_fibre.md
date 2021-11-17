@@ -170,7 +170,7 @@ Exception: Stdlib.Exit.
 ```ocaml
 # run @@ fun () ->
   let x, y = Fibre.pair (fun () -> "a") (fun () -> "b") in
-  x ^ y
+  x ^ y;;
 +ab
 - : unit = ()
 ```
@@ -181,7 +181,7 @@ Exception: Stdlib.Exit.
 # run @@ fun () ->
   Fibre.all [];
   Fibre.all (List.init 3 (fun x () -> traceln "fibre %d" x));
-  "done"
+  "done";;
 +fibre 0
 +fibre 1
 +fibre 2
@@ -194,7 +194,7 @@ Exception: Stdlib.Exit.
 ```ocaml
 # run @@ fun () ->
   string_of_int @@
-  Fibre.any (List.init 3 (fun x () -> traceln "%d" x; Fibre.yield (); x));
+  Fibre.any (List.init 3 (fun x () -> traceln "%d" x; Fibre.yield (); x));;
 +0
 +1
 +2
@@ -214,7 +214,7 @@ Exception: Stdlib.Exit.
          raise ex
     )
     (fun () -> failwith "simulated error");
-  "not reached"
+  "not reached";;
 +Caught: Cancelled: Failure("simulated error")
 Exception: Failure "simulated error".
 ```
