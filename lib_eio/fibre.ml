@@ -12,16 +12,14 @@ let fork ~sw ~exn_turn_off f =
   in
   perform (Fork f)
 
-type _ eff += Fork_ignore : (unit -> unit) -> unit eff
+type _ eff += Fork_ignore : (Cancel.fibre_context -> unit) -> unit eff
 
 let fork_ignore ~sw f =
-  let f () =
+  let f child =
     Switch.with_op sw @@ fun () ->
     try
-      Cancel.protect_full @@ fun c ->
-      let hook = Switch.add_cancel_hook_unwrapped sw (Cancel.cancel c) in
-      Fun.protect f
-        ~finally:(fun () -> Hook.remove hook)
+      Cancel.with_cc ~ctx:child ~parent:sw.cancel ~protected:false @@ fun _t ->
+      f ()
     with ex ->
       Switch.turn_off sw ex
   in

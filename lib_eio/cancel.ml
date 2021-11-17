@@ -17,14 +17,25 @@ type state =
 
 type t = {
   mutable state : state;
+  parent : t;
+  children : t Lwt_dllist.t;
+  protected : bool;
+}
+
+type fibre_context = {
+  tid : Ctf.id;
+  mutable cancel : t;
 }
 
 (* A dummy value for bootstrapping *)
-let boot = {
+let rec boot = {
   state = Finished;
+  parent = boot;
+  children = Lwt_dllist.create ();
+  protected = true;
 }
 
-type _ eff += Set_cancel : t -> t eff
+type _ eff += Get_context : fibre_context eff
 
 let cancelled t =
   match t.state with
@@ -49,70 +60,68 @@ let is_finished t =
   | Finished -> true
   | On _ | Cancelling _ -> false
 
-(* Runs [fn] with a fresh cancellation context value (but does not install it). *)
-let with_cc fn =
+(* Runs [fn] with a fresh cancellation context. *)
+let with_cc ~ctx ?parent ~protected fn =
   let q = Lwt_dllist.create () in
-  let t = { state = On q } in
-  Fun.protect (fun () -> fn t)
-    ~finally:(fun () -> t.state <- Finished)
+  let parent = Option.value parent ~default:ctx.cancel in
+  let children = Lwt_dllist.create () in
+  let t = { state = On q; parent; children; protected } in
+  let node = Lwt_dllist.add_r t parent.children in
+  ctx.cancel <- t;
+  match fn t with
+  | x -> ctx.cancel <- t.parent; t.state <- Finished; Lwt_dllist.remove node; x
+  | exception ex -> ctx.cancel <- t.parent; t.state <- Finished; Lwt_dllist.remove node; raise ex
 
-let protect_full fn =
-  with_cc @@ fun t ->
-  let x =
-    let old = perform (Set_cancel t) in
-    Fun.protect (fun () -> fn t)
-      ~finally:(fun () -> ignore (perform (Set_cancel old)))
-  in
+let protect fn =
+  let ctx = perform Get_context in
+  with_cc ~ctx ?parent:None ~protected:true @@ fun t ->
+  let x = fn () in
   check t;
   x
 
-let protect fn = protect_full (fun (_ : t) -> fn ())
-
-let add_hook_unwrapped t hook =
+let add_hook t hook =
   match t.state with
   | Finished -> invalid_arg "Cancellation context finished!"
-  | Cancelling (ex, _) -> protect (fun () -> hook ex); Hook.null
+  | Cancelling (ex, _) -> protect (fun () -> hook (Cancelled ex)); Hook.null
   | On q ->
     let node = Lwt_dllist.add_r hook q in
     (fun () -> Lwt_dllist.remove node)
 
-let add_hook t hook = add_hook_unwrapped t (fun ex -> hook (Cancelled ex))
-
-let cancel t ex =
+let rec cancel t ex =
   match t.state with
   | Finished -> invalid_arg "Cancellation context finished!"
   | Cancelling _ -> ()
   | On q ->
     let bt = Printexc.get_raw_backtrace () in
     t.state <- Cancelling (ex, bt);
+    let cex = Cancelled ex in
     let rec aux () =
       match Lwt_dllist.take_opt_r q with
-      | None -> []
+      | None -> Lwt_dllist.fold_r (cancel_child ex) t.children []
       | Some f ->
-        match f ex with
+        match f cex with
         | () -> aux ()
         | exception ex2 -> ex2 :: aux ()
     in
     match protect aux with
     | [] -> ()
     | exns -> raise (Cancel_hook_failed exns)
+and cancel_child ex t acc =
+  if t.protected then acc
+  else match cancel t ex with
+    | () -> acc
+    | exception ex -> ex :: acc
 
 let sub fn =
-  with_cc @@ fun t ->
+  let ctx = perform Get_context in
+  with_cc ~ctx ?parent:None ~protected:false @@ fun t ->
   let x =
-    (* Can't use Fun.protect here because of [Fun.Finally_raised]. *)
-    let old = perform (Set_cancel t) in
-    match 
-      let unhook = add_hook_unwrapped old (cancel t) in
-      Fun.protect (fun () -> fn t) ~finally:unhook
-    with
+    match fn t with
     | x ->
-      ignore (perform (Set_cancel old));
-      check old;
+      check t.parent;
       x
     | exception ex ->
-      ignore (perform (Set_cancel old));
-      check old;
+      check t.parent;
       raise ex
   in
   match t.state with
@@ -123,11 +132,7 @@ let sub fn =
 (* Like [sub], but it's OK if the new context is cancelled.
    (instead, return the parent context on exit so the caller can check that) *)
 let sub_unchecked fn =
-  with_cc @@ fun t ->
-  let old = perform (Set_cancel t) in
-  Fun.protect (fun () ->
-      let unhook = add_hook_unwrapped old (cancel t) in
-      Fun.protect (fun () -> fn t) ~finally:unhook
-    )
-    ~finally:(fun () -> ignore (perform (Set_cancel old)));
-  old
+  let ctx = perform Get_context in
+  with_cc ~ctx ?parent:None ~protected:false @@ fun t ->
+  fn t;
+  t.parent

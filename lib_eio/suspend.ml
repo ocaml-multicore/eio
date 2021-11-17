@@ -1,12 +1,7 @@
 open EffectHandlers
 
-type context = {
-  tid : Ctf.id;
-  mutable cancel : Cancel.t;
-}
-
 type 'a enqueue = ('a, exn) result -> unit
-type _ eff += Suspend : (context -> 'a enqueue -> unit) -> 'a eff
+type _ eff += Suspend : (Cancel.fibre_context -> 'a enqueue -> unit) -> 'a eff
 
 let enter_unchecked fn = perform (Suspend fn)
 

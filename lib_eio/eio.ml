@@ -257,7 +257,7 @@ module Stdenv = struct
 end
 
 module Private = struct
-  type context = Suspend.context = {
+  type context = Cancel.fibre_context = {
     tid : Ctf.id;
     mutable cancel : Cancel.t;
   }
@@ -268,8 +268,8 @@ module Private = struct
       | Suspend = Suspend.Suspend
       | Fork = Fibre.Fork
       | Fork_ignore = Fibre.Fork_ignore
+      | Get_context = Cancel.Get_context
       | Trace = Std.Trace
-      | Set_cancel = Cancel.Set_cancel
   end
   let boot_cancel = Cancel.boot
 end

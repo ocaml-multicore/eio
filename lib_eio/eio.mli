@@ -283,9 +283,6 @@ module Cancel : sig
       This can be used to clean up resources on cancellation.
       However, it is usually better to use {!Switch.on_release} (which calls this for you). *)
 
-  val protect_full : (t -> 'a) -> 'a
-  (** [protect_full fn] is like {!protect}, but also gives access to the new context. *)
-
   val check : t -> unit
   (** [check t] checks that [t] hasn't been cancelled.
       @raise Cancelled If the context has been cancelled. *)
@@ -619,7 +616,7 @@ module Private : sig
       | Fork : (unit -> 'a) -> 'a Promise.t eff
       (** See {!Fibre.fork} *)
 
-      | Fork_ignore : (unit -> unit) -> unit eff
+      | Fork_ignore : (context -> unit) -> unit eff
       (** See {!Fibre.fork_ignore} *)
 
       | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
@@ -628,8 +625,7 @@ module Private : sig
           If the system is not ready to receive the trace output,
           the whole domain must block until it is. *)
 
-      | Set_cancel : Cancel.t -> Cancel.t eff
-      (** [Set_cancel c] sets the running fibre's cancel context to [c] and returns the previous context. *)
+      | Get_context : context eff
   end
 
   val boot_cancel : Cancel.t

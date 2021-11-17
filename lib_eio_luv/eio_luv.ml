@@ -586,7 +586,7 @@ let run main =
   let rec fork ~tid ~cancel:initial_cancel fn =
     Ctf.note_switch tid;
     let fibre = { Eio.Private.tid; cancel = initial_cancel } in
-    match_with fn () 
+    match_with fn fibre
     { retc = (fun () -> ());
       exnc = (fun e -> raise e);
       effc = fun (type a) (e : a eff) ->
@@ -607,7 +607,7 @@ let run main =
             fork
               ~tid:id
               ~cancel:fibre.cancel
-              (fun () ->
+              (fun _new_fibre ->
                  match f () with
                  | x -> Promise.fulfill resolver x
                  | exception ex ->
@@ -620,19 +620,14 @@ let run main =
             enqueue_thread k ();
             let child = Ctf.note_fork () in
             Ctf.note_switch child;
-            fork ~tid:child ~cancel:fibre.cancel (fun () ->
-                match f () with
+            fork ~tid:child ~cancel:fibre.cancel (fun new_fibre ->
+                match f new_fibre with
                 | () ->
                   Ctf.note_resolved child ~ex:None
                 | exception ex ->
                   Ctf.note_resolved child ~ex:(Some ex)
               ))
-        | Eio.Private.Effects.Set_cancel cancel ->
-          Some (fun k ->
-              let old = fibre.cancel in
-              fibre.cancel <- cancel;
-              continue k old
-            )
+        | Eio.Private.Effects.Get_context -> Some (fun k -> continue k fibre)
         | Enter_unchecked fn -> Some (fun k ->
             fn { Suspended.k; fibre }
           )
@@ -650,7 +645,7 @@ let run main =
     }
   in
   let main_status = ref `Running in
-  fork ~tid:(Ctf.mint_id ()) ~cancel:Eio.Private.boot_cancel (fun () ->
+  fork ~tid:(Ctf.mint_id ()) ~cancel:Eio.Private.boot_cancel (fun _new_fibre ->
       match Eio.Cancel.protect (fun () -> main stdenv) with
       | () -> main_status := `Done
       | exception ex -> main_status := `Ex (ex, Printexc.get_raw_backtrace ())
