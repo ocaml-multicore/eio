@@ -1,27 +1,27 @@
 open EffectHandlers
 
-type _ eff += Fork : (unit -> 'a) -> 'a Promise.t eff
+type _ eff += Fork : (Cancel.fibre_context -> 'a) -> 'a Promise.t eff
 
 let fork ~sw ~exn_turn_off f =
-  let f () =
+  let f child =
     Switch.with_op sw @@ fun () ->
-    try f ()
+    try
+      Cancel.with_cc ~ctx:child ~parent:sw.cancel ~protected:false @@ fun _t ->
+      f ()
     with ex ->
       if exn_turn_off then Switch.turn_off sw ex;
       raise ex
   in
   perform (Fork f)
 
-type _ eff += Fork_ignore : (unit -> unit) -> unit eff
+type _ eff += Fork_ignore : (Cancel.fibre_context -> unit) -> unit eff
 
 let fork_ignore ~sw f =
-  let f () =
+  let f child =
     Switch.with_op sw @@ fun () ->
     try
-      Cancel.protect_full @@ fun c ->
-      let hook = Switch.add_cancel_hook_unwrapped sw (Cancel.cancel c) in
-      Fun.protect f
-        ~finally:(fun () -> Hook.remove hook)
+      Cancel.with_cc ~ctx:child ~parent:sw.cancel ~protected:false @@ fun _t ->
+      f ()
     with ex ->
       Switch.turn_off sw ex
   in
@@ -43,7 +43,7 @@ let both f g = all [f; g]
 
 let pair f g =
   Cancel.sub @@ fun cancel ->
-  let f () =
+  let f _fibre =
     try f ()
     with ex -> Cancel.cancel cancel ex; raise ex
   in
@@ -90,7 +90,7 @@ let any fs =
   let r = ref `None in
   let parent_c =
     Cancel.sub_unchecked (fun c ->
-        let wrap h () =
+        let wrap h _fibre =
           match h () with
           | x ->
             begin match !r with

@@ -218,3 +218,31 @@ Exception: Stdlib.Exit.
 +Caught: Cancelled: Failure("simulated error")
 Exception: Failure "simulated error".
 ```
+
+# Fibre.fork
+
+`Fibre.fork ~sw` inherits the cancellation context from `sw`, not from the current fibre:
+
+```ocaml
+# run @@ fun () ->
+  let switch = ref None in
+  Fibre.both
+    (fun () ->
+       Switch.run @@ fun sw ->
+       switch := Some sw;
+       Fibre.await_cancel ()
+    )
+    (fun () ->
+      let sw = Option.get !switch in
+      Eio.Cancel.protect @@ fun () ->
+      let child = Fibre.fork ~sw ~exn_turn_off:true (fun () ->
+         traceln "Forked child";
+         Fibre.await_cancel ()
+      ) in
+      Switch.turn_off sw Exit;
+      Promise.await child
+    );
+  "not reached";;
++Forked child
+Exception: Stdlib.Exit.
+```

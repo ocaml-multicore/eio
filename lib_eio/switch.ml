@@ -31,7 +31,6 @@ let rec turn_off t ex =
     Cancel.cancel t.cancel ex
 
 let add_cancel_hook t hook = Cancel.add_hook t.cancel hook
-let add_cancel_hook_unwrapped t hook = Cancel.add_hook_unwrapped t.cancel hook
 
 let with_op t fn =
   check t;
@@ -43,7 +42,7 @@ let with_op t fn =
           Waiters.wake_all t.waiter (Ok ())
       )
 
-let await_internal waiters id (ctx:Suspend.context) enqueue =
+let await_internal waiters id (ctx:Cancel.fibre_context) enqueue =
   let cleanup_hooks = Queue.create () in
   let when_resolved r =
     Queue.iter Waiters.remove_waiter cleanup_hooks;
