@@ -607,8 +607,8 @@ let run main =
             fork
               ~tid:id
               ~cancel:fibre.cancel
-              (fun _new_fibre ->
-                 match f () with
+              (fun new_fibre ->
+                 match f new_fibre with
                  | x -> Promise.fulfill resolver x
                  | exception ex ->
                    Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);

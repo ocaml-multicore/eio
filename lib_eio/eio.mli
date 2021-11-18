@@ -613,7 +613,7 @@ module Private : sig
           passing it the suspended fibre's context and a function to resume it.
           [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
 
-      | Fork : (unit -> 'a) -> 'a Promise.t eff
+      | Fork : (context -> 'a) -> 'a Promise.t eff
       (** See {!Fibre.fork} *)
 
       | Fork_ignore : (context -> unit) -> unit eff

@@ -990,8 +990,8 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
               fork
                 ~tid:id
                 ~cancel:fibre.cancel
-                (fun _fibre ->
-                   match f () with
+                (fun new_fibre ->
+                   match f new_fibre with
                    | x -> Promise.fulfill resolver x
                    | exception ex ->
                      Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);

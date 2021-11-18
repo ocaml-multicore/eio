@@ -32,7 +32,7 @@ let rec boot = {
   state = Finished;
   parent = boot;
   children = Lwt_dllist.create ();
-  protected = true;
+  protected = false;
 }
 
 type _ eff += Get_context : fibre_context eff
@@ -61,20 +61,19 @@ let is_finished t =
   | On _ | Cancelling _ -> false
 
 (* Runs [fn] with a fresh cancellation context. *)
-let with_cc ~ctx ?parent ~protected fn =
+let with_cc ~ctx ~parent ~protected fn =
   let q = Lwt_dllist.create () in
-  let parent = Option.value parent ~default:ctx.cancel in
   let children = Lwt_dllist.create () in
   let t = { state = On q; parent; children; protected } in
   let node = Lwt_dllist.add_r t parent.children in
   ctx.cancel <- t;
   match fn t with
-  | x -> ctx.cancel <- t.parent; t.state <- Finished; Lwt_dllist.remove node; x
+  | x            -> ctx.cancel <- t.parent; t.state <- Finished; Lwt_dllist.remove node; x
   | exception ex -> ctx.cancel <- t.parent; t.state <- Finished; Lwt_dllist.remove node; raise ex
 
 let protect fn =
   let ctx = perform Get_context in
-  with_cc ~ctx ?parent:None ~protected:true @@ fun t ->
+  with_cc ~ctx ~parent:ctx.cancel ~protected:true @@ fun t ->
   let x = fn () in
   check t;
   x
@@ -114,7 +113,7 @@ and cancel_child ex t acc =
 
 let sub fn =
   let ctx = perform Get_context in
-  with_cc ~ctx ?parent:None ~protected:false @@ fun t ->
+  with_cc ~ctx ~parent:ctx.cancel ~protected:false @@ fun t ->
   let x =
     match fn t with
     | x ->
@@ -133,6 +132,6 @@ let sub fn =
    (instead, return the parent context on exit so the caller can check that) *)
 let sub_unchecked fn =
   let ctx = perform Get_context in
-  with_cc ~ctx ?parent:None ~protected:false @@ fun t ->
+  with_cc ~ctx ~parent:ctx.cancel ~protected:false @@ fun t ->
   fn t;
   t.parent
