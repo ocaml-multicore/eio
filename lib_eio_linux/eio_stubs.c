@@ -1,10 +1,18 @@
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/eventfd.h>
 
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/signals.h>
 #include <caml/unixsupport.h>
+
+CAMLprim value caml_eio_eventfd(value v_initval) {
+  int ret;
+  ret = eventfd(Int_val(v_initval), EFD_CLOEXEC);
+  if (ret == -1) uerror("eventfd", Nothing);
+  return Val_int(ret);
+}
 
 CAMLprim value caml_eio_mkdirat(value v_fd, value v_path, value v_perm) {
   CAMLparam1(v_path);

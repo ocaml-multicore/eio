@@ -40,6 +40,9 @@ module Std : sig
         If the switch is turned off before it returns, [run] re-raises the switch's exception(s).
         @raise Multiple_exn.T If [turn_off] is called more than once. *)
 
+    val run_protected : (t -> 'a) -> 'a
+    (** [run_protected fn] is like [run] but ignores cancellation requests from the parent context. *)
+
     val check : t -> unit
     (** [check t] checks that [t] is still on.
         @raise Cancelled If the switch is off. *)

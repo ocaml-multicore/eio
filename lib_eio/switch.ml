@@ -92,10 +92,9 @@ let raise_with_extras t ex bt =
   | [] -> Printexc.raise_with_backtrace ex bt
   | exns -> Printexc.raise_with_backtrace (Multiple_exn.T (ex :: List.rev exns)) bt
 
-let run fn =
+let run_internal fn cancel =
   let id = Ctf.mint_id () in
   Ctf.note_created id Ctf.Switch;
-  Cancel.sub @@ fun cancel ->
   let t = {
     id;
     fibres = 0;
@@ -131,6 +130,13 @@ let run fn =
     match t.cancel.state with
     | On _ | Finished -> assert false
     | Cancelling (ex, bt) -> raise_with_extras t ex bt
+
+let run fn = Cancel.sub (run_internal fn)
+
+let run_protected fn =
+  let ctx = EffectHandlers.perform Cancel.Get_context in
+  Cancel.with_cc ~ctx ~parent:ctx.cancel ~protected:true @@ fun cancel ->
+  run_internal fn cancel
 
 let on_release_full t fn =
   match t.cancel.state with

@@ -83,8 +83,16 @@ module FD = struct
     t.release_hook <- Switch.on_release_cancellable sw (fun () -> close t);
     t
 
+  let placeholder ~seekable =
+    { seekable; fd = `Closed; release_hook = Eio.Hook.null }
+
   let uring_file_offset t =
     if t.seekable then Optint.Int63.minus_one else Optint.Int63.zero
+
+  let pp f t =
+    match t.fd with
+    | `Open fd -> Fmt.pf f "%d" (Obj.magic fd : int)
+    | `Closed -> Fmt.string f "(closed)"
 end
 
 type rw_req = {
@@ -115,16 +123,50 @@ type t = {
   mem: Uring.Region.t;
   io_q: (t -> unit) Queue.t;     (* waiting for room on [uring] *)
   mem_q : Uring.Region.chunk Suspended.t Queue.t;
+
+  (* The queue of runnable fibres ready to be resumed. You must hold [run_q_mutex] when accessing this. *)
   run_q : runnable Queue.t;
+  run_q_mutex : Mutex.t;
+
+  (* When adding to [run_q] from another domain, this domain may be sleeping and so won't see the event.
+     In that case, [need_wakeup = true] and you must signal using [eventfd]. You must hold [run_q_mutex]
+     when accessing [need_wakeup]. The mutex is also needed when writing to or closing [eventfd]. *)
+  eventfd : FD.t;
+  mutable need_wakeup : bool;
+
   sleep_q: Zzz.t;
   mutable io_jobs: int;
 }
 
+let wake_buffer =
+  let b = Bytes.create 8 in
+  Bytes.set_int64_ne b 0 1L;
+  b
+
+(* Called with [run_q_mutex] held. *)
+let wakeup t =
+  Log.debug (fun f -> f "Sending wakeup on eventfd %a" FD.pp t.eventfd);
+  t.need_wakeup <- false;
+  assert (Unix.single_write (FD.get "wakeup" t.eventfd) wake_buffer 0 8 = 8)
+
 let enqueue_thread st k x =
-  Queue.push (Thread (k, x)) st.run_q
+  Mutex.lock st.run_q_mutex;
+  match
+    Queue.push (Thread (k, x)) st.run_q;
+    if st.need_wakeup then wakeup st
+  with
+  | () ->
+    Mutex.unlock st.run_q_mutex
+  | exception ex -> Mutex.unlock st.run_q_mutex; raise ex
 
 let enqueue_failed_thread st k ex =
-  Queue.push (Failed_thread (k, ex)) st.run_q
+  Mutex.lock st.run_q_mutex;
+  match
+    Queue.push (Failed_thread (k, ex)) st.run_q;
+    if st.need_wakeup then wakeup st
+  with
+  | () -> Mutex.unlock st.run_q_mutex
+  | exception ex -> Mutex.unlock st.run_q_mutex; raise ex
 
 type _ eff += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a eff
 type _ eff += Enter : (t -> 'a Suspended.t -> unit) -> 'a eff
@@ -341,10 +383,17 @@ let submit_pending_io st =
 let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* This is not a fair scheduler *)
   (* Wakeup any paused fibres *)
-  match Queue.take run_q with
-  | Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
-  | Failed_thread (k, ex) -> Suspended.discontinue k ex
-  | exception Queue.Empty ->
+  let next =
+    Mutex.lock st.run_q_mutex;
+    st.need_wakeup <- false;
+    match Queue.take_opt run_q with
+    | x -> Mutex.unlock st.run_q_mutex; x
+    | exception ex -> Mutex.unlock st.run_q_mutex; raise ex
+  in
+  match next with
+  | Some Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
+  | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
+  | None ->
     let now = Unix.gettimeofday () in
     match Zzz.pop ~now sleep_q with
     | `Due k -> Suspended.continue k ()                   (* A sleeping task is now due *)
@@ -362,7 +411,6 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
         in
         Log.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
                       (match timeout with None -> "inf" | Some v -> string_of_float v));
-        assert (Queue.length run_q = 0);
         if timeout = None && st.io_jobs = 0 then (
           (* Nothing further can happen at this point.
              If there are no events in progress but also still no memory available, something has gone wrong! *)
@@ -370,15 +418,24 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
           Log.debug (fun l -> l "schedule: exiting");    (* Nothing left to do *)
           `Exit_scheduler
         ) else (
-          Ctf.(note_hiatus Wait_for_work);
-          let result = Uring.wait ?timeout uring in
-          Ctf.note_resume system_thread;
-          match result with
-          | None ->
-            (* Woken by a timeout, which is now due, or by a signal. *)
-            schedule st
-          | Some { data = runnable; result } ->
-            handle_complete st ~runnable result
+          Mutex.lock st.run_q_mutex;
+          let empty = Queue.is_empty st.run_q in
+          if empty then st.need_wakeup <- true;
+          Mutex.unlock st.run_q_mutex;
+          if empty then (
+            Ctf.(note_hiatus Wait_for_work);
+            let result = Uring.wait ?timeout uring in
+            Ctf.note_resume system_thread;
+            match result with
+            | None ->
+              (* Woken by a timeout, which is now due, or by a signal. *)
+              schedule st
+            | Some { data = runnable; result } ->
+              Mutex.lock st.run_q_mutex;
+              st.need_wakeup <- false;
+              Mutex.unlock st.run_q_mutex;
+              handle_complete st ~runnable result
+          ) else schedule st
         )
 and handle_complete st ~runnable result =
   st.io_jobs <- st.io_jobs - 1;
@@ -627,6 +684,8 @@ let run_compute fn () =
           | _ -> None
   }
 
+external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
+
 module Objects = struct
   type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
 
@@ -807,18 +866,11 @@ module Objects = struct
     inherit Eio.Domain_manager.t
 
     method run_compute_unsafe fn =
-      (* todo: use eventfd instead of a pipe *)
-      let r, w = Unix.pipe () in
-      let r = FD.of_unix_no_hook ~seekable:false r in
-      match Domain.spawn (fun () -> Fun.protect (run_compute fn) ~finally:(fun () -> Unix.close w)) with
-      | domain ->
-        await_readable r;
-        FD.close r;
-        Domain.join domain
-      | exception ex ->
-        Unix.close w;
-        FD.close r;
-        raise ex
+      let domain = ref None in
+      enter (fun t k ->
+          domain := Some (Domain.spawn (fun () -> Fun.protect (run_compute fn) ~finally:(fun () -> enqueue_thread t k ())))
+        );
+      Domain.join (Option.get !domain)
   end
 
   let clock = object
@@ -909,6 +961,14 @@ let pipe sw =
   let w = Objects.sink (FD.of_unix ~sw ~seekable:false w) in
   r, w
 
+let monitor_event_fd t =
+  let buf = Cstruct.create 8 in
+  while true do
+    let got = readv t.eventfd [buf] in
+    Log.debug (fun f -> f "Received wakeup on eventfd %a" FD.pp t.eventfd);
+    assert (got = 8)
+  done
+
 let run ?(queue_depth=64) ?(block_size=4096) main =
   Log.debug (fun l -> l "starting run");
   let stdenv = Objects.stdenv () in
@@ -919,10 +979,12 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
   let buf = Uring.buf uring in
   let mem = Uring.Region.init ~block_size buf queue_depth in
   let run_q = Queue.create () in
+  let run_q_mutex = Mutex.create () in
   let sleep_q = Zzz.create () in
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
-  let st = { mem; uring; run_q; io_q; mem_q; sleep_q; io_jobs = 0 } in
+  let eventfd = FD.placeholder ~seekable:false in
+  let st = { mem; uring; run_q; run_q_mutex; io_q; mem_q; eventfd; need_wakeup = false; sleep_q; io_jobs = 0 } in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~tid ~cancel:initial_cancel fn =
     Ctf.note_switch tid;
@@ -1023,12 +1085,22 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
           | _ -> None
       }
   in
-  let main_done = ref false in
   let `Exit_scheduler =
     fork ~tid:(Ctf.mint_id ()) ~cancel:Eio.Private.boot_cancel (fun _fibre ->
-        Fun.protect (fun () -> Eio.Cancel.protect (fun () -> main stdenv))
-          ~finally:(fun () -> main_done := true)
-      ) in
-  if not !main_done then
-    failwith "Deadlock detected: no events scheduled but main function hasn't returned";
+        Switch.run_protected (fun sw ->
+            let fd = eio_eventfd 0 in
+            st.eventfd.fd <- `Open fd;
+            Switch.on_release sw (fun () ->
+                Mutex.lock st.run_q_mutex;
+                st.eventfd.fd <- `Closed;
+                Mutex.unlock st.run_q_mutex;
+                Unix.close fd
+              );
+            Log.debug (fun f -> f "Monitoring eventfd %a" FD.pp st.eventfd);
+            Fibre.first
+              (fun () -> main stdenv)
+              (fun () -> monitor_event_fd st)
+          )
+      )
+  in
   Log.debug (fun l -> l "exit")
