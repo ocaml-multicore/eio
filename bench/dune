@@ -1,4 +1,4 @@
-(executable
-  (name bench)
+(executables
+  (names bench fibre_stream)
   (enabled_if (= %{system} "linux"))
   (libraries eio_main))
