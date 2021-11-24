@@ -212,11 +212,21 @@ Trying to use a stream with a cancelled context:
   Eio.Cancel.sub @@ fun c ->
   Eio.Cancel.cancel c Cancel;
   begin try add  t 1 with ex -> traceln "%a" Fmt.exn ex end;
-  begin try take t   with ex -> traceln "%a" Fmt.exn ex end;;
+  begin try take t   with ex -> traceln "%a" Fmt.exn ex end;
+  (* Check we released the mutex correctly: *)
+  Eio.Cancel.protect @@ fun () ->
+  Fibre.both
+    (fun () -> add  t 1)
+    (fun () -> take t)
+  ;;
 +Adding 1 to stream
 +Cancelled: Cancel
 +Reading from stream
 +Cancelled: Cancel
++Adding 1 to stream
++Reading from stream
++Got 1 from stream
++Added 1 to stream
 Exception: Cancel.
 ```
 

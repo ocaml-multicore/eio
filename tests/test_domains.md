@@ -35,7 +35,6 @@ Exception: Failure "Exception from new domain".
 We can still run other fibres in the main domain while waiting.
 Here, we use a mutex to check that the parent domain really did run while waiting for the child domain.
 
-
 ```ocaml
 # run @@ fun mgr ->
   let mutex = Stdlib.Mutex.create () in

@@ -81,6 +81,9 @@ module Std : sig
   end
 
   module Promise : sig
+    (** Promises are thread-safe and so can be shared between domains and used
+        to communicate between them. *)
+
     type !'a t
     (** An ['a t] is a promise for a value of type ['a]. *)
 
@@ -119,15 +122,11 @@ module Std : sig
     val broken : exn -> 'a t
     (** [broken x] is a promise that is already broken with exception [ex]. *)
 
-    type 'a waiters
-
-    type 'a state =
-      | Unresolved of 'a waiters
-      | Fulfilled of 'a
-      | Broken of exn
-
-    val state : 'a t -> 'a state
-    (** [state t] is the current state of [t]. *)
+    val state : 'a t -> [`Unresolved | `Fulfilled of 'a | `Broken of exn]
+    (** [state t] is the current state of [t].
+        If the state is [`Unresolved] then it may change in future, otherwise it won't.
+        If another domain has access to the resolver then the state may have already
+        changed by the time this call returns. *)
 
     val is_resolved : 'a t -> bool
     (** [is_resolved t] is [true] iff [state t] is [Fulfilled] or [Broken]. *)
@@ -218,9 +217,12 @@ end
 
 open Std
 
-(** A counting semaphore for use within a single domain.
+(** A counting semaphore.
     The API is based on OCaml's [Semaphore.Counting]. *)
 module Semaphore : sig
+  (** Semaphores are thread-safe and so can be shared between domains and used
+      to synchronise between them. *)
+
   type t
   (** The type of counting semaphores. *)
 
@@ -244,6 +246,9 @@ end
 
 (** A stream/queue. *)
 module Stream : sig
+  (** Streams are thread-safe and so can be shared between domains and used
+      to communicate between them. *)
+
   type 'a t
   (** A queue of items of type ['a]. *)
 

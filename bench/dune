@@ -1,4 +1,4 @@
 (executables
-  (names bench fibre_stream)
+  (names bench bench_stream bench_promise bench_semaphore)
   (enabled_if (= %{system} "linux"))
   (libraries eio_main))

@@ -147,7 +147,8 @@ let wake_buffer =
 let wakeup t =
   Log.debug (fun f -> f "Sending wakeup on eventfd %a" FD.pp t.eventfd);
   t.need_wakeup <- false;
-  assert (Unix.single_write (FD.get "wakeup" t.eventfd) wake_buffer 0 8 = 8)
+  let sent = Unix.single_write (FD.get "wakeup" t.eventfd) wake_buffer 0 8 in
+  assert (sent = 8)
 
 let enqueue_thread st k x =
   Mutex.lock st.run_q_mutex;
@@ -966,7 +967,9 @@ let monitor_event_fd t =
   while true do
     let got = readv t.eventfd [buf] in
     Log.debug (fun f -> f "Received wakeup on eventfd %a" FD.pp t.eventfd);
-    assert (got = 8)
+    assert (got = 8);
+    (* We just go back to sleep now, but this will cause the scheduler to look
+       at the run queue again and notice any new items. *)
   done
 
 let run ?(queue_depth=64) ?(block_size=4096) main =

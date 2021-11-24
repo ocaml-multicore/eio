@@ -4,6 +4,7 @@ type state =
 
 type t = {
   id : Ctf.id;
+  mutex : Mutex.t;
   mutable state : state;
 }
 
@@ -13,33 +14,42 @@ let make n =
   Ctf.note_created id Ctf.Semaphore;
   {
     id;
+    mutex = Mutex.create ();
     state = Free n;
   }
 
 let release t =
+  Mutex.lock t.mutex;
   Ctf.note_signal t.id;
   match t.state with
-  | Free x when x = max_int -> raise (Sys_error "semaphore would overflow max_int!")
-  | Free x -> t.state <- Free (succ x)
+  | Free x when x = max_int -> Mutex.unlock t.mutex; raise (Sys_error "semaphore would overflow max_int!")
+  | Free x -> t.state <- Free (succ x); Mutex.unlock t.mutex
   | Waiting q ->
-    match Waiters.wake_one q (Ok ()) with
-    | `Ok -> ()
-    | `Queue_empty ->
-      t.state <- Free 1
+    begin match Waiters.wake_one q (Ok ()) with
+      | `Ok -> ()
+      | `Queue_empty -> t.state <- Free 1
+    end;
+    Mutex.unlock t.mutex
 
 let rec acquire t =
+  Mutex.lock t.mutex;
   match t.state with
   | Waiting q ->
     Ctf.note_try_read t.id;
-    Switch.await q t.id |> Switch.or_raise
+    Waiters.await ~mutex:(Some t.mutex) q t.id |> Switch.or_raise
   | Free 0 ->
     t.state <- Waiting (Waiters.create ());
+    Mutex.unlock t.mutex;
     acquire t
   | Free n ->
     Ctf.note_read t.id;
-    t.state <- Free (pred n)
+    t.state <- Free (pred n);
+    Mutex.unlock t.mutex
 
 let get_value t =
-  match t.state with
+  Mutex.lock t.mutex;
+  let s = t.state in
+  Mutex.unlock t.mutex;
+  match s with
   | Free n -> n
   | Waiting _ -> 0

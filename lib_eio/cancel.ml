@@ -82,9 +82,7 @@ let add_hook t hook =
   match t.state with
   | Finished -> invalid_arg "Cancellation context finished!"
   | Cancelling (ex, _) -> protect (fun () -> hook (Cancelled ex)); Hook.null
-  | On q ->
-    let node = Lwt_dllist.add_r hook q in
-    (fun () -> Lwt_dllist.remove node)
+  | On q -> Hook.Node (Lwt_dllist.add_r hook q)
 
 let rec cancel t ex =
   match t.state with

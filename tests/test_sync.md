@@ -9,10 +9,10 @@ open Eio.Std
 
 let pp_promise pp f x =
   match Promise.state x with
-  | Unresolved _ -> Fmt.string f "unresolved"
-  | Broken (Failure msg) -> Fmt.pf f "broken:%s" msg
-  | Broken ex -> Fmt.pf f "broken:%a" Fmt.exn ex
-  | Fulfilled x -> Fmt.pf f "fulfilled:%a" pp x
+  | `Unresolved -> Fmt.string f "unresolved"
+  | `Broken (Failure msg) -> Fmt.pf f "broken:%s" msg
+  | `Broken ex -> Fmt.pf f "broken:%a" Fmt.exn ex
+  | `Fulfilled x -> Fmt.pf f "fulfilled:%a" pp x
 ```
 
 # Test cases
