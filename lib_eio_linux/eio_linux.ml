@@ -929,7 +929,7 @@ let run ?(queue_depth=64) ?(block_size=4096) main =
     let fibre = { Eio.Private.tid; cancel = initial_cancel } in
     match_with fn fibre
       { retc = (fun () -> schedule st);
-        exnc = raise;
+        exnc = (fun ex -> Printexc.raise_with_backtrace ex (Printexc.get_raw_backtrace ()));
         effc = fun (type a) (e : a eff) ->  
           match e with 
           | Enter fn -> Some (fun k ->

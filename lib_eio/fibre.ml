@@ -100,9 +100,9 @@ let any fs =
           | exception Cancel.Cancelled _ when Cancel.cancelled c -> ()
           | exception ex ->
             begin match !r with
-              | `None -> r := `Ex ex; Cancel.cancel c ex
-              | `Ok _ -> r := `Ex ex
-              | `Ex e1 -> r := `Ex (Multiple_exn.T [e1; ex])
+              | `None -> r := `Ex (ex, Printexc.get_raw_backtrace ()); Cancel.cancel c ex
+              | `Ok _ -> r := `Ex (ex, Printexc.get_raw_backtrace ())
+              | `Ex (e1, bt) -> r := `Ex (Multiple_exn.T [e1; ex], bt)
             end
         in
         let rec aux = function
@@ -119,8 +119,8 @@ let any fs =
   match !r, Cancel.get_error parent_c with
   | `Ok r, None -> r
   | (`Ok _ | `None), Some ex -> raise ex
-  | `Ex ex, None -> raise ex
-  | `Ex ex, Some ex2 -> raise (Multiple_exn.T [ex; ex2])
+  | `Ex (ex, bt), None -> Printexc.raise_with_backtrace ex bt
+  | `Ex (ex, bt), Some ex2 -> Printexc.raise_with_backtrace (Multiple_exn.T [ex; ex2]) bt
   | `None, None -> assert false
 
 let first f g = any [f; g]
