@@ -1,4 +1,6 @@
 type 'a t = {
+  mutex : Mutex.t;
+
   id : Ctf.id;
 
   capacity : int;
@@ -11,8 +13,15 @@ type 'a t = {
   writers : unit Waiters.t;
 }
 
+let with_mutex t f =
+  Mutex.lock t.mutex;
+  match f () with
+  | x -> Mutex.unlock t.mutex; x
+  | exception ex -> Mutex.unlock t.mutex; raise ex
+
 (* Invariants *)
 let validate t =
+  with_mutex t @@ fun () ->
   assert (Queue.length t.items <= t.capacity);
   assert (Waiters.is_empty t.readers || Queue.is_empty t.items);
   assert (Waiters.is_empty t.writers || Queue.length t.items = t.capacity)
@@ -22,6 +31,7 @@ let create capacity =
   let id = Ctf.mint_id () in
   Ctf.note_created id Ctf.Stream;
   {
+    mutex = Mutex.create ();
     id;
     capacity;
     items = Queue.create ();
@@ -30,15 +40,20 @@ let create capacity =
   }
 
 let add t item =
+  Mutex.lock t.mutex;
   match Waiters.wake_one t.readers (Ok item) with
-  | `Ok -> ()
+  | `Ok -> Mutex.unlock t.mutex
   | `Queue_empty ->
     (* No-one is waiting for an item. Queue it. *)
-    if Queue.length t.items < t.capacity then Queue.add item t.items
-    else (
+    if Queue.length t.items < t.capacity then (
+      Queue.add item t.items;
+      Mutex.unlock t.mutex
+    ) else (
       (* The queue is full. Wait for our turn first. *)
-      Suspend.enter @@ fun ctx enqueue ->
-      Switch.await_internal t.writers t.id ctx (fun r ->
+      Suspend.enter_unchecked @@ fun ctx enqueue ->
+      Waiters.await_internal ~mutex:(Some t.mutex) t.writers t.id ctx (fun r ->
+          (* This is called directly from [wake_one] and so we have the lock.
+             We're still running in [wake_one]'s domain here. *)
           if Result.is_ok r then (
             (* We get here immediately when called by [take], either:
                1. after removing an item, so there is space, or
@@ -50,17 +65,22 @@ let add t item =
     ) |> Switch.or_raise
 
 let take t =
+  Mutex.lock t.mutex;
   match Queue.take_opt t.items with
   | None ->
     (* There aren't any items, so we probably need to wait for one.
        However, there's also the special case of a zero-capacity queue to deal with.
        [is_empty writers || capacity = 0] *)
     begin match Waiters.wake_one t.writers (Ok ()) with
-      | `Queue_empty -> Switch.await t.readers t.id |> Switch.or_raise
+      | `Queue_empty ->
+        Waiters.await ~mutex:(Some t.mutex) t.readers t.id |> Switch.or_raise
       | `Ok ->
         (* [capacity = 0] (this is the only way we can get waiters and no items).
-           [wake_one] has just added an item to the queue, so remove it quickly to restore the invariant. *)
-        Queue.take t.items
+           [wake_one] has just added an item to the queue; remove it to restore
+           the invariant before closing the mutex. *)
+        let x = Queue.take t.items in
+        Mutex.unlock t.mutex;
+        x
     end
   | Some v ->
     (* If anyone was waiting for space, let the next one go.
@@ -69,4 +89,5 @@ let take t =
       | `Ok                     (* [length items = t.capacity] again *)
       | `Queue_empty -> ()      (* [is_empty writers] *)
     end;
+    Mutex.unlock t.mutex;
     v

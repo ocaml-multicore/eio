@@ -42,23 +42,6 @@ let with_op t fn =
           Waiters.wake_all t.waiter (Ok ())
       )
 
-let await_internal waiters id (ctx:Cancel.fibre_context) enqueue =
-  let cleanup_hooks = Queue.create () in
-  let when_resolved r =
-    Queue.iter Waiters.remove_waiter cleanup_hooks;
-    Ctf.note_read ~reader:id ctx.tid;
-    enqueue r
-  in
-  let cancel ex = when_resolved (Error ex) in
-  let cancel_waiter = Cancel.add_hook ctx.cancel cancel in
-  Queue.add cancel_waiter cleanup_hooks;
-  let resolved_waiter = Waiters.add_waiter waiters (fun x -> when_resolved (Ok x)) in
-  Queue.add resolved_waiter cleanup_hooks
-
-(* Returns a result if the wait succeeds, or raises if cancelled. *)
-let await waiters id =
-  Suspend.enter (await_internal waiters id)
-
 let or_raise = function
   | Ok x -> x
   | Error ex -> raise ex
@@ -67,7 +50,7 @@ let rec await_idle t =
   (* Wait for fibres to finish: *)
   while t.fibres > 0 do
     Ctf.note_try_read t.id;
-    await t.waiter t.id |> or_raise;
+    Waiters.await ~mutex:None t.waiter t.id |> or_raise;
   done;
   (* Call on_release handlers: *)
   let queue = Lwt_dllist.create () in
@@ -92,10 +75,9 @@ let raise_with_extras t ex bt =
   | [] -> Printexc.raise_with_backtrace ex bt
   | exns -> Printexc.raise_with_backtrace (Multiple_exn.T (ex :: List.rev exns)) bt
 
-let run fn =
+let run_internal fn cancel =
   let id = Ctf.mint_id () in
   Ctf.note_created id Ctf.Switch;
-  Cancel.sub @@ fun cancel ->
   let t = {
     id;
     fibres = 0;
@@ -132,6 +114,13 @@ let run fn =
     | On _ | Finished -> assert false
     | Cancelling (ex, bt) -> raise_with_extras t ex bt
 
+let run fn = Cancel.sub (run_internal fn)
+
+let run_protected fn =
+  let ctx = EffectHandlers.perform Cancel.Get_context in
+  Cancel.with_cc ~ctx ~parent:ctx.cancel ~protected:true @@ fun cancel ->
+  run_internal fn cancel
+
 let on_release_full t fn =
   match t.cancel.state with
   | On _ | Cancelling _ -> Lwt_dllist.add_r fn t.on_release
@@ -144,5 +133,4 @@ let on_release t fn =
   ignore (on_release_full t fn : _ Lwt_dllist.node)
 
 let on_release_cancellable t fn =
-  let node = on_release_full t fn in
-  (fun () -> Lwt_dllist.remove node)
+  Hook.Node (on_release_full t fn)

@@ -29,7 +29,7 @@ let test_poll_add () =
   Alcotest.(check string) "Received data" "!" result
 
 let test_poll_add_busy () =
-  Eio_linux.run ~queue_depth:1 @@ fun _stdenv ->
+  Eio_linux.run ~queue_depth:2 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let r, w = Eio_linux.pipe sw in
   let a = read_one_byte ~sw r in
@@ -45,7 +45,7 @@ let test_poll_add_busy () =
 
 (* Write a string to a pipe and read it out again. *)
 let test_copy () =
-  Eio_linux.run ~queue_depth:2 @@ fun _stdenv ->
+  Eio_linux.run ~queue_depth:3 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let msg = "Hello!" in
   let from_pipe, to_pipe = Eio_linux.pipe sw in

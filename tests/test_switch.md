@@ -318,18 +318,6 @@ A child error handler deals with the exception:
 - : unit = ()
 ```
 
-The system deadlocks. The scheduler detects and reports this:
-
-```ocaml
-# run (fun sw ->
-      let p, _ = Promise.create () in
-      Promise.await ~sw p
-    );;
-Exception:
-Failure
- "Deadlock detected: no events scheduled but main function hasn't returned".
-```
-
 # Release handlers
 
 ```ocaml

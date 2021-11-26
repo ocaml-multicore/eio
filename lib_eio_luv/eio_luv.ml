@@ -70,8 +70,13 @@ end
 type _ eff += Await : (Eio.Private.context -> ('a -> unit) -> unit) -> 'a eff
 let await fn = perform (Await fn)
 
-type _ eff += Enter : ('a Suspended.t -> unit) -> 'a eff
-type _ eff += Enter_unchecked : ('a Suspended.t -> unit) -> 'a eff
+type t = {
+  async : Luv.Async.t;                          (* Will process [run_q] when prodded. *)
+  run_q : (unit -> unit) Queue.t;
+}
+
+type _ eff += Enter : (t -> 'a Suspended.t -> unit) -> 'a eff
+type _ eff += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a eff
 
 let enter fn = perform (Enter fn)
 let enter_unchecked fn = perform (Enter_unchecked fn)
@@ -79,17 +84,17 @@ let enter_unchecked fn = perform (Enter_unchecked fn)
 let await_exn fn =
   perform (Await fn) |> or_raise
 
-let enqueue_thread k v =
-  let yield = Luv.Timer.init () |> or_raise in
-  Luv.Timer.start yield 0 (fun () -> Suspended.continue k v) |> or_raise
+let enqueue_thread t k v =
+  Queue.add (fun () -> Suspended.continue k v) t.run_q;
+  Luv.Async.send t.async |> or_raise
 
-let enqueue_result_thread k r =
-  let yield = Luv.Timer.init () |> or_raise in
-  Luv.Timer.start yield 0 (fun () -> Suspended.continue_result k r) |> or_raise
+let enqueue_result_thread t k r =
+  Queue.add (fun () -> Suspended.continue_result k r) t.run_q;
+  Luv.Async.send t.async |> or_raise
 
-let enqueue_failed_thread k ex =
-  let yield = Luv.Timer.init () |> or_raise in
-  Luv.Timer.start yield 0 (fun () -> Suspended.discontinue k ex) |> or_raise
+let enqueue_failed_thread t k ex =
+  Queue.add (fun () -> Suspended.discontinue k ex) t.run_q;
+  Luv.Async.send t.async |> or_raise
 
 let with_cancel fibre ~request fn =
   let cancel = Eio.Cancel.add_hook fibre.Eio.Private.cancel (fun _ ->
@@ -118,8 +123,8 @@ module Handle = struct
     let fd = get "close" t in
     t.fd <- `Closed;
     Eio.Hook.remove t.release_hook;
-    enter_unchecked @@ fun k ->
-    Luv.Handle.close fd (Suspended.continue k)
+    enter_unchecked @@ fun t k ->
+    Luv.Handle.close fd (enqueue_thread t k)
 
   let ensure_closed t =
     if is_open t then close t
@@ -206,10 +211,10 @@ module Stream = struct
   type 'a t = [`Stream of 'a] Handle.t
 
   let rec read_into (sock:'a t) buf =
-    let r = enter (fun k ->
+    let r = enter (fun t k ->
         let cancel = Eio.Cancel.add_hook k.fibre.cancel (fun ex ->
             Luv.Stream.read_stop (Handle.get "read_into:cancel" sock) |> or_raise;
-            enqueue_failed_thread k (Eio.Cancel.Cancelled ex)
+            enqueue_failed_thread t k (Eio.Cancel.Cancelled ex)
           ) in
         Luv.Stream.read_start (Handle.get "read_start" sock) ~allocate:(fun _ -> buf) (fun r ->
             Eio.Hook.remove cancel;
@@ -233,9 +238,9 @@ module Stream = struct
   let rec write t bufs =
     let err, n = 
       (* note: libuv doesn't seem to allow cancelling stream writes *)
-      enter (fun k ->
+      enter (fun st k ->
           Luv.Stream.write (Handle.get "write_stream" t) bufs @@ fun err n ->
-          Suspended.continue k (err, n)
+          enqueue_thread st k (err, n)
         )
     in
     or_raise err;
@@ -247,15 +252,15 @@ end
 let sleep_until due =
   let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
   let timer = Luv.Timer.init () |> or_raise in
-  enter @@ fun k ->
+  enter @@ fun st k ->
   let cancel = Eio.Cancel.add_hook k.fibre.cancel (fun ex ->
       Luv.Timer.stop timer |> or_raise;
       Luv.Handle.close timer (fun () -> ());
-      enqueue_failed_thread k ex
+      enqueue_failed_thread st k ex
     ) in
   Luv.Timer.start timer delay (fun () ->
       Eio.Hook.remove cancel;
-      Suspended.continue k ()
+      enqueue_thread st k ()
     ) |> or_raise
 
 let run_compute fn =
@@ -464,17 +469,19 @@ module Objects = struct
           (* This is called in the parent domain after returning to the mainloop,
              so [domain_k] must be set by then. *)
           let domain, k = Option.get !domain_k in
+          Log.debug (fun f -> f "Spawned domain finished (joining)");
           Domain.join domain;
           Luv.Handle.close async @@ fun () ->
           Suspended.continue_result k (Option.get !result)
         ) |> or_raise
       in
-      enter @@ fun k ->
+      enter @@ fun _st k ->
       let d = Domain.spawn (fun () ->
           result := Some (match run_compute fn with
               | v -> Ok v
               | exception ex -> Error ex
             );
+          Log.debug (fun f -> f "Sending finished notification");
           Luv.Async.send async |> or_raise
         ) in
       domain_k := Some (d, k)
@@ -580,8 +587,16 @@ module Objects = struct
     end
 end  
 
+let rec wakeup run_q =
+  match Queue.take_opt run_q with
+  | Some f -> f (); wakeup run_q
+  | None -> ()
+
 let run main =
   Log.debug (fun l -> l "starting run");
+  let run_q = Queue.create () in
+  let async = Luv.Async.init (fun _async -> wakeup run_q) |> or_raise in
+  let st = { async; run_q } in
   let stdenv = Objects.stdenv () in
   let rec fork ~tid ~cancel:initial_cancel fn =
     Ctf.note_switch tid;
@@ -603,7 +618,7 @@ let run main =
             let id = Ctf.mint_id () in
             Ctf.note_created id Ctf.Task;
             let promise, resolver = Promise.create_with_id id in
-            enqueue_thread k promise;
+            enqueue_thread st k promise;
             fork
               ~tid:id
               ~cancel:fibre.cancel
@@ -617,7 +632,7 @@ let run main =
         | Eio.Private.Effects.Fork_ignore f ->
           Some (fun k -> 
             let k = { Suspended.k; fibre } in
-            enqueue_thread k ();
+            enqueue_thread st k ();
             let child = Ctf.note_fork () in
             Ctf.note_switch child;
             fork ~tid:child ~cancel:fibre.cancel (fun new_fibre ->
@@ -629,26 +644,28 @@ let run main =
               ))
         | Eio.Private.Effects.Get_context -> Some (fun k -> continue k fibre)
         | Enter_unchecked fn -> Some (fun k ->
-            fn { Suspended.k; fibre }
+            fn st { Suspended.k; fibre }
           )
         | Enter fn -> Some (fun k ->
             match Eio.Cancel.get_error fibre.cancel with
             | Some e -> discontinue k e
-            | None -> fn { Suspended.k; fibre }
+            | None -> fn st { Suspended.k; fibre }
           )
         | Eio.Private.Effects.Suspend fn ->
           Some (fun k -> 
               let k = { Suspended.k; fibre } in
-              fn fibre (enqueue_result_thread k)
+              fn fibre (enqueue_result_thread st k)
             )
         | _ -> None
     }
   in
   let main_status = ref `Running in
   fork ~tid:(Ctf.mint_id ()) ~cancel:Eio.Private.boot_cancel (fun _new_fibre ->
-      match Eio.Cancel.protect (fun () -> main stdenv) with
-      | () -> main_status := `Done
-      | exception ex -> main_status := `Ex (ex, Printexc.get_raw_backtrace ())
+      begin match Eio.Cancel.protect (fun () -> main stdenv) with
+        | () -> main_status := `Done
+        | exception ex -> main_status := `Ex (ex, Printexc.get_raw_backtrace ())
+      end;
+      Luv.Loop.stop (Luv.Loop.default ())
     );
   ignore (Luv.Loop.run () : bool);
   match !main_status with
