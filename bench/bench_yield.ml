@@ -25,8 +25,6 @@ let main ~clock =
       let _minor1, prom1, _major1 = Gc.counters () in
       let prom = prom1 -. prom0 in
       Printf.printf "%8d, % 7.2f, % 13.4f\n%!" n_fibres (1e9 *. time_per_iter) (prom /. float n_total)
-      (* traceln "%d fibres did %d noops in %.2f seconds : %.2f ns/iter"
-           n_fibres n_iters time_total (1e9 *. time_per_iter) *)
     )
 
 let () =
