@@ -23,9 +23,9 @@ exception Luv_error of Luv.Error.t
 val or_raise : 'a or_error -> 'a
 (** [or_error (Error e)] raises [Luv_error e]. *)
 
-val await : (Eio.Private.context -> ('a -> unit) -> unit) -> 'a
+val await : (Luv.Loop.t -> Eio.Private.context -> ('a -> unit) -> unit) -> 'a
 (** [await fn] converts a function using a luv-style callback to one using effects.
-    Use it as e.g. [await (fun fibre -> Luv.File.realpath path)].
+    Use it as e.g. [await (fun loop fibre -> Luv.File.realpath ~loop path)].
     Use [fibre] to implement cancellation. *)
 
 (** {1 Time functions} *)

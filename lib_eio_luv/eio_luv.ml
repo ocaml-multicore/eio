@@ -67,13 +67,15 @@ module Suspended = struct
     | Error x -> discontinue t x
 end
 
-type _ eff += Await : (Eio.Private.context -> ('a -> unit) -> unit) -> 'a eff
-let await fn = perform (Await fn)
-
 type t = {
+  loop : Luv.Loop.t;
   async : Luv.Async.t;                          (* Will process [run_q] when prodded. *)
+  mutex : Mutex.t;
   run_q : (unit -> unit) Queue.t;
 }
+
+type _ eff += Await : (Luv.Loop.t -> Eio.Private.context -> ('a -> unit) -> unit) -> 'a eff
+let await fn = perform (Await fn)
 
 type _ eff += Enter : (t -> 'a Suspended.t -> unit) -> 'a eff
 type _ eff += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a eff
@@ -84,16 +86,26 @@ let enter_unchecked fn = perform (Enter_unchecked fn)
 let await_exn fn =
   perform (Await fn) |> or_raise
 
+let get_loop () =
+  enter_unchecked @@ fun t k ->
+  Suspended.continue k t.loop
+
 let enqueue_thread t k v =
+  Mutex.lock t.mutex;
   Queue.add (fun () -> Suspended.continue k v) t.run_q;
+  Mutex.unlock t.mutex;
   Luv.Async.send t.async |> or_raise
 
 let enqueue_result_thread t k r =
+  Mutex.lock t.mutex;
   Queue.add (fun () -> Suspended.continue_result k r) t.run_q;
+  Mutex.unlock t.mutex;
   Luv.Async.send t.async |> or_raise
 
 let enqueue_failed_thread t k ex =
+  Mutex.lock t.mutex;
   Queue.add (fun () -> Suspended.discontinue k ex) t.run_q;
+  Mutex.unlock t.mutex;
   Luv.Async.send t.async |> or_raise
 
 let with_cancel fibre ~request fn =
@@ -159,7 +171,7 @@ module File = struct
     let fd = get "close" t in
     t.fd <- `Closed;
     Eio.Hook.remove t.release_hook;
-    await_exn (fun _fibre -> Luv.File.close fd)
+    await_exn (fun loop _fibre -> Luv.File.close ~loop fd)
 
   let ensure_closed t =
     if is_open t then close t
@@ -175,22 +187,22 @@ module File = struct
     t
 
   let await_with_cancel ~request fn =
-    await (fun fibre k ->
-        with_cancel fibre ~request (fun () -> fn k)
+    await (fun loop fibre k ->
+        with_cancel fibre ~request (fun () -> fn loop k)
       )
 
   let open_ ~sw ?mode path flags =
     let request = Luv.File.Request.make () in
-    await_with_cancel ~request (Luv.File.open_ ?mode ~request path flags)
+    await_with_cancel ~request (fun loop -> Luv.File.open_ ~loop ?mode ~request path flags)
     |> Result.map (of_luv ~sw)
 
   let read fd bufs =
     let request = Luv.File.Request.make () in
-    await_with_cancel ~request (Luv.File.read ~request (get "read" fd) bufs)
+    await_with_cancel ~request (fun loop -> Luv.File.read ~loop ~request (get "read" fd) bufs)
 
   let rec write fd bufs =
     let request = Luv.File.Request.make () in
-    let sent = await_with_cancel ~request (Luv.File.write ~request (get "write" fd) bufs) |> or_raise in
+    let sent = await_with_cancel ~request (fun loop -> Luv.File.write ~loop ~request (get "write" fd) bufs) |> or_raise in
     let rec aux = function
       | [] -> ()
       | x :: xs when Luv.Buffer.size x = 0 -> aux xs
@@ -200,11 +212,11 @@ module File = struct
 
   let realpath path =
     let request = Luv.File.Request.make () in
-    await_with_cancel ~request (Luv.File.realpath ~request path)
+    await_with_cancel ~request (fun loop -> Luv.File.realpath ~loop ~request path)
 
   let mkdir ~mode path =
     let request = Luv.File.Request.make () in
-    await_with_cancel ~request (Luv.File.mkdir ~request ~mode path)
+    await_with_cancel ~request (fun loop -> Luv.File.mkdir ~loop ~request ~mode path)
 end
 
 module Stream = struct
@@ -219,7 +231,7 @@ module Stream = struct
         Luv.Stream.read_start (Handle.get "read_start" sock) ~allocate:(fun _ -> buf) (fun r ->
             Eio.Hook.remove cancel;
             Luv.Stream.read_stop (Handle.get "read_stop" sock) |> or_raise;
-            Suspended.continue k r
+            enqueue_thread t k r
           )
       ) in
     match r with
@@ -251,8 +263,8 @@ end
 
 let sleep_until due =
   let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
-  let timer = Luv.Timer.init () |> or_raise in
   enter @@ fun st k ->
+  let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in
   let cancel = Eio.Cancel.add_hook k.fibre.cancel (fun ex ->
       Luv.Timer.stop timer |> or_raise;
       Luv.Handle.close timer (fun () -> ());
@@ -338,11 +350,11 @@ module Objects = struct
       Handle.close sock
 
     method shutdown = function
-      | `Send -> await_exn (fun _fibre -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
+      | `Send -> await_exn (fun _loop _fibre -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
       | `Receive -> failwith "shutdown receive not supported"
       | `All ->
         Log.warn (fun f -> f "shutdown receive not supported");
-        await_exn (fun _fibre -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
+        await_exn (fun _loop _fibre -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
   end
 
   class virtual ['a] listening_socket ~backlog sock = object (self)
@@ -397,7 +409,8 @@ module Objects = struct
   let listening_ip_socket ~backlog sock = object
     inherit [[ `TCP ]] listening_socket ~backlog sock
 
-    method private make_client = Luv.TCP.init () |> or_raise
+    method private make_client = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise
+
     method private get_client_addr c =
       `Tcp (Luv.TCP.getpeername (Handle.get "get_client_addr" c) |> or_raise |> luv_ip_addr_to_unix)
   end
@@ -405,7 +418,7 @@ module Objects = struct
   let listening_unix_socket ~backlog sock = object
     inherit [[ `Pipe ]] listening_socket ~backlog sock
 
-    method private make_client = Luv.Pipe.init () |> or_raise
+    method private make_client = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise
     method private get_client_addr c =
       `Unix (Luv.Pipe.getpeername (Handle.get "get_client_addr" c) |> or_raise)
   end
@@ -415,13 +428,13 @@ module Objects = struct
 
     method listen ~reuse_addr ~backlog ~sw = function
       | `Tcp (host, port) ->
-        let sock = Luv.TCP.init () |> or_raise |> Handle.of_luv ~sw in
+        let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
         luv_reuse_addr sock reuse_addr;
         let addr = luv_addr_of_unix host port in
         Luv.TCP.bind (Handle.get "bind" sock) addr |> or_raise;
         listening_ip_socket ~backlog sock
       | `Unix path         ->
-        let sock = Luv.Pipe.init () |> or_raise |> Handle.of_luv ~sw in
+        let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
         luv_reuse_addr sock reuse_addr;
         if reuse_addr then (
           match Unix.lstat path with
@@ -438,13 +451,13 @@ module Objects = struct
     (* todo: how do you cancel connect operations with luv? *)
     method connect ~sw = function
       | `Tcp (host, port) ->
-        let sock = Luv.TCP.init () |> or_raise |> Handle.of_luv ~sw in
+        let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
         let addr = luv_addr_of_unix host port in
-        await_exn (fun _fibre -> Luv.TCP.connect (Handle.get "connect" sock) addr);
+        await_exn (fun _loop _fibre -> Luv.TCP.connect (Handle.get "connect" sock) addr);
         socket sock
       | `Unix path ->
-        let sock = Luv.Pipe.init () |> or_raise |> Handle.of_luv ~sw in
-        await_exn (fun _fibre -> Luv.Pipe.connect (Handle.get "connect" sock) path);
+        let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
+        await_exn (fun _loop _fibre -> Luv.Pipe.connect (Handle.get "connect" sock) path);
         socket sock
   end
 
@@ -465,7 +478,7 @@ module Objects = struct
     method run_compute_unsafe (type a) fn =
       let domain_k : (unit Domain.t * a Suspended.t) option ref = ref None in
       let result = ref None in
-      let async = Luv.Async.init (fun async ->
+      let async = Luv.Async.init ~loop:(get_loop ()) (fun async ->
           (* This is called in the parent domain after returning to the mainloop,
              so [domain_k] must be set by then. *)
           let domain, k = Option.get !domain_k in
@@ -587,16 +600,19 @@ module Objects = struct
     end
 end  
 
-let rec wakeup run_q =
+let rec wakeup ~mutex run_q =
+  Mutex.lock mutex;
   match Queue.take_opt run_q with
-  | Some f -> f (); wakeup run_q
-  | None -> ()
+  | Some f -> Mutex.unlock mutex; f (); wakeup ~mutex run_q
+  | None -> Mutex.unlock mutex
 
 let run main =
   Log.debug (fun l -> l "starting run");
+  let loop = Luv.Loop.init () |> or_raise in
   let run_q = Queue.create () in
-  let async = Luv.Async.init (fun _async -> wakeup run_q) |> or_raise in
-  let st = { async; run_q } in
+  let mutex = Mutex.create () in
+  let async = Luv.Async.init ~loop (fun _async -> wakeup ~mutex run_q) |> or_raise in
+  let st = { loop; async; mutex; run_q } in
   let stdenv = Objects.stdenv () in
   let rec fork ~tid ~cancel:initial_cancel fn =
     Ctf.note_switch tid;
@@ -609,7 +625,7 @@ let run main =
         | Await fn ->
           Some (fun k -> 
             let k = { Suspended.k; fibre } in
-            fn fibre (Suspended.continue k))
+            fn loop fibre (enqueue_thread st k))
         | Eio.Private.Effects.Trace ->
           Some (fun k -> continue k Eunix.Trace.default_traceln)
         | Eio.Private.Effects.Fork f ->
@@ -665,9 +681,10 @@ let run main =
         | () -> main_status := `Done
         | exception ex -> main_status := `Ex (ex, Printexc.get_raw_backtrace ())
       end;
-      Luv.Loop.stop (Luv.Loop.default ())
+      Luv.Loop.stop loop
     );
-  ignore (Luv.Loop.run () : bool);
+  ignore (Luv.Loop.run ~loop () : bool);
+  Luv.Handle.close async (fun () -> Luv.Loop.close loop |> or_raise);
   match !main_status with
   | `Done -> ()
   | `Ex (ex, bt) -> Printexc.raise_with_backtrace ex bt
