@@ -13,7 +13,7 @@ let main ~clock =
           for _ = 1 to n_fibres do
             Fibre.fork_ignore ~sw (fun () ->
                 for _ = 1 to n_iters do
-                  Eio_linux.noop ()
+                  Fibre.yield ()
                 done
               )
           done
@@ -24,7 +24,9 @@ let main ~clock =
       let time_per_iter = time_total /. float n_total in
       let _minor1, prom1, _major1 = Gc.counters () in
       let prom = prom1 -. prom0 in
-      Printf.printf "%5d, %.2f, %7.4f\n%!" n_fibres (1e9 *. time_per_iter) (prom /. float n_total)
+      Printf.printf "%8d, % 7.2f, % 13.4f\n%!" n_fibres (1e9 *. time_per_iter) (prom /. float n_total)
+      (* traceln "%d fibres did %d noops in %.2f seconds : %.2f ns/iter"
+           n_fibres n_iters time_total (1e9 *. time_per_iter) *)
     )
 
 let () =
