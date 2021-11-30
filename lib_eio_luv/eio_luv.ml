@@ -21,6 +21,8 @@ open Eio.Std
 open EffectHandlers
 open EffectHandlers.Deep
 
+module Lf_queue = Eunix.Lf_queue
+
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)
 
@@ -70,8 +72,7 @@ end
 type t = {
   loop : Luv.Loop.t;
   async : Luv.Async.t;                          (* Will process [run_q] when prodded. *)
-  mutex : Mutex.t;
-  run_q : (unit -> unit) Queue.t;
+  run_q : (unit -> unit) Lf_queue.t;
 }
 
 type _ eff += Await : (Luv.Loop.t -> Eio.Private.context -> ('a -> unit) -> unit) -> 'a eff
@@ -91,21 +92,15 @@ let get_loop () =
   Suspended.continue k t.loop
 
 let enqueue_thread t k v =
-  Mutex.lock t.mutex;
-  Queue.add (fun () -> Suspended.continue k v) t.run_q;
-  Mutex.unlock t.mutex;
+  Lf_queue.push t.run_q (fun () -> Suspended.continue k v);
   Luv.Async.send t.async |> or_raise
 
 let enqueue_result_thread t k r =
-  Mutex.lock t.mutex;
-  Queue.add (fun () -> Suspended.continue_result k r) t.run_q;
-  Mutex.unlock t.mutex;
+  Lf_queue.push t.run_q (fun () -> Suspended.continue_result k r);
   Luv.Async.send t.async |> or_raise
 
 let enqueue_failed_thread t k ex =
-  Mutex.lock t.mutex;
-  Queue.add (fun () -> Suspended.discontinue k ex) t.run_q;
-  Mutex.unlock t.mutex;
+  Lf_queue.push t.run_q (fun () -> Suspended.discontinue k ex);
   Luv.Async.send t.async |> or_raise
 
 let with_cancel fibre ~request fn =
@@ -600,19 +595,17 @@ module Objects = struct
     end
 end  
 
-let rec wakeup ~mutex run_q =
-  Mutex.lock mutex;
-  match Queue.take_opt run_q with
-  | Some f -> Mutex.unlock mutex; f (); wakeup ~mutex run_q
-  | None -> Mutex.unlock mutex
+let rec wakeup run_q =
+  match Lf_queue.pop run_q with
+  | Some f -> f (); wakeup run_q
+  | None -> ()
 
 let run main =
   Log.debug (fun l -> l "starting run");
   let loop = Luv.Loop.init () |> or_raise in
-  let run_q = Queue.create () in
-  let mutex = Mutex.create () in
-  let async = Luv.Async.init ~loop (fun _async -> wakeup ~mutex run_q) |> or_raise in
-  let st = { loop; async; mutex; run_q } in
+  let run_q = Lf_queue.create () in
+  let async = Luv.Async.init ~loop (fun _async -> wakeup run_q) |> or_raise in
+  let st = { loop; async; run_q } in
   let stdenv = Objects.stdenv () in
   let rec fork ~tid ~cancel:initial_cancel fn =
     Ctf.note_switch tid;
