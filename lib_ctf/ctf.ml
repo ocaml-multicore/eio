@@ -45,20 +45,6 @@ type event =
 
 type log_buffer = (char, int8_unsigned_elt, c_layout) Array1.t
 
-module Unix = struct
-  let timestamper log_buffer ofs =
-    let ns = Mtime.to_uint64_ns @@ Mtime_clock.now () in
-    EndianBigstring.LittleEndian.set_int64 log_buffer ofs ns
-
-  let mmap_buffer ~size path =
-    let fd = Unix.(openfile path [O_RDWR; O_CREAT; O_TRUNC] 0o644) in
-    Unix.set_close_on_exec fd;
-    Unix.ftruncate fd size;
-    let ba = array1_of_genarray (Unix.map_file fd char c_layout true [| size |]) in
-    Unix.close fd;
-    ba
-end
-
 let current_thread = ref (-1)
 
 let int_of_thread_type t =
@@ -150,6 +136,9 @@ module Control = struct
    *)
   type t = {
     log : log_buffer;
+
+    timestamper : log_buffer -> int -> unit; (* Write a timestamp at the given offset. *)
+
     mutable next_event : int;     (* Index to write next event (always < packet_end) *)
     mutable packet_end: int;
     packets : Packet.t array;
@@ -224,7 +213,7 @@ module Control = struct
       (* Printf.printf "writing at %d\n%!" i; *)
       log.next_event <- new_i;
       Packet.set_content_end log.packets.(log.active_packet) new_i;
-      Unix.timestamper log.log i;
+      log.timestamper log.log i;
       i + 8 |> write8 log.log op
     )
 
@@ -334,7 +323,7 @@ module Control = struct
         |> end_event
 *)
 
-  let make log =
+  let make ~timestamper log =
     let size = Array1.dim log in
     let n_packets = 4 in
     let packet_size = size / n_packets in
@@ -346,6 +335,7 @@ module Control = struct
     let active_packet = 0 in
     {
       log;
+      timestamper;
       packets;
       active_packet;
       packet_end = Packet.packet_end packets.(active_packet);

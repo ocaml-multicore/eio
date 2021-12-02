@@ -87,16 +87,12 @@ val note_signal : ?src:id -> id -> unit
 
 type log_buffer = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
-module Unix : sig
-  val mmap_buffer : size:int -> string -> log_buffer
-  (** [mmap_buffer ~size path] initialises file [path] as an empty buffer for tracing. *)
-end
-
 module Control : sig
   type t
 
-  val make : log_buffer -> t
-  (** [make b] is a trace buffer that record events in [b]. *)
+  val make : timestamper:(log_buffer -> int -> unit) -> log_buffer -> t
+  (** [make ~timestamper b] is a trace buffer that record events in [b].
+      In most cases, the {!Ctf_unix} module provides a simpler interface. *)
 
   val start : t -> unit
   (** [start t] begins recording events in [t]. *)
@@ -104,4 +100,3 @@ module Control : sig
   val stop : t -> unit
   (** [stop t] stops recording to [t] (which must be the current trace buffer). *)
 end
-
