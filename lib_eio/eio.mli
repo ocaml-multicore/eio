@@ -455,15 +455,19 @@ end
 
 module Domain_manager : sig
   class virtual t : object
-    method virtual run_compute_unsafe : 'a. (unit -> 'a) -> 'a
+    method virtual run : 'a. (unit -> 'a) -> 'a
+    method virtual run_raw : 'a. (unit -> 'a) -> 'a
   end
 
-  val run_compute_unsafe : #t -> (unit -> 'a) -> 'a
-  (** [run_compute_unsafe t f] runs [f ()] in a newly-created domain and returns the result.
-      The new domain does not get an event loop, and so cannot perform IO, fork fibres, etc.
+  val run : #t -> (unit -> 'a) -> 'a
+  (** [run t f] runs [f ()] in a newly-created domain and returns the result.
       Other fibres in the calling domain can run in parallel with the new domain.
-      Unsafe because [f] must only be able to access thread-safe values from the
-      calling domain, but this is not enforced by the type system. *)
+      Warning: [f] must only access thread-safe values from the calling domain,
+      but this is not enforced by the type system. *)
+
+  val run_raw : #t -> (unit -> 'a) -> 'a
+  (** [run_raw t f] is like {!run}, but does not run an event loop in the new domain,
+      and so cannot perform IO, fork fibres, etc. *)
 end
 
 module Time : sig

@@ -467,10 +467,10 @@ module Objects = struct
     cwd : Eio.Dir.t;
   >
 
-  let domain_mgr = object
+  let domain_mgr ~run_event_loop = object (self)
     inherit Eio.Domain_manager.t
 
-    method run_compute_unsafe (type a) fn =
+    method run_raw (type a) fn =
       let domain_k : (unit Domain.t * a Suspended.t) option ref = ref None in
       let result = ref None in
       let async = Luv.Async.init ~loop:(get_loop ()) (fun async ->
@@ -493,6 +493,15 @@ module Objects = struct
           Luv.Async.send async |> or_raise
         ) in
       domain_k := Some (d, k)
+
+    method run fn =
+      self#run_raw (fun () ->
+          let result = ref None in
+          run_event_loop (fun _ ->
+              result := Some (fn ())
+            );
+          Option.get !result
+        )
   end
 
   let clock = object
@@ -579,7 +588,7 @@ module Objects = struct
     inherit dir "."
   end
 
-  let stdenv () =
+  let stdenv ~run_event_loop =
     let stdin = lazy (source (File.of_luv_no_hook Luv.File.stdin)) in
     let stdout = lazy (sink (File.of_luv_no_hook Luv.File.stdout)) in
     let stderr = lazy (sink (File.of_luv_no_hook Luv.File.stderr)) in
@@ -588,7 +597,7 @@ module Objects = struct
       method stdout = Lazy.force stdout
       method stderr = Lazy.force stderr
       method net = net
-      method domain_mgr = domain_mgr
+      method domain_mgr = domain_mgr ~run_event_loop
       method clock = clock
       method fs = (fs :> Eio.Dir.t)
       method cwd = (cwd :> Eio.Dir.t)
@@ -600,13 +609,13 @@ let rec wakeup run_q =
   | Some f -> f (); wakeup run_q
   | None -> ()
 
-let run main =
+let rec run main =
   Log.debug (fun l -> l "starting run");
   let loop = Luv.Loop.init () |> or_raise in
   let run_q = Lf_queue.create () in
   let async = Luv.Async.init ~loop (fun _async -> wakeup run_q) |> or_raise in
   let st = { loop; async; run_q } in
-  let stdenv = Objects.stdenv () in
+  let stdenv = Objects.stdenv ~run_event_loop:run in
   let rec fork ~tid ~cancel:initial_cancel fn =
     Ctf.note_switch tid;
     let fibre = { Eio.Private.tid; cancel = initial_cancel } in

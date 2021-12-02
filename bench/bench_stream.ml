@@ -13,8 +13,7 @@ let run_bench ~domain_mgr ~clock ~use_domains ~n_iters ~capacity =
     Fibre.both
       (fun () ->
          if use_domains then (
-           Eio.Domain_manager.run_compute_unsafe domain_mgr @@ fun () ->
-           Eio_main.run @@ fun _env ->
+           Eio.Domain_manager.run domain_mgr @@ fun () ->
            run_sender ~n_iters stream
          ) else (
            run_sender ~n_iters stream
