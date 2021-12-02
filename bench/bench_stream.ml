@@ -38,7 +38,7 @@ let main ~domain_mgr ~clock =
   [false, 10_000_000;
    true,   1_000_000]
   |> List.iter (fun (use_domains, n_iters) ->
-      [1; 10; 100; 1000] |> List.iter (fun capacity ->
+      [0; 1; 10; 100; 1000] |> List.iter (fun capacity ->
           run_bench ~domain_mgr ~clock ~use_domains ~n_iters ~capacity
         )
     )
