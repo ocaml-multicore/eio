@@ -677,6 +677,7 @@ let run main =
       Luv.Loop.stop loop
     );
   ignore (Luv.Loop.run ~loop () : bool);
+  Lf_queue.close st.run_q;
   Luv.Handle.close async (fun () -> Luv.Loop.close loop |> or_raise);
   match !main_status with
   | `Done -> ()

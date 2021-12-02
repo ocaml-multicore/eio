@@ -7,37 +7,46 @@
    It is simplified slightly because we don't need multiple consumers.
    Therefore [head] is not atomic. *)
 
+exception Closed
+
 module Node : sig
   type 'a t = {
     next : 'a opt Atomic.t;
     mutable value : 'a;
   }
-  and +'a opt (* An optional node, but with a more efficient representation that ['a t option]. *)
+  and +'a opt
 
   val make : 'a -> 'a t
 
   val none : 'a opt
+  (** [t.next = none] means that [t] is currently the last node. *)
+
+  val closed : 'a opt
+  (** [t.next = closed] means that [t] will always be the last node. *)
+
   val some : 'a t -> 'a opt
-  val get : 'a opt -> 'a t
   val fold : 'a opt -> none:(unit -> 'b) -> some:('a t -> 'b) -> 'b
 end = struct
   (* https://github.com/ocaml/RFCs/pull/14 should remove the need for magic here *)
 
-  type +'a opt  (* An ['a t] pointer or [()] immediate. *)
-  and 'a t = {
+  type +'a opt  (* special | 'a t *)
+
+  type 'a t = {
     next : 'a opt Atomic.t;
     mutable value : 'a;
   }
 
-  let none : 'a. 'a opt = Obj.magic ()
-  let some (t : 'a t) : 'a opt = Obj.magic t
+  type special =
+    | Nothing
+    | Closed
 
-  let get (opt : 'a opt) : 'a t =
-    if opt == none then assert false
-    else (Obj.magic opt : 'a t)
+  let none : 'a. 'a opt = Obj.magic Nothing
+  let closed : 'a. 'a opt = Obj.magic Closed
+  let some (t : 'a t) : 'a opt = Obj.magic t
 
   let fold (opt : 'a opt) ~none:n ~some =
     if opt == none then n ()
+    else if opt == closed then raise Closed
     else some (Obj.magic opt : 'a t)
 
   let make value = { value; next = Atomic.make none }
@@ -65,11 +74,30 @@ let push t x =
     ) else (
       (* Someone else added a different node first ([p.next] is not [none]).
          Make [t.tail] more up-to-date, if it hasn't already changed, and try again. *)
-      ignore (Atomic.compare_and_set t.tail p (Node.get (Atomic.get p.next)) : bool);
-      aux ()
+      Node.fold (Atomic.get p.next)
+        ~none:(fun () -> assert false)
+        ~some:(fun p_next ->
+            ignore (Atomic.compare_and_set t.tail p p_next : bool);
+            aux ()
+          )
     )
   in
   aux ()
+
+let rec close (t:'a t) =
+  (* Mark the tail node as final. *)
+  let p = Atomic.get t.tail in
+  if not (Atomic.compare_and_set p.next Node.none Node.closed) then (
+    (* CAS failed because [p] is no longer the tail (or is already closed). *)
+    Node.fold (Atomic.get p.next)
+      ~none:(fun () -> assert false)    (* Can't switch from another state to [none] *)
+      ~some:(fun p_next ->
+          (* Make [tail] more up-to-date if it hasn't changed already *)
+          ignore (Atomic.compare_and_set t.tail p p_next : bool);
+          (* Retry *)
+          close t
+        )
+  )
 
 let pop t =
   let p = t.head in
