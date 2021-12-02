@@ -674,17 +674,6 @@ let accept ~sw fd =
   Switch.on_release sw (fun () -> FD.ensure_closed client);
   client, client_addr
 
-let run_compute fn () =
-  match_with fn ()
-  { retc = (fun x -> x);
-    exnc = (fun e -> raise e);
-    effc = fun (type a) (e : a eff) -> 
-          match e with
-          | Eio.Private.Effects.Trace -> 
-            Some (fun (k: (a, _) continuation) -> continue k Eunix.Trace.default_traceln)
-          | _ -> None
-  }
-
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
 module Objects = struct
@@ -863,15 +852,22 @@ module Objects = struct
     cwd : Eio.Dir.t;
   >
 
-  let domain_mgr = object
+  let domain_mgr ~run_event_loop = object (self)
     inherit Eio.Domain_manager.t
 
-    method run_compute_unsafe fn =
+    method run_raw fn =
       let domain = ref None in
       enter (fun t k ->
-          domain := Some (Domain.spawn (fun () -> Fun.protect (run_compute fn) ~finally:(fun () -> enqueue_thread t k ())))
+          domain := Some (Domain.spawn (fun () -> Fun.protect fn ~finally:(fun () -> enqueue_thread t k ())))
         );
       Domain.join (Option.get !domain)
+
+    method run fn =
+      self#run_raw (fun () ->
+          let result = ref None in
+          run_event_loop (fun _ -> result := Some (fn ()));
+          Option.get !result
+        )
   end
 
   let clock = object
@@ -938,7 +934,7 @@ module Objects = struct
       mkdirat ~perm None path
   end
 
-  let stdenv () =
+  let stdenv ~run_event_loop =
     let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) fd in
     let stdin = lazy (source (of_unix Unix.stdin)) in
     let stdout = lazy (sink (of_unix Unix.stdout)) in
@@ -949,7 +945,7 @@ module Objects = struct
       method stdout = Lazy.force stdout
       method stderr = Lazy.force stderr
       method net = net
-      method domain_mgr = domain_mgr
+      method domain_mgr = domain_mgr ~run_event_loop
       method clock = clock
       method fs = (fs :> Eio.Dir.t)
       method cwd = (cwd :> Eio.Dir.t)
@@ -972,9 +968,9 @@ let monitor_event_fd t =
        at the run queue again and notice any new items. *)
   done
 
-let run ?(queue_depth=64) ?(block_size=4096) main =
+let rec run ?(queue_depth=64) ?(block_size=4096) main =
   Log.debug (fun l -> l "starting run");
-  let stdenv = Objects.stdenv () in
+  let stdenv = Objects.stdenv ~run_event_loop:(run ~queue_depth ~block_size) in
   (* TODO unify this allocation API around baregion/uring *)
   let fixed_buf_len = block_size * queue_depth in
   let uring = Uring.create ~fixed_buf_len ~queue_depth () in

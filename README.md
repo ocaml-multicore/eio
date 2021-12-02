@@ -595,7 +595,7 @@ We can use `Eio.Domain_manager` to run this in a separate domain:
 let main ~domain_mgr =
   let test n =
     traceln "sum 1..%d = %d" n
-      (Eio.Domain_manager.run_compute_unsafe domain_mgr
+      (Eio.Domain_manager.run domain_mgr
         (fun () -> sum_to n))
   in
   Fibre.both
@@ -622,11 +622,10 @@ Notes:
   It takes a mutex, so that trace lines are output atomically.
 - The exact `traceln` output of this example is non-deterministic,
   because the OS is free to schedule domains as it likes.
-- `run_compute_unsafe` is "unsafe" because you must ensure that the function doesn't have access to any non-threadsafe values.
+- You must ensure that the function passed to `run` doesn't have access to any non-threadsafe values.
   The type system does not check this.
-- `run_compute_unsafe` waits for the domain to finish, but it allows other fibres to run while waiting.
+- `run` waits for the domain to finish, but it allows other fibres to run while waiting.
   This is why we use `Fibre.both` to create multiple fibres.
-- `run_compute_unsafe` does not start an event loop in the new domain, so it cannot perform IO or create fibres. There will be a separate API for that in the future.
 
 ## Design Note: Thread-Safety
 

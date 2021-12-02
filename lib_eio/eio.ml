@@ -164,10 +164,12 @@ end
 
 module Domain_manager = struct
   class virtual t = object
-    method virtual run_compute_unsafe : 'a. (unit -> 'a) -> 'a
+    method virtual run : 'a. (unit -> 'a) -> 'a
+    method virtual run_raw : 'a. (unit -> 'a) -> 'a
   end
 
-  let run_compute_unsafe (t : #t) = t#run_compute_unsafe
+  let run (t : #t) = t#run
+  let run_raw (t : #t) = t#run_raw
 end
 
 module Time = struct
