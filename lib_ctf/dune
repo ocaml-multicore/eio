@@ -2,4 +2,4 @@
   (name ctf)
   (public_name ctf)
   (preprocess (pps ppx_cstruct))
-  (libraries cstruct ocplib-endian.bigstring mtime mtime.clock.os))
+  (libraries cstruct ocplib-endian.bigstring mtime))
