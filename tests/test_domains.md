@@ -25,12 +25,13 @@ Spawning a second domain:
 ```
 
 The domain raises an exception:
+XXX: disabled due to https://github.com/ocaml-multicore/ocaml-multicore/issues/770
 
-```ocaml
-# run @@ fun mgr ->
-  Eio.Domain_manager.run mgr (fun () -> failwith "Exception from new domain");;
-Exception: Failure "Exception from new domain".
-```
+        ```ocaml
+        # run @@ fun mgr ->
+          Eio.Domain_manager.run mgr (fun () -> failwith "Exception from new domain");;
+        Exception: Failure "Exception from new domain".
+        ```
 
 We can still run other fibres in the main domain while waiting.
 Here, we use a mutex to check that the parent domain really did run while waiting for the child domain.
