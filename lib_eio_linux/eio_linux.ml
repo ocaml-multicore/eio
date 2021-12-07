@@ -968,13 +968,25 @@ let monitor_event_fd t =
        at the run queue again and notice any new items. *)
   done
 
+(* Don't use [Fun.protect] - it throws away the original exception! *)
+let with_uring ~fixed_buf_len ~queue_depth fn =
+  let uring = Uring.create ~fixed_buf_len ~queue_depth () in
+  match fn uring with
+  | x -> Uring.exit uring; x
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    begin
+      try Uring.exit uring
+      with ex2 -> Log.warn (fun f -> f "Uring.exit failed (%a) while handling another error" Fmt.exn ex2)
+    end;
+    Printexc.raise_with_backtrace ex bt
+
 let rec run ?(queue_depth=64) ?(block_size=4096) main =
   Log.debug (fun l -> l "starting run");
   let stdenv = Objects.stdenv ~run_event_loop:(run ~queue_depth ~block_size) in
   (* TODO unify this allocation API around baregion/uring *)
   let fixed_buf_len = block_size * queue_depth in
-  let uring = Uring.create ~fixed_buf_len ~queue_depth () in
-  Fun.protect ~finally:(fun () -> Uring.exit uring) @@ fun () ->
+  with_uring ~fixed_buf_len ~queue_depth @@ fun uring ->
   let buf = Uring.buf uring in
   let mem = Uring.Region.init ~block_size buf queue_depth in
   let run_q = Queue.create () in
