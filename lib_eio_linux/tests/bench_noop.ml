@@ -28,5 +28,5 @@ let main ~clock =
     )
 
 let () =
-  Eio_main.run @@ fun env ->
+  Eio_linux.run @@ fun env ->
   main ~clock:(Eio.Stdenv.clock env)
