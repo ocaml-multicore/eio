@@ -7,6 +7,6 @@ let enter_unchecked fn = perform (Suspend fn)
 
 let enter fn =
   enter_unchecked @@ fun fibre enqueue ->
-  match Cancel.get_error fibre.cancel with
+  match Cancel.Fibre_context.get_error fibre with
   | None -> fn fibre enqueue
   | Some ex -> enqueue (Error ex)

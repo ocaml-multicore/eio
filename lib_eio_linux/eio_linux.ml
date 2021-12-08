@@ -21,6 +21,8 @@ open Eio.Std
 open EffectHandlers
 open EffectHandlers.Deep
 
+module Fibre_context = Eio.Private.Fibre_context
+
 module Suspended = Eunix.Suspended
 module Zzz = Eunix.Zzz
 
@@ -105,14 +107,12 @@ type rw_req = {
   action : int Suspended.t;
 }
 
-type cancel_hook = Eio.Hook.t ref
-
 (* Type of user-data attached to jobs. *)
 type io_job =
-  | Read : rw_req * cancel_hook -> io_job
+  | Read : rw_req -> io_job
   | Job_no_cancel : int Suspended.t -> io_job
-  | Job : int Suspended.t * cancel_hook -> io_job
-  | Write : rw_req * cancel_hook -> io_job
+  | Job : int Suspended.t -> io_job
+  | Write : rw_req -> io_job
 
 type runnable =
   | Thread : 'a Suspended.t * 'a -> runnable
@@ -193,42 +193,42 @@ let cancel job =
 
 (* Cancellation
 
-   For operations that can be cancelled we need to attach a callback to the
-   cancellation context, and we need to remove that callback once the operation
-   is complete. The typical sequence is:
+   For operations that can be cancelled we need to set the fibre's cancellation function.
+   The typical sequence is:
 
-   1. We create an io_job with an empty [cancel_hook] (because we haven't registered it yet).
-   2. We submit the operation, getting back a uring job (needed for cancellation).
-   3. We register a cancellation hook with the context. The hook uses the uring job to cancel.
-   4. We update the [cancel_hook] with the waiter for removing the cancellation hook.
-      This is the reason that [cancel_hook] is mutable.
+   1. We submit an operation, getting back a uring job (needed for cancellation).
+   2. We set the cancellation function. The function uses the uring job to cancel.
 
-   When the job completes, we get the cancellation hook from the io_job and
-   ensure it is removed, as it's no longer needed. The hook must have been set
-   by this point because we don't poll for completions until the above steps
-   have all finished.
+   The cancellation function owns the uring job.
 
-   If the context is cancelled while the operation is running, the hooks will start being called.
-   If it gets to ours before it's removed, we will submit a cancellation request to uring.
+   When the job completes, we remove the cancellation function from the fibre.
+   The function must have been set by this point because we don't poll for
+   completions until the above steps have finished.
+
+   If the context is cancelled while the operation is running, the function will get removed and called,
+   which will submit a cancellation request to uring.
    If the operation completes before Linux processes the cancellation, we get [ENOENT], which we ignore.
 
    If the context is cancelled before starting then we discontinue the fibre. *)
 
-(* [with_cancel_hook ~action st fn] calls [fn] with a fresh cancel hook.
-   When [fn cancel_hook] returns, it registers a cancellation callback with [action] and stores its handle in [cancel_hook].
+(* [with_cancel_hook ~action st fn] calls [fn] to create a job,
+   then sets the fibre's cancel function to cancel it.
    If [action] is already cancelled, it schedules [action] to be discontinued.
    @return Whether to retry the operation later, once there is space. *)
 let with_cancel_hook ~action st fn =
-  let release = ref Eio.Hook.null in
-  let ctx = action.Suspended.fibre.cancel in
-  match Eio.Cancel.get_error ctx with
+  match Fibre_context.get_error action.Suspended.fibre with
   | Some ex -> enqueue_failed_thread st action ex; false
   | None ->
-    match fn release with
+    match fn () with
     | None -> true
     | Some job ->
-      release := Eio.Cancel.add_hook ctx (fun _ -> cancel job);
+      Fibre_context.set_cancel_fn action.fibre (fun _ -> cancel job);
       false
+
+let clear_cancel (action : _ Suspended.t) =
+  (* It doesn't matter whether the operation was cancelled or not;
+     there's nothing we need to do with the job now. *)
+  ignore (Fibre_context.clear_cancel_fn action.fibre : bool)
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
   let fd = FD.get "submit_rw_req" fd in
@@ -236,10 +236,10 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as re
   let off = Uring.Region.to_offset buf + cur_off in
   let len = match len with Exactly l | Upto l -> l in
   let len = len - cur_off in
-  let retry = with_cancel_hook ~action st (fun cancel ->
+  let retry = with_cancel_hook ~action st (fun () ->
       match op with
-      |`R -> Uring.read_fixed uring ~file_offset fd ~off ~len (Read (req, cancel))
-      |`W -> Uring.write_fixed uring ~file_offset fd ~off ~len (Write (req, cancel))
+      |`R -> Uring.read_fixed uring ~file_offset fd ~off ~len (Read req)
+      |`W -> Uring.write_fixed uring ~file_offset fd ~off ~len (Write req)
     )
   in
   if retry then (
@@ -270,9 +270,8 @@ let rec enqueue_readv args st action =
     | None -> FD.uring_file_offset fd
   in
   Ctf.label "readv";
-  let retry = with_cancel_hook ~action st (fun cancel ->
-      Uring.readv st.uring ~file_offset (FD.get "readv" fd) bufs (Job (action, cancel))
-    )
+  let retry = with_cancel_hook ~action st (fun () ->
+      Uring.readv st.uring ~file_offset (FD.get "readv" fd) bufs (Job action))
   in
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_readv args st action) st.io_q
@@ -285,8 +284,8 @@ let rec enqueue_writev args st action =
     | None -> FD.uring_file_offset fd
   in
   Ctf.label "writev";
-  let retry = with_cancel_hook ~action st (fun cancel ->
-      Uring.writev st.uring ~file_offset (FD.get "writev" fd) bufs (Job (action, cancel))
+  let retry = with_cancel_hook ~action st (fun () ->
+      Uring.writev st.uring ~file_offset (FD.get "writev" fd) bufs (Job action)
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -295,8 +294,8 @@ let rec enqueue_writev args st action =
 let rec enqueue_poll_add fd poll_mask st action =
   Log.debug (fun l -> l "poll_add: submitting call");
   Ctf.label "poll_add";
-  let retry = with_cancel_hook ~action st (fun cancel ->
-      Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Job (action, cancel))
+  let retry = with_cancel_hook ~action st (fun () ->
+      Uring.poll_add st.uring (FD.get "poll_add" fd) poll_mask (Job action)
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -323,8 +322,8 @@ let enqueue_write st action (file_offset,fd,buf,len) =
 let rec enqueue_splice ~src ~dst ~len st action =
   Log.debug (fun l -> l "splice: submitting call");
   Ctf.label "splice";
-  let retry = with_cancel_hook ~action st (fun cancel ->
-      Uring.splice st.uring (Job (action, cancel)) ~src:(FD.get "splice" src) ~dst:(FD.get "splice" dst) ~len
+  let retry = with_cancel_hook ~action st (fun () ->
+      Uring.splice st.uring (Job action) ~src:(FD.get "splice" src) ~dst:(FD.get "splice" dst) ~len
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -334,8 +333,8 @@ let rec enqueue_openat2 ((access, flags, perm, resolve, dir, path) as args) st a
   Log.debug (fun l -> l "openat2: submitting call");
   Ctf.label "openat2";
   let fd = Option.map (FD.get "openat2") dir in
-  let retry = with_cancel_hook ~action st (fun cancel ->
-      Uring.openat2 st.uring ~access ~flags ~perm ~resolve ?fd path (Job (action, cancel))
+  let retry = with_cancel_hook ~action st (fun () ->
+      Uring.openat2 st.uring ~access ~flags ~perm ~resolve ?fd path (Job action)
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -344,8 +343,8 @@ let rec enqueue_openat2 ((access, flags, perm, resolve, dir, path) as args) st a
 let rec enqueue_connect fd addr st action =
   Log.debug (fun l -> l "connect: submitting call");
   Ctf.label "connect";
-  let retry = with_cancel_hook ~action st (fun cancel ->
-      Uring.connect st.uring (FD.get "connect" fd) addr (Job (action, cancel))
+  let retry = with_cancel_hook ~action st (fun () ->
+      Uring.connect st.uring (FD.get "connect" fd) addr (Job action)
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -354,8 +353,8 @@ let rec enqueue_connect fd addr st action =
 let rec enqueue_accept fd client_addr st action =
   Log.debug (fun l -> l "accept: submitting call");
   Ctf.label "accept";
-  let retry = with_cancel_hook ~action st (fun cancel ->
-      Uring.accept st.uring (FD.get "accept" fd) client_addr (Job (action, cancel))
+  let retry = with_cancel_hook ~action st (fun () ->
+      Uring.accept st.uring (FD.get "accept" fd) client_addr (Job action)
     ) in
   if retry then (
     (* wait until an sqe is available *)
@@ -442,17 +441,17 @@ and handle_complete st ~runnable result =
   st.io_jobs <- st.io_jobs - 1;
   submit_pending_io st;                       (* If something was waiting for a slot, submit it now. *)
   match runnable with
-  | Read (req, cancel) ->
+  | Read req ->
     Log.debug (fun l -> l "read returned");
-    Eio.Hook.remove !cancel;
+    clear_cancel req.action;
     complete_rw_req st req result
-  | Write (req, cancel) ->
+  | Write req ->
     Log.debug (fun l -> l "write returned");
-    Eio.Hook.remove !cancel;
+    clear_cancel req.action;
     complete_rw_req st req result
-  | Job (k, cancel) ->
-    Eio.Hook.remove !cancel;
-    begin match Eio.Cancel.get_error k.fibre.cancel with
+  | Job k ->
+    clear_cancel k;
+    begin match Fibre_context.get_error k.fibre with
       | None -> Suspended.continue k result
       | Some e ->
         (* If cancelled, report that instead.
@@ -466,7 +465,7 @@ and complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res, len with
   | 0, _ -> Suspended.discontinue action End_of_file
   | e, _ when e < 0 ->
-    begin match Eio.Cancel.get_error action.fibre.cancel with
+    begin match Fibre_context.get_error action.fibre with
       | Some e -> Suspended.discontinue action e        (* If cancelled, report that instead. *)
       | None ->
         if errno_is_retry e then (
@@ -999,14 +998,17 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~tid ~cancel:initial_cancel fn =
     Ctf.note_switch tid;
-    let fibre = { Eio.Private.tid; cancel = initial_cancel } in
+    let fibre = Fibre_context.make ~tid ~cc:initial_cancel in
     match_with fn fibre
-      { retc = (fun () -> schedule st);
-        exnc = (fun ex -> Printexc.raise_with_backtrace ex (Printexc.get_raw_backtrace ()));
+      { retc = (fun () -> Fibre_context.destroy fibre; schedule st);
+        exnc = (fun ex ->
+            Fibre_context.destroy fibre;
+            Printexc.raise_with_backtrace ex (Printexc.get_raw_backtrace ())
+          );
         effc = fun (type a) (e : a eff) ->  
           match e with 
           | Enter fn -> Some (fun k ->
-              match Eio.Cancel.get_error fibre.cancel with
+              match Fibre_context.get_error fibre with
               | Some e -> discontinue k e
               | None ->
                 let k = { Suspended.k; fibre } in
@@ -1034,12 +1036,11 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
             )
           | Sleep_until time -> Some (fun k -> 
               let k = { Suspended.k; fibre } in
-              match Eio.Cancel.get_error fibre.cancel with
+              match Fibre_context.get_error fibre with
               | Some ex -> Suspended.discontinue k ex
               | None ->
-                let cancel_hook = ref Eio.Hook.null in
-                let job = Zzz.add ~cancel_hook sleep_q time k in
-                cancel_hook := Eio.Cancel.add_hook fibre.cancel (fun ex ->
+                let job = Zzz.add sleep_q time k in
+                Fibre_context.set_cancel_fn fibre (fun ex ->
                     Zzz.remove sleep_q job;
                     enqueue_failed_thread st k ex
                   );
@@ -1062,7 +1063,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
               enqueue_thread st k promise;
               fork
                 ~tid:id
-                ~cancel:fibre.cancel
+                ~cancel:(Fibre_context.cancellation_context fibre)
                 (fun new_fibre ->
                    match f new_fibre with
                    | x -> Promise.fulfill resolver x
@@ -1076,7 +1077,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
               enqueue_thread st k ();
               let child = Ctf.note_fork () in
               Ctf.note_switch child;
-              fork ~tid:child ~cancel:fibre.cancel (fun new_fibre ->
+              fork ~tid:child ~cancel:(Fibre_context.cancellation_context fibre) (fun new_fibre ->
                   match f new_fibre with
                   | () ->
                     Ctf.note_resolved child ~ex:None

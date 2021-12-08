@@ -25,7 +25,7 @@ let wake_one t v =
 let is_empty = Lwt_dllist.is_empty
 
 let await_internal ~mutex (t:'a t) id (ctx:Cancel.fibre_context) enqueue =
-  match Cancel.get_error ctx.cancel with
+  match Cancel.Fibre_context.get_error ctx with
   | Some ex ->
     Option.iter Mutex.unlock mutex;
     enqueue (Error ex)
@@ -39,10 +39,10 @@ let await_internal ~mutex (t:'a t) id (ctx:Cancel.fibre_context) enqueue =
       Hook.remove !resolved_waiter;
       enqueue (Error ex)
     in
-    let cancel_waiter = Cancel.add_hook ctx.cancel cancel in
+    Cancel.Fibre_context.set_cancel_fn ctx cancel;
     let when_resolved r =
-      Hook.remove cancel_waiter;
-      enqueue (Ok r)
+      if Cancel.Fibre_context.clear_cancel_fn ctx then enqueue (Ok r)
+      (* else [cancel] gets called and we enqueue an error *)
     in
     match mutex with
     | None ->

@@ -28,12 +28,8 @@ let fork_ignore ~sw f =
   perform (Fork_ignore f)
 
 let yield () =
-  let c = ref Cancel.boot in
-  Suspend.enter (fun fibre enqueue ->
-      c := fibre.cancel;
-      enqueue (Ok ())
-    );
-  Cancel.check !c
+  let fibre = Suspend.enter (fun fibre enqueue -> enqueue (Ok fibre)) in
+  Cancel.check fibre.cancel_context
 
 let all xs =
   Switch.run @@ fun sw ->
@@ -83,8 +79,7 @@ exception Not_first
 
 let await_cancel () =
   Suspend.enter @@ fun fibre enqueue ->
-  let _ : Hook.t = Cancel.add_hook fibre.cancel (fun ex -> enqueue (Error ex)) in
-  ()
+  Cancel.Fibre_context.set_cancel_fn fibre (fun ex -> enqueue (Error ex))
 
 let any fs =
   let r = ref `None in

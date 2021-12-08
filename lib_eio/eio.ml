@@ -259,10 +259,7 @@ module Stdenv = struct
 end
 
 module Private = struct
-  type context = Cancel.fibre_context = {
-    tid : Ctf.id;
-    mutable cancel : Cancel.t;
-  }
+  module Fibre_context = Cancel.Fibre_context
 
   module Effects = struct
     type 'a enqueue = 'a Suspend.enqueue

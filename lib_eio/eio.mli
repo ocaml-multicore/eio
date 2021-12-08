@@ -71,13 +71,6 @@ module Std : sig
 
     val on_release_cancellable : t -> (unit -> unit) -> Hook.t
     (** Like [on_release], but the handler can be removed later. *)
-
-    val add_cancel_hook : t -> (exn -> unit) -> Hook.t
-    (** [add_cancel_hook t cancel] registers cancel function [cancel] with [t].
-        When [t] is turned off, [cancel] is called.
-        This can be used to encourage other fibres to exit.
-        If [Switch.run] returns successfully, the hook will not run.
-        If [t] is already off, it calls [cancel] immediately. *)
   end
 
   module Promise : sig
@@ -298,11 +291,6 @@ module Cancel : sig
   val get_error : t -> exn option
   (** [get_error t] is like [check t] except that it returns the exception instead of raising it.
       If [t] is finished, this returns (rather than raising) the [Invalid_argument] exception too. *)
-
-  val add_hook : t -> (exn -> unit) -> Hook.t
-  (** [add_hook t fn] registers cancellation function [fn] with [t].
-      When [t] is cancelled, [protect (fun () -> fn ex)] is called.
-      If [t] is already cancelled, it calls [fn] immediately. *)
 
   val cancel : t -> exn -> unit
   (** [cancel t ex] marks [t] as cancelled and then calls all registered hooks,
@@ -606,10 +594,39 @@ end
 
 (** API for use by the scheduler implementation. *)
 module Private : sig
-  type context = {
-    tid : Ctf.id;
-    mutable cancel : Cancel.t;
-  }
+  (** Every fibre has an associated context. *)
+  module Fibre_context : sig
+    type t
+
+    val make : tid:Ctf.id -> cc:Cancel.t -> t
+    (** [make ~tid ~cc] is a new context with the given thread ID and cancellation context. *)
+
+    val destroy : t -> unit
+    (** [destroy t] removes [t] from its cancellation context. *)
+
+    val tid : t -> Ctf.id
+
+    val cancellation_context : t -> Cancel.t
+    (** [cancellation_context t] is [t]'s current cancellation context. *)
+
+    val set_cancel_fn : t -> (exn -> unit) -> unit
+    (** [set_cancel_fn t fn] sets [fn] as the fibre's cancel function.
+        If the cancellation context is cancelled, the function is removed and called.
+        When the operation completes, you must call {!clear_cancel_fn} to remove it. *)
+
+    val clear_cancel_fn : t -> bool
+    (** [clear_cancel_fn t] removes the function previously set with {!set_cancel_fn}, if any.
+        Returns [true] if this call removed the function, or [false] if there wasn't one.
+        This operation is atomic and thread-safe.
+        An operation that completes in another domain must use this to indicate that the operation is
+        finished (can no longer be cancelled) before enqueuing the result. If it returns [false],
+        the operation was cancelled first and the canceller has called (or is calling) the function.
+        If it returns [true], the caller is responsible for any resources owned by the function,
+        such as the continuation. *)
+
+    val get_error : t -> exn option
+    (** [get_error t] is [Cancel.get_error (cancellation_context t)] *)
+  end
 
   module Effects : sig
     open EffectHandlers
@@ -618,17 +635,17 @@ module Private : sig
     (** A function provided by the scheduler to reschedule a previously-suspended thread. *)
 
     type _ eff += 
-      | Suspend : (context -> 'a enqueue -> unit) -> 'a eff
+      | Suspend : (Fibre_context.t -> 'a enqueue -> unit) -> 'a eff
       (** [Suspend fn] is performed when a fibre must be suspended
           (e.g. because it called {!Promise.await} on an unresolved promise).
           The effect handler runs [fn fibre enqueue] in the scheduler context,
           passing it the suspended fibre's context and a function to resume it.
           [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
 
-      | Fork : (context -> 'a) -> 'a Promise.t eff
+      | Fork : (Fibre_context.t -> 'a) -> 'a Promise.t eff
       (** See {!Fibre.fork} *)
 
-      | Fork_ignore : (context -> unit) -> unit eff
+      | Fork_ignore : (Fibre_context.t -> unit) -> unit eff
       (** See {!Fibre.fork_ignore} *)
 
       | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
@@ -637,7 +654,7 @@ module Private : sig
           If the system is not ready to receive the trace output,
           the whole domain must block until it is. *)
 
-      | Get_context : context eff
+      | Get_context : Fibre_context.t eff
   end
 
   val boot_cancel : Cancel.t

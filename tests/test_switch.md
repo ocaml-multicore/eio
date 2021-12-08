@@ -134,36 +134,6 @@ val sw : Switch.t = <abstr>
 Exception: Invalid_argument "Switch finished!".
 ```
 
-Turning off a switch runs the cancel callbacks, unless they've been removed by then:
-
-```ocaml
-# run (fun sw ->
-      let h1 = Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 1") in
-      let h2 = Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 2") in
-      let h3 = Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 3") in
-      Eio.Hook.remove h2;
-      Switch.turn_off sw (Failure "Cancelled");
-      let h4 = Switch.add_cancel_hook sw (fun _ -> traceln "Cancel 4") in
-      Eio.Hook.remove h1;
-      Eio.Hook.remove h3;
-      Eio.Hook.remove h4
-    );;
-+Cancel 3
-+Cancel 1
-+Cancel 4
-Exception: Failure "Cancelled".
-```
-
-Cancellation callbacks do not run on success, but release ones do:
-
-```ocaml
-# run @@ fun sw ->
-  Switch.add_cancel_hook sw (fun _ -> traceln "Cance hook") |> ignore;
-  Switch.on_release sw (fun _ -> traceln "Release hook");;
-+Release hook
-- : unit = ()
-```
-
 Wait for either a promise or a cancellation; cancellation first:
 ```ocaml
 # run (fun sw ->
@@ -473,19 +443,18 @@ Exception: Failure "Simulated error".
 
 # Error reporting
 
-All cancel hooks run, even if some fail, and all errors are reported:
+All release hooks run, even if some fail, and all errors are reported:
 
 ```ocaml
 # run (fun sw ->
-    Switch.add_cancel_hook sw (fun _ -> failwith "cancel1 failed") |> ignore;
-    Switch.add_cancel_hook sw (fun _ -> failwith "cancel2 failed") |> ignore;
+    Fibre.fork_ignore ~sw (fun () -> try Fibre.await_cancel () with _ -> failwith "cancel1 failed");
+    Fibre.fork_ignore ~sw (fun () -> try Fibre.await_cancel () with _ -> failwith "cancel2 failed");
     raise Exit
   );;
 Exception:
 Multiple exceptions:
 Stdlib.Exit
 and
-During cancellation:
 Failure("cancel2 failed")
 and
 Failure("cancel1 failed")

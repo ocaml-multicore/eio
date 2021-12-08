@@ -23,10 +23,11 @@ exception Luv_error of Luv.Error.t
 val or_raise : 'a or_error -> 'a
 (** [or_error (Error e)] raises [Luv_error e]. *)
 
-val await : (Luv.Loop.t -> Eio.Private.context -> ('a -> unit) -> unit) -> 'a
-(** [await fn] converts a function using a luv-style callback to one using effects.
-    Use it as e.g. [await (fun loop fibre -> Luv.File.realpath ~loop path)].
-    Use [fibre] to implement cancellation. *)
+val await_with_cancel :
+  request:[< `File | `Addr_info | `Name_info | `Random | `Thread_pool ] Luv.Request.t ->
+  (Luv.Loop.t -> ('a -> unit) -> unit) -> 'a
+(** [await_with_cancel ~request fn] converts a function using a luv-style callback to one using effects.
+    It sets the fibre's cancel function to cancel [request], and clears it when the operation completes. *)
 
 (** {1 Time functions} *)
 
