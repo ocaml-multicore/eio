@@ -16,6 +16,12 @@
  (modules basic_eio_linux)
  (libraries logs.fmt fmt.tty eurcp_lib))
 
+(executables
+  (names bench_noop)
+  (enabled_if (= %{system} "linux"))
+  (modules bench_noop)
+  (libraries eio_linux))
+
 (test
  (name test)
  (package eio_linux)

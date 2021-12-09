@@ -9,7 +9,6 @@ module Job = struct
   type t = {
     time : float;
     thread : unit Suspended.t;
-    cancel_hook : Eio.Hook.t ref;
   }
 
   let compare a b = Float.compare a.time b.time
@@ -24,10 +23,10 @@ type t = {
 
 let create () = { sleep_queue = Q.empty; next_id = Optint.Int63.zero }
 
-let add ~cancel_hook t time thread =
+let add t time thread =
   let id = t.next_id in
   t.next_id <- Optint.Int63.succ t.next_id;
-  let sleeper = { Job.time; thread; cancel_hook } in
+  let sleeper = { Job.time; thread } in
   t.sleep_queue <- Q.add id sleeper t.sleep_queue;
   id
 
@@ -36,9 +35,13 @@ let remove t id =
 
 let pop t ~now =
   match Q.min t.sleep_queue with
-  | Some (_, { Job.time; thread; cancel_hook }) when time <= now ->
-    Eio.Hook.remove !cancel_hook;
-    t.sleep_queue <- Option.get (Q.rest t.sleep_queue);
-    `Due thread
+  | Some (_, { Job.time; thread }) when time <= now ->
+    if Eio.Private.Fibre_context.clear_cancel_fn thread.fibre then (
+      t.sleep_queue <- Option.get (Q.rest t.sleep_queue);
+      `Due thread
+    ) else (
+      (* This shouldn't happen, since any cancellation will happen in the same domain as the [pop]. *)
+      assert false
+    )
   | Some (_, { Job.time; _ }) -> `Wait_until time
   | None -> `Nothing

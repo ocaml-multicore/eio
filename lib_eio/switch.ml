@@ -26,11 +26,9 @@ let rec turn_off t ex =
       | Multiple_exn.T exns -> List.iter (turn_off t) exns
       | _ -> t.extra_exceptions <- ex :: t.extra_exceptions
     end
-  | On _ ->
+  | On ->
     Ctf.note_resolved t.id ~ex:(Some ex);
     Cancel.cancel t.cancel ex
-
-let add_cancel_hook t hook = Cancel.add_hook t.cancel hook
 
 let with_op t fn =
   check t;
@@ -91,7 +89,7 @@ let run_internal fn cancel =
     await_idle t;
     begin match t.cancel.state with
       | Finished -> assert false
-      | On _ ->
+      | On ->
         (* Success. *)
         Ctf.note_read t.id;
         v
@@ -111,19 +109,19 @@ let run_internal fn cancel =
     await_idle t;
     Ctf.note_read t.id;
     match t.cancel.state with
-    | On _ | Finished -> assert false
+    | On | Finished -> assert false
     | Cancelling (ex, bt) -> raise_with_extras t ex bt
 
 let run fn = Cancel.sub (run_internal fn)
 
 let run_protected fn =
   let ctx = EffectHandlers.perform Cancel.Get_context in
-  Cancel.with_cc ~ctx ~parent:ctx.cancel ~protected:true @@ fun cancel ->
+  Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true @@ fun cancel ->
   run_internal fn cancel
 
 let on_release_full t fn =
   match t.cancel.state with
-  | On _ | Cancelling _ -> Lwt_dllist.add_r fn t.on_release
+  | On | Cancelling _ -> Lwt_dllist.add_r fn t.on_release
   | Finished ->
     match Cancel.protect fn with
     | () -> invalid_arg "Switch finished!"

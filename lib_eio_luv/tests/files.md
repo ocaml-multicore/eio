@@ -45,3 +45,22 @@ let main _stdenv =
 +Read "\000\000\000\000"
 - : unit = ()
 ```
+
+# Test cancellation
+
+```ocaml
+let main env =
+  let name = "hang.pipe" in
+  Unix.mkfifo name 0o700;
+  Fun.protect ~finally:(fun () -> Unix.unlink name) @@ fun () ->
+  Switch.run @@ fun sw ->
+  let fd = Eio_luv.File.open_ ~sw name [`NONBLOCK] |> Eio_luv.or_raise in
+  Fibre.both
+    (fun () -> read_exactly fd (Luv.Buffer.create 1))
+    (fun () -> raise Exit);;
+```
+
+```ocaml
+# Eio_luv.run main;;
+Exception: Stdlib.Exit.
+```
