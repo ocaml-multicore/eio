@@ -25,6 +25,7 @@ module Fibre_context = Eio.Private.Fibre_context
 
 module Suspended = Eunix.Suspended
 module Zzz = Eunix.Zzz
+module Lf_queue = Eunix.Lf_queue
 
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)
@@ -124,15 +125,21 @@ type t = {
   io_q: (t -> unit) Queue.t;     (* waiting for room on [uring] *)
   mem_q : Uring.Region.chunk Suspended.t Queue.t;
 
-  (* The queue of runnable fibres ready to be resumed. You must hold [run_q_mutex] when accessing this. *)
-  run_q : runnable Queue.t;
-  run_q_mutex : Mutex.t;
+  (* The queue of runnable fibres ready to be resumed. Note: other domains can also add work items here. *)
+  run_q : runnable Lf_queue.t;
 
   (* When adding to [run_q] from another domain, this domain may be sleeping and so won't see the event.
-     In that case, [need_wakeup = true] and you must signal using [eventfd]. You must hold [run_q_mutex]
-     when accessing [need_wakeup]. The mutex is also needed when writing to or closing [eventfd]. *)
+     In that case, [need_wakeup = true] and you must signal using [eventfd]. You must hold [eventfd_mutex]
+     when writing to or closing [eventfd]. *)
   eventfd : FD.t;
-  mutable need_wakeup : bool;
+  eventfd_mutex : Mutex.t;
+
+  (* If [false], the main thread will check [run_q] before sleeping again
+     (possibly because an event has been or will be sent to [eventfd]).
+     It can therefore be set to [false] in either of these cases:
+     - By the receiving thread because it will check [run_q] before sleeping, or
+     - By the sending thread because it will signal the main thread later *)
+  need_wakeup : bool Atomic.t;
 
   sleep_q: Zzz.t;
   mutable io_jobs: int;
@@ -143,36 +150,30 @@ let wake_buffer =
   Bytes.set_int64_ne b 0 1L;
   b
 
-(* Called with [run_q_mutex] held. *)
 let wakeup t =
-  Log.debug (fun f -> f "Sending wakeup on eventfd %a" FD.pp t.eventfd);
-  t.need_wakeup <- false;
-  let sent = Unix.single_write (FD.get "wakeup" t.eventfd) wake_buffer 0 8 in
-  assert (sent = 8)
+  Mutex.lock t.eventfd_mutex;
+  match
+    Log.debug (fun f -> f "Sending wakeup on eventfd %a" FD.pp t.eventfd);
+    Atomic.set t.need_wakeup false; (* [t] will check [run_q] after getting the event below *)
+    let sent = Unix.single_write (FD.get "wakeup" t.eventfd) wake_buffer 0 8 in
+    assert (sent = 8)
+  with
+  | ()           -> Mutex.unlock t.eventfd_mutex
+  | exception ex -> Mutex.unlock t.eventfd_mutex; raise ex
 
 let enqueue_thread st k x =
-  Mutex.lock st.run_q_mutex;
-  match
-    Queue.push (Thread (k, x)) st.run_q;
-    if st.need_wakeup then wakeup st
-  with
-  | () ->
-    Mutex.unlock st.run_q_mutex
-  | exception ex -> Mutex.unlock st.run_q_mutex; raise ex
+  Lf_queue.push st.run_q (Thread (k, x));
+  if Atomic.get st.need_wakeup then wakeup st
 
 let enqueue_failed_thread st k ex =
-  Mutex.lock st.run_q_mutex;
-  match
-    Queue.push (Failed_thread (k, ex)) st.run_q;
-    if st.need_wakeup then wakeup st
-  with
-  | () -> Mutex.unlock st.run_q_mutex
-  | exception ex -> Mutex.unlock st.run_q_mutex; raise ex
+  Lf_queue.push st.run_q (Failed_thread (k, ex));
+  if Atomic.get st.need_wakeup then wakeup st
 
 type _ eff += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a eff
 type _ eff += Enter : (t -> 'a Suspended.t -> unit) -> 'a eff
 let enter fn = perform (Enter fn)
 
+(* Cancellations always come from the same domain, so no need to send wake events here. *)
 let rec enqueue_cancel job st action =
   Log.debug (fun l -> l "cancel: submitting call");
   Ctf.label "cancel";
@@ -383,14 +384,7 @@ let submit_pending_io st =
 let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* This is not a fair scheduler *)
   (* Wakeup any paused fibres *)
-  let next =
-    Mutex.lock st.run_q_mutex;
-    st.need_wakeup <- false;
-    match Queue.take_opt run_q with
-    | x -> Mutex.unlock st.run_q_mutex; x
-    | exception ex -> Mutex.unlock st.run_q_mutex; raise ex
-  in
-  match next with
+  match Lf_queue.pop run_q with
   | Some Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
   | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
   | None ->
@@ -416,26 +410,30 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
              If there are no events in progress but also still no memory available, something has gone wrong! *)
           assert (Queue.length mem_q = 0);
           Log.debug (fun l -> l "schedule: exiting");    (* Nothing left to do *)
+          Lf_queue.close st.run_q;      (* Just to catch bugs if something tries to enqueue later *)
           `Exit_scheduler
         ) else (
-          Mutex.lock st.run_q_mutex;
-          let empty = Queue.is_empty st.run_q in
-          if empty then st.need_wakeup <- true;
-          Mutex.unlock st.run_q_mutex;
-          if empty then (
+          Atomic.set st.need_wakeup true;
+          if Lf_queue.is_empty st.run_q then (
+            (* At this point we're not going to check [run_q] again before sleeping.
+               If [need_wakeup] is still [true], this is fine because we don't promise to do that.
+               If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
             Ctf.(note_hiatus Wait_for_work);
             let result = Uring.wait ?timeout uring in
             Ctf.note_resume system_thread;
+            Atomic.set st.need_wakeup false;
             match result with
             | None ->
               (* Woken by a timeout, which is now due, or by a signal. *)
               schedule st
             | Some { data = runnable; result } ->
-              Mutex.lock st.run_q_mutex;
-              st.need_wakeup <- false;
-              Mutex.unlock st.run_q_mutex;
               handle_complete st ~runnable result
-          ) else schedule st
+          ) else (
+            (* Someone added a new job while we were setting [need_wakeup] to [true].
+               They might or might not have seen that, so we can't be sure they'll send an event. *)
+            Atomic.set st.need_wakeup false;
+            schedule st
+          )
         )
 and handle_complete st ~runnable result =
   st.io_jobs <- st.io_jobs - 1;
@@ -988,13 +986,13 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
   with_uring ~fixed_buf_len ~queue_depth @@ fun uring ->
   let buf = Uring.buf uring in
   let mem = Uring.Region.init ~block_size buf queue_depth in
-  let run_q = Queue.create () in
-  let run_q_mutex = Mutex.create () in
+  let run_q = Lf_queue.create () in
+  let eventfd_mutex = Mutex.create () in
   let sleep_q = Zzz.create () in
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
   let eventfd = FD.placeholder ~seekable:false in
-  let st = { mem; uring; run_q; run_q_mutex; io_q; mem_q; eventfd; need_wakeup = false; sleep_q; io_jobs = 0 } in
+  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; io_jobs = 0 } in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~tid ~cancel:initial_cancel fn =
     Ctf.note_switch tid;
@@ -1103,9 +1101,9 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
             let fd = eio_eventfd 0 in
             st.eventfd.fd <- `Open fd;
             Switch.on_release sw (fun () ->
-                Mutex.lock st.run_q_mutex;
+                Mutex.lock st.eventfd_mutex;
                 st.eventfd.fd <- `Closed;
-                Mutex.unlock st.run_q_mutex;
+                Mutex.unlock st.eventfd_mutex;
                 Unix.close fd
               );
             Log.debug (fun f -> f "Monitoring eventfd %a" FD.pp st.eventfd);
