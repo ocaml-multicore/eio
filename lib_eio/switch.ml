@@ -37,7 +37,7 @@ let with_op t fn =
     ~finally:(fun () ->
         t.fibres <- t.fibres - 1;
         if t.fibres = 0 then
-          Waiters.wake_all t.waiter (Ok ())
+          Waiters.wake_all t.waiter ()
       )
 
 let or_raise = function
@@ -48,7 +48,7 @@ let rec await_idle t =
   (* Wait for fibres to finish: *)
   while t.fibres > 0 do
     Ctf.note_try_read t.id;
-    Waiters.await ~mutex:None t.waiter t.id |> or_raise;
+    Waiters.await ~mutex:None t.waiter t.id
   done;
   (* Call on_release handlers: *)
   let queue = Lwt_dllist.create () in
