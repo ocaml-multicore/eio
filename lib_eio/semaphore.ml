@@ -25,7 +25,7 @@ let release t =
   | Free x when x = max_int -> Mutex.unlock t.mutex; raise (Sys_error "semaphore would overflow max_int!")
   | Free x -> t.state <- Free (succ x); Mutex.unlock t.mutex
   | Waiting q ->
-    begin match Waiters.wake_one q (Ok ()) with
+    begin match Waiters.wake_one q () with
       | `Ok -> ()
       | `Queue_empty -> t.state <- Free 1
     end;
@@ -36,7 +36,7 @@ let rec acquire t =
   match t.state with
   | Waiting q ->
     Ctf.note_try_read t.id;
-    Waiters.await ~mutex:(Some t.mutex) q t.id |> Switch.or_raise
+    Waiters.await ~mutex:(Some t.mutex) q t.id
   | Free 0 ->
     t.state <- Waiting (Waiters.create ());
     Mutex.unlock t.mutex;

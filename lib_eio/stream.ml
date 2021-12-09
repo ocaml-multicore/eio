@@ -41,7 +41,7 @@ let create capacity =
 
 let add t item =
   Mutex.lock t.mutex;
-  match Waiters.wake_one t.readers (Ok item) with
+  match Waiters.wake_one t.readers item with
   | `Ok -> Mutex.unlock t.mutex
   | `Queue_empty ->
     (* No-one is waiting for an item. Queue it. *)
@@ -62,7 +62,7 @@ let add t item =
           );
           enqueue r
         )
-    ) |> Switch.or_raise
+    )
 
 let take t =
   Mutex.lock t.mutex;
@@ -71,9 +71,9 @@ let take t =
     (* There aren't any items, so we probably need to wait for one.
        However, there's also the special case of a zero-capacity queue to deal with.
        [is_empty writers || capacity = 0] *)
-    begin match Waiters.wake_one t.writers (Ok ()) with
+    begin match Waiters.wake_one t.writers () with
       | `Queue_empty ->
-        Waiters.await ~mutex:(Some t.mutex) t.readers t.id |> Switch.or_raise
+        Waiters.await ~mutex:(Some t.mutex) t.readers t.id
       | `Ok ->
         (* [capacity = 0] (this is the only way we can get waiters and no items).
            [wake_one] has just added an item to the queue; remove it to restore
@@ -85,7 +85,7 @@ let take t =
   | Some v ->
     (* If anyone was waiting for space, let the next one go.
        [is_empty writers || length items = t.capacity - 1] *)
-    begin match Waiters.wake_one t.writers (Ok ()) with
+    begin match Waiters.wake_one t.writers () with
       | `Ok                     (* [length items = t.capacity] again *)
       | `Queue_empty -> ()      (* [is_empty writers] *)
     end;

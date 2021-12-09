@@ -1,4 +1,4 @@
-type 'a t = (('a, exn) result -> unit) Lwt_dllist.t
+type 'a t = ('a -> unit) Lwt_dllist.t
 
 let create = Lwt_dllist.create
 

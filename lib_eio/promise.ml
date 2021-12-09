@@ -24,7 +24,7 @@
 type 'a state =
   | Fulfilled of 'a
   | Broken of exn
-  | Unresolved of 'a Waiters.t * Mutex.t
+  | Unresolved of ('a, exn) result Waiters.t * Mutex.t
   (* The Unresolved state's mutex box contains:
      - Full access to the Waiters.
      - Half access to the promise's state.

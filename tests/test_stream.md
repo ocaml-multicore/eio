@@ -286,3 +286,32 @@ Writers queue up:
 +Added 3 to stream
 - : unit = ()
 ```
+
+Cancelling writing to a stream:
+
+```ocaml
+# run @@ fun () ->
+  let t = S.create 1 in
+  add t 0;
+  Switch.run @@ fun sw ->
+  try
+    Fibre.both
+      (fun () -> add t 1)
+      (fun () -> raise Cancel)
+  with Cancel ->
+    traceln "Cancelled";
+    take t;
+    add t 2;
+    take t;;
++Adding 0 to stream
++Added 0 to stream
++Adding 1 to stream
++Cancelled
++Reading from stream
++Got 0 from stream
++Adding 2 to stream
++Added 2 to stream
++Reading from stream
++Got 2 from stream
+- : unit = ()
+```
