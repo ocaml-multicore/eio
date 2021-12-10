@@ -105,7 +105,7 @@ module Std : sig
     (** [break u ex] resolves [u]'s promise with the exception [ex].
         Any threads waiting for the result will be added to the run queue. *)
 
-    val resolve : 'a t -> ('a, exn) result -> unit
+    val resolve : 'a u -> ('a, exn) result -> unit
     (** [resolve t (Ok x)] is [fulfill t x] and
         [resolve t (Error ex)] is [break t ex]. *)
 
@@ -176,10 +176,11 @@ module Std : sig
         @param on_error This is called if the fibre raises an exception (other than {!Cancel.Cancelled}).
                         If it raises in turn, the parent switch is turned off. *)
 
-    val fork : sw:Switch.t -> exn_turn_off:bool -> (unit -> 'a) -> 'a Promise.t
-    (** [fork ~sw ~exn_turn_off fn] starts running [fn ()] in a new fibre and returns a promise for its result.
+    val fork : sw:Switch.t -> (unit -> 'a) -> 'a Promise.t
+    (** [fork ~sw fn] schedules [fn ()] to run in a new fibre and returns a promise for its result.
         The new fibre is attached to [sw] (which can't finish until the fibre ends).
-        @param exn_turn_off If [true] and [fn] raises an exception, [sw] is turned off (in addition to breaking the promise). *)
+        [fork] returns immediately, before the new thread starts.
+        If [fn] raises an exception then the promise is broken (but [sw] is not turned off). *)
 
     val yield : unit -> unit
     (** [yield ()] asks the scheduler to switch to the next runnable task.

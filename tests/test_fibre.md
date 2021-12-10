@@ -235,7 +235,7 @@ Exception: Failure "simulated error".
     (fun () ->
       let sw = Option.get !switch in
       Eio.Cancel.protect @@ fun () ->
-      let child = Fibre.fork ~sw ~exn_turn_off:true (fun () ->
+      let child = Fibre.fork ~sw (fun () ->
          traceln "Forked child";
          Fibre.await_cancel ()
       ) in
