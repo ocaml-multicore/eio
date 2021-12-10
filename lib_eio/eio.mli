@@ -256,6 +256,12 @@ module Stream : sig
   val take : 'a t -> 'a
   (** [take t] takes the next item from the head of [t].
       If no items are available, it waits until one becomes available. *)
+
+  val take_nonblocking : 'a t -> 'a option
+  (** [take_nonblocking t] is like [Some (take t)] except that
+      it returns [None] if the stream is empty rather than waiting.
+      Note that if another domain may add to the stream then a [None]
+      result may already be out-of-date by the time this returns. *)
 end  
 
 (** Cancelling other fibres when an exception occurs. *)
