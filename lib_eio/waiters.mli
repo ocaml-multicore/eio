@@ -5,16 +5,6 @@ type 'a t
 
 val create : unit -> 'a t
 
-val add_waiter : 'a t -> ('a -> unit) -> Hook.t
-(** [add_waiter t fn] adds [fn] to the queue of functions to call when the wait is over.
-    It returns a hook which can be used to remove [fn] from the queue to cancel the wait.
-    Note: Removing the hook is not thread-safe, even if the call to [add_waiter] itself
-    is protected by a mutex, so use {!add_waiter_protected} if [t] can be shared between domains. *)
-
-val add_waiter_protected : mutex:Mutex.t -> 'a t -> ('a -> unit) -> Hook.t
-(** [add_waiter_protected ~mutex t fn] is like {!add_waiter}, but will take [mutex] when removing the hook.
-    The caller must also have [mutex] locked when calling this. *)
-
 val wake_all : 'a t -> 'a -> unit
 (** [wake_all t] calls (and removes) all the functions waiting on [t].
     If [t] is shared between domains, the caller must hold the mutex while calling this. *)

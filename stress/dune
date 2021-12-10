@@ -1,0 +1,3 @@
+(executables
+  (names stress_semaphore)
+  (libraries eio_main))
