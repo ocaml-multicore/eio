@@ -23,6 +23,10 @@ let add t v =
 let take t =
   traceln "Reading from stream";
   traceln "Got %d from stream" (S.take t)
+
+let take_nonblocking t =
+  traceln "Reading from stream";
+  traceln "Got %a from stream" Fmt.(option ~none:(unit "None") int) (S.take_nonblocking t)
 ```
 
 # Test cases
@@ -313,5 +317,43 @@ Cancelling writing to a stream:
 +Added 2 to stream
 +Reading from stream
 +Got 2 from stream
+- : unit = ()
+```
+
+Non-blocking take:
+
+```ocaml
+# run @@ fun () ->
+  let t = S.create 1 in
+  take_nonblocking t;
+  add t 0;
+  take_nonblocking t;;
++Reading from stream
++Got None from stream
++Adding 0 to stream
++Added 0 to stream
++Reading from stream
++Got 0 from stream
+- : unit = ()
+```
+
+Non-blocking take with zero-capacity stream:
+
+```ocaml
+# run @@ fun () ->
+  let t = S.create 0 in
+  take_nonblocking t;
+  Fibre.both
+    (fun () -> add t 0)
+    (fun () -> take_nonblocking t);
+  take_nonblocking t;;
++Reading from stream
++Got None from stream
++Adding 0 to stream
++Reading from stream
++Got 0 from stream
++Added 0 to stream
++Reading from stream
++Got None from stream
 - : unit = ()
 ```

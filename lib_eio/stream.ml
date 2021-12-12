@@ -91,3 +91,30 @@ let take t =
     end;
     Mutex.unlock t.mutex;
     v
+
+let take_nonblocking t =
+  Mutex.lock t.mutex;
+  match Queue.take_opt t.items with
+  | None ->
+    (* There aren't any items.
+       However, there's also the special case of a zero-capacity queue to deal with.
+       [is_empty writers || capacity = 0] *)
+    begin match Waiters.wake_one t.writers () with
+      | `Queue_empty -> Mutex.unlock t.mutex; None
+      | `Ok ->
+        (* [capacity = 0] (this is the only way we can get waiters and no items).
+           [wake_one] has just added an item to the queue; remove it to restore
+           the invariant before closing the mutex. *)
+        let x = Queue.take t.items in
+        Mutex.unlock t.mutex;
+        Some x
+    end
+  | Some v ->
+    (* If anyone was waiting for space, let the next one go.
+       [is_empty writers || length items = t.capacity - 1] *)
+    begin match Waiters.wake_one t.writers () with
+      | `Ok                     (* [length items = t.capacity] again *)
+      | `Queue_empty -> ()      (* [is_empty writers] *)
+    end;
+    Mutex.unlock t.mutex;
+    Some v
