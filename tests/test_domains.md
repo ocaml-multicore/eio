@@ -58,3 +58,32 @@ Here, we use a mutex to check that the parent domain really did run while waitin
 +Got "Hello from new domain" from spawned domain
 - : unit = ()
 ```
+
+Cancelling another domain:
+
+```ocaml
+# run @@ fun mgr ->
+  Fibre.both
+    (fun () ->
+       try
+         Eio.Domain_manager.run mgr (fun () ->
+           try Fibre.await_cancel ()
+           with ex -> traceln "Spawned domain got %a" Fmt.exn ex; raise ex
+         )
+       with ex -> traceln "Spawning fibre got %a" Fmt.exn ex; raise ex
+    )
+    (fun () -> failwith "Simulated error");;
++Spawned domain got Cancelled: Failure("Simulated error")
++Spawning fibre got Cancelled: Failure("Simulated error")
+Exception: Failure "Simulated error".
+```
+
+Spawning when already cancelled - no new domain is started:
+
+```ocaml
+# run @@ fun mgr ->
+  Switch.run @@ fun sw ->
+  Switch.turn_off sw (Failure "Simulated error");
+  Eio.Domain_manager.run mgr (fun () -> traceln "Domain spawned - shouldn't happen!");;
+Exception: Failure "Simulated error".
+```
