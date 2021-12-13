@@ -612,10 +612,9 @@ let rec run main =
   let async = Luv.Async.init ~loop (fun _async -> wakeup run_q) |> or_raise in
   let st = { loop; async; run_q } in
   let stdenv = Objects.stdenv ~run_event_loop:run in
-  let rec fork ~tid ~cancel:initial_cancel fn =
-    Ctf.note_switch tid;
-    let fibre = Fibre_context.make ~tid ~cc:initial_cancel in
-    match_with fn fibre
+  let rec fork ~new_fibre:fibre fn =
+    Ctf.note_switch (Fibre_context.tid fibre);
+    match_with fn ()
     { retc = (fun () -> Fibre_context.destroy fibre);
       exnc = (fun e -> Fibre_context.destroy fibre; raise e);
       effc = fun (type a) (e : a eff) ->
@@ -626,35 +625,30 @@ let rec run main =
             fn loop fibre (enqueue_thread st k))
         | Eio.Private.Effects.Trace ->
           Some (fun k -> continue k Eunix.Trace.default_traceln)
-        | Eio.Private.Effects.Fork f ->
+        | Eio.Private.Effects.Fork (new_fibre, f) ->
           Some (fun k -> 
             let k = { Suspended.k; fibre } in
-            let id = Ctf.mint_id () in
-            Ctf.note_created id Ctf.Task;
-            let promise, resolver = Promise.create_with_id id in
+            let promise, resolver = Promise.create_with_id (Fibre_context.tid new_fibre) in
             enqueue_thread st k promise;
             fork
-              ~tid:id
-              ~cancel:(Fibre_context.cancellation_context fibre)
-              (fun new_fibre ->
-                 match f new_fibre with
+              ~new_fibre
+              (fun () ->
+                 match f () with
                  | x -> Promise.fulfill resolver x
                  | exception ex ->
                    Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
                    Promise.break resolver ex
               ))
-        | Eio.Private.Effects.Fork_ignore f ->
+        | Eio.Private.Effects.Fork_ignore (new_fibre, f) ->
           Some (fun k -> 
             let k = { Suspended.k; fibre } in
             enqueue_thread st k ();
-            let child = Ctf.note_fork () in
-            Ctf.note_switch child;
-            fork ~tid:child ~cancel:(Fibre_context.cancellation_context fibre) (fun new_fibre ->
-                match f new_fibre with
+            fork ~new_fibre (fun () ->
+                match f () with
                 | () ->
-                  Ctf.note_resolved child ~ex:None
+                  Ctf.note_resolved (Fibre_context.tid new_fibre) ~ex:None
                 | exception ex ->
-                  Ctf.note_resolved child ~ex:(Some ex)
+                  Ctf.note_resolved (Fibre_context.tid new_fibre) ~ex:(Some ex)
               ))
         | Eio.Private.Effects.Get_context -> Some (fun k -> continue k fibre)
         | Enter_unchecked fn -> Some (fun k ->
@@ -674,8 +668,9 @@ let rec run main =
     }
   in
   let main_status = ref `Running in
-  fork ~tid:(Ctf.mint_id ()) ~cancel:Eio.Private.boot_cancel (fun _new_fibre ->
-      begin match Eio.Cancel.protect (fun () -> main stdenv) with
+  let new_fibre = Fibre_context.make_root () in
+  fork ~new_fibre (fun () ->
+      begin match main stdenv with
         | () -> main_status := `Done
         | exception ex -> main_status := `Ex (ex, Printexc.get_raw_backtrace ())
       end;

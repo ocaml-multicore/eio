@@ -298,5 +298,4 @@ module Private = struct
       | Get_context = Cancel.Get_context
       | Trace = Std.Trace
   end
-  let boot_cancel = Cancel.boot
 end
