@@ -6,7 +6,7 @@ let () =
   Printexc.record_backtrace true
 
 let read_one_byte ~sw r =
-  Fibre.fork ~sw ~exn_turn_off:true (fun () ->
+  Fibre.fork ~sw (fun () ->
       let r = Option.get (Eio_linux.Objects.get_fd_opt r) in
       Eio_linux.await_readable r;
       let b = Bytes.create 1 in

@@ -26,6 +26,10 @@ This is an unreleased repository, as it's very much a work-in-progress.
 * [Time](#time)
 * [Multicore Support](#multicore-support)
 * [Design Note: Thread-Safety](#design-note-thread-safety)
+* [Synchronisation Tools](#synchronisation-tools)
+  * [Promises](#promises)
+  * [Streams](#streams)
+  * [Example: a worker pool](#example-a-worker-pool)
 * [Design Note: Determinism](#design-note-determinism)
 * [Examples](#examples)
 * [Further Reading](#further-reading)
@@ -655,6 +659,182 @@ run-queue and will take effect later.
 However, if `q` is wrapped by a mutex (as in 4) then the assertion could fail.
 The first `Queue.length` will lock and then release the queue, then the second will lock and release it again.
 Another domain could change the value between these two calls.
+
+## Synchronisation Tools
+
+Eio provides several sub-modules for communicating between fibres and domains.
+
+### Promises
+
+Promises are a simple and reliable way to communicate between fibres.
+One fibre can wait for a promise and another can resolve it:
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  let promise, resolver = Promise.create () in
+  Fibre.both
+    (fun () ->
+      traceln "Waiting for promise...";
+      let x = Promise.await promise in
+      traceln "x = %d" x
+    )
+    (fun () ->
+      traceln "Resolving promise";
+      Promise.fulfill resolver 42
+    );;
++Waiting for promise...
++Resolving promise
++x = 42
+- : unit = ()
+```
+
+A promise is initially "unresolved". It can then either become "fulfilled" (as in the example above) or "broken" (with an exception).
+Either way, the promise is then said to be "resolved". A promise can only be resolved once.
+Awaiting a promise that is already resolved immediately returns the resolved value
+(or raises the exception, if broken).
+
+Promises are one of the easiest tools to use safely:
+it doesn't matter whether you wait on a promise before or after it is resolved,
+and multiple fibres can wait for the same promise and will get the same result.
+Promises are thread-safe; you can wait for a promise in one domain and resolve it in another.
+
+Promises are also useful for integrating with callback-based libraries. For example:
+
+```ocaml
+let wrap fn x =
+  let promise, resolver = Promise.create () in
+  fn x
+    ~on_success:(Promise.resolve resolver)
+    ~on_error:(Promise.break resolver);
+  Promise.await promise
+```
+
+### Streams
+
+A stream is a bounded queue. Reading from an empty stream waits until an item is available.
+Writing to a full stream waits for space.
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  let stream = Eio.Stream.create 2 in
+  Fibre.both
+    (fun () ->
+       for i = 1 to 5 do
+         traceln "Adding %d..." i;
+         Eio.Stream.add stream i
+       done
+    )
+    (fun () ->
+       for i = 1 to 5 do
+         let x = Eio.Stream.take stream in
+         traceln "Got %d" x;
+         Fibre.yield ()
+       done
+    );;
++Adding 1...
++Adding 2...
++Adding 3...
++Got 1
++Adding 4...
++Got 2
++Adding 5...
++Got 3
++Got 4
++Got 5
+- : unit = ()
+```
+
+Here, we create a stream with a maximum size of 2 items.
+The first fibre added 1 and 2 to the stream, but had to wait before it could insert 3.
+
+A stream with a capacity of 1 acts like a mailbox.
+A stream with a capacity of 0 will wait until both the sender and receiver are ready.
+
+Streams are thread-safe and can be used to communicate between domains.
+
+### Example: a worker pool
+
+A useful pattern is a pool of workers reading from a stream of work items.
+Client fibres submit items to a stream and workers process the items:
+
+```ocaml
+let handle_job request =
+  Printf.sprintf "Processed:%d" request
+
+let run_worker id stream =
+  traceln "Worker %s ready" id;
+  while true do
+    let request, reply = Eio.Stream.take stream in
+    traceln "Worker %s processing request %d" id request;
+    Promise.fulfill reply (handle_job request)
+  done
+
+let submit stream request =
+  let reply, resolve_reply = Promise.create () in
+  Eio.Stream.add stream (request, resolve_reply);
+  Promise.await reply
+```
+
+Each item in the stream is a request payload and a resolver for the reply promise.
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let domain_mgr = Eio.Stdenv.domain_mgr env in
+  Switch.run @@ fun sw ->
+  let stream = Eio.Stream.create 100 in
+  let spawn_worker name =
+    Fibre.fork_ignore ~sw (fun () ->
+       Eio.Domain_manager.run domain_mgr (fun () -> run_worker name stream)
+    )
+  in
+  spawn_worker "A";
+  spawn_worker "B";
+  Switch.run (fun sw ->
+     for i = 1 to 3 do
+       Fibre.fork_ignore ~sw (fun () ->
+         traceln "Client %d submitting job..." i;
+         traceln "Client %d got %s" i (submit stream i)
+       )
+     done;
+  );
+  raise Exit;;
++Worker A ready
++Client 1 submitting job...
++Worker B ready
++Client 2 submitting job...
++Worker A processing request 1
++Client 3 submitting job...
++Worker B processing request 2
++Client 1 got Processed:1
++Worker A processing request 3
++Client 2 got Processed:2
++Client 3 got Processed:3
+Exception: Stdlib.Exit.
+```
+
+In the code above, any exception raised while processing a job will exit the whole program.
+We might prefer to handle exceptions by sending them back to the client and continuing:
+
+```ocaml
+let run_worker id stream =
+  traceln "Worker %s ready" id;
+  while true do
+    let request, reply = Eio.Stream.take stream in
+    traceln "Worker %s processing request %d" id request;
+    match handle_job request with
+    | result -> Promise.fulfill reply result
+    | exception Eio.Cancel.Cancelled ex ->
+      Promise.break reply (Failure "Worker shut down");
+      raise ex
+    | exception ex ->
+      Promise.break reply ex
+  done
+```
+
+Note that as we're catching all exceptions here we need a special case for `Cancelled`,
+which indicates that the worker was asked to shut down while processing a request.
+We don't send the `Cancelled` exception itself to the client as we're not asking it to shut down too,
+but we do exit the loop and propagate the cancellation to the parent context.
 
 ## Design Note: Determinism
 

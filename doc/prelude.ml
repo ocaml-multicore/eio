@@ -18,6 +18,12 @@ module Eio_main = struct
       now := max !now time
   end
 
+  (* To avoid non-deterministic output, we run the examples a single domain. *)
+  let fake_domain_mgr = object (_ : #Eio.Domain_manager.t)
+    method run fn = fn ()
+    method run_raw fn = fn ()
+  end
+
   (* https://github.com/ocaml/ocaml/issues/10324 *)
   let dontcrash = Sys.opaque_identity
 
@@ -28,7 +34,7 @@ module Eio_main = struct
       method stdin      = dontcrash env#stdin
       method stdout     = dontcrash env#stdout
       method cwd        = dontcrash env#cwd
-      method domain_mgr = dontcrash env#domain_mgr
+      method domain_mgr = fake_domain_mgr
       method clock      = fake_clock env#clock
     end
 end

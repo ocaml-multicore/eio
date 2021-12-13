@@ -2,15 +2,11 @@ open EffectHandlers
 
 type _ eff += Fork : (Cancel.fibre_context -> 'a) -> 'a Promise.t eff
 
-let fork ~sw ~exn_turn_off f =
+let fork ~sw f =
   let f child =
     Switch.with_op sw @@ fun () ->
-    try
-      Cancel.with_cc ~ctx:child ~parent:sw.cancel ~protected:false @@ fun _t ->
-      f ()
-    with ex ->
-      if exn_turn_off then Switch.turn_off sw ex;
-      raise ex
+    Cancel.with_cc ~ctx:child ~parent:sw.cancel ~protected:false @@ fun _t ->
+    f ()
   in
   perform (Fork f)
 

@@ -24,7 +24,7 @@ Create a promise, fork a thread waiting for it, then fulfull it:
     Switch.run @@ fun sw ->
     let p, r = Promise.create () in
     traceln "Initial state: %a" (pp_promise Fmt.string) p;
-    let thread = Fibre.fork ~sw ~exn_turn_off:false (fun () -> Promise.await p) in
+    let thread = Fibre.fork ~sw (fun () -> Promise.await p) in
     Promise.fulfill r "ok";
     traceln "After being fulfilled: %a" (pp_promise Fmt.string) p;
     traceln "Thread before yield: %a" (pp_promise Fmt.string) thread;
@@ -45,7 +45,7 @@ Create a promise, fork a thread waiting for it, then break it:
     Switch.run @@ fun sw ->
     let p, r = Promise.create () in
     traceln "Initial state: %a" (pp_promise Fmt.string) p;
-    let thread = Fibre.fork ~sw ~exn_turn_off:false (fun () -> Promise.await p) in
+    let thread = Fibre.fork ~sw (fun () -> Promise.await p) in
     Promise.break r (Failure "test");
     traceln "After being broken: %a" (pp_promise Fmt.string) p;
     traceln "Thread before yield: %a" (pp_promise Fmt.string) thread;
@@ -93,7 +93,7 @@ Basic semaphore tests:
     Switch.run @@ fun sw ->
     let running = ref 0 in
     let sem = Semaphore.make 2 in
-    let fork = Fibre.fork ~sw ~exn_turn_off:false in
+    let fork = Fibre.fork ~sw in
     let a = fork (fun () -> Ctf.label "a"; Semaphore.acquire sem; incr running) in
     let b = fork (fun () -> Ctf.label "b"; Semaphore.acquire sem; incr running) in
     let c = fork (fun () -> Ctf.label "c"; Semaphore.acquire sem; incr running) in
