@@ -77,3 +77,13 @@ Cancelling another domain:
 +Spawning fibre got Cancelled: Failure("Simulated error")
 Exception: Failure "Simulated error".
 ```
+
+Spawning when already cancelled - no new domain is started:
+
+```ocaml
+# run @@ fun mgr ->
+  Switch.run @@ fun sw ->
+  Switch.turn_off sw (Failure "Simulated error");
+  Eio.Domain_manager.run mgr (fun () -> traceln "Domain spawned - shouldn't happen!");;
+Exception: Failure "Simulated error".
+```

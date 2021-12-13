@@ -277,17 +277,6 @@ let sleep_until due =
       if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread st k ()
     ) |> or_raise
 
-let run_compute fn =
-  match_with fn ()
-  { retc = (fun x -> x);
-    exnc = (fun e -> raise e);
-    effc = fun (type a) (e: a eff) -> 
-      match e with 
-      | Eio.Private.Effects.Trace -> 
-        Some (fun (k : (a,_) continuation) -> continue k Eunix.Trace.default_traceln)
-      | _ -> None
-  }
-
 module Objects = struct
   type _ Eio.Generic.ty += FD : File.t Eio.Generic.ty
 
@@ -492,7 +481,7 @@ module Objects = struct
       in
       enter @@ fun _st k ->
       let d = Domain.spawn (fun () ->
-          result := Some (match run_compute fn with
+          result := Some (match fn () with
               | v -> Ok v
               | exception ex -> Error ex
             );
