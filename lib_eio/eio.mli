@@ -608,8 +608,11 @@ module Private : sig
   module Fibre_context : sig
     type t
 
-    val make : tid:Ctf.id -> cc:Cancel.t -> t
-    (** [make ~tid ~cc] is a new context with the given thread ID and cancellation context. *)
+    val make_root : unit -> t
+    (** Make a new root context for a new domain. *)
+
+    val make : cc:Cancel.t -> t
+    (** [make ~cc] is a new fibre context, initially attached to the given cancellation context. *)
 
     val destroy : t -> unit
     (** [destroy t] removes [t] from its cancellation context. *)
@@ -652,10 +655,10 @@ module Private : sig
           passing it the suspended fibre's context and a function to resume it.
           [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
 
-      | Fork : (Fibre_context.t -> 'a) -> 'a Promise.t eff
+      | Fork : Fibre_context.t * (unit -> 'a) -> 'a Promise.t eff
       (** See {!Fibre.fork} *)
 
-      | Fork_ignore : (Fibre_context.t -> unit) -> unit eff
+      | Fork_ignore : Fibre_context.t * (unit -> unit) -> unit eff
       (** See {!Fibre.fork_ignore} *)
 
       | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
@@ -666,8 +669,4 @@ module Private : sig
 
       | Get_context : Fibre_context.t eff
   end
-
-  val boot_cancel : Cancel.t
-  (** A dummy context which is useful briefly during start up before the backend calls {!Cancel.protect}
-      to install a proper context. *)
 end

@@ -1,27 +1,22 @@
 open EffectHandlers
 
-type _ eff += Fork : (Cancel.fibre_context -> 'a) -> 'a Promise.t eff
+type _ eff += Fork : Cancel.fibre_context * (unit -> 'a) -> 'a Promise.t eff
 
 let fork ~sw f =
-  let f child =
-    Switch.with_op sw @@ fun () ->
-    Cancel.with_cc ~ctx:child ~parent:sw.cancel ~protected:false @@ fun _t ->
-    f ()
-  in
-  perform (Fork f)
+  let f () = Switch.with_op sw f in
+  let new_fibre = Cancel.Fibre_context.make ~cc:sw.cancel in
+  perform (Fork (new_fibre, f))
 
-type _ eff += Fork_ignore : (Cancel.fibre_context -> unit) -> unit eff
+type _ eff += Fork_ignore : Cancel.fibre_context * (unit -> unit) -> unit eff
 
 let fork_ignore ~sw f =
-  let f child =
+  let f () =
     Switch.with_op sw @@ fun () ->
-    try
-      Cancel.with_cc ~ctx:child ~parent:sw.cancel ~protected:false @@ fun _t ->
-      f ()
-    with ex ->
-      Switch.turn_off sw ex
+    try f ()
+    with ex -> Switch.turn_off sw ex
   in
-  perform (Fork_ignore f)
+  let new_fibre = Cancel.Fibre_context.make ~cc:sw.cancel in
+  perform (Fork_ignore (new_fibre, f))
 
 let yield () =
   let fibre = Suspend.enter (fun fibre enqueue -> enqueue (Ok fibre)) in
@@ -39,7 +34,10 @@ let pair f g =
     try f ()
     with ex -> Cancel.cancel cancel ex; raise ex
   in
-  let x = perform (Fork f) in
+  let x =
+    let new_fibre = Cancel.Fibre_context.make ~cc:cancel in
+    perform (Fork (new_fibre, f))
+  in
   match g () with
   | gr -> Promise.await x, gr               (* [g] succeeds - just report [f]'s result *)
   | exception gex ->
@@ -80,18 +78,18 @@ let await_cancel () =
 let any fs =
   let r = ref `None in
   let parent_c =
-    Cancel.sub_unchecked (fun c ->
-        let wrap h _fibre =
+    Cancel.sub_unchecked (fun cc ->
+        let wrap h () =
           match h () with
           | x ->
             begin match !r with
-              | `None -> r := `Ok x; Cancel.cancel c Not_first
+              | `None -> r := `Ok x; Cancel.cancel cc Not_first
               | `Ex _ | `Ok _ -> ()
             end
-          | exception Cancel.Cancelled _ when Cancel.cancelled c -> ()
+          | exception Cancel.Cancelled _ when Cancel.cancelled cc -> ()
           | exception ex ->
             begin match !r with
-              | `None -> r := `Ex (ex, Printexc.get_raw_backtrace ()); Cancel.cancel c ex
+              | `None -> r := `Ex (ex, Printexc.get_raw_backtrace ()); Cancel.cancel cc ex
               | `Ok _ -> r := `Ex (ex, Printexc.get_raw_backtrace ())
               | `Ex (e1, bt) -> r := `Ex (Multiple_exn.T [e1; ex], bt)
             end
@@ -100,7 +98,8 @@ let any fs =
           | [] -> await_cancel ()
           | [f] -> wrap f (); []
           | f :: fs ->
-            let p = perform (Fork (wrap f)) in
+            let new_fibre = Cancel.Fibre_context.make ~cc in
+            let p = perform (Fork (new_fibre, wrap f)) in
             p :: aux fs
         in
         let ps = aux fs in
