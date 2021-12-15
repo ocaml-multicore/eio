@@ -625,20 +625,6 @@ let rec run main =
             fn loop fibre (enqueue_thread st k))
         | Eio.Private.Effects.Trace ->
           Some (fun k -> continue k Eunix.Trace.default_traceln)
-        | Eio.Private.Effects.Fork (new_fibre, f) ->
-          Some (fun k -> 
-            let k = { Suspended.k; fibre } in
-            let promise, resolver = Promise.create_with_id (Fibre_context.tid new_fibre) in
-            enqueue_thread st k promise;
-            fork
-              ~new_fibre
-              (fun () ->
-                 match f () with
-                 | x -> Promise.fulfill resolver x
-                 | exception ex ->
-                   Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
-                   Promise.break resolver ex
-              ))
         | Eio.Private.Effects.Fork_ignore (new_fibre, f) ->
           Some (fun k -> 
             let k = { Suspended.k; fibre } in

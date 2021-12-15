@@ -1,12 +1,5 @@
 open EffectHandlers
 
-type _ eff += Fork : Cancel.fibre_context * (unit -> 'a) -> 'a Promise.t eff
-
-let fork ~sw f =
-  let f () = Switch.with_op sw f in
-  let new_fibre = Cancel.Fibre_context.make ~cc:sw.cancel in
-  perform (Fork (new_fibre, f))
-
 type _ eff += Fork_ignore : Cancel.fibre_context * (unit -> unit) -> unit eff
 
 let fork_ignore ~sw f =
@@ -17,6 +10,17 @@ let fork_ignore ~sw f =
   in
   let new_fibre = Cancel.Fibre_context.make ~cc:sw.cancel in
   perform (Fork_ignore (new_fibre, f))
+
+let fork ~sw f =
+  let new_fibre = Cancel.Fibre_context.make ~cc:sw.Switch.cancel in
+  let p, r = Promise.create_with_id (Cancel.Fibre_context.tid new_fibre) in
+  let f () =
+    match Switch.with_op sw f with
+    | x -> Promise.fulfill r x
+    | exception ex -> Promise.break r ex
+  in
+  perform (Fork_ignore (new_fibre, f));
+  p
 
 let yield () =
   let fibre = Suspend.enter (fun fibre enqueue -> enqueue (Ok fibre)) in
@@ -30,13 +34,18 @@ let both f g = all [f; g]
 
 let pair f g =
   Cancel.sub @@ fun cancel ->
-  let f _fibre =
-    try f ()
-    with ex -> Cancel.cancel cancel ex; raise ex
-  in
   let x =
+    let p, r = Promise.create () in
+    let f _fibre =
+      match f () with
+      | x -> Promise.fulfill r x
+      | exception ex ->
+        Cancel.cancel cancel ex;
+        Promise.break r ex
+    in
     let new_fibre = Cancel.Fibre_context.make ~cc:cancel in
-    perform (Fork (new_fibre, f))
+    perform (Fork_ignore (new_fibre, f));
+    p
   in
   match g () with
   | gr -> Promise.await x, gr               (* [g] succeeds - just report [f]'s result *)
@@ -99,7 +108,13 @@ let any fs =
           | [f] -> wrap f (); []
           | f :: fs ->
             let new_fibre = Cancel.Fibre_context.make ~cc in
-            let p = perform (Fork (new_fibre, wrap f)) in
+            let p, r = Promise.create () in
+            let f () =
+              match wrap f () with
+              | x -> Promise.fulfill r x
+              | exception ex -> Promise.break r ex
+            in
+            perform (Fork_ignore (new_fibre, f));
             p :: aux fs
         in
         let ps = aux fs in

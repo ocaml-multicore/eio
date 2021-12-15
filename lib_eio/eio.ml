@@ -293,7 +293,6 @@ module Private = struct
     type 'a enqueue = 'a Suspend.enqueue
     type _ eff += 
       | Suspend = Suspend.Suspend
-      | Fork = Fibre.Fork
       | Fork_ignore = Fibre.Fork_ignore
       | Get_context = Cancel.Get_context
       | Trace = Std.Trace

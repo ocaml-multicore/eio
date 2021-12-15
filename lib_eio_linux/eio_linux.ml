@@ -1052,20 +1052,6 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
                 );
               schedule st
             )
-          | Eio.Private.Effects.Fork (new_fibre, f) -> Some (fun k -> 
-              let k = { Suspended.k; fibre } in
-              let promise, resolver = Promise.create_with_id (Fibre_context.tid new_fibre) in
-              enqueue_thread st k promise;
-              fork
-                ~new_fibre
-                (fun () ->
-                   match f () with
-                   | x -> Promise.fulfill resolver x
-                   | exception ex ->
-                     Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
-                     Promise.break resolver ex
-                )
-            )
           | Eio.Private.Effects.Fork_ignore (new_fibre, f) -> Some (fun k -> 
               let k = { Suspended.k; fibre } in
               enqueue_thread st k ();
