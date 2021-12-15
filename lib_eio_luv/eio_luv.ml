@@ -389,6 +389,7 @@ module Objects = struct
      Luv makes TCP sockets reuse_addr by default, and maybe that's fine everywhere.
      Extracting the FD will require https://github.com/aantron/luv/issues/120 *)
   let luv_reuse_addr _sock _v = ()
+  let luv_reuse_port _sock _v = ()
 
   (* This is messy. Should make a generic sockaddr type for eio. *)
   let luv_addr_of_unix host port =
@@ -422,10 +423,11 @@ module Objects = struct
   let net = object
     inherit Eio.Net.t
 
-    method listen ~reuse_addr ~backlog ~sw = function
+    method listen ~reuse_addr ~reuse_port ~backlog ~sw = function
       | `Tcp (host, port) ->
         let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
         luv_reuse_addr sock reuse_addr;
+        luv_reuse_port sock reuse_port;
         let addr = luv_addr_of_unix host port in
         Luv.TCP.bind (Handle.get "bind" sock) addr |> or_raise;
         listening_ip_socket ~backlog sock

@@ -437,17 +437,18 @@ module Net : sig
       [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
 
   class virtual t : object
-    method virtual listen : reuse_addr:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
+    method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
     method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   end
 
-  val listen : ?reuse_addr:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.t -> listening_socket
+  val listen : ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.t -> listening_socket
   (** [listen ~sw ~backlog t addr] is a new listening socket bound to local address [addr].
       The new socket will be closed when [sw] finishes, unless closed manually first.
       For (non-abstract) Unix domain sockets, the path will be removed afterwards.
       @param backlog The number of pending connections that can be queued up (see listen(2)).
       @param reuse_addr Set the [Unix.SO_REUSEADDR] socket option.
-                        For Unix paths, also remove any stale left-over socket. *)
+                        For Unix paths, also remove any stale left-over socket.
+      @param reuse_port Set the [Unix.SO_REUSEPORT] socket option. *)
 
   val connect : sw:Switch.t -> #t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   (** [connect ~sw t addr] is a new socket connected to remote address [addr].

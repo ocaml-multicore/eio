@@ -154,11 +154,11 @@ module Net = struct
   let accept_sub ~sw (t : #listening_socket) = t#accept_sub ~sw
 
   class virtual t = object
-    method virtual listen : reuse_addr:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
+    method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
     method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
   end
 
-  let listen ?(reuse_addr=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~backlog ~sw
+  let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw
   let connect ~sw (t:#t) = t#connect ~sw
 end
 

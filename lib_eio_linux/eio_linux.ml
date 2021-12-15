@@ -802,7 +802,7 @@ module Objects = struct
   let net = object
     inherit Eio.Net.t
 
-    method listen ~reuse_addr ~backlog ~sw listen_addr =
+    method listen ~reuse_addr ~reuse_port  ~backlog ~sw listen_addr =
       let socket_domain, socket_type, addr =
         match listen_addr with
         | `Unix path         ->
@@ -825,6 +825,8 @@ module Objects = struct
       end;
       if reuse_addr then
         Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+      if reuse_port then
+        Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
       let sock = FD.of_unix ~sw ~seekable:false sock_unix in
       Unix.bind sock_unix addr;
       Unix.listen sock_unix backlog;
@@ -1006,8 +1008,8 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
             Fibre_context.destroy fibre;
             Printexc.raise_with_backtrace ex (Printexc.get_raw_backtrace ())
           );
-        effc = fun (type a) (e : a eff) ->  
-          match e with 
+        effc = fun (type a) (e : a eff) ->
+          match e with
           | Enter fn -> Some (fun k ->
               match Fibre_context.get_error fibre with
               | Some e -> discontinue k e
@@ -1021,21 +1023,21 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
               fn st k;
               schedule st
             )
-          | ERead args -> Some (fun k -> 
+          | ERead args -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               enqueue_read st k args;
               schedule st)
-          | Close fd -> Some (fun k -> 
+          | Close fd -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               enqueue_close st k fd;
               schedule st
             )
-          | EWrite args -> Some (fun k -> 
+          | EWrite args -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               enqueue_write st k args;
               schedule st
             )
-          | Sleep_until time -> Some (fun k -> 
+          | Sleep_until time -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               match Fibre_context.get_error fibre with
               | Some ex -> Suspended.discontinue k ex
@@ -1048,7 +1050,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
                 schedule st
             )
           | Eio.Private.Effects.Get_context -> Some (fun k -> continue k fibre)
-          | Eio.Private.Effects.Suspend f -> Some (fun k -> 
+          | Eio.Private.Effects.Suspend f -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               f fibre (function
                   | Ok v -> enqueue_thread st k v
@@ -1056,7 +1058,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
                 );
               schedule st
             )
-          | Eio.Private.Effects.Fork (new_fibre, f) -> Some (fun k -> 
+          | Eio.Private.Effects.Fork (new_fibre, f) -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               enqueue_at_head st k ();
               fork ~new_fibre (fun () ->
@@ -1068,11 +1070,11 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
                 )
             )
           | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eunix.Trace.default_traceln)
-          | Alloc -> Some (fun k -> 
+          | Alloc -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               alloc_buf st k
             )
-          | Free buf -> Some (fun k -> 
+          | Free buf -> Some (fun k ->
               free_buf st buf;
               continue k ()
             )
