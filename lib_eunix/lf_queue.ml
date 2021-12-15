@@ -16,7 +16,7 @@ module Node : sig
   }
   and +'a opt
 
-  val make : 'a -> 'a t
+  val make : next:'a opt -> 'a -> 'a t
 
   val none : 'a opt
   (** [t.next = none] means that [t] is currently the last node. *)
@@ -49,7 +49,7 @@ end = struct
     else if opt == closed then raise Closed
     else some (Obj.magic opt : 'a t)
 
-  let make value = { value; next = Atomic.make none }
+  let make ~next value = { value; next = Atomic.make next }
 end
 
 type 'a t = {
@@ -58,15 +58,14 @@ type 'a t = {
 }
 (* [head] is the last node dequeued (or a dummy node, initially).
    [head.next] gives the real first node, if not [Node.none].
-   [tail] is a node that was once at the tail of the queue.
-   Follow [tail.next] (if not [none]) to find the real last node. *)
+   If [tail.next] is [none] then it is the last node in the queue.
+   Otherwise, [tail.next] is a node that is closer to the tail. *)
 
 let push t x =
-  let node = Node.make x in
+  let node = Node.(make ~next:none) x in
   let rec aux () =
     let p = Atomic.get t.tail in
-    (* [p] was the last item in the queue at some point.
-       While [p.next == none], it still is. *)
+    (* While [p.next == none], [p] is the last node in the queue. *)
     if Atomic.compare_and_set p.next Node.none (Node.some node) then (
       (* [node] has now been added to the queue (and possibly even consumed).
          Update [tail], unless someone else already did it for us. *)
@@ -83,6 +82,27 @@ let push t x =
     )
   in
   aux ()
+
+let rec push_head t x =
+  let p = t.head in
+  let next = Atomic.get p.next in
+  if next == Node.closed then raise Closed;
+  let node = Node.make ~next x in
+  if Atomic.compare_and_set p.next next (Node.some node) then (
+    (* We don't want to let [tail] get too far behind, so if the queue was empty, move it to the new node. *)
+    if next == Node.none then (
+      ignore (Atomic.compare_and_set t.tail p node : bool);
+    ) else (
+      (* If the queue wasn't empty, there's nothing to do.
+         Either tail isn't at head or there is some [push] thread working to update it.
+         Either [push] will update it directly to the new tail, or will update it to [node]
+         and then retry. Either way, it ends up at the real tail. *)
+    )
+  ) else (
+    (* Someone else changed it first. This can only happen if the queue was empty. *)
+    assert (next == Node.none);
+    push_head t x
+  )
 
 let rec close (t:'a t) =
   (* Mark the tail node as final. *)

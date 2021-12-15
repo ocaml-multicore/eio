@@ -9,8 +9,14 @@ exception Closed
 val create : unit -> 'a t
 
 val push : 'a t -> 'a -> unit
-(** [push t x] adds [x] to the queue.
+(** [push t x] adds [x] to the tail of the queue.
+    This can be used safely by multiple producer domains, in parallel with the other operations.
     @raise Closed if [t] is closed. *)
+
+val push_head : 'a t -> 'a -> unit
+(** [push_head t x] inserts [x] at the head of the queue.
+    This can only be used by the consumer (if run in parallel with {!pop}, the item might be skipped).
+    @raise Closed if [t] is closed and empty. *)
 
 val pop : 'a t -> 'a option
 (** [pop t] removes the head item from [t] and returns it.
