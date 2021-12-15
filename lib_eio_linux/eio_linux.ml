@@ -83,7 +83,7 @@ module FD = struct
 
   let of_unix ~sw ~seekable fd =
     let t = of_unix_no_hook ~seekable fd in
-    t.release_hook <- Switch.on_release_cancellable sw (fun () -> close t);
+    t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
     t
 
   let placeholder ~seekable =
@@ -656,24 +656,19 @@ let mkdir_beneath ~perm ?dir path =
 let shutdown socket command =
   Unix.shutdown (FD.get "shutdown" socket) command
 
-let accept_loose_fd socket =
+let accept ~sw fd =
   Ctf.label "accept";
   let client_addr = Uring.Sockaddr.create () in
-  let res = enter (enqueue_accept socket client_addr) in
+  let res = enter (enqueue_accept fd client_addr) in
   Log.debug (fun l -> l "accept returned");
   if res < 0 then (
     raise (Unix.Unix_error (Uring.error_of_errno res, "accept", ""))
   ) else (
     let unix : Unix.file_descr = Obj.magic res in
-    let fd = FD.of_unix_no_hook ~seekable:false unix in
-    let addr = Uring.Sockaddr.get client_addr in
-    fd, addr
+    let client = FD.of_unix ~sw ~seekable:false unix in
+    let client_addr = Uring.Sockaddr.get client_addr in
+    client, client_addr
   )
-
-let accept ~sw fd =
-  let client, client_addr = accept_loose_fd fd in
-  Switch.on_release sw (fun () -> FD.ensure_closed client);
-  client, client_addr
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
@@ -785,18 +780,15 @@ module Objects = struct
 
     method close = FD.close fd
 
-    method accept_sub ~sw ~on_error fn =
+    method accept ~sw =
       Switch.check sw;
-      let client, client_addr = accept_loose_fd fd in
-      Fibre.fork_sub ~sw ~on_error
-        (fun sw ->
-           let client_addr = match client_addr with
-             | Unix.ADDR_UNIX path         -> `Unix path
-             | Unix.ADDR_INET (host, port) -> `Tcp (host, port)
-           in
-           fn ~sw (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr
-        )
-        ~on_release:(fun () -> FD.ensure_closed client)
+      let client, client_addr = accept ~sw fd in
+      let client_addr = match client_addr with
+        | Unix.ADDR_UNIX path         -> `Unix path
+        | Unix.ADDR_INET (host, port) -> `Tcp (host, port)
+      in
+      let flow = (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) in
+      flow, client_addr
   end
 
   let net = object

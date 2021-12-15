@@ -144,14 +144,15 @@ module Net = struct
 
   class virtual listening_socket = object
     method virtual close : unit
-    method virtual accept_sub :
-      sw:Switch.t ->
-      on_error:(exn -> unit) ->
-      (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
-      unit
+    method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.t
   end
 
-  let accept_sub ~sw (t : #listening_socket) = t#accept_sub ~sw
+  let accept ~sw (t : #listening_socket) = t#accept ~sw
+
+  let accept_sub ~sw (t : #listening_socket) ~on_error handle =
+    let accept sw = t#accept ~sw in
+    let handle sw (flow, addr) = handle ~sw flow addr in
+    Fibre.fork_on_accept ~sw accept handle ~on_handler_error:on_error
 
   class virtual t = object
     method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket

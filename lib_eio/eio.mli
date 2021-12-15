@@ -174,14 +174,30 @@ module Std : sig
         [fn] runs immediately, without switching to any other fibre first.
         The calling fibre is placed at the head of the run queue, ahead of any previous items. *)
 
-    val fork_sub : ?on_release:(unit -> unit) -> sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
+    val fork_sub : sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
     (** [fork_sub ~sw ~on_error fn] is like [fork], but it creates a new sub-switch for the fibre.
         This means that you can cancel the child switch without cancelling the parent.
         This is a convenience function for running {!Switch.run} inside a {!fork}.
-        @param on_release If given, this function is called when the new fibre ends.
-                          If the fibre cannot be created (e.g. because [sw] is already off), it runs immediately.
-        @param on_error This is called if the fibre raises an exception (other than {!Cancel.Cancelled}).
-                        If it raises in turn, the parent switch is turned off. *)
+        @param on_error This is called if the fibre raises an exception.
+                        If it raises in turn, the parent switch is turned off.
+                        It is not called if the parent [sw] itself is cancelled. *)
+
+    val fork_on_accept :
+      on_handler_error:(exn -> unit) ->
+      sw:Switch.t ->
+      (Switch.t -> 'a) ->
+      (Switch.t -> 'a -> unit) ->
+      unit
+    (** [fork_on_accept ~sw accept handle ~on_handler_error] creates a new sub-switch [t].
+        It runs [accept t] in the current fibre and, on success, runs [handle t result] in a new fibre.
+        It is useful for e.g. accepting network connections,
+        where we need to provide a switch for the new client socket before we have forked,
+        but then move it to a child fibre later.
+
+        If [accept] raises an exception then the effect is the same as [Switch.run accept].
+        If [handle] raises an exception, it is passed to [on_handler_error].
+        If that raises in turn, the parent switch is turned off.
+        [on_handler_error] is not called if the parent [sw] is itself cancelled. *)
 
     val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.t
     (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fibre and returns a promise for its result.
@@ -460,12 +476,16 @@ module Net : sig
 
   class virtual listening_socket : object
     method virtual close : unit
-    method virtual accept_sub :
-      sw:Switch.t ->
-      on_error:(exn -> unit) ->
-      (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
-      unit
+    method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.t
   end
+
+  val accept :
+    sw:Switch.t ->
+    #listening_socket ->
+    <Flow.two_way; Flow.close> * Sockaddr.t
+  (** [accept ~sw socket] waits until a new connection is ready on [socket] and returns it.
+      The new socket will be closed automatically when [sw] finishes, if not closed earlier.
+      If you want to handle multiple connections, consider using {!accept_sub} instead. *)
 
   val accept_sub :
     sw:Switch.t ->
@@ -474,7 +494,7 @@ module Net : sig
     (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
     unit
   (** [accept socket fn] waits for a new connection to [socket] and then runs [fn ~sw flow client_addr] in a new fibre,
-      created with [Fibre.fork_sub].
+      using {!Fibre.fork_on_accept}.
       [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
 
   class virtual t : object
