@@ -278,8 +278,8 @@ For example:
 +i = 1
 +First thread forked
 +j = 1
-+i = 2
 +Second thread forked; top-level code is finished
++i = 2
 +j = 2
 +i = 3
 +j = 3
@@ -759,6 +759,7 @@ Client fibres submit items to a stream and workers process the items:
 
 ```ocaml
 let handle_job request =
+  Fibre.yield ();       (* (simulated work) *)
   Printf.sprintf "Processed:%d" request
 
 let run_worker id stream =
@@ -794,17 +795,18 @@ Each item in the stream is a request payload and a resolver for the reply promis
        Fibre.fork ~sw (fun () ->
          traceln "Client %d submitting job..." i;
          traceln "Client %d got %s" i (submit stream i)
-       )
+       );
+       Fibre.yield ()
      done;
   );
   raise Exit;;
 +Worker A ready
-+Client 1 submitting job...
 +Worker B ready
-+Client 2 submitting job...
++Client 1 submitting job...
 +Worker A processing request 1
-+Client 3 submitting job...
++Client 2 submitting job...
 +Worker B processing request 2
++Client 3 submitting job...
 +Client 1 got Processed:1
 +Worker A processing request 3
 +Client 2 got Processed:2

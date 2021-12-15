@@ -98,6 +98,11 @@ let enqueue_failed_thread t k ex =
   Lf_queue.push t.run_q (fun () -> Suspended.discontinue k ex);
   Luv.Async.send t.async |> or_raise
 
+(* Can only be called from our domain. *)
+let enqueue_at_head t k v =
+  Lf_queue.push_head t.run_q (fun () -> Suspended.continue k v);
+  Luv.Async.send t.async |> or_raise
+
 let await_exn fn =
   perform (Await fn) |> or_raise
 
@@ -628,7 +633,7 @@ let rec run main =
         | Eio.Private.Effects.Fork (new_fibre, f) ->
           Some (fun k -> 
             let k = { Suspended.k; fibre } in
-            enqueue_thread st k ();
+            enqueue_at_head st k ();
             fork ~new_fibre (fun () ->
                 match f () with
                 | () ->

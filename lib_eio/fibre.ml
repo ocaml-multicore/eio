@@ -2,6 +2,10 @@ open EffectHandlers
 
 type _ eff += Fork : Cancel.fibre_context * (unit -> unit) -> unit eff
 
+let yield () =
+  let fibre = Suspend.enter (fun fibre enqueue -> enqueue (Ok fibre)) in
+  Cancel.check fibre.cancel_context
+
 let fork ~sw f =
   let f () =
     Switch.with_op sw @@ fun () ->
@@ -22,10 +26,6 @@ let fork_promise ~sw f =
   perform (Fork (new_fibre, f));
   p
 
-let yield () =
-  let fibre = Suspend.enter (fun fibre enqueue -> enqueue (Ok fibre)) in
-  Cancel.check fibre.cancel_context
-
 let all xs =
   Switch.run @@ fun sw ->
   List.iter (fork ~sw) xs
@@ -36,7 +36,7 @@ let pair f g =
   Cancel.sub @@ fun cancel ->
   let x =
     let p, r = Promise.create () in
-    let f _fibre =
+    let f () =
       match f () with
       | x -> Promise.fulfill r x
       | exception ex ->

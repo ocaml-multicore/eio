@@ -137,6 +137,10 @@ module Std : sig
         if either raises an exception, the other is cancelled.
         [both] waits for both functions to finish even if one raises
         (it will then re-raise the original exception).
+        [f] runs immediately, without switching to any other thread.
+        [g] is inserted at the head of the run-queue, so it runs next even if other threads are already enqueued.
+        You can get other scheduling orders by adding calls to {!yield} in various places.
+        e.g. to append both fibres to the end of the run-queue, yield immediately before calling [both].
         @raise Multiple_exn.T if both fibres raise exceptions (excluding {!Cancel.Cancelled}). *)
 
     val pair : (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
@@ -150,6 +154,7 @@ module Std : sig
     (** [first f g] runs [f ()] and [g ()] concurrently.
         They run in a new cancellation sub-context, and when one finishes the other is cancelled.
         If one raises, the other is cancelled and the exception is reported.
+        As with [both], [f] runs immediately and [g] is scheduled next, ahead of any other queued work.
         @raise Multiple_exn.T if both fibres raise exceptions (excluding {!Cancel.Cancelled} when cancelled). *)
 
     val any : (unit -> 'a) list -> 'a
@@ -165,7 +170,9 @@ module Std : sig
         The new fibre is attached to [sw] (which can't finish until the fibre ends).
         The new fibre inherits [sw]'s cancellation context.
         If the fibre raises an exception, [sw] is turned off.
-        If [sw] is already off then [fn] fails immediately, but the calling thread continues. *)
+        If [sw] is already off then [fn] fails immediately, but the calling thread continues.
+        [fn] runs immediately, without switching to any other fibre first.
+        The calling fibre is placed at the head of the run queue, ahead of any previous items. *)
 
     val fork_sub : ?on_release:(unit -> unit) -> sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
     (** [fork_sub ~sw ~on_error fn] is like [fork], but it creates a new sub-switch for the fibre.
@@ -178,9 +185,8 @@ module Std : sig
 
     val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.t
     (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fibre and returns a promise for its result.
-        The new fibre is attached to [sw] (which can't finish until the fibre ends).
-        The new fibre runs immediately, while the caller is added to the end of the run queue.
-        If [fn] raises an exception then the promise is broken (but [sw] is not turned off). *)
+        This is just a convenience wrapper around {!fork}.
+        If [fn] raises an exception then the promise is broken, but [sw] is not turned off. *)
 
     val yield : unit -> unit
     (** [yield ()] asks the scheduler to switch to the next runnable task.

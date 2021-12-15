@@ -169,6 +169,10 @@ let enqueue_failed_thread st k ex =
   Lf_queue.push st.run_q (Failed_thread (k, ex));
   if Atomic.get st.need_wakeup then wakeup st
 
+(* Can only be called from our own domain, so no need to check for wakeup. *)
+let enqueue_at_head st k x =
+  Lf_queue.push_head st.run_q (Thread (k, x))
+
 type _ eff += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a eff
 type _ eff += Enter : (t -> 'a Suspended.t -> unit) -> 'a eff
 let enter fn = perform (Enter fn)
@@ -1054,7 +1058,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
             )
           | Eio.Private.Effects.Fork (new_fibre, f) -> Some (fun k -> 
               let k = { Suspended.k; fibre } in
-              enqueue_thread st k ();
+              enqueue_at_head st k ();
               fork ~new_fibre (fun () ->
                   match f () with
                   | () ->
