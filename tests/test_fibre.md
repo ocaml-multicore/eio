@@ -221,7 +221,7 @@ Exception: Failure "simulated error".
 
 # Fibre.fork
 
-`Fibre.fork ~sw` inherits the cancellation context from `sw`, not from the current fibre:
+`Fibre.fork_promise ~sw` inherits the cancellation context from `sw`, not from the current fibre:
 
 ```ocaml
 # run @@ fun () ->
@@ -235,7 +235,7 @@ Exception: Failure "simulated error".
     (fun () ->
       let sw = Option.get !switch in
       Eio.Cancel.protect @@ fun () ->
-      let child = Fibre.fork ~sw (fun () ->
+      let child = Fibre.fork_promise ~sw (fun () ->
          traceln "Forked child";
          Fibre.await_cancel ()
       ) in
@@ -245,4 +245,59 @@ Exception: Failure "simulated error".
   "not reached";;
 +Forked child
 Exception: Stdlib.Exit.
+```
+
+# Scheduling order
+
+Forking runs the child first, and puts the calling fibre at the head of the run-queue.
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fibre.fork ~sw (fun () -> traceln "1st child runs"; Fibre.yield (); traceln "Queued work");
+  Fibre.fork ~sw (fun () -> traceln "2nd child runs immediately");
+  traceln "Caller runs before queued work";
+  "ok";;
++1st child runs
++2nd child runs immediately
++Caller runs before queued work
++Queued work
++ok
+- : unit = ()
+```
+
+Same with `both`:
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fibre.fork ~sw (fun () -> traceln "Enqueuing work for later"; Fibre.yield (); traceln "Queued work");
+  Fibre.both
+    (fun () -> traceln "1st branch")
+    (fun () -> traceln "2nd branch");
+  "ok";;
++Enqueuing work for later
++1st branch
++2nd branch
++Queued work
++ok
+- : unit = ()
+```
+
+Same with `first`:
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fibre.fork ~sw (fun () -> traceln "Enqueuing work for later"; Fibre.yield (); traceln "Queued work");
+  Fibre.first
+    (fun () -> traceln "1st branch")
+    (fun () -> traceln "2nd branch");
+  "ok";;
++Enqueuing work for later
++1st branch
++2nd branch
++Queued work
++ok
+- : unit = ()
 ```

@@ -294,7 +294,6 @@ module Private = struct
     type _ eff += 
       | Suspend = Suspend.Suspend
       | Fork = Fibre.Fork
-      | Fork_ignore = Fibre.Fork_ignore
       | Get_context = Cancel.Get_context
       | Trace = Std.Trace
   end

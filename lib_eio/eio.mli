@@ -137,6 +137,10 @@ module Std : sig
         if either raises an exception, the other is cancelled.
         [both] waits for both functions to finish even if one raises
         (it will then re-raise the original exception).
+        [f] runs immediately, without switching to any other thread.
+        [g] is inserted at the head of the run-queue, so it runs next even if other threads are already enqueued.
+        You can get other scheduling orders by adding calls to {!yield} in various places.
+        e.g. to append both fibres to the end of the run-queue, yield immediately before calling [both].
         @raise Multiple_exn.T if both fibres raise exceptions (excluding {!Cancel.Cancelled}). *)
 
     val pair : (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
@@ -150,6 +154,7 @@ module Std : sig
     (** [first f g] runs [f ()] and [g ()] concurrently.
         They run in a new cancellation sub-context, and when one finishes the other is cancelled.
         If one raises, the other is cancelled and the exception is reported.
+        As with [both], [f] runs immediately and [g] is scheduled next, ahead of any other queued work.
         @raise Multiple_exn.T if both fibres raise exceptions (excluding {!Cancel.Cancelled} when cancelled). *)
 
     val any : (unit -> 'a) list -> 'a
@@ -160,27 +165,28 @@ module Std : sig
     (** [await_cancel ()] waits until cancelled.
         @raise Cancel.Cancelled *)
 
-    val fork_ignore : sw:Switch.t -> (unit -> unit) -> unit
-    (** [fork_ignore ~sw fn] runs [fn ()] in a new fibre, but does not wait for it to complete.
+    val fork : sw:Switch.t -> (unit -> unit) -> unit
+    (** [fork ~sw fn] runs [fn ()] in a new fibre, but does not wait for it to complete.
         The new fibre is attached to [sw] (which can't finish until the fibre ends).
         The new fibre inherits [sw]'s cancellation context.
         If the fibre raises an exception, [sw] is turned off.
-        If [sw] is already off then [fn] fails immediately, but the calling thread continues. *)
+        If [sw] is already off then [fn] fails immediately, but the calling thread continues.
+        [fn] runs immediately, without switching to any other fibre first.
+        The calling fibre is placed at the head of the run queue, ahead of any previous items. *)
 
-    val fork_sub_ignore : ?on_release:(unit -> unit) -> sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
-    (** [fork_sub_ignore ~sw ~on_error fn] is like [fork_ignore], but it creates a new sub-switch for the fibre.
+    val fork_sub : ?on_release:(unit -> unit) -> sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
+    (** [fork_sub ~sw ~on_error fn] is like [fork], but it creates a new sub-switch for the fibre.
         This means that you can cancel the child switch without cancelling the parent.
-        This is a convenience function for running {!Switch.run} inside a {!fork_ignore}.
+        This is a convenience function for running {!Switch.run} inside a {!fork}.
         @param on_release If given, this function is called when the new fibre ends.
                           If the fibre cannot be created (e.g. because [sw] is already off), it runs immediately.
         @param on_error This is called if the fibre raises an exception (other than {!Cancel.Cancelled}).
                         If it raises in turn, the parent switch is turned off. *)
 
-    val fork : sw:Switch.t -> (unit -> 'a) -> 'a Promise.t
-    (** [fork ~sw fn] schedules [fn ()] to run in a new fibre and returns a promise for its result.
-        The new fibre is attached to [sw] (which can't finish until the fibre ends).
-        [fork] returns immediately, before the new thread starts.
-        If [fn] raises an exception then the promise is broken (but [sw] is not turned off). *)
+    val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.t
+    (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fibre and returns a promise for its result.
+        This is just a convenience wrapper around {!fork}.
+        If [fn] raises an exception then the promise is broken, but [sw] is not turned off. *)
 
     val yield : unit -> unit
     (** [yield ()] asks the scheduler to switch to the next runnable task.
@@ -427,7 +433,7 @@ module Net : sig
     (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
     unit
   (** [accept socket fn] waits for a new connection to [socket] and then runs [fn ~sw flow client_addr] in a new fibre,
-      created with [Fibre.fork_sub_ignore].
+      created with [Fibre.fork_sub].
       [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
 
   class virtual t : object
@@ -655,11 +661,8 @@ module Private : sig
           passing it the suspended fibre's context and a function to resume it.
           [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
 
-      | Fork : Fibre_context.t * (unit -> 'a) -> 'a Promise.t eff
+      | Fork : Fibre_context.t * (unit -> unit) -> unit eff
       (** See {!Fibre.fork} *)
-
-      | Fork_ignore : Fibre_context.t * (unit -> unit) -> unit eff
-      (** See {!Fibre.fork_ignore} *)
 
       | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
       (** [perform Trace fmt] writes trace logging to the configured trace output.

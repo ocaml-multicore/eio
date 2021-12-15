@@ -19,7 +19,7 @@ let copy_file infd outfd insize block_size =
     let remaining = Int63.(sub insize file_offset) in
     if remaining <> Int63.zero then (
       let len = Int63.to_int (min (Int63.of_int block_size) remaining) in
-      Fibre.fork_ignore ~sw (fun () -> read_then_write_chunk infd outfd file_offset len);
+      Fibre.fork ~sw (fun () -> read_then_write_chunk infd outfd file_offset len);
       copy_block Int63.(add file_offset (of_int len))
     )
   in

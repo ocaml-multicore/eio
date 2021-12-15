@@ -11,7 +11,7 @@ let main ~domain_mgr =
   let sem = Eio.Semaphore.make n_tokens in
   Switch.run (fun sw ->
       for _ = 1 to n_domains do
-        Fibre.fork_ignore ~sw (fun () ->
+        Fibre.fork ~sw (fun () ->
             Eio.Domain_manager.run domain_mgr (fun () ->
                 let i = ref 0 in
                 while !i < n_iters do

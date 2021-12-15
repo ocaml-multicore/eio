@@ -267,10 +267,10 @@ For example:
 ```ocaml
 # Eio_main.run @@ fun _env ->
   Switch.run (fun sw ->
-    Fibre.fork_ignore ~sw
+    Fibre.fork ~sw
       (fun () -> for i = 1 to 3 do traceln "i = %d" i; Fibre.yield () done);
     traceln "First thread forked";
-    Fibre.fork_ignore ~sw
+    Fibre.fork ~sw
       (fun () -> for j = 1 to 3 do traceln "j = %d" j; Fibre.yield () done);
     traceln "Second thread forked; top-level code is finished"
   );
@@ -278,8 +278,8 @@ For example:
 +i = 1
 +First thread forked
 +j = 1
-+i = 2
 +Second thread forked; top-level code is finished
++i = 2
 +j = 2
 +i = 3
 +j = 3
@@ -299,13 +299,13 @@ and any files it opened have been closed.
 So, a `Switch.run` puts a bound on the lifetime of things created within it,
 leading to clearer code and avoiding resource leaks.
 
-For example, `fork_ignore` creates a new fibre that continues running after `fork_ignore` returns,
+For example, `fork` creates a new fibre that continues running after `fork` returns,
 so it needs to take a switch argument.
 
 Every switch also creates a new cancellation context,
 and you can turn off the switch to cancel all fibres within it.
 
-You can also use `Fibre.fork_sub_ignore` to create a child sub-switch.
+You can also use `Fibre.fork_sub` to create a child sub-switch.
 Turning off the parent switch will also turn off the child switch, but turning off the child doesn't disable the parent.
 
 For example, a web-server might use one switch for the whole server and then create one sub-switch for each incoming connection.
@@ -759,6 +759,7 @@ Client fibres submit items to a stream and workers process the items:
 
 ```ocaml
 let handle_job request =
+  Fibre.yield ();       (* (simulated work) *)
   Printf.sprintf "Processed:%d" request
 
 let run_worker id stream =
@@ -783,7 +784,7 @@ Each item in the stream is a request payload and a resolver for the reply promis
   Switch.run @@ fun sw ->
   let stream = Eio.Stream.create 100 in
   let spawn_worker name =
-    Fibre.fork_ignore ~sw (fun () ->
+    Fibre.fork ~sw (fun () ->
        Eio.Domain_manager.run domain_mgr (fun () -> run_worker name stream)
     )
   in
@@ -791,20 +792,21 @@ Each item in the stream is a request payload and a resolver for the reply promis
   spawn_worker "B";
   Switch.run (fun sw ->
      for i = 1 to 3 do
-       Fibre.fork_ignore ~sw (fun () ->
+       Fibre.fork ~sw (fun () ->
          traceln "Client %d submitting job..." i;
          traceln "Client %d got %s" i (submit stream i)
-       )
+       );
+       Fibre.yield ()
      done;
   );
   raise Exit;;
 +Worker A ready
-+Client 1 submitting job...
 +Worker B ready
-+Client 2 submitting job...
++Client 1 submitting job...
 +Worker A processing request 1
-+Client 3 submitting job...
++Client 2 submitting job...
 +Worker B processing request 2
++Client 3 submitting job...
 +Client 1 got Processed:1
 +Worker A processing request 3
 +Client 2 got Processed:2

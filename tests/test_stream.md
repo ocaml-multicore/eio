@@ -240,9 +240,9 @@ Readers queue up:
 # run @@ fun () ->
   let t = S.create 0 in
   Switch.run @@ fun sw ->
-  Fibre.fork_ignore ~sw (fun () -> take t; traceln "a done");
-  Fibre.fork_ignore ~sw (fun () -> take t; traceln "b done");
-  Fibre.fork_ignore ~sw (fun () -> take t; traceln "c done");
+  Fibre.fork ~sw (fun () -> take t; traceln "a done");
+  Fibre.fork ~sw (fun () -> take t; traceln "b done");
+  Fibre.fork ~sw (fun () -> take t; traceln "c done");
   add t 1;
   add t 2;
   add t 3;;
@@ -270,9 +270,9 @@ Writers queue up:
 # run @@ fun () ->
   let t = S.create 0 in
   Switch.run @@ fun sw ->
-  Fibre.fork_ignore ~sw (fun () -> add t 1);
-  Fibre.fork_ignore ~sw (fun () -> add t 2);
-  Fibre.fork_ignore ~sw (fun () -> add t 3);
+  Fibre.fork ~sw (fun () -> add t 1);
+  Fibre.fork ~sw (fun () -> add t 2);
+  Fibre.fork ~sw (fun () -> add t 3);
   take t;
   take t;
   take t;;

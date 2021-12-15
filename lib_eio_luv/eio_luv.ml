@@ -98,6 +98,11 @@ let enqueue_failed_thread t k ex =
   Lf_queue.push t.run_q (fun () -> Suspended.discontinue k ex);
   Luv.Async.send t.async |> or_raise
 
+(* Can only be called from our domain. *)
+let enqueue_at_head t k v =
+  Lf_queue.push_head t.run_q (fun () -> Suspended.continue k v);
+  Luv.Async.send t.async |> or_raise
+
 let await_exn fn =
   perform (Await fn) |> or_raise
 
@@ -366,7 +371,7 @@ module Objects = struct
         Handle.close client;
         raise (Luv_error e)
       | Ok () ->
-        Fibre.fork_sub_ignore ~sw ~on_error
+        Fibre.fork_sub ~sw ~on_error
           (fun sw ->
              let client_addr = self#get_client_addr client in
              fn ~sw (socket client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr
@@ -628,21 +633,7 @@ let rec run main =
         | Eio.Private.Effects.Fork (new_fibre, f) ->
           Some (fun k -> 
             let k = { Suspended.k; fibre } in
-            let promise, resolver = Promise.create_with_id (Fibre_context.tid new_fibre) in
-            enqueue_thread st k promise;
-            fork
-              ~new_fibre
-              (fun () ->
-                 match f () with
-                 | x -> Promise.fulfill resolver x
-                 | exception ex ->
-                   Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
-                   Promise.break resolver ex
-              ))
-        | Eio.Private.Effects.Fork_ignore (new_fibre, f) ->
-          Some (fun k -> 
-            let k = { Suspended.k; fibre } in
-            enqueue_thread st k ();
+            enqueue_at_head st k ();
             fork ~new_fibre (fun () ->
                 match f () with
                 | () ->

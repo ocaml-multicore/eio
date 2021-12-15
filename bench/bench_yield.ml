@@ -11,7 +11,7 @@ let main ~clock =
       let t0 = Eio.Time.now clock in
       Switch.run (fun sw ->
           for _ = 1 to n_fibres do
-            Fibre.fork_ignore ~sw (fun () ->
+            Fibre.fork ~sw (fun () ->
                 for _ = 1 to n_iters do
                   Fibre.yield ()
                 done

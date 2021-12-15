@@ -42,9 +42,15 @@ val q : int Q.t = <abstr>
 - : unit = ()
 # Q.push q 2;;
 Exception: Eunix.Lf_queue.Closed.
+# Q.push_head q 3;;
+- : unit = ()
+# Q.pop q;;
+- : int option = Some 3
 # Q.pop q;;
 - : int option = Some 1
 # Q.pop q;;
+Exception: Eunix.Lf_queue.Closed.
+# Q.push_head q 4;;
 Exception: Eunix.Lf_queue.Closed.
 ```
 
@@ -70,4 +76,25 @@ val q : int Q.t = <abstr>
 - : bool = true
 # Q.close q; Q.is_empty q;;
 Exception: Eunix.Lf_queue.Closed.
+```
+
+## Pushing to the head
+
+```ocaml
+# let q : int Q.t = Q.create ();;
+val q : int Q.t = <abstr>
+# Q.push_head q 3; Q.push q 4; Q.push_head q 2; Q.push q 5; Q.push_head q 1;;
+- : unit = ()
+# Q.pop q;;
+- : int option = Some 1
+# Q.pop q;;
+- : int option = Some 2
+# Q.pop q;;
+- : int option = Some 3
+# Q.pop q;;
+- : int option = Some 4
+# Q.pop q;;
+- : int option = Some 5
+# Q.pop q;;
+- : int option = None
 ```

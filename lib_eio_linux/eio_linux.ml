@@ -169,6 +169,10 @@ let enqueue_failed_thread st k ex =
   Lf_queue.push st.run_q (Failed_thread (k, ex));
   if Atomic.get st.need_wakeup then wakeup st
 
+(* Can only be called from our own domain, so no need to check for wakeup. *)
+let enqueue_at_head st k x =
+  Lf_queue.push_head st.run_q (Thread (k, x))
+
 type _ eff += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a eff
 type _ eff += Enter : (t -> 'a Suspended.t -> unit) -> 'a eff
 let enter fn = perform (Enter fn)
@@ -784,7 +788,7 @@ module Objects = struct
     method accept_sub ~sw ~on_error fn =
       Switch.check sw;
       let client, client_addr = accept_loose_fd fd in
-      Fibre.fork_sub_ignore ~sw ~on_error
+      Fibre.fork_sub ~sw ~on_error
         (fun sw ->
            let client_addr = match client_addr with
              | Unix.ADDR_UNIX path         -> `Unix path
@@ -1054,21 +1058,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
             )
           | Eio.Private.Effects.Fork (new_fibre, f) -> Some (fun k -> 
               let k = { Suspended.k; fibre } in
-              let promise, resolver = Promise.create_with_id (Fibre_context.tid new_fibre) in
-              enqueue_thread st k promise;
-              fork
-                ~new_fibre
-                (fun () ->
-                   match f () with
-                   | x -> Promise.fulfill resolver x
-                   | exception ex ->
-                     Log.debug (fun f -> f "Forked fibre failed: %a" Fmt.exn ex);
-                     Promise.break resolver ex
-                )
-            )
-          | Eio.Private.Effects.Fork_ignore (new_fibre, f) -> Some (fun k -> 
-              let k = { Suspended.k; fibre } in
-              enqueue_thread st k ();
+              enqueue_at_head st k ();
               fork ~new_fibre (fun () ->
                   match f () with
                   | () ->
