@@ -366,7 +366,7 @@ module Objects = struct
         Handle.close client;
         raise (Luv_error e)
       | Ok () ->
-        Fibre.fork_sub_ignore ~sw ~on_error
+        Fibre.fork_sub ~sw ~on_error
           (fun sw ->
              let client_addr = self#get_client_addr client in
              fn ~sw (socket client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr
@@ -625,7 +625,7 @@ let rec run main =
             fn loop fibre (enqueue_thread st k))
         | Eio.Private.Effects.Trace ->
           Some (fun k -> continue k Eunix.Trace.default_traceln)
-        | Eio.Private.Effects.Fork_ignore (new_fibre, f) ->
+        | Eio.Private.Effects.Fork (new_fibre, f) ->
           Some (fun k -> 
             let k = { Suspended.k; fibre } in
             enqueue_thread st k ();

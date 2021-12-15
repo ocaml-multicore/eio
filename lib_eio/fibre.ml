@@ -1,17 +1,17 @@
 open EffectHandlers
 
-type _ eff += Fork_ignore : Cancel.fibre_context * (unit -> unit) -> unit eff
+type _ eff += Fork : Cancel.fibre_context * (unit -> unit) -> unit eff
 
-let fork_ignore ~sw f =
+let fork ~sw f =
   let f () =
     Switch.with_op sw @@ fun () ->
     try f ()
     with ex -> Switch.turn_off sw ex
   in
   let new_fibre = Cancel.Fibre_context.make ~cc:sw.cancel in
-  perform (Fork_ignore (new_fibre, f))
+  perform (Fork (new_fibre, f))
 
-let fork ~sw f =
+let fork_promise ~sw f =
   let new_fibre = Cancel.Fibre_context.make ~cc:sw.Switch.cancel in
   let p, r = Promise.create_with_id (Cancel.Fibre_context.tid new_fibre) in
   let f () =
@@ -19,7 +19,7 @@ let fork ~sw f =
     | x -> Promise.fulfill r x
     | exception ex -> Promise.break r ex
   in
-  perform (Fork_ignore (new_fibre, f));
+  perform (Fork (new_fibre, f));
   p
 
 let yield () =
@@ -28,7 +28,7 @@ let yield () =
 
 let all xs =
   Switch.run @@ fun sw ->
-  List.iter (fork_ignore ~sw) xs
+  List.iter (fork ~sw) xs
 
 let both f g = all [f; g]
 
@@ -44,7 +44,7 @@ let pair f g =
         Promise.break r ex
     in
     let new_fibre = Cancel.Fibre_context.make ~cc:cancel in
-    perform (Fork_ignore (new_fibre, f));
+    perform (Fork (new_fibre, f));
     p
   in
   match g () with
@@ -58,9 +58,9 @@ let pair f g =
       | Cancel.Cancelled _ -> raise fex                         (* [f] fails, nothing to report for [g] *)
       | _ -> raise (Multiple_exn.T [fex; gex])                  (* Both fail *)
 
-let fork_sub_ignore ?on_release ~sw ~on_error f =
+let fork_sub ?on_release ~sw ~on_error f =
   let did_attach = ref false in
-  fork_ignore ~sw (fun () ->
+  fork ~sw (fun () ->
       try Switch.run (fun sw -> Option.iter (Switch.on_release sw) on_release; did_attach := true; f sw)
       with
       | Cancel.Cancelled _ as ex ->
@@ -88,7 +88,7 @@ let any fs =
   let r = ref `None in
   let parent_c =
     Cancel.sub_unchecked (fun cc ->
-        let wrap h () =
+        let wrap h =
           match h () with
           | x ->
             begin match !r with
@@ -105,16 +105,16 @@ let any fs =
         in
         let rec aux = function
           | [] -> await_cancel ()
-          | [f] -> wrap f (); []
+          | [f] -> wrap f; []
           | f :: fs ->
             let new_fibre = Cancel.Fibre_context.make ~cc in
             let p, r = Promise.create () in
             let f () =
-              match wrap f () with
+              match wrap f with
               | x -> Promise.fulfill r x
               | exception ex -> Promise.break r ex
             in
-            perform (Fork_ignore (new_fibre, f));
+            perform (Fork (new_fibre, f));
             p :: aux fs
         in
         let ps = aux fs in

@@ -784,7 +784,7 @@ module Objects = struct
     method accept_sub ~sw ~on_error fn =
       Switch.check sw;
       let client, client_addr = accept_loose_fd fd in
-      Fibre.fork_sub_ignore ~sw ~on_error
+      Fibre.fork_sub ~sw ~on_error
         (fun sw ->
            let client_addr = match client_addr with
              | Unix.ADDR_UNIX path         -> `Unix path
@@ -1052,7 +1052,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
                 );
               schedule st
             )
-          | Eio.Private.Effects.Fork_ignore (new_fibre, f) -> Some (fun k -> 
+          | Eio.Private.Effects.Fork (new_fibre, f) -> Some (fun k -> 
               let k = { Suspended.k; fibre } in
               enqueue_thread st k ();
               fork ~new_fibre (fun () ->

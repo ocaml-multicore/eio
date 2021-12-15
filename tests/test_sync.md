@@ -24,7 +24,7 @@ Create a promise, fork a thread waiting for it, then fulfull it:
     Switch.run @@ fun sw ->
     let p, r = Promise.create () in
     traceln "Initial state: %a" (pp_promise Fmt.string) p;
-    let thread = Fibre.fork ~sw (fun () -> Promise.await p) in
+    let thread = Fibre.fork_promise ~sw (fun () -> Promise.await p) in
     Promise.fulfill r "ok";
     traceln "After being fulfilled: %a" (pp_promise Fmt.string) p;
     traceln "Thread before yield: %a" (pp_promise Fmt.string) thread;
@@ -45,7 +45,7 @@ Create a promise, fork a thread waiting for it, then break it:
     Switch.run @@ fun sw ->
     let p, r = Promise.create () in
     traceln "Initial state: %a" (pp_promise Fmt.string) p;
-    let thread = Fibre.fork ~sw (fun () -> Promise.await p) in
+    let thread = Fibre.fork_promise ~sw (fun () -> Promise.await p) in
     Promise.break r (Failure "test");
     traceln "After being broken: %a" (pp_promise Fmt.string) p;
     traceln "Thread before yield: %a" (pp_promise Fmt.string) thread;
@@ -61,19 +61,19 @@ Create a promise, fork a thread waiting for it, then break it:
 +Final result exception: test
 ```
 
-Some simple tests of `fork_ignore`:
+Some simple tests of `fork`:
 ```ocaml
 # let () =
     Eio_main.run @@ fun _stdenv ->
     let i = ref 0 in
     Switch.run (fun sw ->
-        Fibre.fork_ignore ~sw (fun () -> incr i);
+        Fibre.fork ~sw (fun () -> incr i);
       );
     traceln "Forked code ran; i is now %d" !i;
     let p1, r1 = Promise.create () in
     try
       Switch.run (fun sw ->
-          Fibre.fork_ignore ~sw (fun () -> Promise.await p1; incr i; raise Exit);
+          Fibre.fork ~sw (fun () -> Promise.await p1; incr i; raise Exit);
           traceln "Forked code waiting; i is still %d" !i;
           Promise.fulfill r1 ()
         );
@@ -93,7 +93,7 @@ Basic semaphore tests:
     Switch.run @@ fun sw ->
     let running = ref 0 in
     let sem = Semaphore.make 2 in
-    let fork = Fibre.fork ~sw in
+    let fork = Fibre.fork_promise ~sw in
     let a = fork (fun () -> Ctf.label "a"; Semaphore.acquire sem; incr running) in
     let b = fork (fun () -> Ctf.label "b"; Semaphore.acquire sem; incr running) in
     let c = fork (fun () -> Ctf.label "c"; Semaphore.acquire sem; incr running) in
@@ -130,8 +130,8 @@ Releasing a semaphore when no-one is waiting for it:
     let sem = Semaphore.make 0 in
     Semaphore.release sem;        (* Release with free-counter *)
     traceln "Initial config: %d" (Semaphore.get_value sem);
-    Fibre.fork_ignore ~sw (fun () -> Ctf.label "a"; Semaphore.acquire sem);
-    Fibre.fork_ignore ~sw (fun () -> Ctf.label "b"; Semaphore.acquire sem);
+    Fibre.fork ~sw (fun () -> Ctf.label "a"; Semaphore.acquire sem);
+    Fibre.fork ~sw (fun () -> Ctf.label "b"; Semaphore.acquire sem);
     traceln "A running: %d" (Semaphore.get_value sem);
     Semaphore.release sem;        (* Release with a non-empty wait-queue *)
     traceln "Now b running: %d" (Semaphore.get_value sem);

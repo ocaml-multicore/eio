@@ -221,7 +221,7 @@ Exception: Failure "simulated error".
 
 # Fibre.fork
 
-`Fibre.fork ~sw` inherits the cancellation context from `sw`, not from the current fibre:
+`Fibre.fork_promise ~sw` inherits the cancellation context from `sw`, not from the current fibre:
 
 ```ocaml
 # run @@ fun () ->
@@ -235,7 +235,7 @@ Exception: Failure "simulated error".
     (fun () ->
       let sw = Option.get !switch in
       Eio.Cancel.protect @@ fun () ->
-      let child = Fibre.fork ~sw (fun () ->
+      let child = Fibre.fork_promise ~sw (fun () ->
          traceln "Forked child";
          Fibre.await_cancel ()
       ) in
