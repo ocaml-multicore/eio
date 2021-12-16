@@ -39,6 +39,12 @@ and fibre_context = {
 
 type _ eff += Get_context : fibre_context eff
 
+let combine_exn e1 e2 =
+  match e1, e2 with
+  | (Cancelled _), e
+  | e, (Cancelled _) -> e  (* Don't need to report a cancelled exception if we have something better *)
+  | _ -> Multiple_exn.T [e1; e2]
+
 let cancelled t =
   match t.state with
   | On -> false
@@ -95,33 +101,39 @@ let protect fn =
   check t;
   x
 
-let rec cancel t ex =
+let rec cancel_internal t ex acc_fns =
   match t.state with
   | Finished -> invalid_arg "Cancellation context finished!"
-  | Cancelling _ -> ()
+  | Cancelling _ -> acc_fns
   | On ->
     let bt = Printexc.get_raw_backtrace () in
     t.state <- Cancelling (ex, bt);
-    let cex = Cancelled ex in
-    let rec aux () =
+    let rec aux acc_fns =
       match Lwt_dllist.take_opt_r t.fibres with
-      | None -> Lwt_dllist.fold_r (cancel_child ex) t.children []
+      | None -> Lwt_dllist.fold_r (cancel_child ex) t.children acc_fns
       | Some fibre ->
         match Atomic.exchange fibre.cancel_fn None with
-        | None -> aux ()        (* The operation succeeded and so can't be cancelled now *)
-        | Some cancel_fn ->
-          match cancel_fn cex with
-          | () -> aux ()
-          | exception ex2 -> ex2 :: aux ()
+        | None -> aux acc_fns        (* The operation succeeded and so can't be cancelled now *)
+        | Some cancel_fn -> cancel_fn :: aux acc_fns
     in
-    match protect aux with
-    | [] -> ()
-    | exns -> raise (Cancel_hook_failed exns)
+    aux acc_fns
 and cancel_child ex t acc =
   if t.protected then acc
-  else match cancel t ex with
-    | () -> acc
-    | exception ex -> ex :: acc
+  else cancel_internal t ex acc
+
+let cancel t ex =
+  let fns = cancel_internal t ex [] in
+  let cex = Cancelled ex in
+  let rec aux = function
+    | [] -> []
+    | fn :: fns ->
+      match fn cex with
+      | () -> aux fns
+      | exception ex2 -> ex2 :: aux fns
+  in
+  match protect (fun () -> aux fns) with
+  | [] -> ()
+  | exns -> raise (Cancel_hook_failed exns)
 
 let sub fn =
   let ctx = perform Get_context in

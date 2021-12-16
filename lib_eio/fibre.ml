@@ -33,30 +33,33 @@ let all xs =
 let both f g = all [f; g]
 
 let pair f g =
-  Cancel.sub @@ fun cancel ->
+  Cancel.sub @@ fun cc ->
   let x =
     let p, r = Promise.create () in
     let f () =
       match f () with
       | x -> Promise.fulfill r x
       | exception ex ->
-        Cancel.cancel cancel ex;
+        Cancel.cancel cc ex;
         Promise.break r ex
     in
-    let new_fibre = Cancel.Fibre_context.make ~cc:cancel in
+    let new_fibre = Cancel.Fibre_context.make ~cc in
     perform (Fork (new_fibre, f));
     p
   in
   match g () with
   | gr -> Promise.await x, gr               (* [g] succeeds - just report [f]'s result *)
   | exception gex ->
-    Cancel.cancel cancel gex;
+    Cancel.cancel cc gex;
+    (* Note: we don't know if the [Cancelled] exceptions here are from us cancelling or from an external
+       cancel, but it doesn't matter. If the cancel was external then the parent context is cancelled,
+       and [Cancel.sub] checks for us at the end. *)
     match Cancel.protect (fun () -> Promise.await_result x) with
     | Ok _ | Error (Cancel.Cancelled _) -> raise gex    (* [g] fails, nothing to report for [f] *)
     | Error fex ->
       match gex with
       | Cancel.Cancelled _ -> raise fex                         (* [f] fails, nothing to report for [g] *)
-      | _ -> raise (Multiple_exn.T [fex; gex])                  (* Both fail *)
+      | _ -> raise (Cancel.combine_exn fex gex)                 (* Both fail *)
 
 let fork_sub ?on_release ~sw ~on_error f =
   let did_attach = ref false in
@@ -95,12 +98,16 @@ let any fs =
               | `None -> r := `Ok x; Cancel.cancel cc Not_first
               | `Ex _ | `Ok _ -> ()
             end
-          | exception Cancel.Cancelled _ when Cancel.cancelled cc -> ()
+          | exception Cancel.Cancelled _ when Cancel.cancelled cc ->
+            (* If this is in response to us asking the fibre to cancel then we can just ignore it.
+               If it's in response to our parent context being cancelled (which also cancels [cc]) then
+               we'll check that context and raise it at the end anyway. *)
+            ()
           | exception ex ->
             begin match !r with
               | `None -> r := `Ex (ex, Printexc.get_raw_backtrace ()); Cancel.cancel cc ex
               | `Ok _ -> r := `Ex (ex, Printexc.get_raw_backtrace ())
-              | `Ex (e1, bt) -> r := `Ex (Multiple_exn.T [e1; ex], bt)
+              | `Ex (e1, bt) -> r := `Ex (Cancel.combine_exn e1 ex, bt)
             end
         in
         let rec aux = function
@@ -125,7 +132,11 @@ let any fs =
   | `Ok r, None -> r
   | (`Ok _ | `None), Some ex -> raise ex
   | `Ex (ex, bt), None -> Printexc.raise_with_backtrace ex bt
-  | `Ex (ex, bt), Some ex2 -> Printexc.raise_with_backtrace (Multiple_exn.T [ex; ex2]) bt
+  | `Ex (ex, bt), Some ex2 -> Printexc.raise_with_backtrace (Cancel.combine_exn ex ex2) bt
   | `None, None -> assert false
 
 let first f g = any [f; g]
+
+let check () =
+  let ctx = perform Cancel.Get_context in
+  Cancel.check ctx.cancel_context
