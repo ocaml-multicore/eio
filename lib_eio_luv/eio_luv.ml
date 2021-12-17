@@ -235,7 +235,7 @@ module Stream = struct
     let r = enter (fun t k ->
         Fibre_context.set_cancel_fn k.fibre (fun ex ->
             Luv.Stream.read_stop (Handle.get "read_into:cancel" sock) |> or_raise;
-            enqueue_failed_thread t k (Eio.Cancel.Cancelled ex)
+            enqueue_failed_thread t k ex
           );
         Luv.Stream.read_start (Handle.get "read_start" sock) ~allocate:(fun _ -> buf) (fun r ->
             Luv.Stream.read_stop (Handle.get "read_stop" sock) |> or_raise;

@@ -188,9 +188,15 @@ module Std : sig
         This is just a convenience wrapper around {!fork}.
         If [fn] raises an exception then the promise is broken, but [sw] is not turned off. *)
 
+    val check : unit -> unit
+    (** [check ()] checks that the fibre's context hasn't been cancelled.
+        Many operations automatically check this before starting.
+        @raise Cancel.Cancelled if the fibre's context has been cancelled. *)
+
     val yield : unit -> unit
     (** [yield ()] asks the scheduler to switch to the next runnable task.
-        The current task remains runnable, but goes to the back of the queue. *)
+        The current task remains runnable, but goes to the back of the queue.
+        Automatically calls {!check} just before resuming. *)
   end
 
   val traceln :
@@ -274,7 +280,40 @@ end
 (** Cancelling other fibres when an exception occurs. *)
 module Cancel : sig
   (** This is the low-level interface to cancellation.
-      Every {!Switch} includes a cancellation context and most users will just use that API instead. *)
+      Every {!Switch} includes a cancellation context and most users will just use that API instead.
+
+      Each domain has a tree of cancellation contexts, and every fibre is registered with one context.
+      A fibre can switch to a different context (e.g. by calling {!sub}).
+      When a context is cancelled, all registered fibres have their current cancellation function (if any)
+      called and removed. Child contexts are cancelled too, recursively, unless marked as protected.
+
+      Many operations also check that the current context hasn't been cancelled,
+      so if a fibre is performing a non-cancellable operation it will still get cancelled soon afterwards.
+      This check is typically done when starting an operation, not at the end.
+      If an operation is cancelled after succeeding, but while still waiting on the run queue,
+      it will still return the operation's result.
+      A notable exception is {!Fibre.yield}, which checks at the end.
+      You can also use {!Fibre.check} to check manually.
+
+      Whether a fibre is cancelled through a cancellation function or by checking its context,
+      it will receive a {!Cancelled} exception.
+      It is possible the exception will get lost (if something catches it and forgets to re-raise).
+      It is also possible to get this exception even when not cancelled, for example by awaiting
+      a promise which another fibre has resolved to a cancelled exception.
+      When in doubt, call {!Fibre.check ()} to find out if your fibre is really cancelled.
+      Ideally this should be done any time you have caught an exception and are planning to ignore it,
+      although if you forget then the next IO operation will typically abort anyway.
+
+      Quick clean-up actions (such as releasing a mutex or deleting a temporary file) are OK,
+      but operations that may block should be avoided.
+      For example, a network connection should simply be closed,
+      without attempting to send a goodbye message.
+
+      A [Cancelled] exception will eventually be caught by the structure that sent it.
+      For example, if {!Fibre.both} gets a regular exception [ex] from one of its branches
+      it will send a [Cancelled ex] exception to the other one.
+      When that branch later fails with the [Cancelled ex] exception,
+      [Fibre.both] will handle it by raising the original [ex] again. *)
 
   type t
   (** A cancellation context. *)
@@ -295,7 +334,8 @@ module Cancel : sig
   val protect : (unit -> 'a) -> 'a
   (** [protect fn] runs [fn] in a new cancellation context that isn't cancelled when its parent is.
       This can be used to clean up resources on cancellation.
-      However, it is usually better to use {!Switch.on_release} (which calls this for you). *)
+      However, it is usually better to use {!Switch.on_release} (which calls this for you).
+      Note that [protect] does not check its parent context when it finishes. *)
 
   val check : t -> unit
   (** [check t] checks that [t] hasn't been cancelled.
@@ -306,9 +346,10 @@ module Cancel : sig
       If [t] is finished, this returns (rather than raising) the [Invalid_argument] exception too. *)
 
   val cancel : t -> exn -> unit
-  (** [cancel t ex] marks [t] as cancelled and then calls all registered hooks,
-      passing [ex] as the argument.
-      All hooks are run, even if some of them raise exceptions.
+  (** [cancel t ex] marks [t] and its child contexts as cancelled, recursively,
+      and calls all registered fibres' cancellation functions, passing [Cancelled ex] as the argument.
+      All cancellation functions are run, even if some of them raise exceptions.
+      If [t] is already cancelled then this does nothing.
       @raise Cancel_hook_failed if one or more hooks fail. *)
 end
 

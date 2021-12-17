@@ -231,7 +231,10 @@ What happened here was:
 5. The first thread's `yield` raised a `Cancelled` exception there.
 6. Once both threads had finished, `Fibre.both` re-raised the original exception.
 
-You should assume that any operation that can switch fibres can also raise a `Cancelled` exception if a sibling fibre crashes. 
+There is a tree of cancellation contexts for each domain, and every fibre is in one context.
+When an exception is raised, it propagates towards the root until handled, cancelling the other branches as it goes.
+You should assume that any operation that can switch fibres can also raise a `Cancelled` exception if an uncaught exception
+reaches one of its ancestor cancellation contexts.
 
 If you want to make an operation non-cancellable, wrap it with `Cancel.protect`
 (this creates a new context that isn't cancelled with its parent).
@@ -825,18 +828,13 @@ let run_worker id stream =
     traceln "Worker %s processing request %d" id request;
     match handle_job request with
     | result -> Promise.fulfill reply result
-    | exception Eio.Cancel.Cancelled ex ->
-      Promise.break reply (Failure "Worker shut down");
-      raise ex
-    | exception ex ->
-      Promise.break reply ex
+    | exception ex -> Promise.break reply ex; Fibre.check ()
   done
 ```
 
-Note that as we're catching all exceptions here we need a special case for `Cancelled`,
-which indicates that the worker was asked to shut down while processing a request.
-We don't send the `Cancelled` exception itself to the client as we're not asking it to shut down too,
-but we do exit the loop and propagate the cancellation to the parent context.
+The `Fibre.check ()` checks whether the worker itself has been cancelled, and exits the loop if so.
+It's not actually necessary in this case,
+because if we continue instead then the following `Stream.take` will perform the check anyway.
 
 ## Design Note: Determinism
 
