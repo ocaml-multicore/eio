@@ -753,9 +753,11 @@ module Objects = struct
              (should be fixed in Linux 5.14) *)
           await_readable fd
         );
-        let got = read_upto fd chunk max_len in
-        Cstruct.blit chunk_cs 0 buf 0 got;
-        got
+        match read_upto fd chunk max_len with
+        | 0 -> raise End_of_file
+        | got ->
+            Cstruct.blit chunk_cs 0 buf 0 got;
+            got
 
       method read_methods = []
 
