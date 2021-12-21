@@ -862,6 +862,9 @@ See Eio's own tests for examples, e.g., [tests/test_switch.md](tests/test_switch
 
 ## Further Reading
 
+- [lib_eio/eio.mli](lib_eio/eio.mli) documents Eio's public API.
+- [doc/rationale.md](doc/rationale.md) describes some of Eio's design tradeoffs in more detail.
+
 Some background about the effects system can be found in:
 
 - [Experiences with effects (video)](https://watch.ocaml.org/videos/watch/74ece0a8-380f-4e2a-bef5-c6bb9092be89), OCaml Workshop 2021.
