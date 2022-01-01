@@ -297,7 +297,7 @@ It may also attach other resources such as open file handles.
 releases any attached resources (e.g. closing all attached file handles).
 
 If you call a function without giving it access to a switch,
-then when the function returns you can be sure that any fibres it spawned have finished,
+then when the function returns you can not be sure that any fibres it spawned have finished,
 and any files it opened have been closed.
 So, a `Switch.run` puts a bound on the lifetime of things created within it,
 leading to clearer code and avoiding resource leaks.
