@@ -45,11 +45,10 @@ let combine_exn e1 e2 =
   | e, (Cancelled _) -> e  (* Don't need to report a cancelled exception if we have something better *)
   | _ -> Multiple_exn.T [e1; e2]
 
-let cancelled t =
+let is_on t =
   match t.state with
-  | On -> false
-  | Cancelling _ -> true
-  | Finished -> invalid_arg "Cancellation context finished!"
+  | On -> true
+  | Cancelling _ | Finished -> false
 
 let check t =
   match t.state with
@@ -78,18 +77,25 @@ let move_fibre_to t fibre =
 let create ~protected =
   let children = Lwt_dllist.create () in
   let fibres = Lwt_dllist.create () in
-  { state = On; children; protected; fibres }
+  { state = Finished; children; protected; fibres }
+
+(* Links [t] into the tree as a child of [parent] and returns a function to remove it again. *)
+let activate t ~parent =
+  assert (t.state = Finished);
+  assert (parent.state <> Finished);
+  t.state <- On;
+  let node = Lwt_dllist.add_r t parent.children in
+  fun () ->
+    assert (parent.state <> Finished);
+    t.state <- Finished;
+    Lwt_dllist.remove node
 
 (* Runs [fn] with a fresh cancellation context. *)
 let with_cc ~ctx:fibre ~parent ~protected fn =
   let t = create ~protected in
-  let node = Lwt_dllist.add_r t parent.children in
+  let deactivate = activate t ~parent in
   move_fibre_to t fibre;
-  let cleanup () =
-    move_fibre_to parent fibre;
-    t.state <- Finished;
-    Lwt_dllist.remove node
-  in
+  let cleanup () = move_fibre_to parent fibre; deactivate () in
   match fn t with
   | x            -> cleanup (); x
   | exception ex -> cleanup (); raise ex
@@ -184,7 +190,10 @@ module Fibre_context = struct
     t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibres);
     t
 
-  let make_root () = make ~cc:(create ~protected:false)
+  let make_root () =
+    let cc = create ~protected:false in
+    cc.state <- On;
+    make ~cc
 
   let destroy t =
     Option.iter Lwt_dllist.remove t.cancel_node

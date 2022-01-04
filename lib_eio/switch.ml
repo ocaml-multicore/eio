@@ -30,15 +30,19 @@ let rec turn_off t ex =
     Ctf.note_resolved t.id ~ex:(Some ex);
     Cancel.cancel t.cancel ex
 
-let with_op t fn =
+let inc_fibres t =
   check t;
-  t.fibres <- t.fibres + 1;
+  t.fibres <- t.fibres + 1
+
+let dec_fibres t =
+  t.fibres <- t.fibres - 1;
+  if t.fibres = 0 then
+    Waiters.wake_all t.waiter ()
+
+let with_op t fn =
+  inc_fibres t;
   Fun.protect fn
-    ~finally:(fun () ->
-        t.fibres <- t.fibres - 1;
-        if t.fibres = 0 then
-          Waiters.wake_all t.waiter ()
-      )
+    ~finally:(fun () -> dec_fibres t)
 
 let or_raise = function
   | Ok x -> x
@@ -73,17 +77,19 @@ let raise_with_extras t ex bt =
   | [] -> Printexc.raise_with_backtrace ex bt
   | exns -> Printexc.raise_with_backtrace (Multiple_exn.T (ex :: List.rev exns)) bt
 
-let run_internal fn cancel =
+let create cancel =
   let id = Ctf.mint_id () in
   Ctf.note_created id Ctf.Switch;
-  let t = {
+  {
     id;
     fibres = 0;
     extra_exceptions = [];
     waiter = Waiters.create ();
     on_release = Lwt_dllist.create ();
     cancel;
-  } in
+  }
+
+let run_internal t fn =
   match fn t with
   | v ->
     await_idle t;
@@ -112,12 +118,24 @@ let run_internal fn cancel =
     | On | Finished -> assert false
     | Cancelling (ex, bt) -> raise_with_extras t ex bt
 
-let run fn = Cancel.sub (run_internal fn)
+let run fn = Cancel.sub (fun cc -> run_internal (create cc) fn)
 
 let run_protected fn =
   let ctx = EffectHandlers.perform Cancel.Get_context in
   Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true @@ fun cancel ->
-  run_internal fn cancel
+  run_internal (create cancel) fn
+
+(* Run [fn ()] in [t]'s cancellation context.
+   This prevents [t] from finishing until [fn] is done,
+   and means that cancelling [t] will cancel [fn]. *)
+let run_in t fn =
+  with_op t @@ fun () ->
+  let ctx = EffectHandlers.perform Cancel.Get_context in
+  let old_cc = ctx.cancel_context in
+  Cancel.move_fibre_to t.cancel ctx;
+  match fn () with
+  | ()           -> Cancel.move_fibre_to old_cc ctx;
+  | exception ex -> Cancel.move_fibre_to old_cc ctx; raise ex
 
 let on_release_full t fn =
   match t.cancel.state with

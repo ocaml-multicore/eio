@@ -6,14 +6,15 @@ let yield () =
   let fibre = Suspend.enter (fun fibre enqueue -> enqueue (Ok fibre)) in
   Cancel.check fibre.cancel_context
 
-let fork ~sw f =
-  let f () =
-    Switch.with_op sw @@ fun () ->
-    try f ()
-    with ex -> Switch.turn_off sw ex
-  in
-  let new_fibre = Cancel.Fibre_context.make ~cc:sw.cancel in
+let fork_raw cc f =
+  let new_fibre = Cancel.Fibre_context.make ~cc in
   perform (Fork (new_fibre, f))
+
+let fork ~sw f =
+  fork_raw sw.Switch.cancel @@ fun () ->
+  Switch.with_op sw @@ fun () ->
+  try f ()
+  with ex -> Switch.turn_off sw ex
 
 let fork_promise ~sw f =
   let new_fibre = Cancel.Fibre_context.make ~cc:sw.Switch.cancel in
@@ -25,6 +26,52 @@ let fork_promise ~sw f =
   in
   perform (Fork (new_fibre, f));
   p
+
+let fork_on_accept ~on_handler_error ~sw:adopting_sw accept handle =
+  (* Create a new sub-switch of [adopting_sw].
+     Run [accept] with the new switch as an argument,
+     but itself still running in the original context.
+     This situation is unusual because we have a switch but we're not in [Switch.run],
+     so we have to make sure we finish it safely in all cases. *)
+  Switch.check adopting_sw;
+  let cc = Cancel.create ~protected:false in
+  let deactivate = Cancel.activate cc ~parent:adopting_sw.cancel in
+  let child_switch = Switch.create cc in
+  (* We must prevent [adopting_sw] from finishing while it has a child switch. *)
+  Switch.inc_fibres adopting_sw;
+  let run_child fn =
+    match Switch.run_internal child_switch (fun (_ : Switch.t) -> fn ()) with
+    | () -> deactivate (); Switch.dec_fibres adopting_sw
+    | exception ex -> deactivate (); Switch.dec_fibres adopting_sw; raise ex
+  in
+  (* From this point we have a [child_switch] that may have fibres and other resources attached to it.
+     We must call [run_child] on it in all cases. *)
+  match accept child_switch with
+  | exception ex ->
+    (* Accept failed. Don't fork. Shut down [child_switch] in the parent context. *)
+    run_child (fun () -> raise ex)
+  | _ when not (Cancel.is_on adopting_sw.cancel) ->
+    (* We can't fork into [adopting_sw] if it's cancelled, so just clean up and report Cancelled.
+       The main error is owned by [adopting_sw]. *)
+    begin
+      try run_child ignore
+      with ex -> raise (Cancel.Cancelled ex)
+    end;
+    assert false        (* [run_child] must have failed if its parent is cancelled *)
+  | x ->
+    (* Accept succeeded. Fork a new fibre into [adopting_sw] and
+       run it with [child_switch] as its context. *)
+    fork_raw child_switch.cancel @@ fun () ->
+    try run_child (fun () -> Switch.check child_switch; handle child_switch x)
+    with ex ->
+      (* No point reporting an error if we're being cancelled. Also, nowhere to run it. *)
+      if Cancel.is_on adopting_sw.cancel then (
+        Switch.run_in adopting_sw @@ fun () ->
+        try on_handler_error ex
+        with ex2 ->
+          Switch.turn_off adopting_sw ex;
+          Switch.turn_off adopting_sw ex2
+      )
 
 let all xs =
   Switch.run @@ fun sw ->
@@ -61,25 +108,20 @@ let pair f g =
       | Cancel.Cancelled _ -> raise fex                         (* [f] fails, nothing to report for [g] *)
       | _ -> raise (Cancel.combine_exn fex gex)                 (* Both fail *)
 
-let fork_sub ?on_release ~sw ~on_error f =
-  let did_attach = ref false in
+let fork_sub ~sw ~on_error f =
   fork ~sw (fun () ->
-      try Switch.run (fun sw -> Option.iter (Switch.on_release sw) on_release; did_attach := true; f sw)
+      try Switch.run f
       with
-      | Cancel.Cancelled _ as ex ->
-        (* Don't report cancellation to [on_error] *)
-        Switch.turn_off sw ex
-      | ex ->
+      | ex when Cancel.is_on sw.cancel ->
+        (* Typically the caller's context is within [sw], but it doesn't have to be.
+           It's possible that the original context has finished by now,
+           but [fork] is keeping [sw] alive so we can use that report the error. *)
+        Switch.run_in sw @@ fun () ->
         try on_error ex
         with ex2 ->
           Switch.turn_off sw ex;
           Switch.turn_off sw ex2
-    );
-  if not !did_attach then (
-    Option.iter Cancel.protect on_release;
-    Switch.check sw;
-    assert false
-  )
+    )
 
 exception Not_first
 
@@ -98,7 +140,7 @@ let any fs =
               | `None -> r := `Ok x; Cancel.cancel cc Not_first
               | `Ex _ | `Ok _ -> ()
             end
-          | exception Cancel.Cancelled _ when Cancel.cancelled cc ->
+          | exception Cancel.Cancelled _ when not (Cancel.is_on cc) ->
             (* If this is in response to us asking the fibre to cancel then we can just ignore it.
                If it's in response to our parent context being cancelled (which also cancels [cc]) then
                we'll check that context and raise it at the end anyway. *)

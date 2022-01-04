@@ -301,3 +301,171 @@ Same with `first`:
 +ok
 - : unit = ()
 ```
+
+# fork_on_accept
+
+We can attach resources to the switch in the accept function,
+and they get released when the child fibre finishes.
+
+```ocaml
+let test_fork_on_accept ?(reraise=false) ?(cancel=false) ?(in_accept=ignore) ?(in_handler=ignore) sw =
+  let on_handler_error =
+    if reraise then raise
+    else (fun ex -> traceln "on_handler_error: %a" Fmt.exn ex; Fibre.check ())
+  in
+  Fibre.both (fun () ->
+    Fibre.fork_on_accept ~sw ~on_handler_error
+      (fun sw ->
+         traceln "Got connection";
+         Switch.on_release sw (fun () -> traceln "Releasing connection"; Fibre.check ());
+         in_accept sw;
+         1
+      )
+      (fun sw x ->
+         traceln "Run handler with %d" x;
+         Fibre.yield ();
+         in_handler sw;
+         traceln "Handler done"
+      );
+    )
+    (fun () -> if cancel then failwith "Simulated failure");
+  traceln "Main fibre resumes";
+  "Main fibre result"
+```
+
+The success case:
+
+```ocaml
+# run @@ fun () ->
+  Switch.run test_fork_on_accept;;
++Got connection
++Run handler with 1
++Main fibre resumes
++Handler done
++Releasing connection
++Main fibre result
+- : unit = ()
+```
+
+The accept function fails:
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ test_fork_on_accept ~in_accept:(fun _ -> failwith "Accept failure");;
++Got connection
++Releasing connection
+Exception: Failure "Accept failure".
+```
+
+The handler function fails:
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ test_fork_on_accept ~in_handler:(fun _ -> failwith "Handler fails");;
++Got connection
++Run handler with 1
++Main fibre resumes
++Releasing connection
++on_handler_error: Failure("Handler fails")
++Main fibre result
+- : unit = ()
+```
+
+Turning off the child switch in the accept function. We treat this as the handler being cancelled:
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ test_fork_on_accept ~in_accept:(fun sw -> Switch.turn_off sw (Failure "Accept turn-off"));;
++Got connection
++Releasing connection
++on_handler_error: Failure("Accept turn-off")
++Main fibre resumes
++Main fibre result
+- : unit = ()
+```
+
+Propagating handling errors to the parent:
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ test_fork_on_accept ~in_handler:(fun _  -> failwith "Handler fails") ~reraise:true;;
++Got connection
++Run handler with 1
++Main fibre resumes
++Releasing connection
+Exception: Failure "Handler fails".
+```
+
+Cancelling while in accept:
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ test_fork_on_accept ~in_accept:(fun _  -> Fibre.await_cancel ()) ~cancel:true;;
++Got connection
++Releasing connection
+Exception: Failure "Simulated failure".
+```
+
+Cancelling while in handler. `on_hander_error` is not called for cancellations:
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ test_fork_on_accept ~in_handler:(fun _  -> Fibre.await_cancel ()) ~cancel:true;;
++Got connection
++Run handler with 1
++Releasing connection
+Exception: Failure "Simulated failure".
+```
+
+Parent switch turned off. The main error is reported by the owner of the background thread,
+with `fork_on_accept` just getting a `Cancelled` exception. The background switch can't exit
+until the connection is released.
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let bg_switch = ref None in
+  Fibre.fork_sub ~sw ~on_error:(traceln "Background thread failed: %a" Fmt.exn) (fun sw ->
+     bg_switch := Some sw; Fibre.await_cancel ()
+  );
+  let bg_switch = Option.get !bg_switch in
+  test_fork_on_accept bg_switch
+    ~in_accept:(fun _  ->
+       Switch.turn_off bg_switch (Failure "Background switch turned off");
+       Fibre.yield ()
+    );;
++Got connection
++Releasing connection
++Background thread failed: Failure("Background switch turned off")
+Exception: Cancelled: Failure("Background switch turned off")
+```
+
+The child outlives the forking context. The error handler runs in `bg_switch`, so it still works:
+
+```ocaml
+# run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let bg_switch = ref None in
+  Fibre.fork_sub ~sw ~on_error:(traceln "Background thread failed: %a" Fmt.exn) (fun sw ->
+     bg_switch := Some sw; Fibre.yield ()
+  );
+  let bg_switch = Option.get !bg_switch in
+  let x = Switch.run (fun _ ->
+     test_fork_on_accept bg_switch
+       ~in_handler:(fun _ ->
+          Fibre.yield ();
+          failwith "Simulated error"
+       )
+  ) in
+  traceln "Main switch done";
+  x
+  ;;
++Got connection
++Run handler with 1
++Main fibre resumes
++Main switch done
++Releasing connection
++on_handler_error: Failure("Simulated error")
++Main fibre result
+- : unit = ()
+```

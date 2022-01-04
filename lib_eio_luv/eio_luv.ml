@@ -363,7 +363,7 @@ module Objects = struct
 
     method close = Handle.close sock
 
-    method accept_sub ~sw ~on_error fn =
+    method accept ~sw =
       Eio.Semaphore.acquire ready;
       let client = self#make_client |> Handle.of_luv_no_hook in
       match Luv.Stream.accept ~server:(Handle.get "accept" sock) ~client:(Handle.get "accept" client) with
@@ -371,12 +371,10 @@ module Objects = struct
         Handle.close client;
         raise (Luv_error e)
       | Ok () ->
-        Fibre.fork_sub ~sw ~on_error
-          (fun sw ->
-             let client_addr = self#get_client_addr client in
-             fn ~sw (socket client :> <Eio.Flow.two_way; Eio.Flow.close>) client_addr
-          )
-          ~on_release:(fun () -> Handle.ensure_closed client)
+        Switch.on_release sw (fun () -> Handle.ensure_closed client);
+        let flow = (socket client :> <Eio.Flow.two_way; Eio.Flow.close>) in
+        let client_addr = self#get_client_addr client in
+        flow, client_addr
 
     initializer
       Luv.Stream.listen ~backlog (Handle.get "listen" sock) (fun x ->
