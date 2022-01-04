@@ -109,13 +109,16 @@ module Std : sig
     (** [resolve t (Ok x)] is [fulfill t x] and
         [resolve t (Error ex)] is [break t ex]. *)
 
+    val cancel : 'a u -> unit
+    (** [cancel t] cancels promise [t]. *)
+
     val fulfilled : 'a -> 'a t
     (** [fulfilled x] is a promise that is already fulfilled with result [x]. *)
 
     val broken : exn -> 'a t
     (** [broken x] is a promise that is already broken with exception [ex]. *)
 
-    val state : 'a t -> [`Unresolved | `Fulfilled of 'a | `Broken of exn]
+    val state : 'a t -> [`Unresolved | `Fulfilled of 'a | `Cancelled | `Broken of exn]
     (** [state t] is the current state of [t].
         If the state is [`Unresolved] then it may change in future, otherwise it won't.
         If another domain has access to the resolver then the state may have already

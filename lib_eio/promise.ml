@@ -24,6 +24,7 @@
 type 'a state =
   | Fulfilled of 'a
   | Broken of exn
+  | Cancelled
   | Unresolved of ('a, exn) result Waiters.t * Mutex.t
   (* The Unresolved state's mutex box contains:
      - Full access to the Waiters.
@@ -40,6 +41,9 @@ type !'a t = {
 }
 
 type 'a u = 'a t
+
+
+exception Promise_cancelled
 
 let create_with_id id =
   let t = {
@@ -74,6 +78,9 @@ let await_result t =
   | Broken ex ->
     Ctf.note_read t.id;
     Error ex
+  | Cancelled ->
+    Ctf.note_read t.id;
+    Error Promise_cancelled
   | Unresolved (q, mutex) ->
     (* We discovered that the promise was unresolved, but we can't be sure it still is,
        since we had to return the half-share reference to the atomic. So the [get] is
@@ -91,6 +98,10 @@ let await_result t =
       Waiters.await ~mutex:(Some mutex) q t.id
     (* Otherwise, the promise was resolved by the time we took the lock.
        Release the lock (which is fine, as we didn't change anything). *)
+    | Cancelled ->
+        Mutex.unlock mutex;
+        Ctf.note_read t.id;
+        Error Promise_cancelled
     | Fulfilled x ->
       Mutex.unlock mutex;
       Ctf.note_read t.id;
@@ -109,6 +120,7 @@ let rec fulfill t v =
   match Atomic.get t.state with
   | Broken ex -> invalid_arg ("Can't fulfill already-broken promise: " ^ Printexc.to_string ex)
   | Fulfilled _ -> invalid_arg "Can't fulfill already-fulfilled promise"
+  | Cancelled -> invalid_arg "Can't fulfill already-cancelled promise"
   | Unresolved (q, mutex) as prev ->
     (* The above [get] just gets us access to the mutex;
        By the time we get here, the promise may have become resolved. *)
@@ -142,6 +154,7 @@ let rec break t ex =
                                   (Printexc.to_string orig) (Printexc.to_string ex))
   | Fulfilled _ -> invalid_arg (Printf.sprintf "Can't break already-fulfilled promise (with %s)"
                                   (Printexc.to_string ex))
+  | Cancelled -> invalid_arg "Can't break already cancelled promise"
   | Unresolved (q, mutex) as prev ->
     (* Same logic as for [fulfill]. *)
     Mutex.lock mutex;
@@ -158,15 +171,32 @@ let resolve t = function
   | Ok x -> fulfill t x
   | Error ex -> break t ex
 
+let rec cancel t : unit=
+  match Atomic.get t.state with
+  | Broken ex -> invalid_arg ("Can't cancel already-broken promise: " ^ Printexc.to_string ex)
+  | Fulfilled _ -> invalid_arg "Can't cancel already-fulfilled promise"
+  | Cancelled -> invalid_arg "Can't cancel already-cancelled promise"
+  | Unresolved (q, mutex) as prev ->
+    Mutex.lock mutex;
+    if Atomic.compare_and_set t.state prev Cancelled then (
+      Ctf.note_resolved t.id ~ex:None;
+      Waiters.wake_all q (Error Promise_cancelled);
+      Mutex.unlock mutex
+    ) else (
+      Mutex.unlock mutex;
+      cancel t
+    )
+
 let state t =
   match Atomic.get t.state with
   | Unresolved _ -> `Unresolved
   | Fulfilled x -> `Fulfilled x
   | Broken ex -> `Broken ex
+  | Cancelled -> `Cancelled
 
 let id t = t.id
 
 let is_resolved t =
   match Atomic.get t.state with
-  | Fulfilled _ | Broken _ -> true
+  | Fulfilled _ | Broken _ | Cancelled -> true
   | Unresolved _ -> false
