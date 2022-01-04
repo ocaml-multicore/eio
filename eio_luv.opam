@@ -9,7 +9,7 @@ homepage: "https://github.com/ocaml-multicore/eio"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "2.9"}
-  "ocaml-variants" {= "4.12.0+domains"}
+  "base-domains"
   "ctf" {= version}
   "eio" {= version}
   "eunix" {= version}
