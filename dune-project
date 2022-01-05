@@ -14,6 +14,7 @@
   (ctf (= :version))
   (cstruct (>= 6.0.1))
   lwt-dllist
+  (fmt (>= 0.8.9))
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name eunix)

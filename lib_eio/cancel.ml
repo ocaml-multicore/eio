@@ -39,6 +39,36 @@ and fibre_context = {
 
 type _ eff += Get_context : fibre_context eff
 
+let pp_state f t =
+  begin match t.state with
+    | On -> Fmt.string f "on"
+    | Cancelling (ex, _) -> Fmt.pf f "cancelling(%a)" Fmt.exn ex
+    | Finished -> Fmt.string f "finished"
+  end;
+  if t.protected then Fmt.pf f " (protected)"
+
+let pp_fibre f fibre =
+  Fmt.pf f "%d" (fibre.tid :> int)
+
+let pp_lwt_dlist ~sep pp f t =
+  let first = ref true in
+  t |> Lwt_dllist.iter_l (fun item ->
+      if !first then first := false
+      else sep f ();
+      pp f item;
+    )
+
+let rec dump f t =
+  Fmt.pf f "@[<v2>%a [%a]%a@]"
+    pp_state t
+    (pp_lwt_dlist ~sep:(Fmt.any ",") pp_fibre) t.fibres
+    pp_children t.children
+and pp_children f ts =
+  ts |> Lwt_dllist.iter_l (fun t ->
+      Fmt.cut f ();
+      dump f t
+    )
+
 let combine_exn e1 e2 =
   match e1, e2 with
   | (Cancelled _), e
