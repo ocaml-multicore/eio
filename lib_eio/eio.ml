@@ -16,7 +16,7 @@ end
 
 module Semaphore = Semaphore
 module Stream = Stream
-module Multiple_exn = Multiple_exn
+module Exn = Exn
 
 open Std
 

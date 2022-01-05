@@ -231,7 +231,7 @@ Trying to use a stream with a cancelled context:
 +Reading from stream
 +Got 1 from stream
 +Added 1 to stream
-Exception: Cancel.
+- : unit = ()
 ```
 
 Readers queue up:

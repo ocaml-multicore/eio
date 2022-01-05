@@ -66,7 +66,7 @@ module FD = struct
     let res = perform (Close fd) in
     Log.debug (fun l -> l "close: woken up");
     if res < 0 then
-      raise (Unix.Unix_error (Uring.error_of_errno res, "close", ""))
+      raise (Unix.Unix_error (Uring.error_of_errno res, "close", string_of_int (Obj.magic fd : int)))
 
   let ensure_closed t =
     if is_open t then close t

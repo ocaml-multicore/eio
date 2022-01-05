@@ -14,7 +14,7 @@ let fork ~sw f =
   fork_raw sw.Switch.cancel @@ fun () ->
   Switch.with_op sw @@ fun () ->
   try f ()
-  with ex -> Switch.turn_off sw ex
+  with ex -> Switch.fail sw ex
 
 let fork_promise ~sw f =
   let new_fibre = Cancel.Fibre_context.make ~cc:sw.Switch.cancel in
@@ -41,7 +41,7 @@ let fork_on_accept ~on_handler_error ~sw:adopting_sw accept handle =
   Switch.inc_fibres adopting_sw;
   let run_child fn =
     match Switch.run_internal child_switch (fun (_ : Switch.t) -> fn ()) with
-    | () -> deactivate (); Switch.dec_fibres adopting_sw
+    | () -> deactivate (); Switch.dec_fibres adopting_sw; Switch.check adopting_sw
     | exception ex -> deactivate (); Switch.dec_fibres adopting_sw; raise ex
   in
   (* From this point we have a [child_switch] that may have fibres and other resources attached to it.
@@ -55,7 +55,9 @@ let fork_on_accept ~on_handler_error ~sw:adopting_sw accept handle =
        The main error is owned by [adopting_sw]. *)
     begin
       try run_child ignore
-      with ex -> raise (Cancel.Cancelled ex)
+      with
+      | Cancel.Cancelled _ as ex -> raise ex
+      | ex -> raise (Cancel.Cancelled ex)
     end;
     assert false        (* [run_child] must have failed if its parent is cancelled *)
   | x ->
@@ -69,8 +71,8 @@ let fork_on_accept ~on_handler_error ~sw:adopting_sw accept handle =
         Switch.run_in adopting_sw @@ fun () ->
         try on_handler_error ex
         with ex2 ->
-          Switch.turn_off adopting_sw ex;
-          Switch.turn_off adopting_sw ex2
+          Switch.fail adopting_sw ex;
+          Switch.fail adopting_sw ex2
       )
 
 let all xs =
@@ -80,33 +82,10 @@ let all xs =
 let both f g = all [f; g]
 
 let pair f g =
-  Cancel.sub @@ fun cc ->
-  let x =
-    let p, r = Promise.create () in
-    let f () =
-      match f () with
-      | x -> Promise.fulfill r x
-      | exception ex ->
-        Cancel.cancel cc ex;
-        Promise.break r ex
-    in
-    let new_fibre = Cancel.Fibre_context.make ~cc in
-    perform (Fork (new_fibre, f));
-    p
-  in
-  match g () with
-  | gr -> Promise.await x, gr               (* [g] succeeds - just report [f]'s result *)
-  | exception gex ->
-    Cancel.cancel cc gex;
-    (* Note: we don't know if the [Cancelled] exceptions here are from us cancelling or from an external
-       cancel, but it doesn't matter. If the cancel was external then the parent context is cancelled,
-       and [Cancel.sub] checks for us at the end. *)
-    match Cancel.protect (fun () -> Promise.await_result x) with
-    | Ok _ | Error (Cancel.Cancelled _) -> raise gex    (* [g] fails, nothing to report for [f] *)
-    | Error fex ->
-      match gex with
-      | Cancel.Cancelled _ -> raise fex                         (* [f] fails, nothing to report for [g] *)
-      | _ -> raise (Cancel.combine_exn fex gex)                 (* Both fail *)
+  Switch.run @@ fun sw ->
+  let x = fork_promise ~sw f in
+  let y = g () in
+  (Promise.await x, y)
 
 let fork_sub ~sw ~on_error f =
   fork ~sw (fun () ->
@@ -119,8 +98,8 @@ let fork_sub ~sw ~on_error f =
         Switch.run_in sw @@ fun () ->
         try on_error ex
         with ex2 ->
-          Switch.turn_off sw ex;
-          Switch.turn_off sw ex2
+          Switch.fail sw ex;
+          Switch.fail sw ex2
     )
 
 exception Not_first
@@ -149,7 +128,9 @@ let any fs =
             begin match !r with
               | `None -> r := `Ex (ex, Printexc.get_raw_backtrace ()); Cancel.cancel cc ex
               | `Ok _ -> r := `Ex (ex, Printexc.get_raw_backtrace ())
-              | `Ex (e1, bt) -> r := `Ex (Cancel.combine_exn e1 ex, bt)
+              | `Ex prev ->
+                let bt = Printexc.get_raw_backtrace () in
+                r := `Ex (Exn.combine prev (ex, bt))
             end
         in
         let rec aux = function
@@ -174,7 +155,10 @@ let any fs =
   | `Ok r, None -> r
   | (`Ok _ | `None), Some ex -> raise ex
   | `Ex (ex, bt), None -> Printexc.raise_with_backtrace ex bt
-  | `Ex (ex, bt), Some ex2 -> Printexc.raise_with_backtrace (Cancel.combine_exn ex ex2) bt
+  | `Ex ex1, Some ex2 ->
+    let bt2 = Printexc.get_raw_backtrace () in
+    let ex, bt = Exn.combine ex1 (ex2, bt2) in
+    Printexc.raise_with_backtrace ex bt
   | `None, None -> assert false
 
 let first f g = any [f; g]

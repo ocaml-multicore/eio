@@ -1,7 +1,7 @@
 type t = {
   id : Ctf.id;
   mutable fibres : int;
-  mutable extra_exceptions : exn list;
+  mutable exs : (exn * Printexc.raw_backtrace) option;
   on_release : (unit -> unit) Lwt_dllist.t;
   waiter : unit Waiters.t;              (* The main [top]/[sub] function may wait here for fibres to finish. *)
   cancel : Cancel.t;
@@ -22,19 +22,19 @@ let check t =
 let get_error t =
   Cancel.get_error t.cancel
 
-let rec turn_off t ex =
-  match t.cancel.state with
-  | Finished -> invalid_arg "Switch finished!"
-  | Cancelling (orig, _) when orig == ex || List.memq ex t.extra_exceptions -> ()
-  | Cancelling _ ->
-    begin match ex with
-      | Cancel.Cancelled _ -> ()       (* The original exception will be reported elsewhere *)
-      | Multiple_exn.T exns -> List.iter (turn_off t) exns
-      | _ -> t.extra_exceptions <- ex :: t.extra_exceptions
-    end
-  | On ->
+let combine_exn ex = function
+  | None -> ex
+  | Some ex1 -> Exn.combine ex1 ex
+
+let fail ?(bt=Printexc.get_raw_backtrace ()) t ex =
+  if t.exs = None then
     Ctf.note_resolved t.id ~ex:(Some ex);
+  t.exs <- Some (combine_exn (ex, bt) t.exs);
+  try
     Cancel.cancel t.cancel ex
+  with Exn.Cancel_hook_failed _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    t.exs <- Some (combine_exn (ex, bt) t.exs)
 
 let inc_fibres t =
   check t;
@@ -70,7 +70,7 @@ let rec await_idle t =
     | Some fn ->
       begin
         try fn () with
-        | ex -> turn_off t ex
+        | ex -> fail t ex
       end;
       release ()
   in
@@ -78,10 +78,10 @@ let rec await_idle t =
 
 let await_idle t = Cancel.protect (fun _ -> await_idle t)
 
-let raise_with_extras t ex bt =
-  match t.extra_exceptions with
-  | [] -> Printexc.raise_with_backtrace ex bt
-  | exns -> Printexc.raise_with_backtrace (Multiple_exn.T (ex :: List.rev exns)) bt
+let maybe_raise_exs t =
+  match t.exs with
+  | None -> ()
+  | Some (ex, bt) -> Printexc.raise_with_backtrace ex bt
 
 let create cancel =
   let id = Ctf.mint_id () in
@@ -89,7 +89,7 @@ let create cancel =
   {
     id;
     fibres = 0;
-    extra_exceptions = [];
+    exs = None;
     waiter = Waiters.create ();
     on_release = Lwt_dllist.create ();
     cancel;
@@ -99,30 +99,18 @@ let run_internal t fn =
   match fn t with
   | v ->
     await_idle t;
-    begin match t.cancel.state with
-      | Finished -> assert false
-      | On ->
-        (* Success. *)
-        Ctf.note_read t.id;
-        v
-      | Cancelling (ex, bt) ->
-        (* Function succeeded, but got failure waiting for fibres to finish. *)
-        Ctf.note_read t.id;
-        raise_with_extras t ex bt
-    end
+    Ctf.note_read t.id;
+    maybe_raise_exs t;        (* Check for failure while finishing *)
+    (* Success. *)
+    v
   | exception ex ->
     (* Main function failed.
        Turn the switch off to cancel any running fibres, if it's not off already. *)
-    begin
-      try turn_off t ex
-      with Cancel.Cancel_hook_failed _ as ex ->
-        t.extra_exceptions <- ex :: t.extra_exceptions
-    end;
+    fail t ex;
     await_idle t;
     Ctf.note_read t.id;
-    match t.cancel.state with
-    | On | Finished -> assert false
-    | Cancelling (ex, bt) -> raise_with_extras t ex bt
+    maybe_raise_exs t;
+    assert false
 
 let run fn = Cancel.sub (fun cc -> run_internal (create cc) fn)
 
@@ -149,7 +137,7 @@ let on_release_full t fn =
   | Finished ->
     match Cancel.protect fn with
     | () -> invalid_arg "Switch finished!"
-    | exception ex -> raise (Multiple_exn.T [ex; Invalid_argument "Switch finished!"])
+    | exception ex -> raise (Exn.Multiple [ex; Invalid_argument "Switch finished!"])
 
 let on_release t fn =
   ignore (on_release_full t fn : _ Lwt_dllist.node)

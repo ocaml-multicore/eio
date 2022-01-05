@@ -29,7 +29,7 @@ Turning off a switch still allows you to perform clean-up operations:
 ```ocaml
 # run (fun sw ->
     traceln "Running";
-    Switch.turn_off sw (Failure "Cancel");
+    Switch.fail sw (Failure "Cancel");
     traceln "Clean up"
   );;
 +Running
@@ -114,7 +114,7 @@ The switch is already turned off when we try to fork. The new fibre doesn't star
 
 ```ocaml
 # run (fun sw ->
-      Switch.turn_off sw (Failure "Cancel");
+      Switch.fail sw (Failure "Cancel");
       Fibre.fork ~sw (fun () -> traceln "Not reached");
       traceln "Main continues"
     );;
@@ -161,7 +161,7 @@ Wait for either a promise or a switch; promise resolves first:
       Promise.fulfill r ();
       Fibre.yield ();
       traceln "Now cancelling...";
-      Switch.turn_off sw (Failure "Cancelled")
+      Switch.fail sw (Failure "Cancelled")
     );;
 +Waiting
 +Resolved
@@ -175,7 +175,7 @@ Wait for either a promise or a switch; switch cancelled first. Result version.
 # run (fun sw ->
       let p, r = Promise.create () in
       Fibre.fork ~sw (fun () -> traceln "Waiting"; ignore (Promise.await_result p); traceln "Resolved");
-      Switch.turn_off sw (Failure "Cancelled");
+      Switch.fail sw (Failure "Cancelled");
       Promise.fulfill r ()
     );;
 +Waiting
@@ -190,7 +190,7 @@ Wait for either a promise or a switch; promise resolves first but switch off wit
       Fibre.fork ~sw (fun () -> traceln "Waiting"; ignore (Promise.await_result p); traceln "Resolved");
       Promise.fulfill r ();
       traceln "Now cancelling...";
-      Switch.turn_off sw (Failure "Cancelled")
+      Switch.fail sw (Failure "Cancelled")
     );;
 +Waiting
 +Now cancelling...
@@ -206,7 +206,7 @@ Child switches are cancelled when the parent is cancelled, but `on_error` isn't 
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
       Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await p);
       Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await p);
-      Switch.turn_off sw (Failure "Cancel parent")
+      Switch.fail sw (Failure "Cancel parent")
     );;
 +Child 1
 +Child 2
@@ -246,7 +246,7 @@ A child can be cancelled independently of the parent:
           child := Some sw;
           Promise.await ~sw p
         );
-      Switch.turn_off (Option.get !child) (Failure "Cancel child");
+      Switch.fail (Option.get !child) (Failure "Cancel child");
       Fibre.yield ();
       traceln "Parent fibre is still running"
     );;
@@ -341,7 +341,7 @@ Attaching a release handler to a finished switch from a cancelled context:
 ```ocaml
 # run @@ fun sw ->
   let sub = Switch.run Fun.id in        (* A finished switch *)
-  Switch.turn_off sw (Failure "Parent cancelled too!");
+  Switch.fail sw (Failure "Parent cancelled too!");
   Switch.on_release sub (fun () -> release "1");;
 +release 1
 Exception:
@@ -398,4 +398,20 @@ and
 Failure("cancel2 failed")
 and
 Failure("cancel1 failed")
+```
+
+# Errors during cleanup are reported during cancellation
+
+```ocaml
+# run (fun sw ->
+    Fibre.fork ~sw (fun () ->
+      Switch.run @@ fun sw ->
+      try Fibre.await_cancel () with _ -> failwith "cleanup failed");
+    Fibre.fork ~sw (fun () -> failwith "simulated error")
+  );;
+Exception:
+Multiple exceptions:
+Failure("simulated error")
+and
+Failure("cleanup failed")
 ```
