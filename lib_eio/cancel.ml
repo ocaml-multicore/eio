@@ -12,7 +12,8 @@ let () =
 
 type state =
   | On
-  | Cancelling of exn * Printexc.raw_backtrace
+  | Cancelling of exn * Printexc.raw_backtrace  (* [cancel] was called on this context *)
+  | Parent_cancelling of exn                    (* [cancel] was called on a parent context only *)
   | Finished
 
 (* There is a tree of cancellation contexts for each domain.
@@ -48,24 +49,24 @@ let combine_exn e1 e2 =
 let is_on t =
   match t.state with
   | On -> true
-  | Cancelling _ | Finished -> false
+  | Cancelling _ | Parent_cancelling _ | Finished -> false
 
 let check t =
   match t.state with
   | On -> ()
-  | Cancelling (ex, _) -> raise (Cancelled ex)
+  | Cancelling (ex, _) | Parent_cancelling ex -> raise (Cancelled ex)
   | Finished -> invalid_arg "Cancellation context finished!"
 
 let get_error t =
   match t.state with
   | On -> None
-  | Cancelling (ex, _) -> Some (Cancelled ex)
+  | Cancelling (ex, _) | Parent_cancelling ex -> Some (Cancelled ex)
   | Finished -> Some (Invalid_argument "Cancellation context finished!")
 
 let is_finished t =
   match t.state with
   | Finished -> true
-  | On | Cancelling _ -> false
+  | On | Cancelling _ | Parent_cancelling _ -> false
 
 let move_fibre_to t fibre =
   let new_node = Lwt_dllist.add_r fibre t.fibres in     (* Add to new context *)
@@ -108,55 +109,59 @@ let protect fn =
   x
 
 let rec cancel_internal t ex acc_fns =
-  match t.state with
-  | Finished -> invalid_arg "Cancellation context finished!"
-  | Cancelling _ -> acc_fns
-  | On ->
-    let bt = Printexc.get_raw_backtrace () in
-    t.state <- Cancelling (ex, bt);
-    let rec aux acc_fns =
-      match Lwt_dllist.take_opt_r t.fibres with
-      | None -> Lwt_dllist.fold_r (cancel_child ex) t.children acc_fns
-      | Some fibre ->
-        match Atomic.exchange fibre.cancel_fn None with
-        | None -> aux acc_fns        (* The operation succeeded and so can't be cancelled now *)
-        | Some cancel_fn -> cancel_fn :: aux acc_fns
-    in
-    aux acc_fns
+  let rec aux acc_fns =
+    match Lwt_dllist.take_opt_r t.fibres with
+    | None -> Lwt_dllist.fold_r (cancel_child ex) t.children acc_fns
+    | Some fibre ->
+      match Atomic.exchange fibre.cancel_fn None with
+      | None -> aux acc_fns        (* The operation succeeded and so can't be cancelled now *)
+      | Some cancel_fn -> cancel_fn :: aux acc_fns
+  in
+  aux acc_fns
 and cancel_child ex t acc =
   if t.protected then acc
-  else cancel_internal t ex acc
+  else (
+    match t.state with
+    | Finished -> invalid_arg "Cancellation context finished!"
+    | Cancelling _ -> acc
+    | On | Parent_cancelling _ ->
+      t.state <- Parent_cancelling ex;
+      cancel_internal t ex acc
+  )
 
 let cancel t ex =
-  let fns = cancel_internal t ex [] in
-  let cex = Cancelled ex in
-  let rec aux = function
-    | [] -> []
-    | fn :: fns ->
-      match fn cex with
-      | () -> aux fns
-      | exception ex2 -> ex2 :: aux fns
-  in
-  match protect (fun () -> aux fns) with
-  | [] -> ()
-  | exns -> raise (Cancel_hook_failed exns)
+  match t.state with
+  | Finished -> invalid_arg "Cancellation context finished!"
+  | Cancelling _ -> ()
+  | On | Parent_cancelling _ ->
+    (* Replace [Parent_cancelling] because the new error is more important. *)
+    let bt = Printexc.get_raw_backtrace () in
+    t.state <- Cancelling (ex, bt);
+    let fns = cancel_internal t ex [] in
+    let cex = Cancelled ex in
+    let rec aux = function
+      | [] -> []
+      | fn :: fns ->
+        match fn cex with
+        | () -> aux fns
+        | exception ex2 -> ex2 :: aux fns
+    in
+    if fns <> [] then (
+      match protect (fun () -> aux fns) with
+      | [] -> ()
+      | exns -> raise (Cancel_hook_failed exns)
+    )
 
 let sub fn =
   let ctx = perform Get_context in
   let parent = ctx.cancel_context in
   with_cc ~ctx ~parent ~protected:false @@ fun t ->
-  let x =
-    match fn t with
-    | x ->
-      check parent;
-      x
-    | exception ex ->
-      check parent;
-      raise ex
-  in
+  let x = fn t in
+  check parent;
   match t.state with
   | On -> x
   | Cancelling (ex, bt) -> Printexc.raise_with_backtrace ex bt
+  | Parent_cancelling ex -> raise_notrace (Cancelled ex)
   | Finished -> invalid_arg "Cancellation context finished!"
 
 (* Like [sub], but it's OK if the new context is cancelled.

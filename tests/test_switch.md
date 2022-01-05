@@ -399,3 +399,19 @@ Failure("cancel2 failed")
 and
 Failure("cancel1 failed")
 ```
+
+# Errors during cleanup are reported during cancellation
+
+```ocaml
+# run (fun sw ->
+    Fibre.fork ~sw (fun () ->
+      Switch.run @@ fun sw ->
+      try Fibre.await_cancel () with _ -> failwith "cleanup failed");
+    Fibre.fork ~sw (fun () -> failwith "simulated error")
+  );;
+Exception:
+Multiple exceptions:
+Failure("simulated error")
+and
+Failure("cleanup failed")
+```

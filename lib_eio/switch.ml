@@ -26,7 +26,7 @@ let rec turn_off t ex =
       | Multiple_exn.T exns -> List.iter (turn_off t) exns
       | _ -> t.extra_exceptions <- ex :: t.extra_exceptions
     end
-  | On ->
+  | On | Parent_cancelling _ ->
     Ctf.note_resolved t.id ~ex:(Some ex);
     Cancel.cancel t.cancel ex
 
@@ -103,6 +103,12 @@ let run_internal t fn =
         (* Function succeeded, but got failure waiting for fibres to finish. *)
         Ctf.note_read t.id;
         raise_with_extras t ex bt
+      | Parent_cancelling ex ->
+        Ctf.note_read t.id;
+        match t.extra_exceptions with
+        | [] -> raise_notrace ex
+        | [ex] -> raise ex
+        | exs -> raise (Multiple_exn.T exs)
     end
   | exception ex ->
     (* Main function failed.
@@ -117,6 +123,7 @@ let run_internal t fn =
     match t.cancel.state with
     | On | Finished -> assert false
     | Cancelling (ex, bt) -> raise_with_extras t ex bt
+    | Parent_cancelling ex -> raise ex
 
 let run fn = Cancel.sub (fun cc -> run_internal (create cc) fn)
 
@@ -139,7 +146,7 @@ let run_in t fn =
 
 let on_release_full t fn =
   match t.cancel.state with
-  | On | Cancelling _ -> Lwt_dllist.add_r fn t.on_release
+  | On | Cancelling _ | Parent_cancelling _ -> Lwt_dllist.add_r fn t.on_release
   | Finished ->
     match Cancel.protect fn with
     | () -> invalid_arg "Switch finished!"
