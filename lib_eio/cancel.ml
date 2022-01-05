@@ -138,21 +138,19 @@ let protect fn =
   x
 
 let rec cancel_internal t ex acc_fns =
+  let collect_cancel_fn fibre acc =
+    match Atomic.exchange fibre.cancel_fn None with
+    | None -> acc        (* The operation succeeded and so can't be cancelled now *)
+    | Some cancel_fn -> cancel_fn :: acc
+  in
   match t.state with
   | Finished -> invalid_arg "Cancellation context finished!"
   | Cancelling _ -> acc_fns
   | On ->
     let bt = Printexc.get_raw_backtrace () in
     t.state <- Cancelling (ex, bt);
-    let rec aux acc_fns =
-      match Lwt_dllist.take_opt_r t.fibres with
-      | None -> Lwt_dllist.fold_r (cancel_child ex) t.children acc_fns
-      | Some fibre ->
-        match Atomic.exchange fibre.cancel_fn None with
-        | None -> aux acc_fns        (* The operation succeeded and so can't be cancelled now *)
-        | Some cancel_fn -> cancel_fn :: aux acc_fns
-    in
-    aux acc_fns
+    let acc_fns = Lwt_dllist.fold_l collect_cancel_fn t.fibres acc_fns in
+    Lwt_dllist.fold_r (cancel_child ex) t.children acc_fns
 and cancel_child ex t acc =
   if t.protected then acc
   else cancel_internal t ex acc
