@@ -7,6 +7,12 @@ type t = {
   cancel : Cancel.t;
 }
 
+let dump f t =
+  Fmt.pf f "@[<v2>Switch %d (%d extra fibres):@,%a@]"
+    (t.id :> int)
+    t.fibres
+    Cancel.dump t.cancel
+
 let is_finished t = Cancel.is_finished t.cancel
 
 let check t =

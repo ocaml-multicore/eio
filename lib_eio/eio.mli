@@ -71,6 +71,9 @@ module Std : sig
 
     val on_release_cancellable : t -> (unit -> unit) -> Hook.t
     (** Like [on_release], but the handler can be removed later. *)
+
+    val dump : t Fmt.t
+    (** Dump out details of the switch's state for debugging. *)
   end
 
   module Promise : sig
@@ -367,6 +370,9 @@ module Cancel : sig
       All cancellation functions are run, even if some of them raise exceptions.
       If [t] is already cancelled then this does nothing.
       @raise Cancel_hook_failed if one or more hooks fail. *)
+
+  val dump : t Fmt.t
+  (** Show the cancellation sub-tree rooted at [t], for debugging. *)
 end
 
 (** {1 Cross-platform OS API} *)

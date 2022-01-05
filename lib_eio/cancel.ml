@@ -39,6 +39,36 @@ and fibre_context = {
 
 type _ eff += Get_context : fibre_context eff
 
+let pp_state f t =
+  begin match t.state with
+    | On -> Fmt.string f "on"
+    | Cancelling (ex, _) -> Fmt.pf f "cancelling(%a)" Fmt.exn ex
+    | Finished -> Fmt.string f "finished"
+  end;
+  if t.protected then Fmt.pf f " (protected)"
+
+let pp_fibre f fibre =
+  Fmt.pf f "%d" (fibre.tid :> int)
+
+let pp_lwt_dlist ~sep pp f t =
+  let first = ref true in
+  t |> Lwt_dllist.iter_l (fun item ->
+      if !first then first := false
+      else sep f ();
+      pp f item;
+    )
+
+let rec dump f t =
+  Fmt.pf f "@[<v2>%a [%a]%a@]"
+    pp_state t
+    (pp_lwt_dlist ~sep:(Fmt.any ",") pp_fibre) t.fibres
+    pp_children t.children
+and pp_children f ts =
+  ts |> Lwt_dllist.iter_l (fun t ->
+      Fmt.cut f ();
+      dump f t
+    )
+
 let combine_exn e1 e2 =
   match e1, e2 with
   | (Cancelled _), e
@@ -108,21 +138,19 @@ let protect fn =
   x
 
 let rec cancel_internal t ex acc_fns =
+  let collect_cancel_fn fibre acc =
+    match Atomic.exchange fibre.cancel_fn None with
+    | None -> acc        (* The operation succeeded and so can't be cancelled now *)
+    | Some cancel_fn -> cancel_fn :: acc
+  in
   match t.state with
   | Finished -> invalid_arg "Cancellation context finished!"
   | Cancelling _ -> acc_fns
   | On ->
     let bt = Printexc.get_raw_backtrace () in
     t.state <- Cancelling (ex, bt);
-    let rec aux acc_fns =
-      match Lwt_dllist.take_opt_r t.fibres with
-      | None -> Lwt_dllist.fold_r (cancel_child ex) t.children acc_fns
-      | Some fibre ->
-        match Atomic.exchange fibre.cancel_fn None with
-        | None -> aux acc_fns        (* The operation succeeded and so can't be cancelled now *)
-        | Some cancel_fn -> cancel_fn :: aux acc_fns
-    in
-    aux acc_fns
+    let acc_fns = Lwt_dllist.fold_l collect_cancel_fn t.fibres acc_fns in
+    Lwt_dllist.fold_r (cancel_child ex) t.children acc_fns
 and cancel_child ex t acc =
   if t.protected then acc
   else cancel_internal t ex acc
