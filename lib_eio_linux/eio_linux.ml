@@ -46,7 +46,8 @@ type _ eff += Close : Unix.file_descr -> int eff
 module FD = struct
   type t = {
     seekable : bool;
-    mutable release_hook : Eio.Hook.t;        (* Use this on close to remove switch's [on_release] hook. *)
+    close_unix : bool;                          (* Whether closing this also closes the underlying FD. *)
+    mutable release_hook : Eio.Hook.t;          (* Use this on close to remove switch's [on_release] hook. *)
     mutable fd : [`Open of Unix.file_descr | `Closed]
   }
 
@@ -63,10 +64,12 @@ module FD = struct
     let fd = get "close" t in
     t.fd <- `Closed;
     Eio.Hook.remove t.release_hook;
-    let res = perform (Close fd) in
-    Log.debug (fun l -> l "close: woken up");
-    if res < 0 then
-      raise (Unix.Unix_error (Uring.error_of_errno res, "close", string_of_int (Obj.magic fd : int)))
+    if t.close_unix then (
+      let res = perform (Close fd) in
+      Log.debug (fun l -> l "close: woken up");
+      if res < 0 then
+        raise (Unix.Unix_error (Uring.error_of_errno res, "close", string_of_int (Obj.magic fd : int)))
+    )
 
   let ensure_closed t =
     if is_open t then close t
@@ -78,16 +81,16 @@ module FD = struct
 
   let to_unix = get "to_unix"
 
-  let of_unix_no_hook ~seekable fd =
-    { seekable; fd = `Open fd; release_hook = Eio.Hook.null }
+  let of_unix_no_hook ~seekable ~close_unix fd =
+    { seekable; close_unix; fd = `Open fd; release_hook = Eio.Hook.null }
 
-  let of_unix ~sw ~seekable fd =
-    let t = of_unix_no_hook ~seekable fd in
+  let of_unix ~sw ~seekable ~close_unix fd =
+    let t = of_unix_no_hook ~seekable ~close_unix fd in
     t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
     t
 
-  let placeholder ~seekable =
-    { seekable; fd = `Closed; release_hook = Eio.Hook.null }
+  let placeholder ~seekable ~close_unix =
+    { seekable; close_unix; fd = `Closed; release_hook = Eio.Hook.null }
 
   let uring_file_offset t =
     if t.seekable then Optint.Int63.minus_one else Optint.Int63.zero
@@ -607,7 +610,7 @@ let with_chunk fn =
 
 let openfile ~sw path flags mode =
   let fd = Unix.openfile path flags mode in
-  FD.of_unix ~sw ~seekable:(FD.is_seekable fd) fd
+  FD.of_unix ~sw ~seekable:(FD.is_seekable fd) ~close_unix:true fd
 
 let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
   wrap_errors path @@ fun () ->
@@ -623,7 +626,7 @@ let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
     | None -> FD.is_seekable fd
     | Some x -> x
   in
-  FD.of_unix ~sw ~seekable fd
+  FD.of_unix ~sw ~seekable ~close_unix:true fd
 
 let fstat fd =
   Unix.fstat (FD.get "fstat" fd)
@@ -665,7 +668,7 @@ let accept ~sw fd =
     raise (Unix.Unix_error (Uring.error_of_errno res, "accept", ""))
   ) else (
     let unix : Unix.file_descr = Obj.magic res in
-    let client = FD.of_unix ~sw ~seekable:false unix in
+    let client = FD.of_unix ~sw ~seekable:false ~close_unix:true unix in
     let client_addr = Uring.Sockaddr.get client_addr in
     client, client_addr
   )
@@ -819,7 +822,7 @@ module Objects = struct
         Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
       if reuse_port then
         Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
-      let sock = FD.of_unix ~sw ~seekable:false sock_unix in
+      let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
       Unix.bind sock_unix addr;
       Unix.listen sock_unix backlog;
       listening_socket sock
@@ -831,7 +834,7 @@ module Objects = struct
         | `Tcp (host, port)  -> Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
       in
       let sock_unix = Unix.socket socket_domain socket_type 0 in
-      let sock = FD.of_unix ~sw ~seekable:false sock_unix in
+      let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
       connect sock addr;
       (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
   end
@@ -930,7 +933,7 @@ module Objects = struct
   end
 
   let stdenv ~run_event_loop =
-    let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) fd in
+    let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd in
     let stdin = lazy (source (of_unix Unix.stdin)) in
     let stdout = lazy (sink (of_unix Unix.stdout)) in
     let stderr = lazy (sink (of_unix Unix.stderr)) in
@@ -949,8 +952,8 @@ end
 
 let pipe sw =
   let r, w = Unix.pipe () in
-  let r = Objects.source (FD.of_unix ~sw ~seekable:false r) in
-  let w = Objects.sink (FD.of_unix ~sw ~seekable:false w) in
+  let r = Objects.source (FD.of_unix ~sw ~seekable:false ~close_unix:true r) in
+  let w = Objects.sink (FD.of_unix ~sw ~seekable:false ~close_unix:true w) in
   r, w
 
 let monitor_event_fd t =
@@ -989,7 +992,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
   let sleep_q = Zzz.create () in
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
-  let eventfd = FD.placeholder ~seekable:false in
+  let eventfd = FD.placeholder ~seekable:false ~close_unix:false in
   let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; io_jobs = 0 } in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~new_fibre:fibre fn =
@@ -1081,7 +1084,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
             st.eventfd.fd <- `Open fd;
             Switch.on_release sw (fun () ->
                 Mutex.lock st.eventfd_mutex;
-                st.eventfd.fd <- `Closed;
+                FD.close st.eventfd;
                 Mutex.unlock st.eventfd_mutex;
                 Unix.close fd
               );

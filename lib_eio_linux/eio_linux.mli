@@ -29,10 +29,13 @@ module FD : sig
   (** [close t] closes [t].
       @raise Invalid_arg if [t] is already closed. *)
 
-  val of_unix : sw:Switch.t -> seekable:bool -> Unix.file_descr -> t
-  (** [of_unix ~sw ~seekable fd] wraps [fd] as an open file descriptor.
+  val of_unix : sw:Switch.t -> seekable:bool -> close_unix:bool -> Unix.file_descr -> t
+  (** [let t = of_unix ~sw ~seekable ~close_unix fd] wraps [fd] as an open file descriptor.
       This is unsafe if [fd] is closed directly (before or after wrapping it).
-      @param sw The FD is closed when [sw] is released, if not closed manually first.
+      @param sw [t] is closed when [sw] is released, if not closed manually first.
+      @param close_unix If [true], closing [t] also closes [fd].
+                        If [false], the caller is responsible for closing [fd],
+                        which must not happen until after [t] is closed.
       @param seekable If true, we pass [-1] as the file offset, to use the current offset.
                       If false, pass [0] as the file offset, which is needed for sockets. *)
 
