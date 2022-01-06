@@ -305,8 +305,9 @@ leading to clearer code and avoiding resource leaks.
 For example, `fork` creates a new fibre that continues running after `fork` returns,
 so it needs to take a switch argument.
 
-Every switch also creates a new cancellation context,
-and you can turn off the switch to cancel all fibres within it.
+Every switch also creates a new cancellation context.
+You can use `Switch.fail` to mark the switch as failed and cancel all fibres within it.
+The exception (or exceptions) passed to `fail` will be raised by `run` when the fibres have exited.
 
 You can also use `Fibre.fork_sub` to create a child sub-switch.
 Turning off the parent switch will also turn off the child switch, but turning off the child doesn't disable the parent.

@@ -239,7 +239,7 @@ Exception: Failure "simulated error".
          traceln "Forked child";
          Fibre.await_cancel ()
       ) in
-      Switch.turn_off sw Exit;
+      Switch.fail sw Exit;
       Promise.await child
     );
   "not reached";;
@@ -375,7 +375,7 @@ Turning off the child switch in the accept function. We treat this as the handle
 
 ```ocaml
 # run @@ fun () ->
-  Switch.run @@ test_fork_on_accept ~in_accept:(fun sw -> Switch.turn_off sw (Failure "Accept turn-off"));;
+  Switch.run @@ test_fork_on_accept ~in_accept:(fun sw -> Switch.fail sw (Failure "Accept turn-off"));;
 +Got connection
 +Releasing connection
 +on_handler_error: Failure("Accept turn-off")
@@ -431,7 +431,7 @@ until the connection is released.
   let bg_switch = Option.get !bg_switch in
   test_fork_on_accept bg_switch
     ~in_accept:(fun _  ->
-       Switch.turn_off bg_switch (Failure "Background switch turned off");
+       Switch.fail bg_switch (Failure "Background switch turned off");
        Fibre.yield ()
     );;
 +Got connection

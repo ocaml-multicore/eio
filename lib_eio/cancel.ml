@@ -1,14 +1,7 @@
 open EffectHandlers
 
-exception Cancel_hook_failed of exn list
-
-exception Cancelled of exn
-
-let () =
-  Printexc.register_printer @@ function
-  | Cancel_hook_failed exns -> Some ("During cancellation:\n" ^ String.concat "\nand\n" (List.map Printexc.to_string exns))
-  | Cancelled ex -> Some ("Cancelled: " ^ Printexc.to_string ex)
-  | _ -> None
+exception Cancelled = Exn.Cancelled
+exception Cancel_hook_failed = Exn.Cancel_hook_failed
 
 type state =
   | On
@@ -69,12 +62,6 @@ and pp_children f ts =
       dump f t
     )
 
-let combine_exn e1 e2 =
-  match e1, e2 with
-  | (Cancelled _), e
-  | e, (Cancelled _) -> e  (* Don't need to report a cancelled exception if we have something better *)
-  | _ -> Multiple_exn.T [e1; e2]
-
 let is_on t =
   match t.state with
   | On -> true
@@ -132,10 +119,11 @@ let with_cc ~ctx:fibre ~parent ~protected fn =
 
 let protect fn =
   let ctx = perform Get_context in
-  with_cc ~ctx ~parent:ctx.cancel_context ~protected:true @@ fun t ->
-  let x = fn () in
-  check t;
-  x
+  with_cc ~ctx ~parent:ctx.cancel_context ~protected:true @@ fun _ ->
+  (* Note: there is no need to check the new context after [fn] returns;
+     the goal of cancellation is only to finish the thread promptly, not to report the error.
+     We also do not check the parent context, to make sure the caller has a chance to handle the result. *)
+  fn ()
 
 let rec cancel_internal t ex acc_fns =
   let collect_cancel_fn fibre acc =
@@ -173,19 +161,7 @@ let sub fn =
   let ctx = perform Get_context in
   let parent = ctx.cancel_context in
   with_cc ~ctx ~parent ~protected:false @@ fun t ->
-  let x =
-    match fn t with
-    | x ->
-      check parent;
-      x
-    | exception ex ->
-      check parent;
-      raise ex
-  in
-  match t.state with
-  | On -> x
-  | Cancelling (ex, bt) -> Printexc.raise_with_backtrace ex bt
-  | Finished -> invalid_arg "Cancellation context finished!"
+  fn t
 
 (* Like [sub], but it's OK if the new context is cancelled.
    (instead, return the parent context on exit so the caller can check that) *)

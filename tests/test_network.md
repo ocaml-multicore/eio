@@ -142,7 +142,7 @@ Calling accept when the switch is already off:
 ```ocaml
 # run @@ fun ~net sw ->
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
-  Switch.turn_off sw (Failure "Simulated error");
+  Switch.fail sw (Failure "Simulated error");
   Eio.Net.accept_sub server ~sw (fun ~sw:_ _flow _addr -> assert false)
     ~on_error:raise;;
 Exception: Failure "Simulated error".

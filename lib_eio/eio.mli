@@ -1,9 +1,21 @@
 (** Effects based parallel IO for OCaml *)
 
 (** Reporting multiple failures at once. *)
-module Multiple_exn : sig
-  exception T of exn list
+module Exn : sig
+  type with_bt = exn * Printexc.raw_backtrace
+
+  exception Multiple of exn list
   (** Raised if multiple fibres fail, to report all the exceptions. *)
+
+  val combine : with_bt -> with_bt -> with_bt
+  (** [combine x y] returns a single exception and backtrace to use to represent two errors.
+      Only one of the backtraces will be kept.
+      The resulting exception is typically just [Multiple [y; x]],
+      but various heuristics are used to simplify the result:
+      - Combining with a {!Cancel.Cancelled} exception does nothing, as these don't need to be reported.
+        The result is only [Cancelled] if there is no other exception available.
+      - If [x] is a [Multiple] exception then [y] is added to it, to avoid nested [Multiple] exceptions.
+      - Duplicate exceptions are removed (using physical equality of the exception). *)
 end
 
 (** Handles for removing callbacks. *)
@@ -37,8 +49,7 @@ module Std : sig
     (** [run fn] runs [fn] with a fresh switch (initially on).
         When [fn] exits, [run] waits for all operations registered with the switch to finish
         (it does not turn the switch off itself).
-        If the switch is turned off before it returns, [run] re-raises the switch's exception(s).
-        @raise Multiple_exn.T If [turn_off] is called more than once. *)
+        If {!fail} is called, [run] re-raises the exception. *)
 
     val run_protected : (t -> 'a) -> 'a
     (** [run_protected fn] is like [run] but ignores cancellation requests from the parent context. *)
@@ -51,17 +62,19 @@ module Std : sig
     (** [get_error t] is like [check t] except that it returns the exception instead of raising it.
         If [t] is finished, this returns (rather than raising) the [Invalid_argument] exception too. *)
 
-    val turn_off : t -> exn -> unit
-    (** [turn_off t ex] turns off [t], with reason [ex].
+    val fail : ?bt:Printexc.raw_backtrace -> t -> exn -> unit
+    (** [fail t ex] adds [ex] to [t]'s set of failures and
+        ensures that the switch's cancellation context is cancelled,
+        to encourage all fibres to exit as soon as possible.
         It returns immediately, without waiting for the shutdown actions to complete.
-        If [t] is already off then [ex] is added to the list of exceptions (unless
-        [ex] is [Cancelled] or identical to the original exception, in which case
-        it is ignored). *)
+        The exception will be raised later by {!run}, and [run]'s caller is responsible for handling it.
+        {!Exn.combine} is used to avoid duplicate or unnecessary exceptions.
+        @param bt A backtrace to attach to [ex] *)
 
     val on_release : t -> (unit -> unit) -> unit
     (** [on_release t fn] registers [fn] to be called once [t]'s main function has returned
         and all fibres have finished.
-        If [fn] raises an exception, it is passed to [turn_off].
+        If [fn] raises an exception, it is passed to {!fail}.
         Release handlers are run in LIFO order, in series.
         If you want to allow other release handlers to run concurrently, you can start the release
         operation and then call [on_release] again from within [fn] to register a function to await the result.
@@ -144,7 +157,7 @@ module Std : sig
         [g] is inserted at the head of the run-queue, so it runs next even if other threads are already enqueued.
         You can get other scheduling orders by adding calls to {!yield} in various places.
         e.g. to append both fibres to the end of the run-queue, yield immediately before calling [both].
-        @raise Multiple_exn.T if both fibres raise exceptions (excluding {!Cancel.Cancelled}). *)
+        If both fibres fail, {!Exn.combine} is used to combine the exceptions. *)
 
     val pair : (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
     (** [pair f g] is like [both], but returns the two results. *)
@@ -158,7 +171,8 @@ module Std : sig
         They run in a new cancellation sub-context, and when one finishes the other is cancelled.
         If one raises, the other is cancelled and the exception is reported.
         As with [both], [f] runs immediately and [g] is scheduled next, ahead of any other queued work.
-        @raise Multiple_exn.T if both fibres raise exceptions (excluding {!Cancel.Cancelled} when cancelled). *)
+        If both fibres fail, {!Exn.combine} is used to combine the exceptions
+        (excluding {!Cancel.Cancelled} when cancelled). *)
 
     val any : (unit -> 'a) list -> 'a
     (** [any fs] is like [first], but for any number of fibres.
@@ -235,7 +249,7 @@ module Std : sig
       Examples:
       {[
         traceln "x = %d" x;
-        traceln "x = %d" x ~__POSS__;   (* With location information *)
+        traceln "x = %d" x ~__POS__;   (* With location information *)
       ]}
       @param __POS__ Display [__POS__] as the location of the [traceln] call. *)
 end
@@ -328,11 +342,8 @@ module Cancel : sig
       For example, a network connection should simply be closed,
       without attempting to send a goodbye message.
 
-      A [Cancelled] exception will eventually be caught by the structure that sent it.
-      For example, if {!Fibre.both} gets a regular exception [ex] from one of its branches
-      it will send a [Cancelled ex] exception to the other one.
-      When that branch later fails with the [Cancelled ex] exception,
-      [Fibre.both] will handle it by raising the original [ex] again. *)
+      The purpose of the cancellation system is to stop fibres quickly, not to report errors.
+      Use {!Switch.fail} instead to record an error. *)
 
   type t
   (** A cancellation context. *)
@@ -369,6 +380,8 @@ module Cancel : sig
       and calls all registered fibres' cancellation functions, passing [Cancelled ex] as the argument.
       All cancellation functions are run, even if some of them raise exceptions.
       If [t] is already cancelled then this does nothing.
+      Note that the caller of this function is still responsible for handling the error somehow
+      (e.g. reporting it to the user); it does not become the responsibility of the cancelled thread(s).
       @raise Cancel_hook_failed if one or more hooks fail. *)
 
   val dump : t Fmt.t

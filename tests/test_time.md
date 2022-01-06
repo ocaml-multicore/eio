@@ -52,7 +52,7 @@ Switch is already off:
 ```ocaml
 # run @@ fun ~clock ->
   Switch.run @@ fun sw ->
-  Switch.turn_off sw (Failure "Simulated failure");
+  Switch.fail sw (Failure "Simulated failure");
   Eio.Time.sleep clock 1200.0;
   assert false;;
 Exception: Failure "Simulated failure".
