@@ -28,8 +28,9 @@ This is an unreleased repository, as it's very much a work-in-progress.
 * [Design Note: Thread-Safety](#design-note-thread-safety)
 * [Synchronisation Tools](#synchronisation-tools)
   * [Promises](#promises)
+  * [Example: Concurrent Cache](#example-concurrent-cache)
   * [Streams](#streams)
-  * [Example: a worker pool](#example-a-worker-pool)
+  * [Example: Worker Pool](#example-worker-pool)
 * [Design Note: Determinism](#design-note-determinism)
 * [Examples](#examples)
 * [Further Reading](#further-reading)
@@ -713,6 +714,76 @@ let wrap fn x =
   Promise.await promise
 ```
 
+### Example: Concurrent Cache
+
+Here's an example using promises to cache lookups,
+with the twist that another user might ask the cache for the value while it's still adding it.
+We don't want to start a second fetch in that case, so instead we just store promises in the cache:
+
+```ocaml
+let make_cache ~sw fn =
+  let tbl = Hashtbl.create 10 in
+  fun key ->
+    match Hashtbl.find_opt tbl key with
+    | Some p -> Promise.await p
+    | None ->
+      let p, r = Promise.create () in
+      Hashtbl.add tbl key p;
+      Fibre.fork ~sw (fun () ->
+        match fn key with
+        | v -> Promise.fulfill r v
+        | exception ex -> Promise.break r ex
+      );
+      Promise.await p
+```
+
+Notice that we store the new promise in the cache immediately,
+without doing anything that might switch to another fibre.
+
+The reason for the `fork` here is to run the fetch inside the cache's switch `sw`.
+Then if the caller is cancelled it will only cancel the `Promise.await`, not the fetch
+(which might affect other users of the cache).
+
+We can use it like this:
+
+```ocaml
+# let fetch url =
+    traceln "Fetching %S..." url;
+    Fibre.yield ();             (* Simulate work... *)
+    if url = "http://example.com" then "<h1>Example.com</h1>"
+    else failwith "404 Not Found";;
+val fetch : string -> string = <fun>
+
+# Eio_main.run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let c = make_cache ~sw fetch in
+  let test url =
+    Fibre.fork ~sw (fun () ->
+       match c url with
+       | page -> traceln "%s -> %s" url page
+       | exception ex -> traceln "%s -> %a" url Fmt.exn ex
+    )
+  in
+  test "http://example.com";
+  test "http://example.com";
+  test "http://bad.com";
+  test "http://bad.com";;
++Fetching "http://example.com"...
++Fetching "http://bad.com"...
++http://example.com -> <h1>Example.com</h1>
++http://example.com -> <h1>Example.com</h1>
++http://bad.com -> Failure("404 Not Found")
++http://bad.com -> Failure("404 Not Found")
+- : unit = ()
+```
+
+Notice that we made four requests, but only started two download operations.
+
+This version of the cache remembers failed lookups too.
+You could modify it to remove the entry on failure,
+so that all clients currently waiting still fail,
+but any future client asking for the failed resource will trigger a new download.
+
 ### Streams
 
 A stream is a bounded queue. Reading from an empty stream waits until an item is available.
@@ -756,7 +827,7 @@ A stream with a capacity of 0 will wait until both the sender and receiver are r
 
 Streams are thread-safe and can be used to communicate between domains.
 
-### Example: a worker pool
+### Example: Worker Pool
 
 A useful pattern is a pool of workers reading from a stream of work items.
 Client fibres submit items to a stream and workers process the items:
