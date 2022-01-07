@@ -269,6 +269,37 @@ module Stream = struct
     | bufs -> write t bufs
 end
 
+module Poll = struct
+  let poll_readable fd =
+    let poll = Luv.Poll.init ~loop:(get_loop ()) (Obj.magic fd) |> or_raise in
+    let r = enter (fun t k ->
+        Fibre_context.set_cancel_fn k.fibre (fun ex ->
+            Luv.Poll.stop poll |> or_raise;
+            enqueue_failed_thread t k ex
+          );
+        Luv.Poll.start poll [`READABLE;] (fun r ->
+            Luv.Poll.stop poll |> or_raise;
+            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k r
+          )
+      ) in
+    ignore (or_raise r : Luv.Poll.Event.t list)
+
+  let poll_writable fd =
+    let poll = Luv.Poll.init ~loop:(get_loop ()) (Obj.magic fd) |> or_raise in
+    let r = enter (fun t k ->
+        Fibre_context.set_cancel_fn k.fibre (fun ex ->
+            Luv.Poll.stop poll |> or_raise;
+            enqueue_failed_thread t k ex
+          );
+        Luv.Poll.start poll [`WRITABLE;] (fun r ->
+            Luv.Poll.stop poll |> or_raise;
+            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k r
+          )
+      )
+    in
+    ignore (or_raise r : Luv.Poll.Event.t list)
+end
+
 let sleep_until due =
   let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
   enter @@ fun st k ->
