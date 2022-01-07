@@ -23,9 +23,9 @@ open EffectHandlers.Deep
 
 module Fibre_context = Eio.Private.Fibre_context
 
-module Suspended = Eunix.Suspended
-module Zzz = Eunix.Zzz
-module Lf_queue = Eunix.Lf_queue
+module Suspended = Eio_utils.Suspended
+module Zzz = Eio_utils.Zzz
+module Lf_queue = Eio_utils.Lf_queue
 
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)
@@ -1064,7 +1064,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
                     Ctf.note_resolved (Fibre_context.tid new_fibre) ~ex:(Some ex)
                 )
             )
-          | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eunix.Trace.default_traceln)
+          | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eio_utils.Trace.default_traceln)
           | Alloc -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               alloc_buf st k

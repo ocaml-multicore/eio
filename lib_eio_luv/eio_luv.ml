@@ -22,7 +22,7 @@ open EffectHandlers
 open EffectHandlers.Deep
 
 module Fibre_context = Eio.Private.Fibre_context
-module Lf_queue = Eunix.Lf_queue
+module Lf_queue = Eio_utils.Lf_queue
 
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)
@@ -660,7 +660,7 @@ let rec run main =
             let k = { Suspended.k; fibre } in
             fn loop fibre (enqueue_thread st k))
         | Eio.Private.Effects.Trace ->
-          Some (fun k -> continue k Eunix.Trace.default_traceln)
+          Some (fun k -> continue k Eio_utils.Trace.default_traceln)
         | Eio.Private.Effects.Fork (new_fibre, f) ->
           Some (fun k -> 
             let k = { Suspended.k; fibre } in

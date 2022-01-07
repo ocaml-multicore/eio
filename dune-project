@@ -1,5 +1,5 @@
 (lang dune 2.9)
-(name eunix)
+(name eio)
 (formatting disabled)
 (generate_opam_files true)
 (source (github ocaml-multicore/eio))
@@ -11,25 +11,14 @@
  (synopsis "Effect-based direct-style IO API for OCaml")
  (description "An effect-based IO API for multicore OCaml with fibres.")
  (depends
+  base-domains
   (ctf (= :version))
   (cstruct (>= 6.0.1))
   lwt-dllist
+  (optint (>= 0.1.0))
+  (psq (>= 0.2.0))
   (fmt (>= 0.8.9))
   (alcotest (and (>= 1.4.0) :with-test))))
-(package
- (name eunix)
- (synopsis "Eio implementation for Unix-compatible systems")
- (description "An eio implementation for Unix-compatible systems.")
- (depends
-  (optint (>= 0.1.0))
-  base-domains
-  (ctf (= :version))
-  (eio (= :version))
-  (alcotest (and (>= 1.4.0) :with-test))
-  (logs (>= 0.7.0))
-  (fmt (>= 0.8.9))
-  (bigstringaf (>= 0.7.0))
-  (psq (>= 0.2.0))))
 (package
  (name eio_linux)
  (synopsis "Eio implementation for Linux using io-uring")
@@ -39,7 +28,6 @@
   base-domains
   (ctf (= :version))
   (eio (= :version))
-  (eunix (= :version))
   (mdx (and (>= 1.10.0) :with-test))
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
@@ -53,7 +41,6 @@
   base-domains
   (ctf (= :version))
   (eio (= :version))
-  (eunix (= :version))
   (luv (>= 0.5.8))
   (mdx (and (>= 1.10.0) :with-test))
   (logs (>= 0.7.0))

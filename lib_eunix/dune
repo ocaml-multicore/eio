@@ -1,4 +1,0 @@
-(library
- (name eunix)
- (public_name eunix)
- (libraries eio unix psq logs fmt bigstringaf ctf optint))
