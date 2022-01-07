@@ -12,7 +12,6 @@ depends: [
   "base-domains"
   "ctf" {= version}
   "eio" {= version}
-  "eunix" {= version}
   "luv" {>= "0.5.8"}
   "mdx" {>= "1.10.0" & with-test}
   "logs" {>= "0.7.0"}
