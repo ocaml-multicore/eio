@@ -1,4 +1,4 @@
 (library
  (name eio_luv)
  (public_name eio_luv)
- (libraries eio luv eio.utils unix logs fmt bigstringaf ctf))
+ (libraries eio.unix luv eio.utils logs fmt bigstringaf ctf))

@@ -76,18 +76,6 @@ module File : sig
 
 end
 
-module Poll : sig
-
-  val poll_readable : Unix.file_descr -> unit
-  (** Wraps {!Luv.Poll.start}. [poll fd] polls the file descriptor [fd]
-      until it is readable, and stops polling once it is ready. *)
-
-  val poll_writable : Unix.file_descr -> unit
-  (** Wraps {!Luv.Poll.start}. [poll fd] polls the file descriptor [fd]
-      until it is writable, and stops polling once it is ready. *)
-
-end
-
 module Handle : sig
   type 'a t
 
