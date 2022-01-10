@@ -270,34 +270,33 @@ module Stream = struct
 end
 
 module Poll = struct
-  let poll_readable fd =
-    let poll = Luv.Poll.init ~loop:(get_loop ()) (Obj.magic fd) |> or_raise in
-    let r = enter (fun t k ->
-        Fibre_context.set_cancel_fn k.fibre (fun ex ->
-            Luv.Poll.stop poll |> or_raise;
-            enqueue_failed_thread t k ex
-          );
-        Luv.Poll.start poll [`READABLE;] (fun r ->
-            Luv.Poll.stop poll |> or_raise;
-            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k r
-          )
-      ) in
-    ignore (or_raise r : Luv.Poll.Event.t list)
-
-  let poll_writable fd =
-    let poll = Luv.Poll.init ~loop:(get_loop ()) (Obj.magic fd) |> or_raise in
-    let r = enter (fun t k ->
-        Fibre_context.set_cancel_fn k.fibre (fun ex ->
-            Luv.Poll.stop poll |> or_raise;
-            enqueue_failed_thread t k ex
-          );
-        Luv.Poll.start poll [`WRITABLE;] (fun r ->
-            Luv.Poll.stop poll |> or_raise;
-            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k r
-          )
+  let await_readable t (k:unit Suspended.t) fd =
+    let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
+    Fibre_context.set_cancel_fn k.fibre (fun ex ->
+        Luv.Poll.stop poll |> or_raise;
+        enqueue_failed_thread t k ex
+      );
+    Luv.Poll.start poll [`READABLE;] (fun r ->
+        Luv.Poll.stop poll |> or_raise;
+        if Fibre_context.clear_cancel_fn k.fibre then
+          match r with
+          | Ok (_ : Luv.Poll.Event.t list) -> enqueue_thread t k ()
+          | Error e -> enqueue_failed_thread t k (Luv_error e)
       )
-    in
-    ignore (or_raise r : Luv.Poll.Event.t list)
+
+  let await_writable t (k:unit Suspended.t) fd =
+    let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
+    Fibre_context.set_cancel_fn k.fibre (fun ex ->
+        Luv.Poll.stop poll |> or_raise;
+        enqueue_failed_thread t k ex
+      );
+    Luv.Poll.start poll [`WRITABLE;] (fun r ->
+        Luv.Poll.stop poll |> or_raise;
+        if Fibre_context.clear_cancel_fn k.fibre then
+          match r with
+          | Ok (_ : Luv.Poll.Event.t list) -> enqueue_thread t k ()
+          | Error e -> enqueue_failed_thread t k (Luv_error e)
+      )
 end
 
 let sleep_until due =
@@ -686,6 +685,20 @@ let rec run main =
               let k = { Suspended.k; fibre } in
               fn fibre (enqueue_result_thread st k)
             )
+        | Eio_unix.Effects.Await_readable fd -> Some (fun k ->
+            match Fibre_context.get_error fibre with
+            | Some e -> discontinue k e
+            | None ->
+              let k = { Suspended.k; fibre } in
+              Poll.await_readable st k fd
+          )
+        | Eio_unix.Effects.Await_writable fd -> Some (fun k ->
+            match Fibre_context.get_error fibre with
+            | Some e -> discontinue k e
+            | None ->
+              let k = { Suspended.k; fibre } in
+              Poll.await_writable st k fd
+          )
         | _ -> None
     }
   in

@@ -117,6 +117,8 @@ type io_job =
   | Job_no_cancel : int Suspended.t -> io_job
   | Job : int Suspended.t -> io_job
   | Write : rw_req -> io_job
+  | Job_fn : 'a Suspended.t * (int -> [`Exit_scheduler]) -> io_job
+  (* When done, remove the cancel_fn from [Suspended.t] and call the callback (unless cancelled). *)
 
 type runnable =
   | Thread : 'a Suspended.t * 'a -> runnable
@@ -309,6 +311,16 @@ let rec enqueue_poll_add fd poll_mask st action =
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_poll_add fd poll_mask st action) st.io_q
 
+let rec enqueue_poll_add_unix fd poll_mask st action cb =
+  Log.debug (fun l -> l "poll_add: submitting call");
+  Ctf.label "poll_add";
+  let retry = with_cancel_hook ~action st (fun () ->
+      Uring.poll_add st.uring fd poll_mask (Job_fn (action, cb))
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_poll_add_unix fd poll_mask st action cb) st.io_q
+
 let rec enqueue_close st action fd =
   Log.debug (fun l -> l "close: submitting call");
   Ctf.label "close";
@@ -466,6 +478,12 @@ and handle_complete st ~runnable result =
     end
   | Job_no_cancel k ->
     Suspended.continue k result
+  | Job_fn (k, f) ->
+    clear_cancel k;
+    begin match Fibre_context.get_error k.fibre with
+      | None -> f result
+      | Some e -> Suspended.discontinue k e
+    end
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res, len with
   | 0, _ -> Suspended.discontinue action End_of_file
@@ -1065,6 +1083,28 @@ let rec run ?(queue_depth=64) ?(block_size=4096) main =
                 )
             )
           | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eio_utils.Trace.default_traceln)
+          | Eio_unix.Effects.Await_readable fd -> Some (fun k ->
+              match Fibre_context.get_error fibre with
+              | Some e -> discontinue k e
+              | None ->
+                let k = { Suspended.k; fibre } in
+                enqueue_poll_add_unix fd Uring.Poll_mask.(pollin + pollerr) st k (fun res ->
+                    if res >= 0 then Suspended.continue k ()
+                    else Suspended.discontinue k (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
+                  );
+                schedule st
+            )
+          | Eio_unix.Effects.Await_writable fd -> Some (fun k ->
+              match Fibre_context.get_error fibre with
+              | Some e -> discontinue k e
+              | None ->
+                let k = { Suspended.k; fibre } in
+                enqueue_poll_add_unix fd Uring.Poll_mask.(pollout + pollerr) st k (fun res ->
+                    if res >= 0 then Suspended.continue k ()
+                    else Suspended.discontinue k (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
+                  );
+                schedule st
+            )
           | Alloc -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               alloc_buf st k
