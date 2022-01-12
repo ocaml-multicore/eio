@@ -118,3 +118,11 @@ let take_nonblocking t =
     end;
     Mutex.unlock t.mutex;
     Some v
+
+let length t =
+  Mutex.lock t.mutex;
+  let len = Queue.length t.items in
+  Mutex.unlock t.mutex;
+  len
+
+let is_empty t = (length t = 0)
