@@ -303,12 +303,22 @@ module Stream : sig
   (** [take t] takes the next item from the head of [t].
       If no items are available, it waits until one becomes available. *)
 
+  val take_all : 'a t -> 'a list
+  (** [take_all t] returns all items in [t] as a list. {b Note} this is a destructive operation,
+      i.e items are removed from [t]. *)
+
   val take_nonblocking : 'a t -> 'a option
   (** [take_nonblocking t] is like [Some (take t)] except that
       it returns [None] if the stream is empty rather than waiting.
       Note that if another domain may add to the stream then a [None]
       result may already be out-of-date by the time this returns. *)
-end  
+
+  val length : 'a t -> int
+  (** [length t] returns the number of items currently in [t]. *)
+
+  val is_empty : 'a t -> bool
+  (** [is_empty t] is [length t = 0]. *)
+end
 
 (** Cancelling other fibres when an exception occurs. *)
 module Cancel : sig
@@ -734,7 +744,7 @@ module Private : sig
     type 'a enqueue = ('a, exn) result -> unit
     (** A function provided by the scheduler to reschedule a previously-suspended thread. *)
 
-    type _ eff += 
+    type _ eff +=
       | Suspend : (Fibre_context.t -> 'a enqueue -> unit) -> 'a eff
       (** [Suspend fn] is performed when a fibre must be suspended
           (e.g. because it called {!Promise.await} on an unresolved promise).
