@@ -92,6 +92,17 @@ let take t =
     Mutex.unlock t.mutex;
     v
 
+let take_all t =
+  let [@tailrec_mod_constr] rec loop () =
+    match Queue.take_opt t.items with
+    | Some x -> x :: loop ()
+    | None -> []
+  in
+  Mutex.lock t.mutex;
+  let s = loop () in
+  Mutex.unlock t.mutex;
+  s
+
 let take_nonblocking t =
   Mutex.lock t.mutex;
   match Queue.take_opt t.items with
