@@ -33,6 +33,7 @@ This is an unreleased repository, as it's very much a work-in-progress.
   * [Example: Worker Pool](#example-worker-pool)
 * [Design Note: Determinism](#design-note-determinism)
 * [Examples](#examples)
+* [Porting from Lwt](#porting-from-lwt)
 * [Further Reading](#further-reading)
 
 <!-- vim-markdown-toc -->
@@ -55,20 +56,14 @@ Additionally, modern operating systems provide high-performance alternatives to 
 For example, Linux's io-uring system has applications write the operations they want to perform to a ring buffer,
 which Linux handles asynchronously.
 
-Due to this, we anticipate many OCaml users will want to rewrite their IO code at some point,
-once effects have been merged into the official version of OCaml.
-It would be very beneficial to use this opportunity to standardise a single concurrency API for OCaml.
-
-This project explores what this new API should look like by building an effects-based IO library and
-then using it to create or port larger applications.
-
-The API is expected to change a great deal over the next year or so.
-If you're looking for a stable library for your application, you should continue using Lwt or Async for now.
-However, if you'd like to help with these experiments, please get in touch!
+Due to this, we anticipate many OCaml users will want to rewrite their IO code once OCaml 5.00 is released.
+It would be very beneficial to use this opportunity to standardise a single concurrency API for OCaml,
+and we hope that Eio will be that API.
 
 At present, the library provides a generic backend based on libuv, which should work on most platforms,
 plus an optimised backend for Linux using io-uring.
-It's able to run a web-server with [good performance][http-bench], but many features are still missing.
+It is able to run a web-server with [good performance][http-bench], but many features are still missing.
+If you'd like to help out, please try porting your program to use Eio and submit PRs or open issues when you find problems.
 
 ## Structure of the Code
 
@@ -76,7 +71,6 @@ It's able to run a web-server with [good performance][http-bench], but many feat
 - `eio_luv` provides a cross-platform backend for these APIs using [luv](https://github.com/aantron/luv) (libuv).
 - `eio_linux` provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
-- `eunix` provides some common code shared by multiple backends.
 - `eio_main` selects an appropriate backend (e.g. `eio_linux` or `eio_luv`), depending on your platform.
 - `ctf` provides tracing support.
 
@@ -300,9 +294,12 @@ releases any attached resources (e.g. closing all attached file handles).
 If you call a function without giving it access to a switch,
 then when the function returns you can be sure that any fibres it spawned have finished,
 and any files it opened have been closed.
+This works because Eio does not provide e.g. a way to open a file without attaching it to a switch.
+If a function doesn't have a switch and wants to open a file, it must use `Switch.run` to create one.
+But then the function can't return until `Switch.run` does, at which point the file is closed.
+
 So, a `Switch.run` puts a bound on the lifetime of things created within it,
 leading to clearer code and avoiding resource leaks.
-
 For example, `fork` creates a new fibre that continues running after `fork` returns,
 so it needs to take a switch argument.
 
@@ -932,6 +929,12 @@ See Eio's own tests for examples, e.g., [tests/test_switch.md](tests/test_switch
 - [gemini-eio][] is a simple Gemini browser. It shows how to integrate Eio with `ocaml-tls`, `angstrom`, and `notty`.
 - [ocaml-multicore/retro-httpaf-bench](https://github.com/ocaml-multicore/retro-httpaf-bench) includes a simple HTTP server using Eio. It shows how to use Eio with `httpaf`, and how to use multiple domains for increased performance.
 
+## Porting from Lwt
+
+You can use [Lwt_eio][] to run Lwt threads and Eio fibres together in a single domain,
+and to convert between Lwt and Eio promises.
+This may be useful during the process of porting existing code to Eio.
+
 ## Further Reading
 
 - [lib_eio/eio.mli](lib_eio/eio.mli) documents Eio's public API.
@@ -946,6 +949,7 @@ Some background about the effects system can be found in:
 - [Concurrent System Programming with Effect Handlers](https://www.repository.cam.ac.uk/bitstream/handle/1810/283239/paper.pdf?sequence=3&isAllowed=y)
 - [Asynchronous effect based IO using effect handlers](https://github.com/kayceesrk/ocaml-aeio)
 
+[Lwt_eio]: https://github.com/talex5/lwt_eio
 [mirage-trace-viewer]: https://github.com/talex5/mirage-trace-viewer
 [structured concurrency]: https://en.wikipedia.org/wiki/Structured_concurrency
 [typed effects]: https://www.janestreet.com/tech-talks/effective-programming/
