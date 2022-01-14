@@ -349,10 +349,11 @@ This version will always produce the expected result:
 However, using atomics everywhere is slow.
 For example, the first `Atomic.get x` might require loading `x` from RAM, even if it was already in the cache.
 
-We can solve this by relying on a useful feature of atomics: every atomic also has a frontier of its own (a location on every non-atomic location's timeline).
-Writing to an atomic updates its frontier with information from the writing CPU's frontier
-(so it's at least as up-to-date as the writer).
-Reading from an atomic merges its frontier into the reader's frontier.
+We can solve this by relying on a useful feature of atomics:
+every atomic also has a frontier of its own (a location on every non-atomic location's timeline).
+The union of two frontiers is a frontier where each timeline point is the maximum of the two inputs.
+Writing to an atomic sets both the writer's frontier and the atomic's frontier to the union of them both.
+Reading from an atomic is similar, but updates only the reader's frontier.
 
 Here's a new version, mixing atomic and non-atomic locations:
 
@@ -393,7 +394,7 @@ x     : [B]5--------[AR]10----->
 ready : true   (atomic)
 ```
 
-At this point, if `B` read `x` it might see `5` or `10`, but after reading from `ready` it not only learns that its value is now `true`,
+At this point, if `B` were to read `x` it might see `5` or `10`, but after reading from `ready` it not only learns that its value is now `true`,
 but also gets its frontier updated with information from `R`:
 
 ```
@@ -444,14 +445,6 @@ So it will always see a correct list:
 +x = [4; 5; 6]
 - : unit = ()
 ```
-
-The way this works on a real system is interesting.
-Neither `x` nor the list items are atomic, so the system is free to optimise things as it pleases.
-In particular, it might update `x` to point at the new list's address before writing the list.
-However, the new list will be allocated in the writing domain's minor heap, which is private to that domain.
-If the second branch sees the new pointer value, it will notice that it points into another domain's minor heap.
-Instead of accessing it directly, it will send a message to that domain asking for the value to be promoted to the major heap.
-The promoting domain will ensure the value is written fully before updating `x` to point at its new location.
 
 ## Guidelines
 
