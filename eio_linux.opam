@@ -16,7 +16,6 @@ depends: [
   "mdx" {>= "1.10.0" & with-test}
   "logs" {>= "0.7.0"}
   "fmt" {>= "0.8.9"}
-  "bigstringaf" {>= "0.7.0"}
   "uring"
   "odoc" {with-doc}
 ]
@@ -38,5 +37,5 @@ build: [
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
 pin-depends: [
-  ["uring.dev" "git+https://github.com/ocaml-multicore/ocaml-uring.git#c12c82dc1c06e1224984295c4d5819428a72dcdb"]
+  ["uring.dev" "git+https://github.com/ocaml-multicore/ocaml-uring.git#389183cb464ffede2b3b2419885c61035e74b574"]
 ]

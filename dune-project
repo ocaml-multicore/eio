@@ -31,7 +31,6 @@
   (mdx (and (>= 1.10.0) :with-test))
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
-  (bigstringaf (>= 0.7.0))
   uring))
 (package
  (name eio_luv)
@@ -44,8 +43,7 @@
   (luv (>= 0.5.8))
   (mdx (and (>= 1.10.0) :with-test))
   (logs (>= 0.7.0))
-  (fmt (>= 0.8.9))
-  (bigstringaf (>= 0.7.0))))
+  (fmt (>= 0.8.9))))
 (package
  (name ctf)
  (synopsis "CTF tracing")
