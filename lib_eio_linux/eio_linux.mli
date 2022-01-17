@@ -23,7 +23,7 @@ module FD : sig
   type t
 
   val is_open : t -> bool
-  (** [is_open t] is [true] if {!close t} hasn't been called yet. *)
+  (** [is_open t] is [true] if {!close} hasn't been called yet. *)
 
   val close : t -> unit
   (** [close t] closes [t].
