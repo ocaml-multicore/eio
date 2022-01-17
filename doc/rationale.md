@@ -99,7 +99,7 @@ For example:
 - Some flows are backed by a Unix file descriptor which we may want to extract.
 
 The OCaml standard library provides separate `close_in` and `close_out` functions, but cannot handle two-way flows.
-Eio instead provides a single `Flow.close` what works with all flows that can be closed.
+Eio instead provides a single `Flow.close` that works with all flows that can be closed.
 
 Users of Eio can choose how specific to make their code.
 For example, calling `Eio_main.run` will get you a basic Unix-like environment,
