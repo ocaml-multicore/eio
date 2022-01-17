@@ -1,4 +1,4 @@
-open EffectHandlers
+open Effect
 
 exception Cancelled = Exn.Cancelled
 exception Cancel_hook_failed = Exn.Cancel_hook_failed

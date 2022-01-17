@@ -22,9 +22,15 @@
   (modules bench_noop)
   (libraries eio_linux))
 
-(test
+; HACK: enable_if doesn't quite work on test stanzas yet
+(executable
  (name test)
- (package eio_linux)
  (enabled_if (= %{system} "linux"))
  (modules test)
  (libraries alcotest eio_linux))
+
+(rule
+ (alias runtest)
+ (deps ./test.exe)
+ (enabled_if (= %{system} "linux"))
+ (action (run ./test.exe)))

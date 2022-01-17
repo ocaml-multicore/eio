@@ -1,4 +1,4 @@
-open EffectHandlers
+open Effect
 
 module Hook = Hook
 module Cancel = Cancel

@@ -7,7 +7,7 @@ val await_writable : Unix.file_descr -> unit
 (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
 module Effects : sig
-  open EffectHandlers
+  open Effect
 
   type _ eff += 
     | Await_readable : Unix.file_descr -> unit eff

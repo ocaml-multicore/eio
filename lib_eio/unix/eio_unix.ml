@@ -1,4 +1,4 @@
-open EffectHandlers
+open Effect
 
 module Effects = struct
   type _ eff += 
