@@ -1,4 +1,4 @@
-open EffectHandlers
+open Effect
 
 module Hook = Hook
 module Cancel = Cancel
@@ -298,4 +298,6 @@ module Private = struct
       | Get_context = Cancel.Get_context
       | Trace = Std.Trace
   end
+
+  module Effect = Effect
 end

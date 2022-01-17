@@ -115,7 +115,7 @@ let run_internal t fn =
 let run fn = Cancel.sub (fun cc -> run_internal (create cc) fn)
 
 let run_protected fn =
-  let ctx = EffectHandlers.perform Cancel.Get_context in
+  let ctx = Effect.perform Cancel.Get_context in
   Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true @@ fun cancel ->
   run_internal (create cancel) fn
 
@@ -124,7 +124,7 @@ let run_protected fn =
    and means that cancelling [t] will cancel [fn]. *)
 let run_in t fn =
   with_op t @@ fun () ->
-  let ctx = EffectHandlers.perform Cancel.Get_context in
+  let ctx = Effect.perform Cancel.Get_context in
   let old_cc = ctx.cancel_context in
   Cancel.move_fibre_to t.cancel ctx;
   match fn () with

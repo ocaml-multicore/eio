@@ -1,4 +1,4 @@
-open EffectHandlers
+open Effect
 
 type _ eff += Fork : Cancel.fibre_context * (unit -> unit) -> unit eff
 

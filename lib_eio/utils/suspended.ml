@@ -1,4 +1,4 @@
-open EffectHandlers.Deep
+open Eio.Private.Effect.Deep
 
 type 'a t = {
   fibre : Eio.Private.Fibre_context.t;

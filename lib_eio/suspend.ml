@@ -1,4 +1,4 @@
-open EffectHandlers
+open Effect
 
 type 'a enqueue = ('a, exn) result -> unit
 type _ eff += Suspend : (Cancel.fibre_context -> 'a enqueue -> unit) -> 'a eff
