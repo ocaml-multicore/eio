@@ -73,6 +73,7 @@ module Packet = struct
   let magic = 0xc1fc1fc1l
   let uuid = "\x05\x88\x3b\x8d\x52\x1a\x48\x7b\xb3\x97\x45\x6a\xb1\x50\x68\x0c"
 
+  (*
   [%%cstruct
   type packet_header = {
     (* Stream header, repeated for each packet *)
@@ -86,6 +87,17 @@ module Packet = struct
     content_size_high: uint16_t;
   } [@@little_endian]
   ]
+  *)
+
+  (* Auto-generated code from the above (to avoid a dependency on ppxlib) *)
+  let sizeof_packet_header = 30
+  let set_packet_header_magic v x = Cstruct.LE.set_uint32 v 0 x
+  let set_packet_header_uuid src srcoff dst = Cstruct.blit_from_string src srcoff dst 4 16
+  let set_packet_header_size v x = Cstruct.LE.set_uint32 v 20 x
+  let set_packet_header_stream_packet_count v x = Cstruct.LE.set_uint16 v 24 x
+  let set_packet_header_content_size_low v x = Cstruct.LE.set_uint16 v 26 x
+  let set_packet_header_content_size_high v x = Cstruct.LE.set_uint16 v 28 x
+  (* End auto-generated code *)
 
   type t = {
     packet_start : int;
