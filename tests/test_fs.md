@@ -232,3 +232,19 @@ Using `cwd` we can't access the parent, but using `fs` we can:
 +chdir ".."
 - : unit = ()
 ```
+
+Can use `fs` to access absolute paths:
+
+```ocaml
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  let fs = Eio.Stdenv.fs env in
+  let b = Buffer.create 10 in
+  Eio.Dir.with_open_in fs Filename.null (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));
+  traceln "Read %S and got %S" Filename.null (Buffer.contents b);
+  traceln "Trying with cwd instead fails:";
+  Eio.Dir.with_open_in cwd Filename.null (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));;;
++Read "/dev/null" and got ""
++Trying with cwd instead fails:
+Exception: Eio.Dir.Permission_denied ("/dev/null", _)
+```

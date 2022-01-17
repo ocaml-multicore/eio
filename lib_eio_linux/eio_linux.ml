@@ -903,7 +903,7 @@ module Objects = struct
           ~access:`R
           ~flags:Uring.Open_flags.cloexec
           ~perm:0
-          ~resolve:Uring.Resolve.beneath
+          ~resolve:resolve_flags
       in
       (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
 
