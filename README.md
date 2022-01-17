@@ -25,7 +25,6 @@ This is an unreleased repository, as it's very much a work-in-progress.
 * [Filesystem Access](#filesystem-access)
 * [Time](#time)
 * [Multicore Support](#multicore-support)
-* [Design Note: Thread-Safety](#design-note-thread-safety)
 * [Synchronisation Tools](#synchronisation-tools)
   * [Promises](#promises)
   * [Example: Concurrent Cache](#example-concurrent-cache)
@@ -631,40 +630,12 @@ Notes:
 - `run` waits for the domain to finish, but it allows other fibres to run while waiting.
   This is why we use `Fibre.both` to create multiple fibres.
 
-## Design Note: Thread-Safety
-
-OCaml spent the first 25 years of its existence without multicore support, and so most libraries are not thread-safe.
-Even in languages that had parallelism from the beginning, thread safety is a very common cause of bugs.
-Eio therefore defaults to a conservative model, in which each mutable value is owned and used by a single domain.
-
-There are several ways to share values between domains:
-
-1. Immutable values (such as strings) can always be shared safely.
-2. Values specifically designed to be thread-safe (e.g. a `Mutex.t`) can be shared.
-3. A non-threadsafe value's owning domain can update it in response to messages from other domains.
-4. A non-threadsafe value can be wrapped with a mutex.
-5. A non-threadsafe value can passed to another domain if the sending domain will never use it again.
-
-Note that (3) and (4) are not quite the same.
-Consider this code:
-
-```ocaml
-let example q =
-  assert (Queue.length q = Queue.length q)
-```
-
-If `q` is only updated by its owning domain (as in 3) then this assertion will always pass.
-`Queue.length` will not perform an effect which could switch fibres, so nothing else can update `q`.
-If another domain wants to change it, it sends a message to `q`'s domain, which is added to the domain's
-run-queue and will take effect later.
-
-However, if `q` is wrapped by a mutex (as in 4) then the assertion could fail.
-The first `Queue.length` will lock and then release the queue, then the second will lock and release it again.
-Another domain could change the value between these two calls.
+For more information, see the [Multicore Guide](./doc/multicore.md).
 
 ## Synchronisation Tools
 
-Eio provides several sub-modules for communicating between fibres and domains.
+Eio provides several sub-modules for communicating between fibres,
+and these work even when the fibres are running in different domains.
 
 ### Promises
 
@@ -780,6 +751,9 @@ This version of the cache remembers failed lookups too.
 You could modify it to remove the entry on failure,
 so that all clients currently waiting still fail,
 but any future client asking for the failed resource will trigger a new download.
+
+This cache is not thread-safe.
+You will need to add a mutex if you want to share it between domains.
 
 ### Streams
 
