@@ -735,7 +735,7 @@ module Private : sig
   end
 
   module Effects : sig
-    open EffectHandlers
+    open Effect
 
     type 'a enqueue = ('a, exn) result -> unit
     (** A function provided by the scheduler to reschedule a previously-suspended thread. *)
@@ -759,4 +759,7 @@ module Private : sig
 
       | Get_context : Fibre_context.t eff
   end
+
+  (** Temporary hack for compatibility with ocaml.4.12+domains *)
+  module Effect = Effect
 end

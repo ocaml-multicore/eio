@@ -3,3 +3,15 @@
   (public_name eio)
   (libraries cstruct ctf lwt-dllist fmt)
   (flags (:standard -w -50)))
+
+(rule
+  (target effect.ml)
+  (enabled_if (>= %{ocaml_version} "5.00"))
+  (action
+    (copy effect.new.ml effect.ml)))
+
+(rule
+  (target effect.ml)
+  (enabled_if (< %{ocaml_version} "5.00"))
+  (action
+    (copy effect.compat.ml effect.ml)))

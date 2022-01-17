@@ -1,4 +1,4 @@
-open EffectHandlers
+open Eio.Private.Effect
 
 module Effects = struct
   type _ eff += 
