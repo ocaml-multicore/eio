@@ -760,18 +760,12 @@ module Objects = struct
         | _ -> None
 
       method read_into buf =
-        (* Inefficient copying fallback *)
-        with_chunk @@ fun chunk ->
-        let chunk_cs = Uring.Region.to_cstruct chunk in
-        let max_len = min (Cstruct.length buf) (Cstruct.length chunk_cs) in
         if Lazy.force is_tty then (
           (* Work-around for https://github.com/axboe/liburing/issues/354
              (should be fixed in Linux 5.14) *)
           await_readable fd
         );
-        let got = read_upto fd chunk max_len in
-        Cstruct.blit chunk_cs 0 buf 0 got;
-        got
+        readv fd [buf]
 
       method read_methods = []
 
