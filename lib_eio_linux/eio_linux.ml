@@ -79,7 +79,14 @@ module FD = struct
     | (_ : int) -> true
     | exception Unix.Unix_error(Unix.ESPIPE, "lseek", "") -> false
 
-  let to_unix = get "to_unix"
+  let to_unix op t =
+    let fd = get "to_unix" t in
+    match op with
+    | `Peek -> fd
+    | `Take ->
+      t.fd <- `Closed;
+      Eio.Hook.remove t.release_hook;
+      fd
 
   let of_unix_no_hook ~seekable ~close_unix fd =
     { seekable; close_unix; fd = `Open fd; release_hook = Eio.Hook.null }
@@ -762,6 +769,7 @@ module Objects = struct
 
       method probe : type a. a Eio.Generic.ty -> a option = function
         | FD -> Some fd
+        | Eio_unix.Unix_file_descr op -> Some (FD.to_unix op fd)
         | _ -> None
 
       method read_into buf =
@@ -797,6 +805,10 @@ module Objects = struct
 
   let listening_socket fd = object
     inherit Eio.Net.listening_socket
+
+    method! probe : type a. a Eio.Generic.ty -> a option = function
+      | Eio_unix.Unix_file_descr op -> Some (FD.to_unix op fd)
+      | _ -> None
 
     method close = FD.close fd
 

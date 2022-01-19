@@ -126,7 +126,8 @@ module Sockaddr = struct
       Format.fprintf f "tcp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
-class virtual listening_socket = object
+class virtual listening_socket = object (_ : #Generic.t)
+  method probe _ = None
   method virtual close : unit
   method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.t
 end

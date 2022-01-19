@@ -164,6 +164,18 @@ module Handle = struct
     let t = of_luv_no_hook fd in
     t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
     t
+
+  let to_unix_opt op (t:_ t) =
+    match Luv.Handle.fileno (to_luv t) with
+    | Error _ -> None
+    | Ok os_fd ->
+      let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
+      match op with
+      | `Peek -> Some fd
+      | `Take ->
+        t.fd <- `Closed;
+        Eio.Hook.remove t.release_hook;
+        Some fd
 end
 
 module File = struct
@@ -226,6 +238,16 @@ module File = struct
   let mkdir ~mode path =
     let request = Luv.File.Request.make () in
     await_with_cancel ~request (fun loop -> Luv.File.mkdir ~loop ~request ~mode path)
+
+  let to_unix op t =
+    let os_fd = Luv.File.get_osfhandle (get "to_unix" t) |> or_raise in
+    let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
+    match op with
+    | `Peek -> fd
+    | `Take ->
+      t.fd <- `Closed;
+      Eio.Hook.remove t.release_hook;
+      fd
 end
 
 module Random = struct
@@ -273,6 +295,8 @@ module Stream = struct
     match Luv.Buffer.drop bufs n |> skip_empty with
     | [] -> ()
     | bufs -> write t bufs
+
+  let to_unix_opt = Handle.to_unix_opt
 end
 
 module Poll = struct
@@ -335,6 +359,7 @@ module Objects = struct
 
     method probe : type a. a Eio.Generic.ty -> a option = function
       | FD -> Some fd
+      | Eio_unix.Unix_file_descr op -> Some (File.to_unix op fd)
       | _ -> None
 
     method read_into buf =
@@ -360,7 +385,11 @@ module Objects = struct
   let sink   fd = (flow fd :> sink)
 
   let socket sock = object
-    inherit Eio.Flow.two_way
+    inherit Eio.Flow.two_way as super
+
+    method! probe : type a. a Eio.Generic.ty -> a option = function
+      | Eio_unix.Unix_file_descr op -> Stream.to_unix_opt op sock
+      | x -> super#probe x
 
     method read_into buf =
       let buf = Cstruct.to_bigarray buf in
@@ -390,7 +419,11 @@ module Objects = struct
   end
 
   class virtual ['a] listening_socket ~backlog sock = object (self)
-    inherit Eio.Net.listening_socket
+    inherit Eio.Net.listening_socket as super
+
+    method! probe : type a. a Eio.Generic.ty -> a option = function
+      | Eio_unix.Unix_file_descr op -> Stream.to_unix_opt op sock
+      | x -> super#probe x
 
     val ready = Eio.Semaphore.make 0
 

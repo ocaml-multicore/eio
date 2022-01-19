@@ -10,7 +10,7 @@ let read_one_byte ~sw r =
       let r = Option.get (Eio_linux.Objects.get_fd_opt r) in
       Eio_linux.await_readable r;
       let b = Bytes.create 1 in
-      let got = Unix.read (Eio_linux.FD.to_unix r) b 0 1 in
+      let got = Unix.read (Eio_linux.FD.to_unix `Peek r) b 0 1 in
       assert (got = 1);
       Bytes.to_string b
     )
@@ -23,7 +23,7 @@ let test_poll_add () =
   Fibre.yield ();
   let w = Option.get (Eio_linux.Objects.get_fd_opt w) in
   Eio_linux.await_writable w;
-  let sent = Unix.write (Eio_linux.FD.to_unix w) (Bytes.of_string "!") 0 1 in
+  let sent = Unix.write (Eio_linux.FD.to_unix `Peek w) (Bytes.of_string "!") 0 1 in
   assert (sent = 1);
   let result = Promise.await thread in
   Alcotest.(check string) "Received data" "!" result
@@ -35,7 +35,7 @@ let test_poll_add_busy () =
   let a = read_one_byte ~sw r in
   let b = read_one_byte ~sw r in
   Fibre.yield ();
-  let w = Option.get (Eio_linux.Objects.get_fd_opt w) |> Eio_linux.FD.to_unix in
+  let w = Option.get (Eio_linux.Objects.get_fd_opt w) |> Eio_linux.FD.to_unix `Peek in
   let sent = Unix.write w (Bytes.of_string "!!") 0 2 in
   assert (sent = 2);
   let a = Promise.await a in

@@ -720,6 +720,7 @@ module Net : sig
   end
 
   class virtual listening_socket : object
+    inherit Generic.t
     method virtual close : unit
     method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.t
   end
