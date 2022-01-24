@@ -429,7 +429,7 @@ let main ~net ~addr =
 # Eio_main.run @@ fun env ->
   main
     ~net:(Eio.Stdenv.net env)
-    ~addr:(`Tcp (Unix.inet_addr_loopback, 8080));;
+    ~addr:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 8080));;
 +Server ready...
 +Connecting to server...
 +Server accepted connection from client

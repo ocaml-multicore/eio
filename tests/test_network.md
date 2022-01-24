@@ -12,7 +12,7 @@ let run (fn : net:Eio.Net.t -> Switch.t -> unit) =
   let net = Eio.Stdenv.net env in
   Switch.run (fn ~net)
 
-let addr = `Tcp (Unix.inet_addr_loopback, 8081)
+let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 8081)
 
 let read_all flow =
   let b = Buffer.create 100 in
@@ -146,4 +146,59 @@ Calling accept when the switch is already off:
   Eio.Net.accept_sub server ~sw (fun ~sw:_ _flow _addr -> assert false)
     ~on_error:raise;;
 Exception: Failure "Simulated error".
+```
+# Unix interop
+
+Check we can convert Eio IP addresses to Unix:
+
+```ocaml
+# Eio.Net.Ipaddr.V4.loopback |> Eio_unix.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
+- : string = "127.0.0.1"
+# Eio.Net.Ipaddr.V4.any |> Eio_unix.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
+- : string = "0.0.0.0"
+# Eio.Net.Ipaddr.V6.loopback |> Eio_unix.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
+- : string = "::1"
+# Eio.Net.Ipaddr.V6.any |> Eio_unix.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
+- : string = "::"
+```
+
+Check we can convert Unix IP addresses to Eio:
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  let show x = traceln "%a" Eio.Net.Ipaddr.pp (Eio_unix.Ipaddr.of_unix (Unix.inet_addr_of_string x)) in
+  show "127.0.0.1";
+  show "0.0.0.0";
+  show "1234:5678:9abc:def0:fedc:ba98:7654:3210";
+  show "::1";
+  show "::";
+  show "ab::";
+  show "::ffff:192.168.1.3";
+  show "1:0:0:2:0:0:0:3";
+  show "4:1:0:0:2:0:0:3";;
++127.0.0.1
++0.0.0.0
++1234:5678:9abc:def0:fedc:ba98:7654:3210
++::1
++::
++ab::
++::ffff:192.168.1.3
++1:0:0:2::3
++4:1::2:0:0:3
+- : unit = ()
+```
+
+Printing addresses with ports:
+
+```ocaml
+# let show host port =
+    let host = Eio_unix.Ipaddr.of_unix (Unix.inet_addr_of_string host) in
+    traceln "%a" Eio.Net.Sockaddr.pp (`Tcp (host, port))
+  in
+  Eio_main.run @@ fun env ->
+  show "127.0.0.1" 8080;
+  show "::1" 8080;;
++tcp:127.0.0.1:8080
++tcp:[::1]:8080
+- : unit = ()
 ```
