@@ -1,0 +1,4 @@
+(test
+  (name nounix)
+  (forbidden_libraries unix)
+  (libraries eio))

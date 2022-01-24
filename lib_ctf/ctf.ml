@@ -9,6 +9,23 @@
 
 open Bigarray
 
+module BS = struct
+  (* Replacement for endianBigstring that avoids pulling in a Unix dependency *)
+
+  external set_64 : Cstruct.buffer -> int -> int64 -> unit = "%caml_bigstring_set64"
+  external swap64 : int64 -> int64 = "%bswap_int64"
+  external unsafe_chr : int -> char = "%identity"
+
+  let set_int8 s off v = Array1.set s off (unsafe_chr v)
+  [@@ocaml.inline]
+
+  let set_int64_le s off v =
+    if Sys.big_endian
+    then set_64 s off (swap64 v)
+    else set_64 s off v
+  [@@ocaml.inline]
+end
+
 type id = int
 
 let last_id = ref 0
@@ -185,11 +202,11 @@ module Control = struct
   let op_signal = 13
 
   let write64 log v i =
-    EndianBigstring.LittleEndian.set_int64 log i v;
+    BS.set_int64_le log i v;
     i + 8
 
   let write8 log v i =
-    EndianBigstring.LittleEndian.set_int8 log i v;
+    BS.set_int8 log i v;
     i + 1
 
   let write_string log v i =
