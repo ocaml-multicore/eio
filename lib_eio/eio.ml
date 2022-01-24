@@ -219,6 +219,10 @@ module Time = struct
   let with_timeout_exn t d = Fibre.first (fun () -> sleep t d; raise Timeout)
 end
 
+module Unix_perm = struct
+  type t = int
+end
+
 module Dir = struct
   type path = string
 
@@ -232,7 +236,7 @@ module Dir = struct
     inherit Flow.write
   end
 
-  type create = [`Never | `If_missing of Unix.file_perm | `Or_truncate of Unix.file_perm | `Exclusive of Unix.file_perm]
+  type create = [`Never | `If_missing of Unix_perm.t | `Or_truncate of Unix_perm.t | `Exclusive of Unix_perm.t]
 
   class virtual t = object
     method virtual open_in : sw:Switch.t -> path -> <Flow.source; Flow.close>
@@ -241,7 +245,7 @@ module Dir = struct
       append:bool ->
       create:create ->
       path -> <rw; Flow.close>
-    method virtual mkdir : perm:Unix.file_perm -> path -> unit
+    method virtual mkdir : perm:Unix_perm.t -> path -> unit
     method virtual open_dir : sw:Switch.t -> path -> t_with_close
   end
   and virtual t_with_close = object

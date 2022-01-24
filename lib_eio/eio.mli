@@ -586,6 +586,11 @@ module Time : sig
       raising exception [Timeout]. *)
 end
 
+module Unix_perm : sig
+  type t = int
+  (** This is the same as {!Unix.file_perm}, but avoids a dependency on [Unix]. *)
+end
+
 module Dir : sig
   type path = string
 
@@ -599,7 +604,7 @@ module Dir : sig
     inherit Flow.write
   end
 
-  type create = [`Never | `If_missing of Unix.file_perm | `Or_truncate of Unix.file_perm | `Exclusive of Unix.file_perm]
+  type create = [`Never | `If_missing of Unix_perm.t | `Or_truncate of Unix_perm.t | `Exclusive of Unix_perm.t]
   (** When to create a new file:
       If [`Never] then it's an error if the named file doesn't exist.
       If [`If_missing] then an existing file is simply opened.
@@ -615,7 +620,7 @@ module Dir : sig
       append:bool ->
       create:create ->
       path -> <rw; Flow.close>
-    method virtual mkdir : perm:Unix.file_perm -> path -> unit
+    method virtual mkdir : perm:Unix_perm.t -> path -> unit
     method virtual open_dir : sw:Switch.t -> path -> t_with_close
   end
   and virtual t_with_close : object
