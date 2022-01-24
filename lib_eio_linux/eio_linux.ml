@@ -979,8 +979,8 @@ let monitor_event_fd t =
   done
 
 (* Don't use [Fun.protect] - it throws away the original exception! *)
-let with_uring ~fixed_buf_len ~queue_depth fn =
-  let uring = Uring.create ~fixed_buf_len ~queue_depth () in
+let with_uring ~fixed_buf_len ~queue_depth ?polling_timeout fn =
+  let uring = Uring.create ~fixed_buf_len ~queue_depth ?polling_timeout () in
   match fn uring with
   | x -> Uring.exit uring; x
   | exception ex ->
@@ -991,12 +991,12 @@ let with_uring ~fixed_buf_len ~queue_depth fn =
     end;
     Printexc.raise_with_backtrace ex bt
 
-let rec run ?(queue_depth=64) ?(block_size=4096) main =
+let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
   Log.debug (fun l -> l "starting run");
-  let stdenv = Objects.stdenv ~run_event_loop:(run ~queue_depth ~block_size) in
+  let stdenv = Objects.stdenv ~run_event_loop:(run ~queue_depth ~block_size ?polling_timeout) in
   (* TODO unify this allocation API around baregion/uring *)
   let fixed_buf_len = block_size * queue_depth in
-  with_uring ~fixed_buf_len ~queue_depth @@ fun uring ->
+  with_uring ~fixed_buf_len ~queue_depth ?polling_timeout @@ fun uring ->
   let buf = Uring.buf uring in
   let mem = Uring.Region.init ~block_size buf queue_depth in
   let run_q = Lf_queue.create () in

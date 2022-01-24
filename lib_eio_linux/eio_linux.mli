@@ -164,5 +164,5 @@ val pipe : Switch.t -> Objects.source * Objects.sink
 
 (** {1 Main Loop} *)
 
-val run : ?queue_depth:int -> ?block_size:int -> (Objects.stdenv -> unit) -> unit
+val run : ?queue_depth:int -> ?block_size:int -> ?polling_timeout:int -> (Objects.stdenv -> unit) -> unit
 (** FIXME queue_depth and block_size should be in a handler and not the mainloop *)
