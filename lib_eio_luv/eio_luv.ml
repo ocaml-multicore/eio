@@ -419,17 +419,16 @@ module Objects = struct
   let luv_reuse_addr _sock _v = ()
   let luv_reuse_port _sock _v = ()
 
-  (* This is messy. Should make a generic sockaddr type for eio. *)
-  let luv_addr_of_unix host port =
-    let host = Unix.string_of_inet_addr host in
+  let luv_addr_of_eio host port =
+    let host = Unix.string_of_inet_addr (Eio_unix.Ipaddr.to_unix host) in
     match Luv.Sockaddr.ipv6 host port with
     | Ok addr -> addr
     | Error _ -> Luv.Sockaddr.ipv4 host port |> or_raise
 
-  let luv_ip_addr_to_unix addr =
+  let luv_ip_addr_to_eio addr =
     let host = Luv.Sockaddr.to_string addr |> Option.get in
     let port = Luv.Sockaddr.port addr |> Option.get in
-    (Unix.inet_addr_of_string host, port)
+    (Eio_unix.Ipaddr.of_unix (Unix.inet_addr_of_string host), port)
 
   let listening_ip_socket ~backlog sock = object
     inherit [[ `TCP ]] listening_socket ~backlog sock
@@ -437,7 +436,7 @@ module Objects = struct
     method private make_client = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise
 
     method private get_client_addr c =
-      `Tcp (Luv.TCP.getpeername (Handle.get "get_client_addr" c) |> or_raise |> luv_ip_addr_to_unix)
+      `Tcp (Luv.TCP.getpeername (Handle.get "get_client_addr" c) |> or_raise |> luv_ip_addr_to_eio)
   end
 
   let listening_unix_socket ~backlog sock = object
@@ -456,7 +455,7 @@ module Objects = struct
         let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
         luv_reuse_addr sock reuse_addr;
         luv_reuse_port sock reuse_port;
-        let addr = luv_addr_of_unix host port in
+        let addr = luv_addr_of_eio host port in
         Luv.TCP.bind (Handle.get "bind" sock) addr |> or_raise;
         listening_ip_socket ~backlog sock
       | `Unix path         ->
@@ -478,7 +477,7 @@ module Objects = struct
     method connect ~sw = function
       | `Tcp (host, port) ->
         let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
-        let addr = luv_addr_of_unix host port in
+        let addr = luv_addr_of_eio host port in
         await_exn (fun _loop _fibre -> Luv.TCP.connect (Handle.get "connect" sock) addr);
         socket sock
       | `Unix path ->

@@ -1,4 +1,4 @@
 (library
   (name ctf)
   (public_name ctf)
-  (libraries cstruct ocplib-endian.bigstring mtime))
+  (libraries cstruct mtime))

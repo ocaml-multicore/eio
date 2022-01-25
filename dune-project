@@ -50,7 +50,6 @@
  (description "Trace IO events.")
  (depends
   (alcotest (and (>= 1.4.0) :with-test))
-  (ocplib-endian (>= 1.1))
   (mtime (>= 1.2.0))
   (cstruct (>= 6.0.1))))
 (package

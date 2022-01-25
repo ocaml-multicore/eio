@@ -800,7 +800,7 @@ module Objects = struct
       let client, client_addr = accept ~sw fd in
       let client_addr = match client_addr with
         | Unix.ADDR_UNIX path         -> `Unix path
-        | Unix.ADDR_INET (host, port) -> `Tcp (host, port)
+        | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Ipaddr.of_unix host, port)
       in
       let flow = (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) in
       flow, client_addr
@@ -820,7 +820,9 @@ module Objects = struct
             | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
           );
           Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
-        | `Tcp (host, port)  -> Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+        | `Tcp (host, port)  ->
+          let host = Eio_unix.Ipaddr.to_unix host in
+          Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
       in
       let sock_unix = Unix.socket socket_domain socket_type 0 in
       (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
@@ -843,7 +845,9 @@ module Objects = struct
       let socket_domain, socket_type, addr =
         match addr with
         | `Unix path         -> Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
-        | `Tcp (host, port)  -> Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+        | `Tcp (host, port)  ->
+          let host = Eio_unix.Ipaddr.to_unix host in
+          Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
       in
       let sock_unix = Unix.socket socket_domain socket_type 0 in
       let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
