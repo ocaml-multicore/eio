@@ -16,7 +16,7 @@ end
 
 let read_into (t : #read) buf =
   let got = t#read_into buf in
-  assert (got > 0);
+  assert (got > 0 && got <= Cstruct.length buf);
   got
 
 let read_methods (t : #read) = t#read_methods
