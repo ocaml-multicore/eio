@@ -512,8 +512,8 @@ let try_mkdir dir path =
   try_mkdir cwd "../dir2";
   try_mkdir cwd "/tmp/dir3";;
 +mkdir "dir1" -> ok
-+mkdir "../dir2" -> Eio.Dir.Permission_denied("../dir2", _)
-+mkdir "/tmp/dir3" -> Eio.Dir.Permission_denied("/tmp/dir3", _)
++mkdir "../dir2" -> Eio__Dir.Permission_denied("../dir2", _)
++mkdir "/tmp/dir3" -> Eio__Dir.Permission_denied("/tmp/dir3", _)
 - : unit = ()
 ```
 
@@ -530,7 +530,7 @@ The checks also apply to following symlinks:
   try_write_file cwd "link-to-tmp/file3" "C";;
 +write "dir1/file1" -> ok
 +write "link-to-dir1/file2" -> ok
-+write "link-to-tmp/file3" -> Eio.Dir.Permission_denied("link-to-tmp/file3", _)
++write "link-to-tmp/file3" -> Eio__Dir.Permission_denied("link-to-tmp/file3", _)
 - : unit = ()
 ```
 
@@ -543,7 +543,7 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
   try_write_file dir1 "file4" "D";
   try_write_file dir1 "../file5" "E";;
 +write "file4" -> ok
-+write "../file5" -> Eio.Dir.Permission_denied("../file5", _)
++write "../file5" -> Eio__Dir.Permission_denied("../file5", _)
 - : unit = ()
 ```
 
