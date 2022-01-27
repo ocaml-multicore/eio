@@ -319,3 +319,31 @@ val i : R.t = <abstr>
 +mock_flow returning Eof
 - : string = "de"
 ```
+
+## Take all
+
+```ocaml
+# let i = R.of_flow mock_flow ~max_size:100;;
+val i : R.t = <abstr>
+# next := ["20 text/gemini\r\n"; "# Introduction\n"; "# Conclusion\n"]; R.line i;;
++mock_flow returning 16 bytes
+- : string = "20 text/gemini"
+# R.take_all i;;
++mock_flow returning 15 bytes
++mock_flow returning 13 bytes
++mock_flow returning Eof
+- : string = "# Introduction\n# Conclusion\n"
+```
+
+```ocaml
+# let i = R.of_flow mock_flow ~max_size:10;;
+val i : R.t = <abstr>
+# next := ["abc"; "def"; "ghi"; "jkl"]; R.take_all i;;
++mock_flow returning 3 bytes
++mock_flow returning 3 bytes
++mock_flow returning 3 bytes
++mock_flow returning 1 bytes
+Exception: Eio__Buf_read.Buffer_limit_exceeded.
+# R.take 3 i;;
+- : string = "abc"
+```
