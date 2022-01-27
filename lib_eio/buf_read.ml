@@ -59,6 +59,7 @@ let eof_seen t = t.flow = None
 let ensure t n =
   assert (n >= 0);
   if t.len < n then (
+    if n > t.max_size then raise Buffer_limit_exceeded;
     (* We don't have enough data yet, so we'll need to do a read. *)
     match t.flow with
     | None -> raise End_of_file
@@ -69,7 +70,6 @@ let ensure t n =
         let cap = capacity t in
         if n > cap then (
           (* [n] bytes won't fit. We need to resize the buffer. *)
-          if n > t.max_size then raise Buffer_limit_exceeded;
           let new_size = max n (min t.max_size (cap * 2)) in
           let new_buf = Bigarray.(Array1.create char c_layout new_size) in
           Cstruct.blit
@@ -133,6 +133,7 @@ let peek_char t =
   | exception End_of_file -> None
 
 let take len t =
+  if len < 0 then Fmt.invalid_arg "take: %d is negative!" len;
   ensure t len;
   let data = Cstruct.to_string (Cstruct.of_bigarray t.buf ~off:t.pos ~len) in
   consume t len;
@@ -140,22 +141,23 @@ let take len t =
 
 let string s t =
   let rec aux i =
-    if i = String.length s then true
-    else if i < t.len then (
+    if i = String.length s then (
+      consume t i
+    ) else if i < t.len then (
       if get t i = s.[i] then aux (i + 1)
-      else false
+      else (
+        let buf = peek t in
+        let len = min (String.length s) (Cstruct.length buf) in
+        Fmt.failwith "Expected %S but got %S"
+          s
+          (Cstruct.to_string buf ~off:0 ~len)
+      )
     ) else (
       ensure t (t.len + 1);
       aux i
     )
   in
-  if not (aux 0) then (
-    let buf = peek t in
-    let len = min (String.length s) (Cstruct.length buf) in
-    Fmt.failwith "Expected %S but got %S"
-      s
-      (Cstruct.to_string buf ~off:0 ~len)
-  )
+  aux 0
 
 let take_all t =
   try
@@ -186,11 +188,20 @@ let take_while p t =
   data
 
 let skip_while p t =
-  let len = count_while p t in
-  consume t len
+  let rec aux i =
+    if i < t.len then (
+      if p (get t i) then aux (i + 1)
+      else consume t i
+    ) else (
+      consume t t.len;
+      ensure t 1;
+      aux 0
+    )
+  in
+  try aux 0
+  with End_of_file -> ()
 
 let rec skip n t =
-  assert (n >= 0);
   if n <= t.len then (
     consume t n
   ) else (
@@ -199,6 +210,14 @@ let rec skip n t =
     ensure t (min n (capacity t));
     skip n t
   )
+
+let skip n t =
+  if n < 0 then Fmt.invalid_arg "skip: %d is negative!" n;
+  try skip n t
+  with End_of_file ->
+    (* Skip isn't atomic, so discard everything in this case for consistency. *)
+    consume t t.len;
+    raise End_of_file
 
 let line t =
   (* Return the index of the first '\n', reading more data as needed. *)

@@ -317,6 +317,8 @@ Exception: End_of_file.
 Exception: End_of_file.
 # R.string "bc" i;;
 - : unit = ()
+# peek i;;
+- : string = ""
 ```
 
 ## Scanning

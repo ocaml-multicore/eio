@@ -551,12 +551,14 @@ module Buf_read : sig
 
   val skip_while : (char -> bool) -> unit parser
   (** [skip_while p] skips zero or more bytes for which [p] is [true].
-      [skip_while p t] does the same thing as [ignore (take_while p t)]. *)
+      [skip_while p t] does the same thing as [ignore (take_while p t)],
+      except that it is not limited by the buffer size. *)
 
   val skip : int -> unit parser
   (** [skip n] discards the next [n] bytes.
       [skip n] = [map ignore (take n)],
-      except that the number of skipped bytes may be larger than the buffer (it will not grow). *)
+      except that the number of skipped bytes may be larger than the buffer (it will not grow).
+      Note: if [End_of_file] is raised, all bytes in the stream will have been consumed. *)
 
   (** {2 Combinators} *)
 
