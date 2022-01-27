@@ -419,8 +419,7 @@ module Flow : sig
   (** If a source offers [Read_source_buffer rsb] then the user can call [rsb fn]
       to borrow a view of the source's buffers.
       [rb] will raise [End_of_file] if no more data will be produced.
-      If no data is currently available, [rb] will wait for some to become available before calling [fn]
-      (turning off [sw] will abort the operation).
+      If no data is currently available, [rb] will wait for some to become available before calling [fn].
       [fn] must not continue to use the buffers after it returns. *)
 
   class type close = object
@@ -483,6 +482,93 @@ module Flow : sig
   end
 
   val shutdown : #two_way -> shutdown_command -> unit
+end
+
+(** Buffered input and parsing *)
+module Buf_read : sig
+  type t
+
+  exception Buffer_limit_exceeded
+
+  val of_flow : ?initial_size:int -> max_size:int -> #Flow.read -> t
+  (** [of_flow ~max_size flow] is a buffered reader backed by [flow].
+      @param initial_size The initial amount of memory to allocate for the buffer.
+      @param max_size The maximum size to which the buffer may grow. *)
+
+  val as_flow : t -> Flow.read
+  (** [as_flow t] is a buffered flow. Reading from it will return data from the buffer,
+      only reading the underlying flow if the buffer is empty. *)
+
+  (** {2 Reading data} *)
+
+  type 'a parser = t -> 'a
+  (** An ['a parser] is a function that consumes and returns a value of type ['a].
+      @raise Failure The flow can't be parsed as a value of type ['a].
+      @raise End_of_file The flow ended without enough data to parse an ['a].
+      @raise Buffer_limit_exceeded The value was larger than the maximum requested buffer size. *)
+
+  val line : string parser
+  (** [line t] parses one line.
+      Lines can be terminated by either LF or CRLF.
+      The returned string does not include the terminator.
+      If [End_of_file] is reached after seeing some data but before seeing a line
+      terminator, the data seen is returned as the last line. *)
+
+  val char : char -> unit parser
+  (** [char c] checks that the next byte is [c] and consumes it.
+      @raise Failure if the next byte is not [c] *)
+
+  val any_char : char parser
+  (** [any_char] parses one character. *)
+
+  val string : string -> unit parser
+  (** [string s] checks that [s] is the next string in the stream and consumes it.
+      @raise Failure if [s] is not a prefix of the stream. *)
+
+  val take : int -> string parser
+  (** [take n] takes exactly [n] bytes from the input. *)
+
+  val take_all : string parser
+  (** [take_all] takes all remaining data until end-of-file.
+      Returns [""] if already at end-of-file. *)
+
+  val take_while : (char -> bool) -> string parser
+  (** [take_while p] finds the first byte for which [p] is false
+      and consumes and returns all bytes before that.
+      If [p] is true for all remaining bytes, it returns everything until end-of-file.
+      It will return the empty string if there are no matching characters
+      (and therefore never raises [End_of_file]). *)
+
+  val skip_while : (char -> bool) -> unit parser
+  (** [skip_while p] skips zero or more bytes for which [p] is [true].
+      [skip_while p t] does the same thing as [ignore (take_while p t)]. *)
+
+  (** {2 Low-level API} *)
+
+  val buffered_bytes : t -> int
+  (** [buffered_bytes t] is the number of bytes that can be read without
+      reading from the underlying flow. *)
+
+  val peek : t -> Cstruct.t
+  (** [peek t] returns a view onto the active part of [t]'s internal buffer.
+      Performing any operation that might add to the buffer may invalidate this,
+      so it should be used immediately and then forgotten.
+      [Cstruct.length (peek t) = buffered_bytes t]. *)
+
+  val ensure : t -> int -> unit
+  (** [ensure t n] ensures that the buffer contains at least [n] bytes of data.
+      If not, it reads from the flow until there is.
+      [buffered_bytes (ensure t n) >= n].
+      @raise End_of_file if the flow ended before [n] bytes were available
+      @raise Buffer_limit_exceeded if [n] exceeds the buffer's maximum size *)
+
+  val consume : t -> int -> unit
+  (** [consume t n] discards the first [n] bytes from [t].
+      [buffered_bytes t' = buffered_bytes t - n] *)
+
+  val eof_seen : t -> bool
+  (** [eof_seen t] indicates whether we've received [End_of_file] from the underlying flow.
+      If so, there will never be any further data beyond what [peek] already returns. *)
 end
 
 module Net : sig
