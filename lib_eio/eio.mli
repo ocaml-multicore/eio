@@ -530,7 +530,8 @@ module Buf_read : sig
 
   val take_all : string parser
   (** [take_all] takes all remaining data until end-of-file.
-      Returns [""] if already at end-of-file. *)
+      Returns [""] if already at end-of-file.
+      @raise Buffer_limit_exceeded if the remaining data exceeds the buffer limit *)
 
   val take_while : (char -> bool) -> string parser
   (** [take_while p] finds the first byte for which [p] is false

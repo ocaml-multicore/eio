@@ -128,9 +128,13 @@ let string s t =
   )
 
 let take_all t =
-  let data = Cstruct.to_string (peek t) in
-  consume t t.len;
-  data
+  try
+    while true do ensure t (t.len + 1) done;
+    assert false
+  with End_of_file ->
+    let data = Cstruct.to_string (peek t) in
+    consume t t.len;
+    data
 
 let count_while p t =
   let rec aux i =
