@@ -486,6 +486,10 @@ end
 
 (** Buffered input and parsing *)
 module Buf_read : sig
+  (** This module provides fairly efficient non-backtracking parsers.
+      It is modelled on Angstrom's API, and you should use that if
+      backtracking is needed. *)
+
   type t
 
   exception Buffer_limit_exceeded
@@ -521,6 +525,10 @@ module Buf_read : sig
   val any_char : char parser
   (** [any_char] parses one character. *)
 
+  val peek_char : char option parser
+  (** [peek_char] returns [Some c] where [c] is the next character, but does not consume it.
+      Returns [None] at the end of the input stream rather than raising [End_of_file]. *)
+
   val string : string -> unit parser
   (** [string s] checks that [s] is the next string in the stream and consumes it.
       @raise Failure if [s] is not a prefix of the stream. *)
@@ -531,7 +539,8 @@ module Buf_read : sig
   val take_all : string parser
   (** [take_all] takes all remaining data until end-of-file.
       Returns [""] if already at end-of-file.
-      @raise Buffer_limit_exceeded if the remaining data exceeds the buffer limit *)
+      @raise Buffer_limit_exceeded if the remaining data exceeds or equals the buffer limit
+             (it needs one extra byte to confirm it has reached end-of-file). *)
 
   val take_while : (char -> bool) -> string parser
   (** [take_while p] finds the first byte for which [p] is false
@@ -543,6 +552,49 @@ module Buf_read : sig
   val skip_while : (char -> bool) -> unit parser
   (** [skip_while p] skips zero or more bytes for which [p] is [true].
       [skip_while p t] does the same thing as [ignore (take_while p t)]. *)
+
+  val skip : int -> unit parser
+  (** [skip n] discards the next [n] bytes.
+      [skip n] = [map ignore (take n)],
+      except that the number of skipped bytes may be larger than the buffer (it will not grow). *)
+
+  (** {2 Combinators} *)
+
+  val pair : 'a parser -> 'b parser -> ('a * 'b) parser
+  (** [pair a b] is a parser that first uses [a] to parse a value [x],
+      then uses [b] to parse a value [y], then returns [(x, y)].
+      Note that this module does not support backtracking, so if [b] fails
+      then the bytes consumed by [a] are lost. *)
+
+  val map : ('a -> 'b) -> ('a parser -> 'b parser)
+  (** [map f a] is a parser that parses the stream with [a] to get [v],
+      and then returns [f v]. *)
+
+  val bind : 'a parser -> ('a -> 'b parser) -> 'b parser
+  (** [bind a f] is a parser that first uses [a] to parse a value [v],
+      then uses [f v] to select the next parser, and then uses that. *)
+
+  module Syntax : sig
+    val ( let+ ) : 'a parser -> ('a -> 'b) -> 'b parser
+    (** Syntax for {!map}. *)
+
+    val ( let* ) : 'a parser -> ('a -> 'b parser) -> 'b parser
+    (** Syntax for {!bind} *)
+
+    val ( and+ ) : 'a parser -> 'b parser -> ('a * 'b) parser
+    (** Syntax for {!pair} *)
+
+    val ( and* ) : 'a parser -> 'b parser -> ('a * 'b) parser
+    (** Syntax for {!pair} (same as [and+]). *)
+
+    val ( <* ) : 'a parser -> 'b parser -> 'a parser
+    (** [a <* b] is [map fst (pair a b)].
+        It parses two things and keeps only the first. *)
+
+    val ( *> ) : 'a parser -> 'b parser -> 'b parser
+    (** [a *> b] is [map snd (pair a b)].
+        It parses two things and keeps only the second. *)
+  end
 
   (** {2 Low-level API} *)
 

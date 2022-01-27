@@ -3,6 +3,7 @@
 ```
 ```ocaml
 module R = Eio.Buf_read;;
+open R.Syntax;;
 
 let traceln fmt = Fmt.pr ("+" ^^ fmt ^^ "@.")
 
@@ -43,6 +44,11 @@ let read flow n =
 let is_digit = function
   | '0'..'9' -> true
   | _ -> false
+
+let test ?(max_size=10) input p =
+  next := input;
+  let i = R.of_flow mock_flow ~max_size in
+  p i
 ```
 
 
@@ -250,17 +256,27 @@ Exception: End_of_file.
 ```ocaml
 # let i = R.of_flow mock_flow ~max_size:100;;
 val i : R.t = <abstr>
+
 # next := ["ab"; "c"]; R.any_char i;;
 +mock_flow returning 2 bytes
 - : char = 'a'
+
+# R.peek_char i;;
+- : char option = Some 'b'
+
 # R.any_char i;;
 - : char = 'b'
+
 # R.any_char i;;
 +mock_flow returning 1 bytes
 - : char = 'c'
+
 # R.any_char i;;
 +mock_flow returning Eof
 Exception: End_of_file.
+
+# R.peek_char i;;
+- : char option = None
 ```
 
 ## Fixed-length strings
@@ -308,16 +324,33 @@ Exception: End_of_file.
 ```ocaml
 # let i = R.of_flow mock_flow ~max_size:100;;
 val i : R.t = <abstr>
+
 # next := ["aa"; "a0"; "123de"]; R.skip_while ((=) 'a') i;;
 +mock_flow returning 2 bytes
 +mock_flow returning 2 bytes
 - : unit = ()
+
 # R.take_while is_digit i;;
 +mock_flow returning 5 bytes
 - : string = "0123"
+
 # R.take_while (Fun.negate is_digit) i;;
 +mock_flow returning Eof
 - : string = "de"
+
+# test ["abc"; "def"; "ghi"] (R.skip 5 *> R.take_all);;
++mock_flow returning 3 bytes
++mock_flow returning 3 bytes
++mock_flow returning 3 bytes
++mock_flow returning Eof
+- : string = "fghi"
+
+# test ~max_size:3 ["abcdefg"] (R.skip 5 *> R.take_all);;
++mock_flow returning 3 bytes
++mock_flow returning 3 bytes
++mock_flow returning 1 bytes
++mock_flow returning Eof
+- : string = "fg"
 ```
 
 ## Take all
@@ -346,4 +379,53 @@ val i : R.t = <abstr>
 Exception: Eio__Buf_read.Buffer_limit_exceeded.
 # R.take 3 i;;
 - : string = "abc"
+```
+
+## Combinators
+
+Parsers can be combined in the usual ways:
+
+```ocaml
+# test ["abc"] (R.map String.uppercase_ascii (R.take 2));;
++mock_flow returning 3 bytes
+- : string = "AB"
+
+# test ["abc"] (R.pair R.any_char R.take_all);;
++mock_flow returning 3 bytes
++mock_flow returning Eof
+- : char * string = ('a', "bc")
+
+# test ["abc"] (R.bind R.any_char R.char);;
++mock_flow returning 3 bytes
+Exception: Failure "Expected 'a' but got 'b'".
+```
+
+Syntax:
+
+```ocaml
+# test ["abc"] (let+ x = R.take 2 in String.uppercase_ascii x);;
++mock_flow returning 3 bytes
+- : string = "AB"
+
+# test ["abc"] (let+ x = R.any_char and+ y = R.take_all in (x, y));;
++mock_flow returning 3 bytes
++mock_flow returning Eof
+- : char * string = ('a', "bc")
+
+# test ["abc"] (let* x = R.any_char in R.char x);;
++mock_flow returning 3 bytes
+Exception: Failure "Expected 'a' but got 'b'".
+
+# test ["aac"] (let* x = R.any_char in R.char x *> R.take_all);;
++mock_flow returning 3 bytes
++mock_flow returning Eof
+- : string = "c"
+
+# test ["ab"] (R.any_char <* R.any_char);;
++mock_flow returning 2 bytes
+- : char = 'a'
+
+# test ["ab"] (R.any_char *> R.any_char);;
++mock_flow returning 2 bytes
+- : char = 'b'
 ```

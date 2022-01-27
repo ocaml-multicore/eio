@@ -10,6 +10,31 @@ type t = {
 
 type 'a parser = t -> 'a
 
+let map f x r = f (x r)
+
+let pair x y r =
+  let a = x r in
+  let b = y r in
+  a, b
+
+let bind x f r = f (x r) r
+
+module Syntax = struct
+  let ( let+ ) x f r = f (x r)
+  let ( let* ) = bind
+  let ( and* ) = pair
+  let ( and+ ) = pair
+
+  let ( <* ) a b t =
+    let x = a t in
+    ignore (b t);
+    x
+
+  let ( *> ) a b t =
+    ignore (a t);
+    b t
+end
+
 let capacity t = Bigarray.Array1.dim t.buf
 
 let of_flow ?initial_size ~max_size flow =
@@ -102,6 +127,11 @@ let any_char t =
   consume t 1;
   c
 
+let peek_char t =
+  match ensure t 1 with
+  | () -> Some (get t 0)
+  | exception End_of_file -> None
+
 let take len t =
   ensure t len;
   let data = Cstruct.to_string (Cstruct.of_bigarray t.buf ~off:t.pos ~len) in
@@ -158,6 +188,17 @@ let take_while p t =
 let skip_while p t =
   let len = count_while p t in
   consume t len
+
+let rec skip n t =
+  assert (n >= 0);
+  if n <= t.len then (
+    consume t n
+  ) else (
+    let n = n - t.len in
+    t.len <- 0;
+    ensure t (min n (capacity t));
+    skip n t
+  )
 
 let line t =
   (* Return the index of the first '\n', reading more data as needed. *)
