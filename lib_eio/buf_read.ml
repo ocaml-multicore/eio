@@ -5,6 +5,7 @@ type t = {
   mutable pos : int;
   mutable len : int;
   mutable flow : Flow.read option;      (* None if we've seen eof *)
+  mutable consumed : int;               (* Total bytes consumed so far *)
   max_size : int;
 }
 
@@ -35,6 +36,8 @@ module Syntax = struct
     b t
 end
 
+open Syntax
+
 let capacity t = Bigarray.Array1.dim t.buf
 
 let of_flow ?initial_size ~max_size flow =
@@ -42,7 +45,7 @@ let of_flow ?initial_size ~max_size flow =
   if max_size <= 0 then Fmt.invalid_arg "Max size %d should be positive!" max_size;
   let initial_size = Option.value initial_size ~default:(min 4096 max_size) in
   let buf = Bigarray.(Array1.create char c_layout initial_size) in
-  { buf; pos = 0; len = 0; flow = Some flow; max_size }
+  { buf; pos = 0; len = 0; flow = Some flow; max_size; consumed = 0 }
 
 let peek t =
   Cstruct.of_bigarray ~off:t.pos ~len:t.len t.buf
@@ -50,9 +53,16 @@ let peek t =
 let consume t n =
   if n < 0 || n > t.len then Fmt.invalid_arg "Can't consume %d bytes of a %d byte buffer!" n t.len;
   t.pos <- t.pos + n;
-  t.len <- t.len - n
+  t.len <- t.len - n;
+  t.consumed <- t.consumed + n
+
+let consume_all t =
+  t.consumed <- t.consumed + t.len;
+  t.len <- 0
 
 let buffered_bytes t = t.len
+
+let consumed_bytes t = t.consumed
 
 let eof_seen t = t.flow = None
 
@@ -206,7 +216,7 @@ let rec skip n t =
     consume t n
   ) else (
     let n = n - t.len in
-    t.len <- 0;
+    consume_all t;
     ensure t (min n (capacity t));
     skip n t
   )
@@ -241,3 +251,25 @@ let line t =
     let line = Cstruct.to_string (Cstruct.of_bigarray t.buf ~off:t.pos ~len) in
     consume t (nl + 1);
     line
+
+let eof t =
+  if t.len = 0 && eof_seen t then ()
+  else (
+    match ensure t 1 with
+    | () -> failwith "Unexpected data after parsing"
+    | exception End_of_file -> ()
+  )
+
+let pp_pos f t =
+  Fmt.pf f "at offset %d" (consumed_bytes t)
+
+let format_errors p t =
+  match p t with
+  | v -> Ok v
+  | exception Failure msg -> Fmt.error_msg "%s (%a)" msg pp_pos t
+  | exception End_of_file -> Fmt.error_msg "Unexpected end-of-file at offset %d" (t.consumed + t.len)
+  | exception Buffer_limit_exceeded -> Fmt.error_msg "Buffer size limit exceeded when reading %a" pp_pos t
+
+let parse ?initial_size ~max_size p flow =
+  let buf = of_flow flow ?initial_size ~max_size in
+  format_errors (p <* eof) buf

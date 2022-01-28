@@ -110,6 +110,9 @@ module Model = struct
       raise End_of_file;
     );
     consume t n
+
+  let eof t =
+    if !t <> "" then failwith "not eof"
 end
 
 type op = Op : 'a Crowbar.printer * 'a Buf_read.parser * (Model.t -> 'a) -> op
@@ -134,6 +137,7 @@ let op =
     "take_while digit", Crowbar.const @@ Op (Fmt.Dump.string, Buf_read.take_while digit, Model.take_while digit);
     "skip_while digit", Crowbar.const @@ Op (unit, Buf_read.skip_while digit, Model.skip_while digit);
     "skip", Crowbar.(map [int]) (fun n -> Op (unit, Buf_read.skip n, Model.skip n));
+    "eof", Crowbar.const @@ Op (unit, Buf_read.eof, Model.eof);
   ]
 
 let catch f x =
@@ -146,6 +150,7 @@ let catch f x =
 
 let random chunks ops =
   let model = Model.of_chunks chunks in
+  let chunks_len = String.length !model in
   let r = Buf_read.of_flow (mock_flow chunks) ~initial_size ~max_size in
   if debug then print_endline "*** start ***";
   let check_eq (Op (pp, a, b)) =
@@ -158,7 +163,8 @@ let random chunks ops =
     let y = catch b model in
     Crowbar.check_eq ~pp:Fmt.(result ~ok:pp ~error:string) x y
   in
-  List.iter check_eq ops
+  List.iter check_eq ops;
+  Crowbar.check_eq ~pp:Fmt.int (Buf_read.consumed_bytes r) (chunks_len - String.length !model)
 
 let () =
   Crowbar.(add_test ~name:"random ops" [list bytes; list op] random)

@@ -494,22 +494,35 @@ module Buf_read : sig
 
   exception Buffer_limit_exceeded
 
+  type 'a parser = t -> 'a
+  (** An ['a parser] is a function that consumes and returns a value of type ['a].
+      @raise Failure The flow can't be parsed as a value of type ['a].
+      @raise End_of_file The flow ended without enough data to parse an ['a].
+      @raise Buffer_limit_exceeded The value was larger than the maximum requested buffer size. *)
+
+  val parse : ?initial_size:int -> max_size:int -> 'a parser -> #Flow.read -> ('a, [> `Msg of string]) result
+  (** [parse p flow ~max_size] uses [p] to parse everything in [flow].
+      It is a convenience function that does
+      [let buf = of_flow flow ~max_size in format_errors (p <* eof) buf]
+      @param initial_size see {!of_flow}. *)
+
   val of_flow : ?initial_size:int -> max_size:int -> #Flow.read -> t
   (** [of_flow ~max_size flow] is a buffered reader backed by [flow].
       @param initial_size The initial amount of memory to allocate for the buffer.
-      @param max_size The maximum size to which the buffer may grow. *)
+      @param max_size The maximum size to which the buffer may grow.
+                      This must be large enough to hold the largest single item
+                      you want to parse (e.g. the longest line, if using
+                      {!line}), plus any terminator needed to know the value is
+                      complete (e.g. the newline character(s)). This is just to
+                      prevent a run-away input from consuming all memory, and
+                      you can usually just set it much larger than you expect
+                      to need. *)
 
   val as_flow : t -> Flow.read
   (** [as_flow t] is a buffered flow. Reading from it will return data from the buffer,
       only reading the underlying flow if the buffer is empty. *)
 
   (** {2 Reading data} *)
-
-  type 'a parser = t -> 'a
-  (** An ['a parser] is a function that consumes and returns a value of type ['a].
-      @raise Failure The flow can't be parsed as a value of type ['a].
-      @raise End_of_file The flow ended without enough data to parse an ['a].
-      @raise Buffer_limit_exceeded The value was larger than the maximum requested buffer size. *)
 
   val line : string parser
   (** [line t] parses one line.
@@ -560,6 +573,10 @@ module Buf_read : sig
       except that the number of skipped bytes may be larger than the buffer (it will not grow).
       Note: if [End_of_file] is raised, all bytes in the stream will have been consumed. *)
 
+  val eof : unit parser
+  (** [eof] checks that there are no further bytes in the stream.
+      @raise Failure if there are further bytes *)
+
   (** {2 Combinators} *)
 
   val pair : 'a parser -> 'b parser -> ('a * 'b) parser
@@ -575,6 +592,10 @@ module Buf_read : sig
   val bind : 'a parser -> ('a -> 'b parser) -> 'b parser
   (** [bind a f] is a parser that first uses [a] to parse a value [v],
       then uses [f v] to select the next parser, and then uses that. *)
+
+  val format_errors : 'a parser -> ('a, [> `Msg of string]) result parser
+  (** [format_errors p] catches [Failure], [End_of_file] and
+      [Buffer_limit_exceeded] exceptions and returns them as a formatted error message. *)
 
   module Syntax : sig
     val ( let+ ) : 'a parser -> ('a -> 'b) -> 'b parser
@@ -620,6 +641,10 @@ module Buf_read : sig
   val consume : t -> int -> unit
   (** [consume t n] discards the first [n] bytes from [t].
       [buffered_bytes t' = buffered_bytes t - n] *)
+
+  val consumed_bytes : t -> int
+  (** [consumed_bytes t] is the total number of bytes consumed.
+      i.e. it is the offset into the stream of the next byte to be parsed. *)
 
   val eof_seen : t -> bool
   (** [eof_seen t] indicates whether we've received [End_of_file] from the underlying flow.

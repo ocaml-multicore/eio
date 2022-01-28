@@ -431,3 +431,27 @@ Exception: Failure "Expected 'a' but got 'b'".
 +mock_flow returning 2 bytes
 - : char = 'b'
 ```
+
+## Error handling
+
+```ocaml
+# test ["abc"] R.(format_errors (take 3));;
++mock_flow returning 3 bytes
+- : (string, [> `Msg of string ]) result = Ok "abc"
+
+# test ["abc"] R.(format_errors (take 2 <* eof));;
++mock_flow returning 3 bytes
+- : (string, [> `Msg of string ]) result =
+Error (`Msg "Unexpected data after parsing (at offset 2)")
+
+# test ["abc"] R.(format_errors (take 4 <* eof));;
++mock_flow returning 3 bytes
++mock_flow returning Eof
+- : (string, [> `Msg of string ]) result =
+Error (`Msg "Unexpected end-of-file at offset 3")
+
+# test ~max_size:2 ["abc"] R.(format_errors line);;
++mock_flow returning 2 bytes
+- : (string, [> `Msg of string ]) result =
+Error (`Msg "Buffer size limit exceeded when reading at offset 0")
+```
