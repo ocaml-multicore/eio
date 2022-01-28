@@ -18,6 +18,8 @@
   (optint (>= 0.1.0))
   (psq (>= 0.2.0))
   (fmt (>= 0.8.9))
+  (astring (and (>= 0.8.5) :with-test))
+  (crowbar (and (>= 0.2) :with-test))
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name eio_linux)

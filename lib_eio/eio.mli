@@ -486,26 +486,43 @@ end
 
 (** Buffered input and parsing *)
 module Buf_read : sig
+  (** This module provides fairly efficient non-backtracking parsers.
+      It is modelled on Angstrom's API, and you should use that if
+      backtracking is needed. *)
+
   type t
 
   exception Buffer_limit_exceeded
 
+  type 'a parser = t -> 'a
+  (** An ['a parser] is a function that consumes and returns a value of type ['a].
+      @raise Failure The flow can't be parsed as a value of type ['a].
+      @raise End_of_file The flow ended without enough data to parse an ['a].
+      @raise Buffer_limit_exceeded The value was larger than the requested maximum buffer size. *)
+
+  val parse : ?initial_size:int -> max_size:int -> 'a parser -> #Flow.read -> ('a, [> `Msg of string]) result
+  (** [parse p flow ~max_size] uses [p] to parse everything in [flow].
+      It is a convenience function that does
+      [let buf = of_flow flow ~max_size in format_errors (p <* eof) buf]
+      @param initial_size see {!of_flow}. *)
+
   val of_flow : ?initial_size:int -> max_size:int -> #Flow.read -> t
   (** [of_flow ~max_size flow] is a buffered reader backed by [flow].
       @param initial_size The initial amount of memory to allocate for the buffer.
-      @param max_size The maximum size to which the buffer may grow. *)
+      @param max_size The maximum size to which the buffer may grow.
+                      This must be large enough to hold the largest single item
+                      you want to parse (e.g. the longest line, if using
+                      {!line}), plus any terminator needed to know the value is
+                      complete (e.g. the newline character(s)). This is just to
+                      prevent a run-away input from consuming all memory, and
+                      you can usually just set it much larger than you expect
+                      to need. *)
 
   val as_flow : t -> Flow.read
   (** [as_flow t] is a buffered flow. Reading from it will return data from the buffer,
       only reading the underlying flow if the buffer is empty. *)
 
   (** {2 Reading data} *)
-
-  type 'a parser = t -> 'a
-  (** An ['a parser] is a function that consumes and returns a value of type ['a].
-      @raise Failure The flow can't be parsed as a value of type ['a].
-      @raise End_of_file The flow ended without enough data to parse an ['a].
-      @raise Buffer_limit_exceeded The value was larger than the maximum requested buffer size. *)
 
   val line : string parser
   (** [line t] parses one line.
@@ -521,6 +538,10 @@ module Buf_read : sig
   val any_char : char parser
   (** [any_char] parses one character. *)
 
+  val peek_char : char option parser
+  (** [peek_char] returns [Some c] where [c] is the next character, but does not consume it.
+      Returns [None] at the end of the input stream rather than raising [End_of_file]. *)
+
   val string : string -> unit parser
   (** [string s] checks that [s] is the next string in the stream and consumes it.
       @raise Failure if [s] is not a prefix of the stream. *)
@@ -531,7 +552,8 @@ module Buf_read : sig
   val take_all : string parser
   (** [take_all] takes all remaining data until end-of-file.
       Returns [""] if already at end-of-file.
-      @raise Buffer_limit_exceeded if the remaining data exceeds the buffer limit *)
+      @raise Buffer_limit_exceeded if the remaining data exceeds or equals the buffer limit
+             (it needs one extra byte to confirm it has reached end-of-file). *)
 
   val take_while : (char -> bool) -> string parser
   (** [take_while p] finds the first byte for which [p] is false
@@ -542,7 +564,60 @@ module Buf_read : sig
 
   val skip_while : (char -> bool) -> unit parser
   (** [skip_while p] skips zero or more bytes for which [p] is [true].
-      [skip_while p t] does the same thing as [ignore (take_while p t)]. *)
+      [skip_while p t] does the same thing as [ignore (take_while p t)],
+      except that it is not limited by the buffer size. *)
+
+  val skip : int -> unit parser
+  (** [skip n] discards the next [n] bytes.
+      [skip n] = [map ignore (take n)],
+      except that the number of skipped bytes may be larger than the buffer (it will not grow).
+      Note: if [End_of_file] is raised, all bytes in the stream will have been consumed. *)
+
+  val eof : unit parser
+  (** [eof] checks that there are no further bytes in the stream.
+      @raise Failure if there are further bytes *)
+
+  (** {2 Combinators} *)
+
+  val pair : 'a parser -> 'b parser -> ('a * 'b) parser
+  (** [pair a b] is a parser that first uses [a] to parse a value [x],
+      then uses [b] to parse a value [y], then returns [(x, y)].
+      Note that this module does not support backtracking, so if [b] fails
+      then the bytes consumed by [a] are lost. *)
+
+  val map : ('a -> 'b) -> ('a parser -> 'b parser)
+  (** [map f a] is a parser that parses the stream with [a] to get [v],
+      and then returns [f v]. *)
+
+  val bind : 'a parser -> ('a -> 'b parser) -> 'b parser
+  (** [bind a f] is a parser that first uses [a] to parse a value [v],
+      then uses [f v] to select the next parser, and then uses that. *)
+
+  val format_errors : 'a parser -> ('a, [> `Msg of string]) result parser
+  (** [format_errors p] catches [Failure], [End_of_file] and
+      [Buffer_limit_exceeded] exceptions and returns them as a formatted error message. *)
+
+  module Syntax : sig
+    val ( let+ ) : 'a parser -> ('a -> 'b) -> 'b parser
+    (** Syntax for {!map}. *)
+
+    val ( let* ) : 'a parser -> ('a -> 'b parser) -> 'b parser
+    (** Syntax for {!bind} *)
+
+    val ( and+ ) : 'a parser -> 'b parser -> ('a * 'b) parser
+    (** Syntax for {!pair} *)
+
+    val ( and* ) : 'a parser -> 'b parser -> ('a * 'b) parser
+    (** Syntax for {!pair} (same as [and+]). *)
+
+    val ( <* ) : 'a parser -> 'b parser -> 'a parser
+    (** [a <* b] is [map fst (pair a b)].
+        It parses two things and keeps only the first. *)
+
+    val ( *> ) : 'a parser -> 'b parser -> 'b parser
+    (** [a *> b] is [map snd (pair a b)].
+        It parses two things and keeps only the second. *)
+  end
 
   (** {2 Low-level API} *)
 
@@ -566,6 +641,10 @@ module Buf_read : sig
   val consume : t -> int -> unit
   (** [consume t n] discards the first [n] bytes from [t].
       [buffered_bytes t' = buffered_bytes t - n] *)
+
+  val consumed_bytes : t -> int
+  (** [consumed_bytes t] is the total number of bytes consumed.
+      i.e. it is the offset into the stream of the next byte to be parsed. *)
 
   val eof_seen : t -> bool
   (** [eof_seen t] indicates whether we've received [End_of_file] from the underlying flow.
