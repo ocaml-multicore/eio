@@ -22,6 +22,7 @@ This is an unreleased repository, as it's very much a work-in-progress.
 * [Performance](#performance)
 * [Networking](#networking)
 * [Design Note: Object Capabilities](#design-note-object-capabilities)
+* [Buffering and Parsing](#buffering-and-parsing)
 * [Filesystem Access](#filesystem-access)
 * [Time](#time)
 * [Multicore Support](#multicore-support)
@@ -480,6 +481,84 @@ Therefore, this cannot be used as a security mechanism.
 However, it still makes non-malicious code easier to understand and test
 and may allow for an Ocap extension to the language in the future.
 See [Emily][] for a previous attempt at this.
+
+## Buffering and Parsing
+
+Reading from an Eio flow directly may give you more or less data than you wanted.
+For example, if you want to read a line of text from a TCP stream,
+the flow will tend to give you the data in packet-sized chunks, not lines.
+To solve this, you can wrap the flow with a buffer and read from that.
+
+Here's a simple command-line interface that reads `stdin` one line at a time:
+
+```ocaml
+let cli ~stdin ~stdout =
+  let buf = Eio.Buf_read.of_flow stdin ~initial_size:100 ~max_size:1_000_000 in
+  while true do
+    let line = Eio.Buf_read.line buf in
+    traceln "> %s" line;
+    match line with
+    | "h" | "help" -> Eio.Flow.copy_string "It's just an example\n" stdout
+    | x -> Eio.Flow.copy_string (Fmt.str "Unknown command %S\n" x) stdout
+  done
+```
+
+Let's try it with some test data (you could use the real stdin if you prefer):
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  cli
+    ~stdin:(Eio.Flow.string_source "help\nexit\nquit\nbye\nstop\n")
+    ~stdout:(Eio.Stdenv.stdout env);;
++> help
+It's just an example
++> exit
+Unknown command "exit"
++> quit
+Unknown command "quit"
++> bye
+Unknown command "bye"
++> stop
+Unknown command "stop"
+Exception: End_of_file.
+```
+
+`Buf_read.of_flow` allocates an internal buffer (with the given `initial_size`).
+When you try to read a line from it, it will take a whole line from the buffer if possible.
+If not, it will ask the underlying flow for the next chunk of data, until it has enough.
+
+For high performance applications, you should use a larger initial buffer
+so that fewer reads on the underlying flow are needed.
+
+If the user enters a line that doesn't fit in the buffer then the buffer will be enlarged as needed.
+However, it will raise an exception if the buffer would need to grow above `max_size`.
+This is useful when handling untrusted input, since otherwise when you try to read one line an
+attacker could just keep sending e.g. 'x' characters until your service ran out of memory and crashed.
+
+As well as calling individual parsers (like `line`) directly,
+you can also build larger parsers from smaller ones.
+For example:
+
+```ocaml
+open Eio.Buf_read.Syntax
+
+type message = { src : string; body : string }
+
+let message =
+  let+ src = Eio.Buf_read.(string "FROM:" *> line) 
+  and+ body = Eio.Buf_read.take_all in
+  { src; body }
+```
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  let flow = Eio.Flow.string_source "FROM:Alice\nHello!\n" in
+  match Eio.Buf_read.parse message flow ~max_size:1024 with
+  | Ok { src; body } -> traceln "%s sent %S" src body
+  | Error (`Msg err) -> traceln "Parse failed: %s" err;;
++Alice sent "Hello!\n"
+- : unit = ()
+```
 
 ## Filesystem Access
 

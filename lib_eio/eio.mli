@@ -498,7 +498,7 @@ module Buf_read : sig
   (** An ['a parser] is a function that consumes and returns a value of type ['a].
       @raise Failure The flow can't be parsed as a value of type ['a].
       @raise End_of_file The flow ended without enough data to parse an ['a].
-      @raise Buffer_limit_exceeded The value was larger than the maximum requested buffer size. *)
+      @raise Buffer_limit_exceeded The value was larger than the requested maximum buffer size. *)
 
   val parse : ?initial_size:int -> max_size:int -> 'a parser -> #Flow.read -> ('a, [> `Msg of string]) result
   (** [parse p flow ~max_size] uses [p] to parse everything in [flow].
