@@ -252,13 +252,17 @@ let line t =
     consume t (nl + 1);
     line
 
-let eof t =
-  if t.len = 0 && eof_seen t then ()
+let at_end_of_input t =
+  if t.len = 0 && eof_seen t then true
   else (
     match ensure t 1 with
-    | () -> failwith "Unexpected data after parsing"
-    | exception End_of_file -> ()
+    | () -> false
+    | exception End_of_file -> true
   )
+
+let end_of_input t =
+  if not (at_end_of_input t) then
+    failwith "Unexpected data after parsing"
 
 let pp_pos f t =
   Fmt.pf f "at offset %d" (consumed_bytes t)
@@ -272,4 +276,13 @@ let format_errors p t =
 
 let parse ?initial_size ~max_size p flow =
   let buf = of_flow flow ?initial_size ~max_size in
-  format_errors (p <* eof) buf
+  format_errors (p <* end_of_input) buf
+
+let seq ?(stop=at_end_of_input) p t =
+  let rec aux () =
+    if stop t then Seq.Nil
+    else Seq.Cons (p t, aux)
+  in
+  aux
+
+let lines t = seq line t

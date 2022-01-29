@@ -1,8 +1,10 @@
 let mutex = Mutex.create ()
 
 let default_traceln ?__POS__:pos fmt =
-  let b = Buffer.create 512 in
-  let k f =
+  let k go =
+    let b = Buffer.create 512 in
+    let f = Format.formatter_of_buffer b in
+    go f;
     Option.iter (fun (file, lnum, _, _) -> Format.fprintf f " [%s:%d]" file lnum) pos;
     Format.pp_close_box f ();
     Format.pp_print_flush f ();
@@ -14,4 +16,4 @@ let default_traceln ?__POS__:pos fmt =
     List.iter (Printf.eprintf "+%s\n") lines;
     flush stderr
   in
-  Format.kfprintf k (Format.formatter_of_buffer b) ("@[" ^^ fmt)
+  Format.kdprintf k ("@[" ^^ fmt)

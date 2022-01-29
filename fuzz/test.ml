@@ -111,8 +111,13 @@ module Model = struct
     );
     consume t n
 
-  let eof t =
+  let end_of_input t =
     if !t <> "" then failwith "not eof"
+
+  let rec lines t =
+    match line t with
+    | line -> line :: lines t
+    | exception End_of_file -> []
 end
 
 type op = Op : 'a Crowbar.printer * 'a Buf_read.parser * (Model.t -> 'a) -> op
@@ -137,7 +142,8 @@ let op =
     "take_while digit", Crowbar.const @@ Op (Fmt.Dump.string, Buf_read.take_while digit, Model.take_while digit);
     "skip_while digit", Crowbar.const @@ Op (unit, Buf_read.skip_while digit, Model.skip_while digit);
     "skip", Crowbar.(map [int]) (fun n -> Op (unit, Buf_read.skip n, Model.skip n));
-    "eof", Crowbar.const @@ Op (unit, Buf_read.eof, Model.eof);
+    "end_of_input", Crowbar.const @@ Op (unit, Buf_read.end_of_input, Model.end_of_input);
+    "lines", Crowbar.const @@ Op (Fmt.Dump.(list string), (Buf_read.(map List.of_seq lines)), Model.lines);
   ]
 
 let catch f x =
