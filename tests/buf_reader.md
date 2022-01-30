@@ -439,12 +439,12 @@ Exception: Failure "Expected 'a' but got 'b'".
 +mock_flow returning 3 bytes
 - : (string, [> `Msg of string ]) result = Ok "abc"
 
-# test ["abc"] R.(format_errors (take 2 <* eof));;
+# test ["abc"] R.(format_errors (take 2 <* end_of_input));;
 +mock_flow returning 3 bytes
 - : (string, [> `Msg of string ]) result =
 Error (`Msg "Unexpected data after parsing (at offset 2)")
 
-# test ["abc"] R.(format_errors (take 4 <* eof));;
+# test ["abc"] R.(format_errors (take 4 <* end_of_input));;
 +mock_flow returning 3 bytes
 +mock_flow returning Eof
 - : (string, [> `Msg of string ]) result =
@@ -454,4 +454,28 @@ Error (`Msg "Unexpected end-of-file at offset 3")
 +mock_flow returning 2 bytes
 - : (string, [> `Msg of string ]) result =
 Error (`Msg "Buffer size limit exceeded when reading at offset 0")
+```
+
+## Sequences
+
+```ocaml
+# test ["one"; "\ntwo\n"; "three"] R.lines |> Seq.iter (traceln "%S");;
++mock_flow returning 3 bytes
++mock_flow returning 5 bytes
++"one"
++"two"
++mock_flow returning 5 bytes
++mock_flow returning Eof
++"three"
+- : unit = ()
+
+# test ["abcd1234"] R.(seq (take 2)) |> List.of_seq |> String.concat ",";;
++mock_flow returning 8 bytes
++mock_flow returning Eof
+- : string = "ab,cd,12,34"
+
+# test ["abcd123"] R.(seq (take 2)) |> List.of_seq |> String.concat ",";;
++mock_flow returning 7 bytes
++mock_flow returning Eof
+Exception: End_of_file.
 ```

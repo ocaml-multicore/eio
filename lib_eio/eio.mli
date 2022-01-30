@@ -525,11 +525,15 @@ module Buf_read : sig
   (** {2 Reading data} *)
 
   val line : string parser
-  (** [line t] parses one line.
+  (** [line] parses one line.
       Lines can be terminated by either LF or CRLF.
       The returned string does not include the terminator.
       If [End_of_file] is reached after seeing some data but before seeing a line
       terminator, the data seen is returned as the last line. *)
+
+  val lines : string Seq.t parser
+  (** [lines] returns a sequence that lazily reads the next line until the end of the input is reached.
+      [lines = seq line ~stop:at_end_of_input] *)
 
   val char : char -> unit parser
   (** [char c] checks that the next byte is [c] and consumes it.
@@ -573,11 +577,21 @@ module Buf_read : sig
       except that the number of skipped bytes may be larger than the buffer (it will not grow).
       Note: if [End_of_file] is raised, all bytes in the stream will have been consumed. *)
 
-  val eof : unit parser
-  (** [eof] checks that there are no further bytes in the stream.
+  val at_end_of_input : bool parser
+  (** [at_end_of_input] returns [true] when at the end of the stream, or
+      [false] if there is at least one more byte to be read. *)
+
+  val end_of_input : unit parser
+  (** [end_of_input] checks that there are no further bytes in the stream.
       @raise Failure if there are further bytes *)
 
   (** {2 Combinators} *)
+
+  val seq : ?stop:bool parser -> 'a parser -> 'a Seq.t parser
+  (** [seq p] is a sequence that uses [p] to get the next item.
+      @param stop This is used before parsing each item.
+                  The sequence ends if this returns [true].
+                  The default is {!at_end_of_input}. *)
 
   val pair : 'a parser -> 'b parser -> ('a * 'b) parser
   (** [pair a b] is a parser that first uses [a] to parse a value [x],
@@ -830,6 +844,14 @@ module Dir : sig
     method virtual close : unit
   end
 
+  val load : #t -> path -> string
+  (** [load t path] returns the contents of the given file.
+      This is a convenience wrapper around {!with_open_in}. *)
+
+  val save : ?append:bool -> create:create -> #t -> path -> string -> unit
+  (** [save t path data ~create] writes [data] to [path].
+      This is a convenience wrapper around {!with_open_out}. *)
+
   val open_in : sw:Switch.t -> #t -> path -> <Flow.source; Flow.close>
   (** [open_in ~sw t path] opens [t/path] for reading.
       Note: files are always opened in binary mode. *)
@@ -837,6 +859,9 @@ module Dir : sig
   val with_open_in : #t -> path -> (<Flow.source; Flow.close> -> 'a) -> 'a
   (** [with_open_in] is like [open_in], but calls [fn flow] with the new flow and closes
       it automatically when [fn] returns (if it hasn't already been closed by then). *)
+
+  val with_lines : #t -> path -> (string Seq.t -> 'a) -> 'a
+  (** [with_lines t path fn] is a convenience function for streaming the lines of the file. *)
 
   val open_out :
     sw:Switch.t ->

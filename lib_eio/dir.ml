@@ -45,3 +45,17 @@ let with_open_out ?append ~create (t:#t) path fn =
 
 let with_open_dir (t:#t) path fn =
   Switch.run @@ fun sw -> fn (open_dir ~sw t path)
+
+let with_lines (t:#t) path fn =
+  with_open_in t path @@ fun flow ->
+  let buf = Buf_read.of_flow flow ~max_size:max_int in
+  fn (Buf_read.lines buf)
+
+let load (t:#t) path =
+  with_open_in t path @@ fun flow ->
+  let buf = Buf_read.of_flow flow ~max_size:max_int in
+  Buf_read.take_all buf
+
+let save ?append ~create (t:#t) path data =
+  with_open_out ?append ~create t path @@ fun flow ->
+  Flow.copy_string data flow
