@@ -567,16 +567,39 @@ Access to the filesystem is also controlled by capabilities, and `env` provides 
 - `fs` provides full access (just like OCaml's stdlib).
 - `cwd` restricts access to files beneath the current working directory.
 
-For example:
+You can save a whole file using `Dir.save`:
 
 ```ocaml
-let try_write_file dir path data =
-  match
-    Eio.Dir.with_open_out ~create:(`Exclusive 0o600) dir path @@ fun flow ->
-    Eio.Flow.copy_string data flow
-  with
-  | () -> traceln "write %S -> ok" path
-  | exception ex -> traceln "write %S -> %a" path Fmt.exn ex
+# Eio_main.run @@ fun env ->
+  let dir = Eio.Stdenv.cwd env in
+  Eio.Dir.save ~create:(`Exclusive 0o600) dir "test.txt" "line one\nline two\n";;
+- : unit = ()
+```
+
+For more control, use `Dir.open_out` (or `with_open_out`) to get a flow.
+
+To load a file, you can use `load` to read the whole thing into a string,
+`Dir.open_in` (or `with_open_in`) to get a flow, or `Dir.with_lines` to stream
+the lines (a convenience function that uses `Buf_read.lines`):
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let dir = Eio.Stdenv.cwd env in
+  Eio.Dir.with_lines dir "test.txt" (fun lines ->
+     Seq.iter (traceln "Processing %S") lines
+  );;
++Processing "line one"
++Processing "line two"
+- : unit = ()
+```
+
+Access to `cwd` only grants access to that sub-tree:
+
+```ocaml
+let try_save dir path data =
+  match Eio.Dir.save ~create:(`Exclusive 0o600) dir path data with
+  | () -> traceln "save %S -> ok" path
+  | exception ex -> traceln "save %S -> %a" path Fmt.exn ex
 
 let try_mkdir dir path =
   match Eio.Dir.mkdir dir path ~perm:0o700 with
@@ -604,12 +627,12 @@ The checks also apply to following symlinks:
 
 # Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  try_write_file cwd "dir1/file1" "A";
-  try_write_file cwd "link-to-dir1/file2" "B";
-  try_write_file cwd "link-to-tmp/file3" "C";;
-+write "dir1/file1" -> ok
-+write "link-to-dir1/file2" -> ok
-+write "link-to-tmp/file3" -> Eio__Dir.Permission_denied("link-to-tmp/file3", _)
+  try_save cwd "dir1/file1" "A";
+  try_save cwd "link-to-dir1/file2" "B";
+  try_save cwd "link-to-tmp/file3" "C";;
++save "dir1/file1" -> ok
++save "link-to-dir1/file2" -> ok
++save "link-to-tmp/file3" -> Eio__Dir.Permission_denied("link-to-tmp/file3", _)
 - : unit = ()
 ```
 
@@ -619,10 +642,10 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
 # Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   Eio.Dir.with_open_dir cwd "dir1" @@ fun dir1 ->
-  try_write_file dir1 "file4" "D";
-  try_write_file dir1 "../file5" "E";;
-+write "file4" -> ok
-+write "../file5" -> Eio__Dir.Permission_denied("../file5", _)
+  try_save dir1 "file4" "D";
+  try_save dir1 "../file5" "E";;
++save "file4" -> ok
++save "../file5" -> Eio__Dir.Permission_denied("../file5", _)
 - : unit = ()
 ```
 
@@ -634,7 +657,8 @@ A program that operates on the current directory will probably want to use `cwd`
 whereas a program that accepts a path from the user will probably want to use `fs`,
 perhaps with `open_dir` to constrain all access to be within that directory.
 
-Note: the `eio_luv` backend doesn't have the `openat`, `mkdirat`, etc., calls that are necessary to implement these checks without races.
+Note: the `eio_luv` backend doesn't have the `openat`, `mkdirat`, etc., calls that are necessary to implement these checks without races,
+so be careful if symlinks out of the subtree may be created while the program is running.
 
 ## Time
 
