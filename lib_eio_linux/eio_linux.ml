@@ -512,495 +512,495 @@ and complete_rw_req st ({len; cur_off; action; _} as req) res =
   | _, Exactly len -> Suspended.continue action len
   | n, Upto _ -> Suspended.continue action n
 
-let alloc_buf st k =
-  Log.debug (fun l -> l "alloc: %d" (Uring.Region.avail st.mem));
-  match Uring.Region.alloc st.mem with
-  | buf -> Suspended.continue k buf
-  | exception Uring.Region.No_space ->
-    Queue.push k st.mem_q;
-    schedule st
+module Low_level = struct
+  let alloc_buf st k =
+    Log.debug (fun l -> l "alloc: %d" (Uring.Region.avail st.mem));
+    match Uring.Region.alloc st.mem with
+    | buf -> Suspended.continue k buf
+    | exception Uring.Region.No_space ->
+      Queue.push k st.mem_q;
+      schedule st
 
-let free_buf st buf =
-  match Queue.take_opt st.mem_q with
-  | None -> Uring.Region.free buf
-  | Some k -> enqueue_thread st k buf
+  let free_buf st buf =
+    match Queue.take_opt st.mem_q with
+    | None -> Uring.Region.free buf
+    | Some k -> enqueue_thread st k buf
 
-let noop () =
-  let result = enter enqueue_noop in
-  Log.debug (fun l -> l "noop returned");
-  if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
+  let noop () =
+    let result = enter enqueue_noop in
+    Log.debug (fun l -> l "noop returned");
+    if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
-type _ eff += Sleep_until : float -> unit eff
-let sleep_until d =
-  perform (Sleep_until d)
+  type _ eff += Sleep_until : float -> unit eff
+  let sleep_until d =
+    perform (Sleep_until d)
 
-type _ eff += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
+  type _ eff += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
 
-let read_exactly ?file_offset fd buf len =
-  let res = perform (ERead (file_offset, fd, buf, Exactly len)) in
-  Log.debug (fun l -> l "read_exactly: woken up after read");
-  if res < 0 then (
-    raise (Unix.Unix_error (Uring.error_of_errno res, "read_exactly", ""))
-  )
-
-let read_upto ?file_offset fd buf len =
-  let res = perform (ERead (file_offset, fd, buf, Upto len)) in
-  Log.debug (fun l -> l "read_upto: woken up after read");
-  if res < 0 then (
-    let err = Uring.error_of_errno res in
-    let ex = Unix.Unix_error (err, "read_upto", "") in
-    if err = Unix.ECONNRESET then raise (Eio.Net.Connection_reset ex)
-    else raise ex
-  ) else (
-    res
-  )
-
-let readv ?file_offset fd bufs =
-  let res = enter (enqueue_readv (file_offset, fd, bufs)) in
-  Log.debug (fun l -> l "readv: woken up after read");
-  if res < 0 then (
-    raise (Unix.Unix_error (Uring.error_of_errno res, "readv", ""))
-  ) else if res = 0 then (
-    raise End_of_file
-  ) else (
-    res
-  )
-
-let rec writev ?file_offset fd bufs =
-  let res = enter (enqueue_writev (file_offset, fd, bufs)) in
-  Log.debug (fun l -> l "writev: woken up after write");
-  if res < 0 then (
-    raise (Unix.Unix_error (Uring.error_of_errno res, "writev", ""))
-  ) else (
-    match Cstruct.shiftv bufs res with
-    | [] -> ()
-    | bufs ->
-      let file_offset =
-        let module I63 = Optint.Int63 in
-        match file_offset with
-        | None -> None
-        | Some ofs when ofs = I63.minus_one -> Some I63.minus_one
-        | Some ofs -> Some (I63.add ofs (I63.of_int res))
-      in
-      writev ?file_offset fd bufs
-  )
-
-let await_readable fd =
-  let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollin + pollerr))) in
-  Log.debug (fun l -> l "await_readable: woken up");
-  if res < 0 then (
-    raise (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
-  )
-
-let await_writable fd =
-  let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollout + pollerr))) in
-  Log.debug (fun l -> l "await_writable: woken up");
-  if res < 0 then (
-    raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
-  )
-
-type _ eff += EWrite : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
-
-let write ?file_offset fd buf len =
-  let res = perform (EWrite (file_offset, fd, buf, Exactly len)) in
-  Log.debug (fun l -> l "write: woken up after write");
-  if res < 0 then (
-    raise (Unix.Unix_error (Uring.error_of_errno res, "write", ""))
-  )
-
-type _ eff += Alloc : Uring.Region.chunk eff
-let alloc () = perform Alloc
-
-type _ eff += Free : Uring.Region.chunk -> unit eff
-let free buf = perform (Free buf)
-
-let splice src ~dst ~len =
-  let res = enter (enqueue_splice ~src ~dst ~len) in
-  Log.debug (fun l -> l "splice returned");
-  if res > 0 then res
-  else if res = 0 then raise End_of_file
-  else raise (Unix.Unix_error (Uring.error_of_errno res, "splice", ""))
-
-let connect fd addr =
-  let res = enter (enqueue_connect fd addr) in
-  Log.debug (fun l -> l "connect returned");
-  if res < 0 then (
-    raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
-  )
-
-let with_chunk fn =
-  let chunk = alloc () in
-  Fun.protect ~finally:(fun () -> free chunk) @@ fun () ->
-  fn chunk
-
-let openfile ~sw path flags mode =
-  let fd = Unix.openfile path flags mode in
-  FD.of_unix ~sw ~seekable:(FD.is_seekable fd) ~close_unix:true fd
-
-let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
-  wrap_errors path @@ fun () ->
-  let res = enter (enqueue_openat2 (access, flags, perm, resolve, dir, path)) in
-  Log.debug (fun l -> l "openat2 returned");
-  if res < 0 then (
-    Switch.check sw;    (* If cancelled, report that instead. *)
-    raise @@ Unix.Unix_error (Uring.error_of_errno res, "openat2", "")
-  );
-  let fd : Unix.file_descr = Obj.magic res in
-  let seekable =
-    match seekable with
-    | None -> FD.is_seekable fd
-    | Some x -> x
-  in
-  FD.of_unix ~sw ~seekable ~close_unix:true fd
-
-let fstat fd =
-  Unix.fstat (FD.get "fstat" fd)
-
-external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
-
-external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
-
-let getrandom { Cstruct.buffer; off; len } =
-  eio_getrandom buffer off len
-
-(* We ignore [sw] because this isn't a uring operation yet. *)
-let mkdirat ~perm dir path =
-  wrap_errors path @@ fun () ->
-  match dir with
-  | None -> Unix.mkdir path perm
-  | Some dir -> eio_mkdirat (FD.get "mkdirat" dir) path perm
-
-let mkdir_beneath ~perm ?dir path =
-  let dir_path = Filename.dirname path in
-  let leaf = Filename.basename path in
-  (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
-  Switch.run (fun sw ->
-      let parent =
-        wrap_errors path @@ fun () ->
-        openat2 ~sw ~seekable:false ?dir dir_path
-          ~access:`R
-          ~flags:Uring.Open_flags.(cloexec + path + directory)
-          ~perm:0
-          ~resolve:Uring.Resolve.beneath
-      in
-      mkdirat ~perm (Some parent) leaf
+  let read_exactly ?file_offset fd buf len =
+    let res = perform (ERead (file_offset, fd, buf, Exactly len)) in
+    Log.debug (fun l -> l "read_exactly: woken up after read");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "read_exactly", ""))
     )
 
-let shutdown socket command =
-  Unix.shutdown (FD.get "shutdown" socket) command
+  let read_upto ?file_offset fd buf len =
+    let res = perform (ERead (file_offset, fd, buf, Upto len)) in
+    Log.debug (fun l -> l "read_upto: woken up after read");
+    if res < 0 then (
+      let err = Uring.error_of_errno res in
+      let ex = Unix.Unix_error (err, "read_upto", "") in
+      if err = Unix.ECONNRESET then raise (Eio.Net.Connection_reset ex)
+      else raise ex
+    ) else (
+      res
+    )
 
-let accept ~sw fd =
-  Ctf.label "accept";
-  let client_addr = Uring.Sockaddr.create () in
-  let res = enter (enqueue_accept fd client_addr) in
-  Log.debug (fun l -> l "accept returned");
-  if res < 0 then (
-    raise (Unix.Unix_error (Uring.error_of_errno res, "accept", ""))
-  ) else (
-    let unix : Unix.file_descr = Obj.magic res in
-    let client = FD.of_unix ~sw ~seekable:false ~close_unix:true unix in
-    let client_addr = Uring.Sockaddr.get client_addr in
-    client, client_addr
-  )
+  let readv ?file_offset fd bufs =
+    let res = enter (enqueue_readv (file_offset, fd, bufs)) in
+    Log.debug (fun l -> l "readv: woken up after read");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "readv", ""))
+    ) else if res = 0 then (
+      raise End_of_file
+    ) else (
+      res
+    )
+
+  let rec writev ?file_offset fd bufs =
+    let res = enter (enqueue_writev (file_offset, fd, bufs)) in
+    Log.debug (fun l -> l "writev: woken up after write");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "writev", ""))
+    ) else (
+      match Cstruct.shiftv bufs res with
+      | [] -> ()
+      | bufs ->
+        let file_offset =
+          let module I63 = Optint.Int63 in
+          match file_offset with
+          | None -> None
+          | Some ofs when ofs = I63.minus_one -> Some I63.minus_one
+          | Some ofs -> Some (I63.add ofs (I63.of_int res))
+        in
+        writev ?file_offset fd bufs
+    )
+
+  let await_readable fd =
+    let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollin + pollerr))) in
+    Log.debug (fun l -> l "await_readable: woken up");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
+    )
+
+  let await_writable fd =
+    let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollout + pollerr))) in
+    Log.debug (fun l -> l "await_writable: woken up");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
+    )
+
+  type _ eff += EWrite : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
+
+  let write ?file_offset fd buf len =
+    let res = perform (EWrite (file_offset, fd, buf, Exactly len)) in
+    Log.debug (fun l -> l "write: woken up after write");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "write", ""))
+    )
+
+  type _ eff += Alloc : Uring.Region.chunk eff
+  let alloc () = perform Alloc
+
+  type _ eff += Free : Uring.Region.chunk -> unit eff
+  let free buf = perform (Free buf)
+
+  let splice src ~dst ~len =
+    let res = enter (enqueue_splice ~src ~dst ~len) in
+    Log.debug (fun l -> l "splice returned");
+    if res > 0 then res
+    else if res = 0 then raise End_of_file
+    else raise (Unix.Unix_error (Uring.error_of_errno res, "splice", ""))
+
+  let connect fd addr =
+    let res = enter (enqueue_connect fd addr) in
+    Log.debug (fun l -> l "connect returned");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
+    )
+
+  let with_chunk fn =
+    let chunk = alloc () in
+    Fun.protect ~finally:(fun () -> free chunk) @@ fun () ->
+    fn chunk
+
+  let openfile ~sw path flags mode =
+    let fd = Unix.openfile path flags mode in
+    FD.of_unix ~sw ~seekable:(FD.is_seekable fd) ~close_unix:true fd
+
+  let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
+    wrap_errors path @@ fun () ->
+    let res = enter (enqueue_openat2 (access, flags, perm, resolve, dir, path)) in
+    Log.debug (fun l -> l "openat2 returned");
+    if res < 0 then (
+      Switch.check sw;    (* If cancelled, report that instead. *)
+      raise @@ Unix.Unix_error (Uring.error_of_errno res, "openat2", "")
+    );
+    let fd : Unix.file_descr = Obj.magic res in
+    let seekable =
+      match seekable with
+      | None -> FD.is_seekable fd
+      | Some x -> x
+    in
+    FD.of_unix ~sw ~seekable ~close_unix:true fd
+
+  let fstat fd =
+    Unix.fstat (FD.get "fstat" fd)
+
+  external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
+
+  external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
+
+  let getrandom { Cstruct.buffer; off; len } =
+    eio_getrandom buffer off len
+
+  (* We ignore [sw] because this isn't a uring operation yet. *)
+  let mkdirat ~perm dir path =
+    wrap_errors path @@ fun () ->
+    match dir with
+    | None -> Unix.mkdir path perm
+    | Some dir -> eio_mkdirat (FD.get "mkdirat" dir) path perm
+
+  let mkdir_beneath ~perm ?dir path =
+    let dir_path = Filename.dirname path in
+    let leaf = Filename.basename path in
+    (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
+    Switch.run (fun sw ->
+        let parent =
+          wrap_errors path @@ fun () ->
+          openat2 ~sw ~seekable:false ?dir dir_path
+            ~access:`R
+            ~flags:Uring.Open_flags.(cloexec + path + directory)
+            ~perm:0
+            ~resolve:Uring.Resolve.beneath
+        in
+        mkdirat ~perm (Some parent) leaf
+      )
+
+  let shutdown socket command =
+    Unix.shutdown (FD.get "shutdown" socket) command
+
+  let accept ~sw fd =
+    Ctf.label "accept";
+    let client_addr = Uring.Sockaddr.create () in
+    let res = enter (enqueue_accept fd client_addr) in
+    Log.debug (fun l -> l "accept returned");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "accept", ""))
+    ) else (
+      let unix : Unix.file_descr = Obj.magic res in
+      let client = FD.of_unix ~sw ~seekable:false ~close_unix:true unix in
+      let client_addr = Uring.Sockaddr.get client_addr in
+      client, client_addr
+    )
+end
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
-module Objects = struct
-  type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
+type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
 
-  type has_fd = < fd : FD.t >
-  type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
-  type sink   = < Eio.Flow.sink  ; Eio.Flow.close; has_fd >
+type has_fd = < fd : FD.t >
+type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
+type sink   = < Eio.Flow.sink  ; Eio.Flow.close; has_fd >
 
-  let get_fd (t : <has_fd; ..>) = t#fd
+let get_fd (t : <has_fd; ..>) = t#fd
 
-  let get_fd_opt t = Eio.Generic.probe t FD
+let get_fd_opt t = Eio.Generic.probe t FD
 
-  (* When copying between a source with an FD and a sink with an FD, we can share the chunk
-     and avoid copying. *)
-  let fast_copy src dst =
-    with_chunk @@ fun chunk ->
-    let chunk_size = Uring.Region.length chunk in
-    try
-      while true do
-        let got = read_upto src chunk chunk_size in
-        write dst chunk got
-      done
-    with End_of_file -> ()
+(* When copying between a source with an FD and a sink with an FD, we can share the chunk
+   and avoid copying. *)
+let fast_copy src dst =
+  Low_level.with_chunk @@ fun chunk ->
+  let chunk_size = Uring.Region.length chunk in
+  try
+    while true do
+      let got = Low_level.read_upto src chunk chunk_size in
+      Low_level.write dst chunk got
+    done
+  with End_of_file -> ()
 
-  (* Try a fast copy using splice. If the FDs don't support that, switch to copying. *)
-  let fast_copy_try_splice src dst =
-    try
-      while true do
-        let _ : int = splice src ~dst ~len:max_int in
-        ()
-      done
-    with
-    | End_of_file -> ()
-    | Unix.Unix_error (Unix.EINVAL, "splice", _) -> fast_copy src dst
+(* Try a fast copy using splice. If the FDs don't support that, switch to copying. *)
+let fast_copy_try_splice src dst =
+  try
+    while true do
+      let _ : int = Low_level.splice src ~dst ~len:max_int in
+      ()
+    done
+  with
+  | End_of_file -> ()
+  | Unix.Unix_error (Unix.EINVAL, "splice", _) -> fast_copy src dst
 
-  (* Copy using the [Read_source_buffer] optimisation.
-     Avoids a copy if the source already has the data. *)
-  let copy_with_rsb rsb dst =
-    try
-      while true do
-        rsb (writev dst)
-      done
-    with End_of_file -> ()
+(* Copy using the [Read_source_buffer] optimisation.
+   Avoids a copy if the source already has the data. *)
+let copy_with_rsb rsb dst =
+  try
+    while true do
+      rsb (Low_level.writev dst)
+    done
+  with End_of_file -> ()
 
-  (* Copy by allocating a chunk from the pre-shared buffer and asking
-     the source to write into it. This used when the other methods
-     aren't available. *)
-  let fallback_copy src dst =
-    with_chunk @@ fun chunk ->
-    let chunk_cs = Uring.Region.to_cstruct chunk in
-    try
-      while true do
-        let got = Eio.Flow.read src chunk_cs in
-        write dst chunk got
-      done
-    with End_of_file -> ()
+(* Copy by allocating a chunk from the pre-shared buffer and asking
+   the source to write into it. This used when the other methods
+   aren't available. *)
+let fallback_copy src dst =
+  Low_level.with_chunk @@ fun chunk ->
+  let chunk_cs = Uring.Region.to_cstruct chunk in
+  try
+    while true do
+      let got = Eio.Flow.read src chunk_cs in
+      Low_level.write dst chunk got
+    done
+  with End_of_file -> ()
 
-  let flow fd =
-    let is_tty = lazy (Unix.isatty (FD.get "isatty" fd)) in
-    object (_ : <source; sink; ..>)
-      method fd = fd
-      method close = FD.close fd
+let flow fd =
+  let is_tty = lazy (Unix.isatty (FD.get "isatty" fd)) in
+  object (_ : <source; sink; ..>)
+    method fd = fd
+    method close = FD.close fd
 
-      method probe : type a. a Eio.Generic.ty -> a option = function
-        | FD -> Some fd
-        | Eio_unix.Unix_file_descr op -> Some (FD.to_unix op fd)
-        | _ -> None
-
-      method read_into buf =
-        if Lazy.force is_tty then (
-          (* Work-around for https://github.com/axboe/liburing/issues/354
-             (should be fixed in Linux 5.14) *)
-          await_readable fd
-        );
-        readv fd [buf]
-
-      method read_methods = []
-
-      method write src =
-        match get_fd_opt src with
-        | Some src -> fast_copy_try_splice src fd
-        | None ->
-          let rec aux = function
-            | Eio.Flow.Read_source_buffer rsb :: _ -> copy_with_rsb rsb fd
-            | _ :: xs -> aux xs
-            | [] -> fallback_copy src fd
-          in
-          aux (Eio.Flow.read_methods src)
-
-      method shutdown cmd =
-        Unix.shutdown (FD.get "shutdown" fd) @@ match cmd with
-        | `Receive -> Unix.SHUTDOWN_RECEIVE
-        | `Send -> Unix.SHUTDOWN_SEND
-        | `All -> Unix.SHUTDOWN_ALL
-    end
-
-  let source fd = (flow fd :> source)
-  let sink   fd = (flow fd :> sink)
-
-  let listening_socket fd = object
-    inherit Eio.Net.listening_socket
-
-    method! probe : type a. a Eio.Generic.ty -> a option = function
+    method probe : type a. a Eio.Generic.ty -> a option = function
+      | FD -> Some fd
       | Eio_unix.Unix_file_descr op -> Some (FD.to_unix op fd)
       | _ -> None
 
-    method close = FD.close fd
+    method read_into buf =
+      if Lazy.force is_tty then (
+        (* Work-around for https://github.com/axboe/liburing/issues/354
+           (should be fixed in Linux 5.14) *)
+        Low_level.await_readable fd
+      );
+      Low_level.readv fd [buf]
 
-    method accept ~sw =
-      Switch.check sw;
-      let client, client_addr = accept ~sw fd in
-      let client_addr = match client_addr with
-        | Unix.ADDR_UNIX path         -> `Unix path
-        | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Ipaddr.of_unix host, port)
-      in
-      let flow = (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) in
-      flow, client_addr
-  end
-
-  let net = object
-    inherit Eio.Net.t
-
-    method listen ~reuse_addr ~reuse_port  ~backlog ~sw listen_addr =
-      let socket_domain, socket_type, addr =
-        match listen_addr with
-        | `Unix path         ->
-          if reuse_addr then (
-            match Unix.lstat path with
-            | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
-            | _ -> ()
-            | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
-          );
-          Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
-        | `Tcp (host, port)  ->
-          let host = Eio_unix.Ipaddr.to_unix host in
-          Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
-      in
-      let sock_unix = Unix.socket socket_domain socket_type 0 in
-      (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
-      begin match listen_addr with
-        | `Unix path ->
-          if String.length path > 0 && path.[0] <> Char.chr 0 then
-            Switch.on_release sw (fun () -> Unix.unlink path)
-        | `Tcp _ -> ()
-      end;
-      if reuse_addr then
-        Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
-      if reuse_port then
-        Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
-      let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
-      Unix.bind sock_unix addr;
-      Unix.listen sock_unix backlog;
-      listening_socket sock
-
-    method connect ~sw addr =
-      let socket_domain, socket_type, addr =
-        match addr with
-        | `Unix path         -> Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
-        | `Tcp (host, port)  ->
-          let host = Eio_unix.Ipaddr.to_unix host in
-          Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
-      in
-      let sock_unix = Unix.socket socket_domain socket_type 0 in
-      let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
-      connect sock addr;
-      (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
-  end
-
-  type stdenv = <
-    stdin  : source;
-    stdout : sink;
-    stderr : sink;
-    net : Eio.Net.t;
-    domain_mgr : Eio.Domain_manager.t;
-    clock : Eio.Time.clock;
-    fs : Eio.Dir.t;
-    cwd : Eio.Dir.t;
-    secure_random : Eio.Flow.source;
-  >
-
-  let domain_mgr ~run_event_loop = object (self)
-    inherit Eio.Domain_manager.t
-
-    method run_raw fn =
-      let domain = ref None in
-      enter (fun t k ->
-          domain := Some (Domain.spawn (fun () -> Fun.protect fn ~finally:(fun () -> enqueue_thread t k ())))
-        );
-      Domain.join (Option.get !domain)
-
-    method run fn =
-      self#run_raw (fun () ->
-          let result = ref None in
-          run_event_loop (fun _ -> result := Some (fn ()));
-          Option.get !result
-        )
-  end
-
-  let clock = object
-    inherit Eio.Time.clock
-
-    method now = Unix.gettimeofday ()
-    method sleep_until = sleep_until
-  end
-
-  class dir fd = object
-    inherit Eio.Dir.t
-
-    val resolve_flags = Uring.Resolve.beneath
-
-    method open_in ~sw path =
-      let fd = openat2 ~sw ?dir:fd path
-          ~access:`R
-          ~flags:Uring.Open_flags.cloexec
-          ~perm:0
-          ~resolve:resolve_flags
-      in
-      (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
-
-    method open_out ~sw ~append ~create path =
-      let perm, flags =
-        match create with
-        | `Never            -> 0,    Uring.Open_flags.empty
-        | `If_missing  perm -> perm, Uring.Open_flags.creat
-        | `Or_truncate perm -> perm, Uring.Open_flags.(creat + trunc)
-        | `Exclusive   perm -> perm, Uring.Open_flags.(creat + excl)
-      in
-      let flags = if append then Uring.Open_flags.(flags + append) else flags in
-      let fd = openat2 ~sw ?dir:fd path
-          ~access:`RW
-          ~flags:Uring.Open_flags.(cloexec + flags)
-          ~perm
-          ~resolve:resolve_flags
-      in
-      (flow fd :> <Eio.Dir.rw; Eio.Flow.close>)
-
-    method open_dir ~sw path =
-      let fd = openat2 ~sw ~seekable:false ?dir:fd path
-          ~access:`R
-          ~flags:Uring.Open_flags.(cloexec + path + directory)
-          ~perm:0
-          ~resolve:resolve_flags
-      in
-      (new dir (Some fd) :> <Eio.Dir.t; Eio.Flow.close>)
-
-    method mkdir ~perm path =
-      mkdir_beneath ~perm ?dir:fd path
-
-    method close =
-      FD.close (Option.get fd)
-  end
-
-  (* Full access to the filesystem. *)
-  let fs = object
-    inherit dir None
-
-    val! resolve_flags = Uring.Resolve.empty
-
-    method! mkdir ~perm path =
-      mkdirat ~perm None path
-  end
-
-  let secure_random = object
-    inherit Eio.Flow.source
     method read_methods = []
-    method read_into buf = getrandom buf
+
+    method write src =
+      match get_fd_opt src with
+      | Some src -> fast_copy_try_splice src fd
+      | None ->
+        let rec aux = function
+          | Eio.Flow.Read_source_buffer rsb :: _ -> copy_with_rsb rsb fd
+          | _ :: xs -> aux xs
+          | [] -> fallback_copy src fd
+        in
+        aux (Eio.Flow.read_methods src)
+
+    method shutdown cmd =
+      Unix.shutdown (FD.get "shutdown" fd) @@ match cmd with
+      | `Receive -> Unix.SHUTDOWN_RECEIVE
+      | `Send -> Unix.SHUTDOWN_SEND
+      | `All -> Unix.SHUTDOWN_ALL
   end
 
-  let stdenv ~run_event_loop =
-    let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd in
-    let stdin = lazy (source (of_unix Unix.stdin)) in
-    let stdout = lazy (sink (of_unix Unix.stdout)) in
-    let stderr = lazy (sink (of_unix Unix.stderr)) in
-    let cwd = new dir None in
-    object (_ : stdenv)
-      method stdin  = Lazy.force stdin
-      method stdout = Lazy.force stdout
-      method stderr = Lazy.force stderr
-      method net = net
-      method domain_mgr = domain_mgr ~run_event_loop
-      method clock = clock
-      method fs = (fs :> Eio.Dir.t)
-      method cwd = (cwd :> Eio.Dir.t)
-      method secure_random = secure_random
-    end
+let source fd = (flow fd :> source)
+let sink   fd = (flow fd :> sink)
+
+let listening_socket fd = object
+  inherit Eio.Net.listening_socket
+
+  method! probe : type a. a Eio.Generic.ty -> a option = function
+    | Eio_unix.Unix_file_descr op -> Some (FD.to_unix op fd)
+    | _ -> None
+
+  method close = FD.close fd
+
+  method accept ~sw =
+    Switch.check sw;
+    let client, client_addr = Low_level.accept ~sw fd in
+    let client_addr = match client_addr with
+      | Unix.ADDR_UNIX path         -> `Unix path
+      | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Ipaddr.of_unix host, port)
+    in
+    let flow = (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) in
+    flow, client_addr
 end
+
+let net = object
+  inherit Eio.Net.t
+
+  method listen ~reuse_addr ~reuse_port  ~backlog ~sw listen_addr =
+    let socket_domain, socket_type, addr =
+      match listen_addr with
+      | `Unix path         ->
+        if reuse_addr then (
+          match Unix.lstat path with
+          | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
+          | _ -> ()
+          | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+        );
+        Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+      | `Tcp (host, port)  ->
+        let host = Eio_unix.Ipaddr.to_unix host in
+        Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+    in
+    let sock_unix = Unix.socket socket_domain socket_type 0 in
+    (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
+    begin match listen_addr with
+      | `Unix path ->
+        if String.length path > 0 && path.[0] <> Char.chr 0 then
+          Switch.on_release sw (fun () -> Unix.unlink path)
+      | `Tcp _ -> ()
+    end;
+    if reuse_addr then
+      Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+    if reuse_port then
+      Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
+    let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
+    Unix.bind sock_unix addr;
+    Unix.listen sock_unix backlog;
+    listening_socket sock
+
+  method connect ~sw addr =
+    let socket_domain, socket_type, addr =
+      match addr with
+      | `Unix path         -> Unix.PF_UNIX, Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+      | `Tcp (host, port)  ->
+        let host = Eio_unix.Ipaddr.to_unix host in
+        Unix.PF_INET, Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+    in
+    let sock_unix = Unix.socket socket_domain socket_type 0 in
+    let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
+    Low_level.connect sock addr;
+    (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
+end
+
+type stdenv = <
+  stdin  : source;
+  stdout : sink;
+  stderr : sink;
+  net : Eio.Net.t;
+  domain_mgr : Eio.Domain_manager.t;
+  clock : Eio.Time.clock;
+  fs : Eio.Dir.t;
+  cwd : Eio.Dir.t;
+  secure_random : Eio.Flow.source;
+>
+
+let domain_mgr ~run_event_loop = object (self)
+  inherit Eio.Domain_manager.t
+
+  method run_raw fn =
+    let domain = ref None in
+    enter (fun t k ->
+        domain := Some (Domain.spawn (fun () -> Fun.protect fn ~finally:(fun () -> enqueue_thread t k ())))
+      );
+    Domain.join (Option.get !domain)
+
+  method run fn =
+    self#run_raw (fun () ->
+        let result = ref None in
+        run_event_loop (fun _ -> result := Some (fn ()));
+        Option.get !result
+      )
+end
+
+let clock = object
+  inherit Eio.Time.clock
+
+  method now = Unix.gettimeofday ()
+  method sleep_until = Low_level.sleep_until
+end
+
+class dir fd = object
+  inherit Eio.Dir.t
+
+  val resolve_flags = Uring.Resolve.beneath
+
+  method open_in ~sw path =
+    let fd = Low_level.openat2 ~sw ?dir:fd path
+        ~access:`R
+        ~flags:Uring.Open_flags.cloexec
+        ~perm:0
+        ~resolve:resolve_flags
+    in
+    (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
+
+  method open_out ~sw ~append ~create path =
+    let perm, flags =
+      match create with
+      | `Never            -> 0,    Uring.Open_flags.empty
+      | `If_missing  perm -> perm, Uring.Open_flags.creat
+      | `Or_truncate perm -> perm, Uring.Open_flags.(creat + trunc)
+      | `Exclusive   perm -> perm, Uring.Open_flags.(creat + excl)
+    in
+    let flags = if append then Uring.Open_flags.(flags + append) else flags in
+    let fd = Low_level.openat2 ~sw ?dir:fd path
+        ~access:`RW
+        ~flags:Uring.Open_flags.(cloexec + flags)
+        ~perm
+        ~resolve:resolve_flags
+    in
+    (flow fd :> <Eio.Dir.rw; Eio.Flow.close>)
+
+  method open_dir ~sw path =
+    let fd = Low_level.openat2 ~sw ~seekable:false ?dir:fd path
+        ~access:`R
+        ~flags:Uring.Open_flags.(cloexec + path + directory)
+        ~perm:0
+        ~resolve:resolve_flags
+    in
+    (new dir (Some fd) :> <Eio.Dir.t; Eio.Flow.close>)
+
+  method mkdir ~perm path =
+    Low_level.mkdir_beneath ~perm ?dir:fd path
+
+  method close =
+    FD.close (Option.get fd)
+end
+
+(* Full access to the filesystem. *)
+let fs = object
+  inherit dir None
+
+  val! resolve_flags = Uring.Resolve.empty
+
+  method! mkdir ~perm path =
+    Low_level.mkdirat ~perm None path
+end
+
+let secure_random = object
+  inherit Eio.Flow.source
+  method read_methods = []
+  method read_into buf = Low_level.getrandom buf
+end
+
+let stdenv ~run_event_loop =
+  let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd in
+  let stdin = lazy (source (of_unix Unix.stdin)) in
+  let stdout = lazy (sink (of_unix Unix.stdout)) in
+  let stderr = lazy (sink (of_unix Unix.stderr)) in
+  let cwd = new dir None in
+  object (_ : stdenv)
+    method stdin  = Lazy.force stdin
+    method stdout = Lazy.force stdout
+    method stderr = Lazy.force stderr
+    method net = net
+    method domain_mgr = domain_mgr ~run_event_loop
+    method clock = clock
+    method fs = (fs :> Eio.Dir.t)
+    method cwd = (cwd :> Eio.Dir.t)
+    method secure_random = secure_random
+  end
 
 let pipe sw =
   let r, w = Unix.pipe () in
-  let r = Objects.source (FD.of_unix ~sw ~seekable:false ~close_unix:true r) in
-  let w = Objects.sink (FD.of_unix ~sw ~seekable:false ~close_unix:true w) in
+  let r = source (FD.of_unix ~sw ~seekable:false ~close_unix:true r) in
+  let w = sink (FD.of_unix ~sw ~seekable:false ~close_unix:true w) in
   r, w
 
 let monitor_event_fd t =
   let buf = Cstruct.create 8 in
   while true do
-    let got = readv t.eventfd [buf] in
+    let got = Low_level.readv t.eventfd [buf] in
     Log.debug (fun f -> f "Received wakeup on eventfd %a" FD.pp t.eventfd);
     assert (got = 8);
     (* We just go back to sleep now, but this will cause the scheduler to look
@@ -1022,7 +1022,7 @@ let with_uring ~fixed_buf_len ~queue_depth ?polling_timeout fn =
 
 let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
   Log.debug (fun l -> l "starting run");
-  let stdenv = Objects.stdenv ~run_event_loop:(run ~queue_depth ~block_size ?polling_timeout) in
+  let stdenv = stdenv ~run_event_loop:(run ~queue_depth ~block_size ?polling_timeout) in
   (* TODO unify this allocation API around baregion/uring *)
   let fixed_buf_len = block_size * queue_depth in
   with_uring ~fixed_buf_len ~queue_depth ?polling_timeout @@ fun uring ->
@@ -1059,7 +1059,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
               fn st k;
               schedule st
             )
-          | ERead args -> Some (fun k ->
+          | Low_level.ERead args -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               enqueue_read st k args;
               schedule st)
@@ -1068,12 +1068,12 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
               enqueue_close st k fd;
               schedule st
             )
-          | EWrite args -> Some (fun k ->
+          | Low_level.EWrite args -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               enqueue_write st k args;
               schedule st
             )
-          | Sleep_until time -> Some (fun k ->
+          | Low_level.Sleep_until time -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               match Fibre_context.get_error fibre with
               | Some ex -> Suspended.discontinue k ex
@@ -1128,12 +1128,12 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
                   );
                 schedule st
             )
-          | Alloc -> Some (fun k ->
+          | Low_level.Alloc -> Some (fun k ->
               let k = { Suspended.k; fibre } in
-              alloc_buf st k
+              Low_level.alloc_buf st k
             )
-          | Free buf -> Some (fun k ->
-              free_buf st buf;
+          | Low_level.Free buf -> Some (fun k ->
+              Low_level.free_buf st buf;
               continue k ()
             )
           | _ -> None

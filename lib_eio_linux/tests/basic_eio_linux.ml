@@ -1,6 +1,6 @@
 (* basic tests using effects *)
 
-open Eio_linux
+open Eio_linux.Low_level
 open Eio.Std
 module Int63 = Optint.Int63
 
@@ -11,7 +11,7 @@ let setup_log level =
 
 let () =
   setup_log (Some Logs.Debug);
-  run @@ fun _stdenv ->
+  Eio_linux.run @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let fd = Unix.handle_unix_error (openfile ~sw "test.txt" Unix.[O_RDONLY]) 0 in
   let buf = alloc () in

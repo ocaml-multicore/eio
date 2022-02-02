@@ -13,7 +13,7 @@ let main ~clock =
           for _ = 1 to n_fibres do
             Fibre.fork ~sw (fun () ->
                 for _ = 1 to n_iters do
-                  Eio_linux.noop ()
+                  Eio_linux.Low_level.noop ()
                 done
               )
           done

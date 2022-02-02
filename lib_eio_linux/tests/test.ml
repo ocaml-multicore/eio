@@ -7,8 +7,8 @@ let () =
 
 let read_one_byte ~sw r =
   Fibre.fork_promise ~sw (fun () ->
-      let r = Option.get (Eio_linux.Objects.get_fd_opt r) in
-      Eio_linux.await_readable r;
+      let r = Option.get (Eio_linux.get_fd_opt r) in
+      Eio_linux.Low_level.await_readable r;
       let b = Bytes.create 1 in
       let got = Unix.read (Eio_linux.FD.to_unix `Peek r) b 0 1 in
       assert (got = 1);
@@ -21,8 +21,8 @@ let test_poll_add () =
   let r, w = Eio_linux.pipe sw in
   let thread = read_one_byte ~sw r in
   Fibre.yield ();
-  let w = Option.get (Eio_linux.Objects.get_fd_opt w) in
-  Eio_linux.await_writable w;
+  let w = Option.get (Eio_linux.get_fd_opt w) in
+  Eio_linux.Low_level.await_writable w;
   let sent = Unix.write (Eio_linux.FD.to_unix `Peek w) (Bytes.of_string "!") 0 1 in
   assert (sent = 1);
   let result = Promise.await thread in
@@ -35,7 +35,7 @@ let test_poll_add_busy () =
   let a = read_one_byte ~sw r in
   let b = read_one_byte ~sw r in
   Fibre.yield ();
-  let w = Option.get (Eio_linux.Objects.get_fd_opt w) |> Eio_linux.FD.to_unix `Peek in
+  let w = Option.get (Eio_linux.get_fd_opt w) |> Eio_linux.FD.to_unix `Peek in
   let sent = Unix.write w (Bytes.of_string "!!") 0 2 in
   assert (sent = 2);
   let a = Promise.await a in
@@ -84,20 +84,20 @@ let test_iovec () =
   Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let from_pipe, to_pipe = Eio_linux.pipe sw in
-  let from_pipe = Eio_linux.Objects.get_fd from_pipe in
-  let to_pipe = Eio_linux.Objects.get_fd to_pipe in
+  let from_pipe = Eio_linux.get_fd from_pipe in
+  let to_pipe = Eio_linux.get_fd to_pipe in
   let message = Cstruct.of_string "Got [   ] and [   ]" in
   let rec recv = function
     | [] -> ()
     | cs ->
-      let got = Eio_linux.readv from_pipe cs in
+      let got = Eio_linux.Low_level.readv from_pipe cs in
       recv (Cstruct.shiftv cs got)
   in
   Fibre.both
     (fun () -> recv [Cstruct.sub message 5 3; Cstruct.sub message 15 3])
     (fun () ->
        let b = Cstruct.of_string "barfoo" in
-       Eio_linux.writev to_pipe [Cstruct.sub b 3 3; Cstruct.sub b 0 3];
+       Eio_linux.Low_level.writev to_pipe [Cstruct.sub b 3 3; Cstruct.sub b 0 3];
        Eio_linux.FD.close to_pipe
     );
   Alcotest.(check string) "Transfer correct" "Got [foo] and [bar]" (Cstruct.to_string message)
