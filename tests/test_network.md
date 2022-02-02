@@ -147,7 +147,33 @@ Calling accept when the switch is already off:
     ~on_error:raise;;
 Exception: Failure "Simulated error".
 ```
+
 # Unix interop
+
+Extracting file descriptors from Eio objects:
+
+```ocaml
+# run @@ fun ~net sw ->
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
+  traceln "Listening socket has Unix FD: %b" (Eio_unix.FD.peek server <> None);
+  let have_client, have_server =
+    Fibre.pair
+      (fun () -> 
+         let flow = Eio.Net.connect ~sw net addr in
+         (Eio_unix.FD.peek flow <> None)
+      )
+      (fun () ->
+         let flow, _addr = Eio.Net.accept ~sw server in
+         (Eio_unix.FD.peek flow <> None)
+      )
+  in
+  traceln "Client-side socket has Unix FD: %b" have_client;
+  traceln "Server-side socket has Unix FD: %b" have_server;;
++Listening socket has Unix FD: true
++Client-side socket has Unix FD: true
++Server-side socket has Unix FD: true
+- : unit = ()
+```
 
 Check we can convert Eio IP addresses to Unix:
 

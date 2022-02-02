@@ -39,9 +39,10 @@ module FD : sig
       @param seekable If true, we pass [-1] as the file offset, to use the current offset.
                       If false, pass [0] as the file offset, which is needed for sockets. *)
 
-  val to_unix : t -> Unix.file_descr
-  (** [to_unix t] returns the wrapped descriptor.
+  val to_unix : [< `Peek | `Take] -> t -> Unix.file_descr
+  (** [to_unix op t] returns the wrapped descriptor.
       This allows unsafe access to the FD.
+      If [op] is [`Take] then [t] is marked as closed (but the underlying FD is not actually closed).
       @raise Invalid_arg if [t] is closed. *)
 end
 
