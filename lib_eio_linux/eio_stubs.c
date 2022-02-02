@@ -1,11 +1,13 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/eventfd.h>
+#include <sys/random.h>
 
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/signals.h>
 #include <caml/unixsupport.h>
+#include <caml/bigarray.h>
 
 CAMLprim value caml_eio_eventfd(value v_initval) {
   int ret;
@@ -26,4 +28,15 @@ CAMLprim value caml_eio_mkdirat(value v_fd, value v_path, value v_perm) {
   caml_stat_free(path);
   if (ret == -1) uerror("mkdirat", v_path);
   CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_eio_getrandom(value v_ba, value v_off, value v_len) {
+  CAMLparam1(v_ba);
+  ssize_t ret;
+  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
+  caml_enter_blocking_section();
+  ret = getrandom(buf, Long_val(v_len), 0);
+  caml_leave_blocking_section();
+  if (ret == -1) uerror("getrandom", Nothing);
+  CAMLreturn(Val_long(ret));
 }

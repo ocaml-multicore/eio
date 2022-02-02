@@ -76,6 +76,11 @@ module File : sig
 
 end
 
+module Random : sig
+  val fill : Luv.Buffer.t -> unit
+  (** Wraps {!Luv.Random.random} *)
+end
+
 module Handle : sig
   type 'a t
 
@@ -113,6 +118,7 @@ module Objects : sig
     clock : Eio.Time.clock;
     fs : Eio.Dir.t;
     cwd : Eio.Dir.t;
+    secure_random : Eio.Flow.source;
   >
 
   val get_fd : <has_fd; ..> -> File.t

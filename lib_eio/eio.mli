@@ -451,6 +451,10 @@ module Flow : sig
     inherit read
   end
 
+  val read_exact : #source -> Cstruct.t -> unit
+  (** [read_exact src dst] keeps reading into [dst] until it is full.
+      @raise End_of_file if the buffer could not be filled. *)
+
   val string_source : string -> source
 
   val cstruct_source : Cstruct.t list -> source
@@ -903,6 +907,7 @@ module Stdenv : sig
     clock : Time.clock;
     fs : Dir.t;
     cwd : Dir.t;
+    secure_random : Flow.source;
   >
 
   val stdin  : <stdin  : #Flow.source as 'a; ..> -> 'a
@@ -912,6 +917,9 @@ module Stdenv : sig
   val net : <net : #Net.t as 'a; ..> -> 'a
   val domain_mgr : <domain_mgr : #Domain_manager.t as 'a; ..> -> 'a
   val clock : <clock : #Time.clock as 'a; ..> -> 'a
+
+  val secure_random : <secure_random : #Flow.source as 'a; ..> -> 'a
+  (** [secure_random t] is a source of random bytes suitable for cryptographic purposes. *)
 
   val cwd : <cwd : #Dir.t as 'a; ..> -> 'a
   (** [cwd t] is the current working directory of the process (this may change

@@ -651,6 +651,11 @@ let fstat fd =
 
 external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
 
+external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
+
+let getrandom { Cstruct.buffer; off; len } =
+  eio_getrandom buffer off len
+
 (* We ignore [sw] because this isn't a uring operation yet. *)
 let mkdirat ~perm dir path =
   wrap_errors path @@ fun () ->
@@ -864,6 +869,7 @@ module Objects = struct
     clock : Eio.Time.clock;
     fs : Eio.Dir.t;
     cwd : Eio.Dir.t;
+    secure_random : Eio.Flow.source;
   >
 
   let domain_mgr ~run_event_loop = object (self)
@@ -948,6 +954,12 @@ module Objects = struct
       mkdirat ~perm None path
   end
 
+  let secure_random = object
+    inherit Eio.Flow.source
+    method read_methods = []
+    method read_into buf = getrandom buf
+  end
+
   let stdenv ~run_event_loop =
     let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd in
     let stdin = lazy (source (of_unix Unix.stdin)) in
@@ -963,6 +975,7 @@ module Objects = struct
       method clock = clock
       method fs = (fs :> Eio.Dir.t)
       method cwd = (cwd :> Eio.Dir.t)
+      method secure_random = secure_random
     end
 end
 
