@@ -8,10 +8,8 @@ exception Already_exists of path * exn
 exception Not_found of path * exn
 exception Permission_denied of path * exn
 
-class virtual rw = object (_ : #Generic.t)
+class virtual rw = object (_ : <Generic.t; Flow.source; Flow.sink; ..>)
   method probe _ = None
-  inherit Flow.read
-  inherit Flow.write
 end
 
 type create = [`Never | `If_missing of Unix_perm.t | `Or_truncate of Unix_perm.t | `Exclusive of Unix_perm.t]

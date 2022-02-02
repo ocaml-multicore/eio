@@ -4,7 +4,7 @@ type t = {
   mutable buf : Cstruct.buffer;
   mutable pos : int;
   mutable len : int;
-  mutable flow : Flow.read option;      (* None if we've seen eof *)
+  mutable flow : Flow.source option;    (* None if we've seen eof *)
   mutable consumed : int;               (* Total bytes consumed so far *)
   max_size : int;
 }
@@ -41,7 +41,7 @@ open Syntax
 let capacity t = Bigarray.Array1.dim t.buf
 
 let of_flow ?initial_size ~max_size flow =
-  let flow = (flow :> Flow.read) in
+  let flow = (flow :> Flow.source) in
   if max_size <= 0 then Fmt.invalid_arg "Max size %d should be positive!" max_size;
   let initial_size = Option.value initial_size ~default:(min 4096 max_size) in
   let buf = Bigarray.(Array1.create char c_layout initial_size) in
@@ -101,7 +101,7 @@ let ensure t n =
         while t.len < n do
           let free_space = Cstruct.of_bigarray t.buf ~off:(t.pos + t.len) in
           assert (t.len + Cstruct.length free_space >= n);
-          let got = Flow.read_into flow free_space in
+          let got = Flow.read flow free_space in
           t.len <- t.len + got
         done
       with End_of_file ->
@@ -111,7 +111,9 @@ let ensure t n =
   assert (buffered_bytes t >= n)
 
 let as_flow t =
-  object (_ : Flow.read)
+  object
+    inherit Flow.source
+
     method read_methods = []
 
     method read_into dst =

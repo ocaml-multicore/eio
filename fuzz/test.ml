@@ -12,7 +12,9 @@ exception Buffer_limit_exceeded = Buf_read.Buffer_limit_exceeded
 let initial_size = 10
 let max_size = 100
 
-let mock_flow next = object (self : #Eio.Flow.read)
+let mock_flow next = object (self)
+  inherit Eio.Flow.source
+
   val mutable next = next
 
   method read_methods = []
