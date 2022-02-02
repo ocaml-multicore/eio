@@ -228,6 +228,12 @@ module File = struct
     await_with_cancel ~request (fun loop -> Luv.File.mkdir ~loop ~request ~mode path)
 end
 
+module Random = struct
+  let fill buf =
+    let request = Luv.Random.Request.make () in
+    await_with_cancel ~request (fun loop -> Luv.Random.random ~loop ~request buf) |> or_raise
+end
+
 module Stream = struct
   type 'a t = [`Stream of 'a] Handle.t
 
@@ -486,6 +492,18 @@ module Objects = struct
         socket sock
   end
 
+  let secure_random =
+    object
+      inherit Eio.Flow.source
+
+      method read_methods = []
+
+      method read_into buf =
+        let ba = Cstruct.to_bigarray buf in
+        Random.fill ba;
+        Cstruct.length buf
+    end
+
   type stdenv = <
     stdin : source;
     stdout : sink;
@@ -495,6 +513,7 @@ module Objects = struct
     clock : Eio.Time.clock;
     fs : Eio.Dir.t;
     cwd : Eio.Dir.t;
+    secure_random : Eio.Flow.source;
   >
 
   let domain_mgr ~run_event_loop = object (self)
@@ -631,6 +650,7 @@ module Objects = struct
       method clock = clock
       method fs = (fs :> Eio.Dir.t)
       method cwd = (cwd :> Eio.Dir.t)
+      method secure_random = secure_random
     end
 end  
 

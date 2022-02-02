@@ -21,6 +21,12 @@ let read_into (t : #read) buf =
 
 let read_methods (t : #read) = t#read_methods
 
+let rec read_exact t buf =
+  if Cstruct.length buf > 0 then (
+    let got = read_into t buf in
+    read_exact t (Cstruct.shift buf got)
+  )
+
 class virtual source = object (_ : #Generic.t)
   method probe _ = None
   inherit read

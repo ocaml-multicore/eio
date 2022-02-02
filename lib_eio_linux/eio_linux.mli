@@ -136,6 +136,14 @@ val accept : sw:Switch.t -> FD.t -> (FD.t * Unix.sockaddr)
 val shutdown : FD.t -> Unix.shutdown_command -> unit
 (** Like {!Unix.shutdown}. *)
 
+(** {1 Randomness} *)
+
+val getrandom : Cstruct.t -> int
+(**[ getrandom buf] reads some random bytes into [buf] and returns the number of bytes written.
+   It uses Linux's [getrandom] call, which is like reading from /dev/urandom
+   except that it will block (the whole domain) if used at early boot
+   when the random system hasn't been initialised yet. *)
+
 (** {1 Eio API} *)
 
 module Objects : sig
@@ -152,6 +160,7 @@ module Objects : sig
     clock : Eio.Time.clock;
     fs : Eio.Dir.t;
     cwd : Eio.Dir.t;
+    secure_random : Eio.Flow.source;
   >
 
   val get_fd : <has_fd; ..> -> FD.t
