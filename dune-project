@@ -33,7 +33,7 @@
   (mdx (and (>= 1.10.0) :with-test))
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
-  uring))
+  (uring (>= 0.2))))
 (package
  (name eio_luv)
  (synopsis "Eio implementation using luv (libuv)")
