@@ -1,3 +1,0 @@
-pin-depends: [
-  ["uring.dev" "git+https://github.com/ocaml-multicore/ocaml-uring.git#22f59b8c08753e7dbafae279ef8bde2edf0c29b5"]
-]
