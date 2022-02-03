@@ -428,59 +428,56 @@ module Flow : sig
 
   val close : #close -> unit
 
-  class virtual read : object
+  (** Producer base class. *)
+  class virtual source : object
+    inherit Generic.t
     method virtual read_methods : read_method list
     method virtual read_into : Cstruct.t -> int
   end
 
-  val read_into : #read -> Cstruct.t -> int
-  (** [read_into reader buf] reads one or more bytes into [buf].
+  val read : #source -> Cstruct.t -> int
+  (** [read src buf] reads one or more bytes into [buf].
       It returns the number of bytes written (which may be less than the
       buffer size even if there is more data to be read).
       [buf] must not be zero-length.
+
+      [read src] just makes a single call to [src#read_into]
+      (and asserts that the result is in range).
+      Use {!read_exact} instead if you want to fill [buf] completely.
+      Use {!Buf_read.line} to read complete lines.
+      Use {!copy} to stream data directly from a source to a sink.
       @raise End_of_file if there is no more data to read *)
-
-  val read_methods : #read -> read_method list
-  (** [read_methods flow] is a list of extra ways of reading from [flow],
-      with the preferred (most efficient) methods first.
-      If no method is suitable, {!read_into} should be used as the fallback. *)
-
-  (** Producer base class. *)
-  class virtual source : object
-    inherit Generic.t
-    inherit read
-  end
 
   val read_exact : #source -> Cstruct.t -> unit
   (** [read_exact src dst] keeps reading into [dst] until it is full.
       @raise End_of_file if the buffer could not be filled. *)
 
+  val read_methods : #source -> read_method list
+  (** [read_methods flow] is a list of extra ways of reading from [flow],
+      with the preferred (most efficient) methods first.
+      If no method is suitable, {!read} should be used as the fallback. *)
+
   val string_source : string -> source
 
   val cstruct_source : Cstruct.t list -> source
 
-  class virtual write : object
-    method virtual write : 'a. (#source as 'a) -> unit
-  end
-
-  val copy : #source -> #write -> unit
-  (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
-
-  val copy_string : string -> #write -> unit
-
   (** Consumer base class. *)
   class virtual sink : object
     inherit Generic.t
-    inherit write
+    method virtual write : 'a. (#source as 'a) -> unit
   end
+
+  val copy : #source -> #sink -> unit
+  (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
+
+  val copy_string : string -> #sink -> unit
 
   val buffer_sink : Buffer.t -> sink
 
   (** Bidirectional stream base class. *)
   class virtual two_way : object
-    inherit Generic.t
-    inherit read
-    inherit write
+    inherit source
+    inherit sink
 
     method virtual shutdown : shutdown_command -> unit
   end
@@ -504,13 +501,13 @@ module Buf_read : sig
       @raise End_of_file The flow ended without enough data to parse an ['a].
       @raise Buffer_limit_exceeded The value was larger than the requested maximum buffer size. *)
 
-  val parse : ?initial_size:int -> max_size:int -> 'a parser -> #Flow.read -> ('a, [> `Msg of string]) result
+  val parse : ?initial_size:int -> max_size:int -> 'a parser -> #Flow.source -> ('a, [> `Msg of string]) result
   (** [parse p flow ~max_size] uses [p] to parse everything in [flow].
       It is a convenience function that does
       [let buf = of_flow flow ~max_size in format_errors (p <* eof) buf]
       @param initial_size see {!of_flow}. *)
 
-  val of_flow : ?initial_size:int -> max_size:int -> #Flow.read -> t
+  val of_flow : ?initial_size:int -> max_size:int -> #Flow.source -> t
   (** [of_flow ~max_size flow] is a buffered reader backed by [flow].
       @param initial_size The initial amount of memory to allocate for the buffer.
       @param max_size The maximum size to which the buffer may grow.
@@ -522,7 +519,7 @@ module Buf_read : sig
                       you can usually just set it much larger than you expect
                       to need. *)
 
-  val as_flow : t -> Flow.read
+  val as_flow : t -> Flow.source
   (** [as_flow t] is a buffered flow. Reading from it will return data from the buffer,
       only reading the underlying flow if the buffer is empty. *)
 
@@ -821,8 +818,8 @@ module Dir : sig
 
   class virtual rw : object
     inherit Generic.t
-    inherit Flow.read
-    inherit Flow.write
+    inherit Flow.source
+    inherit Flow.sink
   end
 
   type create = [`Never | `If_missing of Unix_perm.t | `Or_truncate of Unix_perm.t | `Exclusive of Unix_perm.t]

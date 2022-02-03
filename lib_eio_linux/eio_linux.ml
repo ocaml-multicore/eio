@@ -756,7 +756,7 @@ module Objects = struct
     let chunk_cs = Uring.Region.to_cstruct chunk in
     try
       while true do
-        let got = Eio.Flow.read_into src chunk_cs in
+        let got = Eio.Flow.read src chunk_cs in
         write dst chunk got
       done
     with End_of_file -> ()

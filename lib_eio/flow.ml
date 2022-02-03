@@ -9,28 +9,24 @@ end
 
 let close (t : #close) = t#close
 
-class virtual read = object
+class virtual source = object (_ : <Generic.t; ..>)
+  method probe _ = None
   method virtual read_methods : read_method list
   method virtual read_into : Cstruct.t -> int
 end
 
-let read_into (t : #read) buf =
+let read (t : #source) buf =
   let got = t#read_into buf in
   assert (got > 0 && got <= Cstruct.length buf);
   got
 
-let read_methods (t : #read) = t#read_methods
+let read_methods (t : #source) = t#read_methods
 
 let rec read_exact t buf =
   if Cstruct.length buf > 0 then (
-    let got = read_into t buf in
+    let got = read t buf in
     read_exact t (Cstruct.shift buf got)
   )
-
-class virtual source = object (_ : #Generic.t)
-  method probe _ = None
-  inherit read
-end
 
 let cstruct_source data : source =
   object (self)
@@ -59,18 +55,14 @@ let cstruct_source data : source =
 
 let string_source s = cstruct_source [Cstruct.of_string s]
 
-class virtual write = object
+class virtual sink = object (_ : <Generic.t; ..>)
+  method probe _ = None
   method virtual write : 'a. (#source as 'a) -> unit
 end
 
-let copy (src : #source) (dst : #write) = dst#write src
+let copy (src : #source) (dst : #sink) = dst#write src
 
 let copy_string s = copy (string_source s)
-
-class virtual sink = object (_ : #Generic.t)
-  method probe _ = None
-  inherit write
-end
 
 let buffer_sink b =
   object
@@ -86,10 +78,8 @@ let buffer_sink b =
       with End_of_file -> ()
   end
 
-class virtual two_way = object (_ : #Generic.t)
+class virtual two_way = object (_ : <source; sink; ..>)
   method probe _ = None
-  inherit read
-  inherit write
 
   method virtual shutdown : shutdown_command -> unit
 end

@@ -19,7 +19,9 @@ let ensure t n =
 (* The next data to be returned by `mock_flow`. `[]` to raise `End_of_file`: *)
 let next = ref []
 
-let mock_flow = object (_ : #Eio.Flow.read)
+let mock_flow = object
+  inherit Eio.Flow.source
+
   method read_methods = []
 
   method read_into buf =
@@ -38,7 +40,7 @@ end
 
 let read flow n =
   let buf = Cstruct.create n in
-  let len = Eio.Flow.read_into flow buf in
+  let len = Eio.Flow.read flow buf in
   traceln "Read %S" (Cstruct.to_string buf ~len)
 
 let is_digit = function
@@ -231,7 +233,7 @@ Exception: End_of_file.
 
 ```ocaml
 # let bflow = R.of_flow mock_flow ~max_size:100 |> R.as_flow;;
-val bflow : Eio.Flow.read = <obj>
+val bflow : Eio.Flow.source = <obj>
 # next := ["foo"; "bar"]; read bflow 2;;
 +mock_flow returning 3 bytes
 +Read "fo"
