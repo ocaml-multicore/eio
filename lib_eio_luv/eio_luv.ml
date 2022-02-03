@@ -27,8 +27,6 @@ module Lf_queue = Eio_utils.Lf_queue
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)
 
-type 'a or_error = ('a, Luv.Error.t) result
-
 exception Luv_error of Luv.Error.t
 
 let () =
@@ -103,589 +101,596 @@ let enqueue_at_head t k v =
   Lf_queue.push_head t.run_q (fun () -> Suspended.continue k v);
   Luv.Async.send t.async |> or_raise
 
-let await_exn fn =
-  perform (Await fn) |> or_raise
-
-let await_with_cancel ~request fn =
-  enter (fun st k ->
-      let cancel_reason = ref None in
-      Eio.Private.Fibre_context.set_cancel_fn k.fibre (fun ex ->
-          cancel_reason := Some ex;
-          match Luv.Request.cancel request with
-          | Ok () -> ()
-          | Error e -> Log.debug (fun f -> f "Cancel failed: %s" (Luv.Error.strerror e))
-        );
-      fn st.loop (fun v ->
-          if Eio.Private.Fibre_context.clear_cancel_fn k.fibre then (
-            enqueue_thread st k v
-          ) else (
-            (* Cancellations always come from the same domain, so we can be sure
-               that [cancel_reason] is set by now. *)
-            enqueue_failed_thread st k (Option.get !cancel_reason)
-          )
-        )
-    )
-
 let get_loop () =
   enter_unchecked @@ fun t k ->
   Suspended.continue k t.loop
 
-module Handle = struct
-  type 'a t = {
-    mutable release_hook : Eio.Hook.t;        (* Use this on close to remove switch's [on_release] hook. *)
-    mutable fd : [`Open of 'a Luv.Handle.t | `Closed]
-  }
+module Low_level = struct
+  type 'a or_error = ('a, Luv.Error.t) result
 
-  let get op = function
-    | { fd = `Open fd; _ } -> fd
-    | { fd = `Closed ; _ } -> invalid_arg (op ^ ": handle used after calling close!")
+  exception Luv_error = Luv_error
+  let or_raise = or_raise
 
-  let is_open = function
-    | { fd = `Open _; _ } -> true
-    | { fd = `Closed; _ } -> false
+  let await_exn fn =
+    perform (Await fn) |> or_raise
 
-  let close t =
-    Ctf.label "close";
-    let fd = get "close" t in
-    t.fd <- `Closed;
-    Eio.Hook.remove t.release_hook;
-    enter_unchecked @@ fun t k ->
-    Luv.Handle.close fd (enqueue_thread t k)
+  let await_with_cancel ~request fn =
+    enter (fun st k ->
+        let cancel_reason = ref None in
+        Eio.Private.Fibre_context.set_cancel_fn k.fibre (fun ex ->
+            cancel_reason := Some ex;
+            match Luv.Request.cancel request with
+            | Ok () -> ()
+            | Error e -> Log.debug (fun f -> f "Cancel failed: %s" (Luv.Error.strerror e))
+          );
+        fn st.loop (fun v ->
+            if Eio.Private.Fibre_context.clear_cancel_fn k.fibre then (
+              enqueue_thread st k v
+            ) else (
+              (* Cancellations always come from the same domain, so we can be sure
+                 that [cancel_reason] is set by now. *)
+              enqueue_failed_thread st k (Option.get !cancel_reason)
+            )
+          )
+      )
 
-  let ensure_closed t =
-    if is_open t then close t
+  module Handle = struct
+    type 'a t = {
+      mutable release_hook : Eio.Hook.t;        (* Use this on close to remove switch's [on_release] hook. *)
+      mutable fd : [`Open of 'a Luv.Handle.t | `Closed]
+    }
 
-  let to_luv x = get "to_luv" x
+    let get op = function
+      | { fd = `Open fd; _ } -> fd
+      | { fd = `Closed ; _ } -> invalid_arg (op ^ ": handle used after calling close!")
 
-  let of_luv_no_hook fd =
-    { fd = `Open fd; release_hook = Eio.Hook.null }
+    let is_open = function
+      | { fd = `Open _; _ } -> true
+      | { fd = `Closed; _ } -> false
 
-  let of_luv ~sw fd =
-    let t = of_luv_no_hook fd in
-    t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
-    t
+    let close t =
+      Ctf.label "close";
+      let fd = get "close" t in
+      t.fd <- `Closed;
+      Eio.Hook.remove t.release_hook;
+      enter_unchecked @@ fun t k ->
+      Luv.Handle.close fd (enqueue_thread t k)
 
-  let to_unix_opt op (t:_ t) =
-    match Luv.Handle.fileno (to_luv t) with
-    | Error _ -> None
-    | Ok os_fd ->
+    let ensure_closed t =
+      if is_open t then close t
+
+    let to_luv x = get "to_luv" x
+
+    let of_luv_no_hook fd =
+      { fd = `Open fd; release_hook = Eio.Hook.null }
+
+    let of_luv ~sw fd =
+      let t = of_luv_no_hook fd in
+      t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
+      t
+
+    let to_unix_opt op (t:_ t) =
+      match Luv.Handle.fileno (to_luv t) with
+      | Error _ -> None
+      | Ok os_fd ->
+        let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
+        match op with
+        | `Peek -> Some fd
+        | `Take ->
+          t.fd <- `Closed;
+          Eio.Hook.remove t.release_hook;
+          Some fd
+  end
+
+  module File = struct
+    type t = {
+      mutable release_hook : Eio.Hook.t;        (* Use this on close to remove switch's [on_release] hook. *)
+      mutable fd : [`Open of Luv.File.t | `Closed]
+    }
+
+    let get op = function
+      | { fd = `Open fd; _ } -> fd
+      | { fd = `Closed ; _ } -> invalid_arg (op ^ ": file descriptor used after calling close!")
+
+    let is_open = function
+      | { fd = `Open _; _ } -> true
+      | { fd = `Closed; _ } -> false
+
+    let close t =
+      Ctf.label "close";
+      let fd = get "close" t in
+      t.fd <- `Closed;
+      Eio.Hook.remove t.release_hook;
+      await_exn (fun loop _fibre -> Luv.File.close ~loop fd)
+
+    let ensure_closed t =
+      if is_open t then close t
+
+    let to_luv = get "to_luv"
+
+    let of_luv_no_hook fd =
+      { fd = `Open fd; release_hook = Eio.Hook.null }
+
+    let of_luv ~sw fd =
+      let t = of_luv_no_hook fd in
+      t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
+      t
+
+    let open_ ~sw ?mode path flags =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.open_ ~loop ?mode ~request path flags)
+      |> Result.map (of_luv ~sw)
+
+    let read fd bufs =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.read ~loop ~request (get "read" fd) bufs)
+
+    let rec write fd bufs =
+      let request = Luv.File.Request.make () in
+      let sent = await_with_cancel ~request (fun loop -> Luv.File.write ~loop ~request (get "write" fd) bufs) |> or_raise in
+      let rec aux = function
+        | [] -> ()
+        | x :: xs when Luv.Buffer.size x = 0 -> aux xs
+        | bufs -> write fd bufs
+      in
+      aux @@ Luv.Buffer.drop bufs (Unsigned.Size_t.to_int sent)
+
+    let realpath path =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.realpath ~loop ~request path)
+
+    let mkdir ~mode path =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.mkdir ~loop ~request ~mode path)
+
+    let to_unix op t =
+      let os_fd = Luv.File.get_osfhandle (get "to_unix" t) |> or_raise in
       let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
       match op with
-      | `Peek -> Some fd
+      | `Peek -> fd
       | `Take ->
         t.fd <- `Closed;
         Eio.Hook.remove t.release_hook;
-        Some fd
-end
-
-module File = struct
-  type t = {
-    mutable release_hook : Eio.Hook.t;        (* Use this on close to remove switch's [on_release] hook. *)
-    mutable fd : [`Open of Luv.File.t | `Closed]
-  }
-
-  let get op = function
-    | { fd = `Open fd; _ } -> fd
-    | { fd = `Closed ; _ } -> invalid_arg (op ^ ": file descriptor used after calling close!")
-
-  let is_open = function
-    | { fd = `Open _; _ } -> true
-    | { fd = `Closed; _ } -> false
-
-  let close t =
-    Ctf.label "close";
-    let fd = get "close" t in
-    t.fd <- `Closed;
-    Eio.Hook.remove t.release_hook;
-    await_exn (fun loop _fibre -> Luv.File.close ~loop fd)
-
-  let ensure_closed t =
-    if is_open t then close t
-
-  let to_luv = get "to_luv"
-
-  let of_luv_no_hook fd =
-    { fd = `Open fd; release_hook = Eio.Hook.null }
-
-  let of_luv ~sw fd =
-    let t = of_luv_no_hook fd in
-    t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
-    t
-
-  let open_ ~sw ?mode path flags =
-    let request = Luv.File.Request.make () in
-    await_with_cancel ~request (fun loop -> Luv.File.open_ ~loop ?mode ~request path flags)
-    |> Result.map (of_luv ~sw)
-
-  let read fd bufs =
-    let request = Luv.File.Request.make () in
-    await_with_cancel ~request (fun loop -> Luv.File.read ~loop ~request (get "read" fd) bufs)
-
-  let rec write fd bufs =
-    let request = Luv.File.Request.make () in
-    let sent = await_with_cancel ~request (fun loop -> Luv.File.write ~loop ~request (get "write" fd) bufs) |> or_raise in
-    let rec aux = function
-      | [] -> ()
-      | x :: xs when Luv.Buffer.size x = 0 -> aux xs
-      | bufs -> write fd bufs
-    in
-    aux @@ Luv.Buffer.drop bufs (Unsigned.Size_t.to_int sent)
-
-  let realpath path =
-    let request = Luv.File.Request.make () in
-    await_with_cancel ~request (fun loop -> Luv.File.realpath ~loop ~request path)
-
-  let mkdir ~mode path =
-    let request = Luv.File.Request.make () in
-    await_with_cancel ~request (fun loop -> Luv.File.mkdir ~loop ~request ~mode path)
-
-  let to_unix op t =
-    let os_fd = Luv.File.get_osfhandle (get "to_unix" t) |> or_raise in
-    let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
-    match op with
-    | `Peek -> fd
-    | `Take ->
-      t.fd <- `Closed;
-      Eio.Hook.remove t.release_hook;
-      fd
-end
-
-module Random = struct
-  let fill buf =
-    let request = Luv.Random.Request.make () in
-    await_with_cancel ~request (fun loop -> Luv.Random.random ~loop ~request buf) |> or_raise
-end
-
-module Stream = struct
-  type 'a t = [`Stream of 'a] Handle.t
-
-  let rec read_into (sock:'a t) buf =
-    let r = enter (fun t k ->
-        Fibre_context.set_cancel_fn k.fibre (fun ex ->
-            Luv.Stream.read_stop (Handle.get "read_into:cancel" sock) |> or_raise;
-            enqueue_failed_thread t k ex
-          );
-        Luv.Stream.read_start (Handle.get "read_start" sock) ~allocate:(fun _ -> buf) (fun r ->
-            Luv.Stream.read_stop (Handle.get "read_stop" sock) |> or_raise;
-            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k r
-          )
-      ) in
-    match r with
-    | Ok buf' ->
-      let len = Luv.Buffer.size buf' in
-      if len > 0 then len
-      else read_into sock buf       (* Luv uses a zero-length read to mean EINTR! *)
-    | Error `EOF -> raise End_of_file
-    | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
-    | Error x -> raise (Luv_error x)
-
-  let rec skip_empty = function
-    | empty :: xs when Luv.Buffer.size empty = 0 -> skip_empty xs
-    | xs -> xs
-
-  let rec write t bufs =
-    let err, n = 
-      (* note: libuv doesn't seem to allow cancelling stream writes *)
-      enter (fun st k ->
-          Luv.Stream.write (Handle.get "write_stream" t) bufs @@ fun err n ->
-          enqueue_thread st k (err, n)
-        )
-    in
-    or_raise err;
-    match Luv.Buffer.drop bufs n |> skip_empty with
-    | [] -> ()
-    | bufs -> write t bufs
-
-  let to_unix_opt = Handle.to_unix_opt
-end
-
-module Poll = struct
-  let await_readable t (k:unit Suspended.t) fd =
-    let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
-    Fibre_context.set_cancel_fn k.fibre (fun ex ->
-        Luv.Poll.stop poll |> or_raise;
-        enqueue_failed_thread t k ex
-      );
-    Luv.Poll.start poll [`READABLE;] (fun r ->
-        Luv.Poll.stop poll |> or_raise;
-        if Fibre_context.clear_cancel_fn k.fibre then
-          match r with
-          | Ok (_ : Luv.Poll.Event.t list) -> enqueue_thread t k ()
-          | Error e -> enqueue_failed_thread t k (Luv_error e)
-      )
-
-  let await_writable t (k:unit Suspended.t) fd =
-    let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
-    Fibre_context.set_cancel_fn k.fibre (fun ex ->
-        Luv.Poll.stop poll |> or_raise;
-        enqueue_failed_thread t k ex
-      );
-    Luv.Poll.start poll [`WRITABLE;] (fun r ->
-        Luv.Poll.stop poll |> or_raise;
-        if Fibre_context.clear_cancel_fn k.fibre then
-          match r with
-          | Ok (_ : Luv.Poll.Event.t list) -> enqueue_thread t k ()
-          | Error e -> enqueue_failed_thread t k (Luv_error e)
-      )
-end
-
-let sleep_until due =
-  let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
-  enter @@ fun st k ->
-  let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in
-  Fibre_context.set_cancel_fn k.fibre (fun ex ->
-      Luv.Timer.stop timer |> or_raise;
-      Luv.Handle.close timer (fun () -> ());
-      enqueue_failed_thread st k ex
-    );
-  Luv.Timer.start timer delay (fun () ->
-      if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread st k ()
-    ) |> or_raise
-
-module Objects = struct
-  type _ Eio.Generic.ty += FD : File.t Eio.Generic.ty
-
-  type has_fd = < fd : File.t >
-  type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
-  type sink   = < Eio.Flow.sink  ; Eio.Flow.close; has_fd >
-
-  let get_fd (t : <has_fd; ..>) = t#fd
-
-  let get_fd_opt t = Eio.Generic.probe t FD
-
-  let flow fd = object (_ : <source; sink; ..>)
-    method fd = fd
-    method close = File.close fd
-
-    method probe : type a. a Eio.Generic.ty -> a option = function
-      | FD -> Some fd
-      | Eio_unix.Unix_file_descr op -> Some (File.to_unix op fd)
-      | _ -> None
-
-    method read_into buf =
-      let buf = Cstruct.to_bigarray buf in
-      match File.read fd [buf] |> or_raise |> Unsigned.Size_t.to_int with
-      | 0 -> raise End_of_file
-      | got -> got
-
-    method read_methods = []
-
-    method write src =
-      let buf = Luv.Buffer.create 4096 in
-      try
-        while true do
-          let got = Eio.Flow.read src (Cstruct.of_bigarray buf) in
-          let sub = Luv.Buffer.sub buf ~offset:0 ~length:got in
-          File.write fd [sub]
-        done
-      with End_of_file -> ()
+        fd
   end
 
-  let source fd = (flow fd :> source)
-  let sink   fd = (flow fd :> sink)
-
-  let socket sock = object
-    inherit Eio.Flow.two_way as super
-
-    method! probe : type a. a Eio.Generic.ty -> a option = function
-      | Eio_unix.Unix_file_descr op -> Stream.to_unix_opt op sock
-      | x -> super#probe x
-
-    method read_into buf =
-      let buf = Cstruct.to_bigarray buf in
-      Stream.read_into sock buf
-
-    method read_methods = []
-
-    method write src =
-      let buf = Luv.Buffer.create 4096 in
-      try
-        while true do
-          let got = Eio.Flow.read src (Cstruct.of_bigarray buf) in
-          let buf' = Luv.Buffer.sub buf ~offset:0 ~length:got in
-          Stream.write sock [buf']
-        done
-      with End_of_file -> ()
-
-    method close =
-      Handle.close sock
-
-    method shutdown = function
-      | `Send -> await_exn (fun _loop _fibre -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
-      | `Receive -> failwith "shutdown receive not supported"
-      | `All ->
-        Log.warn (fun f -> f "shutdown receive not supported");
-        await_exn (fun _loop _fibre -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
+  module Random = struct
+    let fill buf =
+      let request = Luv.Random.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.Random.random ~loop ~request buf) |> or_raise
   end
 
-  class virtual ['a] listening_socket ~backlog sock = object (self)
-    inherit Eio.Net.listening_socket as super
+  module Stream = struct
+    type 'a t = [`Stream of 'a] Handle.t
 
-    method! probe : type a. a Eio.Generic.ty -> a option = function
-      | Eio_unix.Unix_file_descr op -> Stream.to_unix_opt op sock
-      | x -> super#probe x
-
-    val ready = Eio.Semaphore.make 0
-
-    method private virtual make_client : 'a Luv.Stream.t
-    method private virtual get_client_addr : 'a Stream.t -> Eio.Net.Sockaddr.t
-
-    method close = Handle.close sock
-
-    method accept ~sw =
-      Eio.Semaphore.acquire ready;
-      let client = self#make_client |> Handle.of_luv_no_hook in
-      match Luv.Stream.accept ~server:(Handle.get "accept" sock) ~client:(Handle.get "accept" client) with
-      | Error e ->
-        Handle.close client;
-        raise (Luv_error e)
-      | Ok () ->
-        Switch.on_release sw (fun () -> Handle.ensure_closed client);
-        let flow = (socket client :> <Eio.Flow.two_way; Eio.Flow.close>) in
-        let client_addr = self#get_client_addr client in
-        flow, client_addr
-
-    initializer
-      Luv.Stream.listen ~backlog (Handle.get "listen" sock) (fun x ->
-          or_raise x;
-          Eio.Semaphore.release ready
-        )
-  end
-
-  (* TODO: implement, or maybe remove from the Eio API.
-     Luv makes TCP sockets reuse_addr by default, and maybe that's fine everywhere.
-     Extracting the FD will require https://github.com/aantron/luv/issues/120 *)
-  let luv_reuse_addr _sock _v = ()
-  let luv_reuse_port _sock _v = ()
-
-  let luv_addr_of_eio host port =
-    let host = Unix.string_of_inet_addr (Eio_unix.Ipaddr.to_unix host) in
-    match Luv.Sockaddr.ipv6 host port with
-    | Ok addr -> addr
-    | Error _ -> Luv.Sockaddr.ipv4 host port |> or_raise
-
-  let luv_ip_addr_to_eio addr =
-    let host = Luv.Sockaddr.to_string addr |> Option.get in
-    let port = Luv.Sockaddr.port addr |> Option.get in
-    (Eio_unix.Ipaddr.of_unix (Unix.inet_addr_of_string host), port)
-
-  let listening_ip_socket ~backlog sock = object
-    inherit [[ `TCP ]] listening_socket ~backlog sock
-
-    method private make_client = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise
-
-    method private get_client_addr c =
-      `Tcp (Luv.TCP.getpeername (Handle.get "get_client_addr" c) |> or_raise |> luv_ip_addr_to_eio)
-  end
-
-  let listening_unix_socket ~backlog sock = object
-    inherit [[ `Pipe ]] listening_socket ~backlog sock
-
-    method private make_client = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise
-    method private get_client_addr c =
-      `Unix (Luv.Pipe.getpeername (Handle.get "get_client_addr" c) |> or_raise)
-  end
-
-  let net = object
-    inherit Eio.Net.t
-
-    method listen ~reuse_addr ~reuse_port ~backlog ~sw = function
-      | `Tcp (host, port) ->
-        let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
-        luv_reuse_addr sock reuse_addr;
-        luv_reuse_port sock reuse_port;
-        let addr = luv_addr_of_eio host port in
-        Luv.TCP.bind (Handle.get "bind" sock) addr |> or_raise;
-        listening_ip_socket ~backlog sock
-      | `Unix path         ->
-        let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
-        luv_reuse_addr sock reuse_addr;
-        if reuse_addr then (
-          match Unix.lstat path with
-          | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
-          | _ -> ()
-          | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
-        );
-        Luv.Pipe.bind (Handle.get "bind" sock) path |> or_raise;
-        (* Remove the path when done (except for abstract sockets). *)
-        if String.length path > 0 && path.[0] <> Char.chr 0 then
-          Switch.on_release sw (fun () -> Unix.unlink path);
-        listening_unix_socket ~backlog sock
-
-    (* todo: how do you cancel connect operations with luv? *)
-    method connect ~sw = function
-      | `Tcp (host, port) ->
-        let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
-        let addr = luv_addr_of_eio host port in
-        await_exn (fun _loop _fibre -> Luv.TCP.connect (Handle.get "connect" sock) addr);
-        socket sock
-      | `Unix path ->
-        let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
-        await_exn (fun _loop _fibre -> Luv.Pipe.connect (Handle.get "connect" sock) path);
-        socket sock
-  end
-
-  let secure_random =
-    object
-      inherit Eio.Flow.source
-
-      method read_methods = []
-
-      method read_into buf =
-        let ba = Cstruct.to_bigarray buf in
-        Random.fill ba;
-        Cstruct.length buf
-    end
-
-  type stdenv = <
-    stdin : source;
-    stdout : sink;
-    stderr : sink;
-    net : Eio.Net.t;
-    domain_mgr : Eio.Domain_manager.t;
-    clock : Eio.Time.clock;
-    fs : Eio.Dir.t;
-    cwd : Eio.Dir.t;
-    secure_random : Eio.Flow.source;
-  >
-
-  let domain_mgr ~run_event_loop = object (self)
-    inherit Eio.Domain_manager.t
-
-    method run_raw (type a) fn =
-      let domain_k : (unit Domain.t * a Suspended.t) option ref = ref None in
-      let result = ref None in
-      let async = Luv.Async.init ~loop:(get_loop ()) (fun async ->
-          (* This is called in the parent domain after returning to the mainloop,
-             so [domain_k] must be set by then. *)
-          let domain, k = Option.get !domain_k in
-          Log.debug (fun f -> f "Spawned domain finished (joining)");
-          Domain.join domain;
-          Luv.Handle.close async @@ fun () ->
-          Suspended.continue_result k (Option.get !result)
-        ) |> or_raise
-      in
-      enter @@ fun _st k ->
-      let d = Domain.spawn (fun () ->
-          result := Some (match fn () with
-              | v -> Ok v
-              | exception ex -> Error ex
+    let rec read_into (sock:'a t) buf =
+      let r = enter (fun t k ->
+          Fibre_context.set_cancel_fn k.fibre (fun ex ->
+              Luv.Stream.read_stop (Handle.get "read_into:cancel" sock) |> or_raise;
+              enqueue_failed_thread t k ex
             );
-          Log.debug (fun f -> f "Sending finished notification");
-          Luv.Async.send async |> or_raise
+          Luv.Stream.read_start (Handle.get "read_start" sock) ~allocate:(fun _ -> buf) (fun r ->
+              Luv.Stream.read_stop (Handle.get "read_stop" sock) |> or_raise;
+              if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k r
+            )
         ) in
-      domain_k := Some (d, k)
+      match r with
+      | Ok buf' ->
+        let len = Luv.Buffer.size buf' in
+        if len > 0 then len
+        else read_into sock buf       (* Luv uses a zero-length read to mean EINTR! *)
+      | Error `EOF -> raise End_of_file
+      | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
+      | Error x -> raise (Luv_error x)
 
-    method run fn =
-      self#run_raw (fun () ->
-          let result = ref None in
-          run_event_loop (fun _ ->
-              result := Some (fn ())
-            );
-          Option.get !result
+    let rec skip_empty = function
+      | empty :: xs when Luv.Buffer.size empty = 0 -> skip_empty xs
+      | xs -> xs
+
+    let rec write t bufs =
+      let err, n = 
+        (* note: libuv doesn't seem to allow cancelling stream writes *)
+        enter (fun st k ->
+            Luv.Stream.write (Handle.get "write_stream" t) bufs @@ fun err n ->
+            enqueue_thread st k (err, n)
+          )
+      in
+      or_raise err;
+      match Luv.Buffer.drop bufs n |> skip_empty with
+      | [] -> ()
+      | bufs -> write t bufs
+
+    let to_unix_opt = Handle.to_unix_opt
+  end
+
+  module Poll = struct
+    let await_readable t (k:unit Suspended.t) fd =
+      let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
+      Fibre_context.set_cancel_fn k.fibre (fun ex ->
+          Luv.Poll.stop poll |> or_raise;
+          enqueue_failed_thread t k ex
+        );
+      Luv.Poll.start poll [`READABLE;] (fun r ->
+          Luv.Poll.stop poll |> or_raise;
+          if Fibre_context.clear_cancel_fn k.fibre then
+            match r with
+            | Ok (_ : Luv.Poll.Event.t list) -> enqueue_thread t k ()
+            | Error e -> enqueue_failed_thread t k (Luv_error e)
+        )
+
+    let await_writable t (k:unit Suspended.t) fd =
+      let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
+      Fibre_context.set_cancel_fn k.fibre (fun ex ->
+          Luv.Poll.stop poll |> or_raise;
+          enqueue_failed_thread t k ex
+        );
+      Luv.Poll.start poll [`WRITABLE;] (fun r ->
+          Luv.Poll.stop poll |> or_raise;
+          if Fibre_context.clear_cancel_fn k.fibre then
+            match r with
+            | Ok (_ : Luv.Poll.Event.t list) -> enqueue_thread t k ()
+            | Error e -> enqueue_failed_thread t k (Luv_error e)
         )
   end
 
-  let clock = object
-    inherit Eio.Time.clock
+  let sleep_until due =
+    let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
+    enter @@ fun st k ->
+    let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in
+    Fibre_context.set_cancel_fn k.fibre (fun ex ->
+        Luv.Timer.stop timer |> or_raise;
+        Luv.Handle.close timer (fun () -> ());
+        enqueue_failed_thread st k ex
+      );
+    Luv.Timer.start timer delay (fun () ->
+        if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread st k ()
+      ) |> or_raise
+end
 
-    method now = Unix.gettimeofday ()
-    method sleep_until = sleep_until
-  end
+open Low_level
 
-  (* Warning: libuv doesn't provide [openat], etc, and so there is probably no way to make this safe.
-     We make a best-efforts attempt to enforce the sandboxing using realpath and [`NOFOLLOW].
-     todo: this needs more testing *)
-  class dir dir_path = object (self)
-    inherit Eio.Dir.t
+type _ Eio.Generic.ty += FD : Low_level.File.t Eio.Generic.ty
 
-    (* Resolve a relative path to an absolute one, with no symlinks.
-       @raise Eio.Dir.Permission_denied if it's outside of [dir_path]. *)
-    method private resolve path =
-      if Filename.is_relative path then (
-        let dir_path = File.realpath dir_path |> or_raise_path dir_path in
-        let full = File.realpath (Filename.concat dir_path path) |> or_raise_path path in
-        let prefix_len = String.length dir_path + 1 in
-        if String.length full >= prefix_len && String.sub full 0 prefix_len = dir_path ^ Filename.dir_sep then
-          full
-        else if full = dir_path then
-          full
-        else
-          raise (Eio.Dir.Permission_denied (path, Failure (Fmt.str "Path %S is outside of sandbox %S" full dir_path)))
-      ) else (
-        raise (Eio.Dir.Permission_denied (path, Failure (Fmt.str "Path %S is absolute" path)))
+type has_fd = < fd : Low_level.File.t >
+type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
+type sink   = < Eio.Flow.sink  ; Eio.Flow.close; has_fd >
+
+let get_fd (t : <has_fd; ..>) = t#fd
+
+let get_fd_opt t = Eio.Generic.probe t FD
+
+let flow fd = object (_ : <source; sink; ..>)
+  method fd = fd
+  method close = Low_level.File.close fd
+
+  method probe : type a. a Eio.Generic.ty -> a option = function
+    | FD -> Some fd
+    | Eio_unix.Unix_file_descr op -> Some (File.to_unix op fd)
+    | _ -> None
+
+  method read_into buf =
+    let buf = Cstruct.to_bigarray buf in
+    match File.read fd [buf] |> or_raise |> Unsigned.Size_t.to_int with
+    | 0 -> raise End_of_file
+    | got -> got
+
+  method read_methods = []
+
+  method write src =
+    let buf = Luv.Buffer.create 4096 in
+    try
+      while true do
+        let got = Eio.Flow.read src (Cstruct.of_bigarray buf) in
+        let sub = Luv.Buffer.sub buf ~offset:0 ~length:got in
+        File.write fd [sub]
+      done
+    with End_of_file -> ()
+end
+
+let source fd = (flow fd :> source)
+let sink   fd = (flow fd :> sink)
+
+let socket sock = object
+  inherit Eio.Flow.two_way as super
+
+  method! probe : type a. a Eio.Generic.ty -> a option = function
+    | Eio_unix.Unix_file_descr op -> Stream.to_unix_opt op sock
+    | x -> super#probe x
+
+  method read_into buf =
+    let buf = Cstruct.to_bigarray buf in
+    Stream.read_into sock buf
+
+  method read_methods = []
+
+  method write src =
+    let buf = Luv.Buffer.create 4096 in
+    try
+      while true do
+        let got = Eio.Flow.read src (Cstruct.of_bigarray buf) in
+        let buf' = Luv.Buffer.sub buf ~offset:0 ~length:got in
+        Stream.write sock [buf']
+      done
+    with End_of_file -> ()
+
+  method close =
+    Handle.close sock
+
+  method shutdown = function
+    | `Send -> await_exn (fun _loop _fibre -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
+    | `Receive -> failwith "shutdown receive not supported"
+    | `All ->
+      Log.warn (fun f -> f "shutdown receive not supported");
+      await_exn (fun _loop _fibre -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
+end
+
+class virtual ['a] listening_socket ~backlog sock = object (self)
+  inherit Eio.Net.listening_socket as super
+
+  method! probe : type a. a Eio.Generic.ty -> a option = function
+    | Eio_unix.Unix_file_descr op -> Stream.to_unix_opt op sock
+    | x -> super#probe x
+
+  val ready = Eio.Semaphore.make 0
+
+  method private virtual make_client : 'a Luv.Stream.t
+  method private virtual get_client_addr : 'a Stream.t -> Eio.Net.Sockaddr.t
+
+  method close = Handle.close sock
+
+  method accept ~sw =
+    Eio.Semaphore.acquire ready;
+    let client = self#make_client |> Handle.of_luv_no_hook in
+    match Luv.Stream.accept ~server:(Handle.get "accept" sock) ~client:(Handle.get "accept" client) with
+    | Error e ->
+      Handle.close client;
+      raise (Luv_error e)
+    | Ok () ->
+      Switch.on_release sw (fun () -> Handle.ensure_closed client);
+      let flow = (socket client :> <Eio.Flow.two_way; Eio.Flow.close>) in
+      let client_addr = self#get_client_addr client in
+      flow, client_addr
+
+  initializer
+    Luv.Stream.listen ~backlog (Handle.get "listen" sock) (fun x ->
+        or_raise x;
+        Eio.Semaphore.release ready
       )
+end
 
-    (* We want to create [path]. Check that the parent is in the sandbox. *)
-    method private resolve_new path =
-      let dir, leaf = Filename.dirname path, Filename.basename path in
-      if leaf = ".." then Fmt.failwith "New path %S ends in '..'!" path
-      else match self#resolve dir with
-        | dir -> Filename.concat dir leaf
-        | exception Eio.Dir.Permission_denied (dir, ex) ->
-          raise (Eio.Dir.Permission_denied (Filename.concat dir leaf, ex))
+(* TODO: implement, or maybe remove from the Eio API.
+   Luv makes TCP sockets reuse_addr by default, and maybe that's fine everywhere.
+   Extracting the FD will require https://github.com/aantron/luv/issues/120 *)
+let luv_reuse_addr _sock _v = ()
+let luv_reuse_port _sock _v = ()
 
-    method open_in ~sw path =
-      let fd = File.open_ ~sw (self#resolve path) [`NOFOLLOW; `RDONLY] |> or_raise_path path in
-      (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
+let luv_addr_of_eio host port =
+  let host = Unix.string_of_inet_addr (Eio_unix.Ipaddr.to_unix host) in
+  match Luv.Sockaddr.ipv6 host port with
+  | Ok addr -> addr
+  | Error _ -> Luv.Sockaddr.ipv4 host port |> or_raise
 
-    method open_out ~sw ~append ~create path =
-      let mode, flags =
-        match create with
-        | `Never            -> 0,    []
-        | `If_missing  perm -> perm, [`CREAT]
-        | `Or_truncate perm -> perm, [`CREAT; `TRUNC]
-        | `Exclusive   perm -> perm, [`CREAT; `EXCL]
-      in
-      let flags = if append then `APPEND :: flags else flags in
-      let flags = `RDWR :: `NOFOLLOW :: flags in
-      let real_path =
-        if create = `Never then self#resolve path
-        else self#resolve_new path
-      in
-      let fd = File.open_ ~sw real_path flags ~mode:[`NUMERIC mode] |> or_raise_path path in
-      (flow fd :> <Eio.Dir.rw; Eio.Flow.close>)
+let luv_ip_addr_to_eio addr =
+  let host = Luv.Sockaddr.to_string addr |> Option.get in
+  let port = Luv.Sockaddr.port addr |> Option.get in
+  (Eio_unix.Ipaddr.of_unix (Unix.inet_addr_of_string host), port)
 
-    method open_dir ~sw path =
-      Switch.check sw;
-      new dir (self#resolve path)
+let listening_ip_socket ~backlog sock = object
+  inherit [[ `TCP ]] listening_socket ~backlog sock
 
-    (* libuv doesn't seem to provide a race-free way to do this. *)
-    method mkdir ~perm path =
-      let real_path = self#resolve_new path in
-      File.mkdir ~mode:[`NUMERIC perm] real_path |> or_raise_path path
+  method private make_client = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise
 
-    method close = ()
+  method private get_client_addr c =
+    `Tcp (Luv.TCP.getpeername (Handle.get "get_client_addr" c) |> or_raise |> luv_ip_addr_to_eio)
+end
+
+let listening_unix_socket ~backlog sock = object
+  inherit [[ `Pipe ]] listening_socket ~backlog sock
+
+  method private make_client = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise
+  method private get_client_addr c =
+    `Unix (Luv.Pipe.getpeername (Handle.get "get_client_addr" c) |> or_raise)
+end
+
+let net = object
+  inherit Eio.Net.t
+
+  method listen ~reuse_addr ~reuse_port ~backlog ~sw = function
+    | `Tcp (host, port) ->
+      let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
+      luv_reuse_addr sock reuse_addr;
+      luv_reuse_port sock reuse_port;
+      let addr = luv_addr_of_eio host port in
+      Luv.TCP.bind (Handle.get "bind" sock) addr |> or_raise;
+      listening_ip_socket ~backlog sock
+    | `Unix path         ->
+      let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
+      luv_reuse_addr sock reuse_addr;
+      if reuse_addr then (
+        match Unix.lstat path with
+        | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
+        | _ -> ()
+        | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+      );
+      Luv.Pipe.bind (Handle.get "bind" sock) path |> or_raise;
+      (* Remove the path when done (except for abstract sockets). *)
+      if String.length path > 0 && path.[0] <> Char.chr 0 then
+        Switch.on_release sw (fun () -> Unix.unlink path);
+      listening_unix_socket ~backlog sock
+
+  (* todo: how do you cancel connect operations with luv? *)
+  method connect ~sw = function
+    | `Tcp (host, port) ->
+      let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
+      let addr = luv_addr_of_eio host port in
+      await_exn (fun _loop _fibre -> Luv.TCP.connect (Handle.get "connect" sock) addr);
+      socket sock
+    | `Unix path ->
+      let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
+      await_exn (fun _loop _fibre -> Luv.Pipe.connect (Handle.get "connect" sock) path);
+      socket sock
+end
+
+let secure_random =
+  object
+    inherit Eio.Flow.source
+
+    method read_methods = []
+
+    method read_into buf =
+      let ba = Cstruct.to_bigarray buf in
+      Random.fill ba;
+      Cstruct.length buf
   end
 
-  (* Full access to the filesystem. *)
-  let fs = object
-    inherit dir "/"
+type stdenv = <
+  stdin : source;
+  stdout : sink;
+  stderr : sink;
+  net : Eio.Net.t;
+  domain_mgr : Eio.Domain_manager.t;
+  clock : Eio.Time.clock;
+  fs : Eio.Dir.t;
+  cwd : Eio.Dir.t;
+  secure_random : Eio.Flow.source;
+>
 
-    (* No checks *)
-    method! private resolve path = path
+let domain_mgr ~run_event_loop = object (self)
+  inherit Eio.Domain_manager.t
+
+  method run_raw (type a) fn =
+    let domain_k : (unit Domain.t * a Suspended.t) option ref = ref None in
+    let result = ref None in
+    let async = Luv.Async.init ~loop:(get_loop ()) (fun async ->
+        (* This is called in the parent domain after returning to the mainloop,
+           so [domain_k] must be set by then. *)
+        let domain, k = Option.get !domain_k in
+        Log.debug (fun f -> f "Spawned domain finished (joining)");
+        Domain.join domain;
+        Luv.Handle.close async @@ fun () ->
+        Suspended.continue_result k (Option.get !result)
+      ) |> or_raise
+    in
+    enter @@ fun _st k ->
+    let d = Domain.spawn (fun () ->
+        result := Some (match fn () with
+            | v -> Ok v
+            | exception ex -> Error ex
+          );
+        Log.debug (fun f -> f "Sending finished notification");
+        Luv.Async.send async |> or_raise
+      ) in
+    domain_k := Some (d, k)
+
+  method run fn =
+    self#run_raw (fun () ->
+        let result = ref None in
+        run_event_loop (fun _ ->
+            result := Some (fn ())
+          );
+        Option.get !result
+      )
+end
+
+let clock = object
+  inherit Eio.Time.clock
+
+  method now = Unix.gettimeofday ()
+  method sleep_until = sleep_until
+end
+
+(* Warning: libuv doesn't provide [openat], etc, and so there is probably no way to make this safe.
+   We make a best-efforts attempt to enforce the sandboxing using realpath and [`NOFOLLOW].
+   todo: this needs more testing *)
+class dir dir_path = object (self)
+  inherit Eio.Dir.t
+
+  (* Resolve a relative path to an absolute one, with no symlinks.
+     @raise Eio.Dir.Permission_denied if it's outside of [dir_path]. *)
+  method private resolve path =
+    if Filename.is_relative path then (
+      let dir_path = File.realpath dir_path |> or_raise_path dir_path in
+      let full = File.realpath (Filename.concat dir_path path) |> or_raise_path path in
+      let prefix_len = String.length dir_path + 1 in
+      if String.length full >= prefix_len && String.sub full 0 prefix_len = dir_path ^ Filename.dir_sep then
+        full
+      else if full = dir_path then
+        full
+      else
+        raise (Eio.Dir.Permission_denied (path, Failure (Fmt.str "Path %S is outside of sandbox %S" full dir_path)))
+    ) else (
+      raise (Eio.Dir.Permission_denied (path, Failure (Fmt.str "Path %S is absolute" path)))
+    )
+
+  (* We want to create [path]. Check that the parent is in the sandbox. *)
+  method private resolve_new path =
+    let dir, leaf = Filename.dirname path, Filename.basename path in
+    if leaf = ".." then Fmt.failwith "New path %S ends in '..'!" path
+    else match self#resolve dir with
+      | dir -> Filename.concat dir leaf
+      | exception Eio.Dir.Permission_denied (dir, ex) ->
+        raise (Eio.Dir.Permission_denied (Filename.concat dir leaf, ex))
+
+  method open_in ~sw path =
+    let fd = File.open_ ~sw (self#resolve path) [`NOFOLLOW; `RDONLY] |> or_raise_path path in
+    (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
+
+  method open_out ~sw ~append ~create path =
+    let mode, flags =
+      match create with
+      | `Never            -> 0,    []
+      | `If_missing  perm -> perm, [`CREAT]
+      | `Or_truncate perm -> perm, [`CREAT; `TRUNC]
+      | `Exclusive   perm -> perm, [`CREAT; `EXCL]
+    in
+    let flags = if append then `APPEND :: flags else flags in
+    let flags = `RDWR :: `NOFOLLOW :: flags in
+    let real_path =
+      if create = `Never then self#resolve path
+      else self#resolve_new path
+    in
+    let fd = File.open_ ~sw real_path flags ~mode:[`NUMERIC mode] |> or_raise_path path in
+    (flow fd :> <Eio.Dir.rw; Eio.Flow.close>)
+
+  method open_dir ~sw path =
+    Switch.check sw;
+    new dir (self#resolve path)
+
+  (* libuv doesn't seem to provide a race-free way to do this. *)
+  method mkdir ~perm path =
+    let real_path = self#resolve_new path in
+    File.mkdir ~mode:[`NUMERIC perm] real_path |> or_raise_path path
+
+  method close = ()
+end
+
+(* Full access to the filesystem. *)
+let fs = object
+  inherit dir "/"
+
+  (* No checks *)
+  method! private resolve path = path
+end
+
+let cwd = object
+  inherit dir "."
+end
+
+let stdenv ~run_event_loop =
+  let stdin = lazy (source (File.of_luv_no_hook Luv.File.stdin)) in
+  let stdout = lazy (sink (File.of_luv_no_hook Luv.File.stdout)) in
+  let stderr = lazy (sink (File.of_luv_no_hook Luv.File.stderr)) in
+  object (_ : stdenv)
+    method stdin  = Lazy.force stdin
+    method stdout = Lazy.force stdout
+    method stderr = Lazy.force stderr
+    method net = net
+    method domain_mgr = domain_mgr ~run_event_loop
+    method clock = clock
+    method fs = (fs :> Eio.Dir.t)
+    method cwd = (cwd :> Eio.Dir.t)
+    method secure_random = secure_random
   end
-
-  let cwd = object
-    inherit dir "."
-  end
-
-  let stdenv ~run_event_loop =
-    let stdin = lazy (source (File.of_luv_no_hook Luv.File.stdin)) in
-    let stdout = lazy (sink (File.of_luv_no_hook Luv.File.stdout)) in
-    let stderr = lazy (sink (File.of_luv_no_hook Luv.File.stderr)) in
-    object (_ : stdenv)
-      method stdin  = Lazy.force stdin
-      method stdout = Lazy.force stdout
-      method stderr = Lazy.force stderr
-      method net = net
-      method domain_mgr = domain_mgr ~run_event_loop
-      method clock = clock
-      method fs = (fs :> Eio.Dir.t)
-      method cwd = (cwd :> Eio.Dir.t)
-      method secure_random = secure_random
-    end
-end  
 
 let rec wakeup run_q =
   match Lf_queue.pop run_q with
@@ -698,7 +703,7 @@ let rec run main =
   let run_q = Lf_queue.create () in
   let async = Luv.Async.init ~loop (fun _async -> wakeup run_q) |> or_raise in
   let st = { loop; async; run_q } in
-  let stdenv = Objects.stdenv ~run_event_loop:run in
+  let stdenv = stdenv ~run_event_loop:run in
   let rec fork ~new_fibre:fibre fn =
     Ctf.note_switch (Fibre_context.tid fibre);
     match_with fn ()
