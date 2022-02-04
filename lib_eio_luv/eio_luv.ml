@@ -136,7 +136,7 @@ module Low_level = struct
 
   module Handle = struct
     type 'a t = {
-      mutable release_hook : Eio.Hook.t;        (* Use this on close to remove switch's [on_release] hook. *)
+      mutable release_hook : Eio.Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
       mutable fd : [`Open of 'a Luv.Handle.t | `Closed]
     }
 
@@ -152,7 +152,7 @@ module Low_level = struct
       Ctf.label "close";
       let fd = get "close" t in
       t.fd <- `Closed;
-      Eio.Hook.remove t.release_hook;
+      Eio.Switch.remove_hook t.release_hook;
       enter_unchecked @@ fun t k ->
       Luv.Handle.close fd (enqueue_thread t k)
 
@@ -162,7 +162,7 @@ module Low_level = struct
     let to_luv x = get "to_luv" x
 
     let of_luv_no_hook fd =
-      { fd = `Open fd; release_hook = Eio.Hook.null }
+      { fd = `Open fd; release_hook = Eio.Switch.null_hook }
 
     let of_luv ~sw fd =
       let t = of_luv_no_hook fd in
@@ -178,13 +178,13 @@ module Low_level = struct
         | `Peek -> Some fd
         | `Take ->
           t.fd <- `Closed;
-          Eio.Hook.remove t.release_hook;
+          Eio.Switch.remove_hook t.release_hook;
           Some fd
   end
 
   module File = struct
     type t = {
-      mutable release_hook : Eio.Hook.t;        (* Use this on close to remove switch's [on_release] hook. *)
+      mutable release_hook : Eio.Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
       mutable fd : [`Open of Luv.File.t | `Closed]
     }
 
@@ -200,7 +200,7 @@ module Low_level = struct
       Ctf.label "close";
       let fd = get "close" t in
       t.fd <- `Closed;
-      Eio.Hook.remove t.release_hook;
+      Eio.Switch.remove_hook t.release_hook;
       await_exn (fun loop _fibre -> Luv.File.close ~loop fd)
 
     let ensure_closed t =
@@ -209,7 +209,7 @@ module Low_level = struct
     let to_luv = get "to_luv"
 
     let of_luv_no_hook fd =
-      { fd = `Open fd; release_hook = Eio.Hook.null }
+      { fd = `Open fd; release_hook = Eio.Switch.null_hook }
 
     let of_luv ~sw fd =
       let t = of_luv_no_hook fd in
@@ -250,7 +250,7 @@ module Low_level = struct
       | `Peek -> fd
       | `Take ->
         t.fd <- `Closed;
-        Eio.Hook.remove t.release_hook;
+        Eio.Switch.remove_hook t.release_hook;
         fd
   end
 

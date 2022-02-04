@@ -47,7 +47,7 @@ module FD = struct
   type t = {
     seekable : bool;
     close_unix : bool;                          (* Whether closing this also closes the underlying FD. *)
-    mutable release_hook : Eio.Hook.t;          (* Use this on close to remove switch's [on_release] hook. *)
+    mutable release_hook : Eio.Switch.hook;     (* Use this on close to remove switch's [on_release] hook. *)
     mutable fd : [`Open of Unix.file_descr | `Closed]
   }
 
@@ -63,7 +63,7 @@ module FD = struct
     Ctf.label "close";
     let fd = get "close" t in
     t.fd <- `Closed;
-    Eio.Hook.remove t.release_hook;
+    Eio.Switch.remove_hook t.release_hook;
     if t.close_unix then (
       let res = perform (Close fd) in
       Log.debug (fun l -> l "close: woken up");
@@ -85,11 +85,11 @@ module FD = struct
     | `Peek -> fd
     | `Take ->
       t.fd <- `Closed;
-      Eio.Hook.remove t.release_hook;
+      Eio.Switch.remove_hook t.release_hook;
       fd
 
   let of_unix_no_hook ~seekable ~close_unix fd =
-    { seekable; close_unix; fd = `Open fd; release_hook = Eio.Hook.null }
+    { seekable; close_unix; fd = `Open fd; release_hook = Eio.Switch.null_hook }
 
   let of_unix ~sw ~seekable ~close_unix fd =
     let t = of_unix_no_hook ~seekable ~close_unix fd in
@@ -97,7 +97,7 @@ module FD = struct
     t
 
   let placeholder ~seekable ~close_unix =
-    { seekable; close_unix; fd = `Closed; release_hook = Eio.Hook.null }
+    { seekable; close_unix; fd = `Closed; release_hook = Eio.Switch.null_hook }
 
   let uring_file_offset t =
     if t.seekable then Optint.Int63.minus_one else Optint.Int63.zero

@@ -1,3 +1,5 @@
+(** A set of timers. *)
+
 module Key : sig
   type t
 end

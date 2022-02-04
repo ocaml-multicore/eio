@@ -1,3 +1,5 @@
+(** A suspended fibre with its context. *)
+
 open Eio.Private.Effect.Deep
 
 type 'a t = {

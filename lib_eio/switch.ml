@@ -1,3 +1,7 @@
+type hook = Hook.t
+let remove_hook = Hook.remove
+let null_hook = Hook.null
+
 type t = {
   id : Ctf.id;
   mutable fibres : int;
