@@ -114,6 +114,7 @@ module Sockaddr = struct
   type t = [
     | `Unix of string
     | `Tcp of Ipaddr.v4v6 * int
+    | `Udp of Ipaddr.v4v6 * int
   ]
 
   let pp f = function
@@ -121,6 +122,8 @@ module Sockaddr = struct
       Format.fprintf f "unix:%s" path
     | `Tcp (addr, port) ->
       Format.fprintf f "tcp:%a:%d" Ipaddr.pp_for_uri addr port
+    | `Udp (addr, port) ->
+      Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
 class virtual listening_socket = object (_ : #Generic.t)
@@ -136,10 +139,21 @@ let accept_sub ~sw (t : #listening_socket) ~on_error handle =
   let handle sw (flow, addr) = handle ~sw flow addr in
   Fibre.fork_on_accept ~sw accept handle ~on_handler_error:on_error
 
+class virtual endpoint = object
+  method virtual send : Sockaddr.t -> Cstruct.t -> unit
+  method virtual recv : Cstruct.t -> int
+end
+
+let send (t:#endpoint) = t#send
+let recv (t:#endpoint) = t#recv
+
 class virtual t = object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
   method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
+  method virtual endpoint : sw:Switch.t -> Sockaddr.t -> endpoint
 end
 
 let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw
 let connect ~sw (t:#t) = t#connect ~sw
+
+let endpoint ~sw (t:#t) = t#endpoint ~sw

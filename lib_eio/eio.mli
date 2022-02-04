@@ -898,6 +898,7 @@ module Net : sig
     type t = [
       | `Unix of string
       | `Tcp of Ipaddr.v4v6 * int
+      | `Udp of Ipaddr.v4v6 * int
     ]
 
     val pp : Format.formatter -> t -> unit
@@ -911,9 +912,15 @@ module Net : sig
     method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.t
   end
 
+  class virtual endpoint : object
+    method virtual send : Sockaddr.t -> Cstruct.t -> unit
+    method virtual recv : Cstruct.t -> int
+  end
+
   class virtual t : object
     method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
     method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
+    method virtual endpoint : sw:Switch.t -> Sockaddr.t -> endpoint
   end
 
   (** {2 Out-bound Connections} *)
@@ -958,6 +965,19 @@ module Net : sig
       using {!Fibre.fork_on_accept}.
 
       [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
+
+  (** {2 Datagram Sockets} *)
+
+  val endpoint : sw:Switch.t -> #t -> Sockaddr.t -> endpoint
+  (** [endpoint ~sw t addr] creates a new, connectionless endpoint that data can be sent to
+      and received from. The new socket will be closed when [sw] finishes. *)
+
+  val send : #endpoint -> Sockaddr.t -> Cstruct.t -> unit
+  (** [send e addr buf] sends the data in [buf] to the address [addr] using the endpoint [e]. *)
+
+  val recv : #endpoint -> Cstruct.t -> int
+  (** [recv e buf] receives data from the endpoint [e] putting it in [buf]. The number of bytes received is 
+      returned, if the [buf] is too small the read my be partial. *)
 end
 
 (** Parallel computation across multiple CPU cores. *)

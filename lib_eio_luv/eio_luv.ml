@@ -475,6 +475,43 @@ let luv_ip_addr_to_eio addr =
   let port = Luv.Sockaddr.port addr |> Option.get in
   (Eio_unix.Ipaddr.of_unix (Unix.inet_addr_of_string host), port)
 
+module Endpoint = struct
+  type 'a t = [`UDP] Handle.t
+
+  let recv (sock:'a t) buf =
+    let r = enter (fun t k ->
+        Fibre_context.set_cancel_fn k.fibre (fun ex ->
+            Luv.UDP.recv_stop (Handle.get "recv_into:cancel" sock) |> or_raise;
+            enqueue_failed_thread t k ex
+          );
+        Luv.UDP.recv_start (Handle.get "recv_start" sock) ~allocate:(fun _ -> buf) (fun r ->
+            Luv.UDP.recv_stop (Handle.get "recv_stop" sock) |> or_raise;
+            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k r
+          )
+      ) in
+    match r with
+    | Ok (buf', _sockaddr, _recv_flags) -> 
+      (* if List.mem `PARTIAL recv_flags then print_endline "PARTIAL"; Should the Eio API expose partial reading when the buffer is too small *)
+      Luv.Buffer.size buf'
+    | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
+    | Error x -> raise (Luv_error x)
+
+  let send t buf = function 
+  | `Udp (host, port) ->
+    let bufs = [ Cstruct.to_bigarray buf ] in
+    await_exn (fun _loop _fibre -> Luv.UDP.send (Handle.get "send" t) bufs (luv_addr_of_eio host port))
+  | _ -> assert false
+end
+
+let endpoint endp = object
+  inherit Eio.Net.endpoint
+
+  method send sockaddr bufs = Endpoint.send endp bufs sockaddr 
+  method recv buf = 
+    let buf = Cstruct.to_bigarray buf in
+    Endpoint.recv endp buf
+end
+
 let listening_ip_socket ~backlog sock = object
   inherit [[ `TCP ]] listening_socket ~backlog sock
 
@@ -517,6 +554,7 @@ let net = object
       if String.length path > 0 && path.[0] <> Char.chr 0 then
         Switch.on_release sw (fun () -> Unix.unlink path);
       listening_unix_socket ~backlog sock
+    | _ -> assert false 
 
   (* todo: how do you cancel connect operations with luv? *)
   method connect ~sw = function
@@ -529,6 +567,16 @@ let net = object
       let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
       await_exn (fun _loop _fibre -> Luv.Pipe.connect (Handle.get "connect" sock) path);
       socket sock
+    | _ -> assert false
+
+  method endpoint ~sw = function
+    | `Udp (host, port) -> 
+      let domain = match Eio.Net.Ipaddr.classify host with `V4 _ -> `INET | _ -> `INET6 in
+      let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise in
+      let addr = luv_addr_of_eio host port in
+      Luv.UDP.bind sock addr |> or_raise;
+      endpoint (Handle.of_luv ~sw sock)
+    | _ -> assert false
 end
 
 let secure_random =
