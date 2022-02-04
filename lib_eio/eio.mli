@@ -32,229 +32,235 @@ end
 
 (** {1 Concurrency primitives} *)
 
+(** Grouping fibres and other resources. *)
+module Switch : sig
+  type t
+  (** A switch contains a group of fibres and other resources (such as open file handles).
+      Once a switch is turned off, the fibres should cancel themselves.
+      A switch is created with [Switch.run fn],
+      which does not return until all fibres attached to the switch have finished,
+      and all attached resources have been closed.
+      Each switch includes its own {!Cancel.t} context. *)
+
+  val run : (t -> 'a) -> 'a
+  (** [run fn] runs [fn] with a fresh switch (initially on).
+      When [fn] exits, [run] waits for all operations registered with the switch to finish
+      (it does not turn the switch off itself).
+      If {!fail} is called, [run] re-raises the exception. *)
+
+  val run_protected : (t -> 'a) -> 'a
+  (** [run_protected fn] is like [run] but ignores cancellation requests from the parent context. *)
+
+  val check : t -> unit
+  (** [check t] checks that [t] is still on.
+      @raise Cancelled If the switch is off. *)
+
+  val get_error : t -> exn option
+  (** [get_error t] is like [check t] except that it returns the exception instead of raising it.
+      If [t] is finished, this returns (rather than raising) the [Invalid_argument] exception too. *)
+
+  val fail : ?bt:Printexc.raw_backtrace -> t -> exn -> unit
+  (** [fail t ex] adds [ex] to [t]'s set of failures and
+      ensures that the switch's cancellation context is cancelled,
+      to encourage all fibres to exit as soon as possible.
+      It returns immediately, without waiting for the shutdown actions to complete.
+      The exception will be raised later by {!run}, and [run]'s caller is responsible for handling it.
+      {!Exn.combine} is used to avoid duplicate or unnecessary exceptions.
+      @param bt A backtrace to attach to [ex] *)
+
+  val on_release : t -> (unit -> unit) -> unit
+  (** [on_release t fn] registers [fn] to be called once [t]'s main function has returned
+      and all fibres have finished.
+      If [fn] raises an exception, it is passed to {!fail}.
+      Release handlers are run in LIFO order, in series.
+      If you want to allow other release handlers to run concurrently, you can start the release
+      operation and then call [on_release] again from within [fn] to register a function to await the result.
+      This will be added to a fresh batch of handlers, run after the original set have finished.
+      Note that [fn] is called within a {!Cancel.protect}, since aborting clean-up actions is usually a bad idea
+      and the switch may have been cancelled by the time it runs. *)
+
+  val on_release_cancellable : t -> (unit -> unit) -> Hook.t
+  (** Like [on_release], but the handler can be removed later. *)
+
+  val dump : t Fmt.t
+  (** Dump out details of the switch's state for debugging. *)
+end
+
+module Promise : sig
+  (** Promises are thread-safe and so can be shared between domains and used
+      to communicate between them. *)
+
+  type !'a t
+  (** An ['a t] is a promise for a value of type ['a]. *)
+
+  type 'a u
+  (** An ['a u] is a resolver for a promise of type ['a]. *)
+
+  val create : ?label:string -> unit -> 'a t * 'a u
+  (** [create ()] is a fresh promise/resolver pair.
+      The promise is initially unresolved. *)
+
+  val await : 'a t -> 'a
+  (** [await t] blocks until [t] is resolved.
+      If [t] is already resolved then this returns immediately.
+      If [t] is broken, it raises the exception. *)
+
+  val await_result : 'a t -> ('a, exn) result
+  (** [await_result t] is like [await t], but returns [Error ex] if [t] is broken
+      instead of raising an exception.
+      Note that if the [await_result] itself is cancelled then it still raises. *)
+
+  val fulfill : 'a u -> 'a -> unit
+  (** [fulfill u v] successfully resolves [u]'s promise with the value [v].
+      Any threads waiting for the result will be added to the run queue. *)
+
+  val break : 'a u -> exn -> unit
+  (** [break u ex] resolves [u]'s promise with the exception [ex].
+      Any threads waiting for the result will be added to the run queue. *)
+
+  val resolve : 'a u -> ('a, exn) result -> unit
+  (** [resolve t (Ok x)] is [fulfill t x] and
+      [resolve t (Error ex)] is [break t ex]. *)
+
+  val fulfilled : 'a -> 'a t
+  (** [fulfilled x] is a promise that is already fulfilled with result [x]. *)
+
+  val broken : exn -> 'a t
+  (** [broken x] is a promise that is already broken with exception [ex]. *)
+
+  val state : 'a t -> [`Unresolved | `Fulfilled of 'a | `Broken of exn]
+  (** [state t] is the current state of [t].
+      If the state is [`Unresolved] then it may change in future, otherwise it won't.
+      If another domain has access to the resolver then the state may have already
+      changed by the time this call returns. *)
+
+  val is_resolved : 'a t -> bool
+  (** [is_resolved t] is [true] iff [state t] is [Fulfilled] or [Broken]. *)
+
+  val create_with_id : Ctf.id -> 'a t * 'a u
+  (** Like [create], but the caller creates the tracing ID.
+      This can be useful when implementing other primitives that use promises internally,
+      to give them a different type in the trace output. *)
+end
+
+module Fibre : sig
+  val both : (unit -> unit) -> (unit -> unit) -> unit
+  (** [both f g] runs [f ()] and [g ()] concurrently.
+      They run in a new cancellation sub-context, and
+      if either raises an exception, the other is cancelled.
+      [both] waits for both functions to finish even if one raises
+      (it will then re-raise the original exception).
+      [f] runs immediately, without switching to any other thread.
+      [g] is inserted at the head of the run-queue, so it runs next even if other threads are already enqueued.
+      You can get other scheduling orders by adding calls to {!yield} in various places.
+      e.g. to append both fibres to the end of the run-queue, yield immediately before calling [both].
+      If both fibres fail, {!Exn.combine} is used to combine the exceptions. *)
+
+  val pair : (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
+  (** [pair f g] is like [both], but returns the two results. *)
+
+  val all : (unit -> unit) list -> unit
+  (** [all fs] is like [both], but for any number of fibres.
+      [all []] returns immediately. *)
+
+  val first : (unit -> 'a) -> (unit -> 'a) -> 'a
+  (** [first f g] runs [f ()] and [g ()] concurrently.
+      They run in a new cancellation sub-context, and when one finishes the other is cancelled.
+      If one raises, the other is cancelled and the exception is reported.
+      As with [both], [f] runs immediately and [g] is scheduled next, ahead of any other queued work.
+      If both fibres fail, {!Exn.combine} is used to combine the exceptions
+      (excluding {!Cancel.Cancelled} when cancelled). *)
+
+  val any : (unit -> 'a) list -> 'a
+  (** [any fs] is like [first], but for any number of fibres.
+      [any []] just waits forever (or until cancelled). *)
+
+  val await_cancel : unit -> 'a
+  (** [await_cancel ()] waits until cancelled.
+      @raise Cancel.Cancelled *)
+
+  val fork : sw:Switch.t -> (unit -> unit) -> unit
+  (** [fork ~sw fn] runs [fn ()] in a new fibre, but does not wait for it to complete.
+      The new fibre is attached to [sw] (which can't finish until the fibre ends).
+      The new fibre inherits [sw]'s cancellation context.
+      If the fibre raises an exception, [sw] is turned off.
+      If [sw] is already off then [fn] fails immediately, but the calling thread continues.
+      [fn] runs immediately, without switching to any other fibre first.
+      The calling fibre is placed at the head of the run queue, ahead of any previous items. *)
+
+  val fork_sub : sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
+  (** [fork_sub ~sw ~on_error fn] is like [fork], but it creates a new sub-switch for the fibre.
+      This means that you can cancel the child switch without cancelling the parent.
+      This is a convenience function for running {!Switch.run} inside a {!fork}.
+      @param on_error This is called if the fibre raises an exception.
+                      If it raises in turn, the parent switch is turned off.
+                      It is not called if the parent [sw] itself is cancelled. *)
+
+  val fork_on_accept :
+    on_handler_error:(exn -> unit) ->
+    sw:Switch.t ->
+    (Switch.t -> 'a) ->
+    (Switch.t -> 'a -> unit) ->
+    unit
+  (** [fork_on_accept ~sw accept handle ~on_handler_error] creates a new sub-switch [t].
+      It runs [accept t] in the current fibre and, on success, runs [handle t result] in a new fibre.
+      It is useful for e.g. accepting network connections,
+      where we need to provide a switch for the new client socket before we have forked,
+      but then move it to a child fibre later.
+
+      If [accept] raises an exception then the effect is the same as [Switch.run accept].
+      If [handle] raises an exception, it is passed to [on_handler_error].
+      If that raises in turn, the parent switch is turned off.
+      [on_handler_error] is not called if the parent [sw] is itself cancelled. *)
+
+  val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.t
+  (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fibre and returns a promise for its result.
+      This is just a convenience wrapper around {!fork}.
+      If [fn] raises an exception then the promise is broken, but [sw] is not turned off. *)
+
+  val check : unit -> unit
+  (** [check ()] checks that the fibre's context hasn't been cancelled.
+      Many operations automatically check this before starting.
+      @raise Cancel.Cancelled if the fibre's context has been cancelled. *)
+
+  val yield : unit -> unit
+  (** [yield ()] asks the scheduler to switch to the next runnable task.
+      The current task remains runnable, but goes to the back of the queue.
+      Automatically calls {!check} just before resuming. *)
+end
+
+val traceln :
+  ?__POS__:string * int * int * int ->
+  ('a, Format.formatter, unit, unit) format4 -> 'a
+(** [traceln fmt] outputs a debug message (typically to stderr).
+    Trace messages are printed by default and do not require logging to be configured first.
+    The message is printed with a newline, and is flushed automatically.
+    [traceln] is intended for quick debugging rather than for production code.
+
+    Unlike most Eio operations, [traceln] will never switch to another fibre;
+    if the OS is not ready to accept the message then the whole domain waits.
+
+    It is safe to call [traceln] from multiple domains at the same time.
+    Each line will be written atomically.
+
+    Examples:
+    {[
+      traceln "x = %d" x;
+      traceln "x = %d" x ~__POS__;   (* With location information *)
+    ]}
+    @param __POS__ Display [__POS__] as the location of the [traceln] call. *)
+
 (** Commonly used standard features. This module is intended to be [open]ed. *)
 module Std : sig
-
-  (** Grouping fibres and other resources. *)
-  module Switch : sig
-    type t
-    (** A switch contains a group of fibres and other resources (such as open file handles).
-        Once a switch is turned off, the fibres should cancel themselves.
-        A switch is created with [Switch.run fn],
-        which does not return until all fibres attached to the switch have finished,
-        and all attached resources have been closed.
-        Each switch includes its own {!Cancel.t} context. *)
-
-    val run : (t -> 'a) -> 'a
-    (** [run fn] runs [fn] with a fresh switch (initially on).
-        When [fn] exits, [run] waits for all operations registered with the switch to finish
-        (it does not turn the switch off itself).
-        If {!fail} is called, [run] re-raises the exception. *)
-
-    val run_protected : (t -> 'a) -> 'a
-    (** [run_protected fn] is like [run] but ignores cancellation requests from the parent context. *)
-
-    val check : t -> unit
-    (** [check t] checks that [t] is still on.
-        @raise Cancelled If the switch is off. *)
-
-    val get_error : t -> exn option
-    (** [get_error t] is like [check t] except that it returns the exception instead of raising it.
-        If [t] is finished, this returns (rather than raising) the [Invalid_argument] exception too. *)
-
-    val fail : ?bt:Printexc.raw_backtrace -> t -> exn -> unit
-    (** [fail t ex] adds [ex] to [t]'s set of failures and
-        ensures that the switch's cancellation context is cancelled,
-        to encourage all fibres to exit as soon as possible.
-        It returns immediately, without waiting for the shutdown actions to complete.
-        The exception will be raised later by {!run}, and [run]'s caller is responsible for handling it.
-        {!Exn.combine} is used to avoid duplicate or unnecessary exceptions.
-        @param bt A backtrace to attach to [ex] *)
-
-    val on_release : t -> (unit -> unit) -> unit
-    (** [on_release t fn] registers [fn] to be called once [t]'s main function has returned
-        and all fibres have finished.
-        If [fn] raises an exception, it is passed to {!fail}.
-        Release handlers are run in LIFO order, in series.
-        If you want to allow other release handlers to run concurrently, you can start the release
-        operation and then call [on_release] again from within [fn] to register a function to await the result.
-        This will be added to a fresh batch of handlers, run after the original set have finished.
-        Note that [fn] is called within a {!Cancel.protect}, since aborting clean-up actions is usually a bad idea
-        and the switch may have been cancelled by the time it runs. *)
-
-    val on_release_cancellable : t -> (unit -> unit) -> Hook.t
-    (** Like [on_release], but the handler can be removed later. *)
-
-    val dump : t Fmt.t
-    (** Dump out details of the switch's state for debugging. *)
-  end
-
-  module Promise : sig
-    (** Promises are thread-safe and so can be shared between domains and used
-        to communicate between them. *)
-
-    type !'a t
-    (** An ['a t] is a promise for a value of type ['a]. *)
-
-    type 'a u
-    (** An ['a u] is a resolver for a promise of type ['a]. *)
-
-    val create : ?label:string -> unit -> 'a t * 'a u
-    (** [create ()] is a fresh promise/resolver pair.
-        The promise is initially unresolved. *)
-
-    val await : 'a t -> 'a
-    (** [await t] blocks until [t] is resolved.
-        If [t] is already resolved then this returns immediately.
-        If [t] is broken, it raises the exception. *)
-
-    val await_result : 'a t -> ('a, exn) result
-    (** [await_result t] is like [await t], but returns [Error ex] if [t] is broken
-        instead of raising an exception.
-        Note that if the [await_result] itself is cancelled then it still raises. *)
-
-    val fulfill : 'a u -> 'a -> unit
-    (** [fulfill u v] successfully resolves [u]'s promise with the value [v].
-        Any threads waiting for the result will be added to the run queue. *)
-
-    val break : 'a u -> exn -> unit
-    (** [break u ex] resolves [u]'s promise with the exception [ex].
-        Any threads waiting for the result will be added to the run queue. *)
-
-    val resolve : 'a u -> ('a, exn) result -> unit
-    (** [resolve t (Ok x)] is [fulfill t x] and
-        [resolve t (Error ex)] is [break t ex]. *)
-
-    val fulfilled : 'a -> 'a t
-    (** [fulfilled x] is a promise that is already fulfilled with result [x]. *)
-
-    val broken : exn -> 'a t
-    (** [broken x] is a promise that is already broken with exception [ex]. *)
-
-    val state : 'a t -> [`Unresolved | `Fulfilled of 'a | `Broken of exn]
-    (** [state t] is the current state of [t].
-        If the state is [`Unresolved] then it may change in future, otherwise it won't.
-        If another domain has access to the resolver then the state may have already
-        changed by the time this call returns. *)
-
-    val is_resolved : 'a t -> bool
-    (** [is_resolved t] is [true] iff [state t] is [Fulfilled] or [Broken]. *)
-
-    val create_with_id : Ctf.id -> 'a t * 'a u
-    (** Like [create], but the caller creates the tracing ID.
-        This can be useful when implementing other primitives that use promises internally,
-        to give them a different type in the trace output. *)
-  end
-
-  module Fibre : sig
-    val both : (unit -> unit) -> (unit -> unit) -> unit
-    (** [both f g] runs [f ()] and [g ()] concurrently.
-        They run in a new cancellation sub-context, and
-        if either raises an exception, the other is cancelled.
-        [both] waits for both functions to finish even if one raises
-        (it will then re-raise the original exception).
-        [f] runs immediately, without switching to any other thread.
-        [g] is inserted at the head of the run-queue, so it runs next even if other threads are already enqueued.
-        You can get other scheduling orders by adding calls to {!yield} in various places.
-        e.g. to append both fibres to the end of the run-queue, yield immediately before calling [both].
-        If both fibres fail, {!Exn.combine} is used to combine the exceptions. *)
-
-    val pair : (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
-    (** [pair f g] is like [both], but returns the two results. *)
-
-    val all : (unit -> unit) list -> unit
-    (** [all fs] is like [both], but for any number of fibres.
-        [all []] returns immediately. *)
-
-    val first : (unit -> 'a) -> (unit -> 'a) -> 'a
-    (** [first f g] runs [f ()] and [g ()] concurrently.
-        They run in a new cancellation sub-context, and when one finishes the other is cancelled.
-        If one raises, the other is cancelled and the exception is reported.
-        As with [both], [f] runs immediately and [g] is scheduled next, ahead of any other queued work.
-        If both fibres fail, {!Exn.combine} is used to combine the exceptions
-        (excluding {!Cancel.Cancelled} when cancelled). *)
-
-    val any : (unit -> 'a) list -> 'a
-    (** [any fs] is like [first], but for any number of fibres.
-        [any []] just waits forever (or until cancelled). *)
-
-    val await_cancel : unit -> 'a
-    (** [await_cancel ()] waits until cancelled.
-        @raise Cancel.Cancelled *)
-
-    val fork : sw:Switch.t -> (unit -> unit) -> unit
-    (** [fork ~sw fn] runs [fn ()] in a new fibre, but does not wait for it to complete.
-        The new fibre is attached to [sw] (which can't finish until the fibre ends).
-        The new fibre inherits [sw]'s cancellation context.
-        If the fibre raises an exception, [sw] is turned off.
-        If [sw] is already off then [fn] fails immediately, but the calling thread continues.
-        [fn] runs immediately, without switching to any other fibre first.
-        The calling fibre is placed at the head of the run queue, ahead of any previous items. *)
-
-    val fork_sub : sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
-    (** [fork_sub ~sw ~on_error fn] is like [fork], but it creates a new sub-switch for the fibre.
-        This means that you can cancel the child switch without cancelling the parent.
-        This is a convenience function for running {!Switch.run} inside a {!fork}.
-        @param on_error This is called if the fibre raises an exception.
-                        If it raises in turn, the parent switch is turned off.
-                        It is not called if the parent [sw] itself is cancelled. *)
-
-    val fork_on_accept :
-      on_handler_error:(exn -> unit) ->
-      sw:Switch.t ->
-      (Switch.t -> 'a) ->
-      (Switch.t -> 'a -> unit) ->
-      unit
-    (** [fork_on_accept ~sw accept handle ~on_handler_error] creates a new sub-switch [t].
-        It runs [accept t] in the current fibre and, on success, runs [handle t result] in a new fibre.
-        It is useful for e.g. accepting network connections,
-        where we need to provide a switch for the new client socket before we have forked,
-        but then move it to a child fibre later.
-
-        If [accept] raises an exception then the effect is the same as [Switch.run accept].
-        If [handle] raises an exception, it is passed to [on_handler_error].
-        If that raises in turn, the parent switch is turned off.
-        [on_handler_error] is not called if the parent [sw] is itself cancelled. *)
-
-    val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.t
-    (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fibre and returns a promise for its result.
-        This is just a convenience wrapper around {!fork}.
-        If [fn] raises an exception then the promise is broken, but [sw] is not turned off. *)
-
-    val check : unit -> unit
-    (** [check ()] checks that the fibre's context hasn't been cancelled.
-        Many operations automatically check this before starting.
-        @raise Cancel.Cancelled if the fibre's context has been cancelled. *)
-
-    val yield : unit -> unit
-    (** [yield ()] asks the scheduler to switch to the next runnable task.
-        The current task remains runnable, but goes to the back of the queue.
-        Automatically calls {!check} just before resuming. *)
-  end
+  module Promise = Promise
+  module Fibre = Fibre
+  module Switch = Switch
 
   val traceln :
     ?__POS__:string * int * int * int ->
     ('a, Format.formatter, unit, unit) format4 -> 'a
-  (** [traceln fmt] outputs a debug message (typically to stderr).
-      Trace messages are printed by default and do not require logging to be configured first.
-      The message is printed with a newline, and is flushed automatically.
-      [traceln] is intended for quick debugging rather than for production code.
-
-      Unlike most Eio operations, [traceln] will never switch to another fibre;
-      if the OS is not ready to accept the message then the whole domain waits.
-
-      It is safe to call [traceln] from multiple domains at the same time.
-      Each line will be written atomically.
-
-      Examples:
-      {[
-        traceln "x = %d" x;
-        traceln "x = %d" x ~__POS__;   (* With location information *)
-      ]}
-      @param __POS__ Display [__POS__] as the location of the [traceln] call. *)
+    (** Same as {!Eio.traceln}. *)
 end
-
-open Std
 
 (** A counting semaphore.
     The API is based on OCaml's [Semaphore.Counting]. *)
