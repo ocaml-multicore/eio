@@ -400,7 +400,13 @@ module Cancel : sig
   (** Show the cancellation sub-tree rooted at [t], for debugging. *)
 end
 
-(** {1 Cross-platform OS API} *)
+(** {1 Cross-platform OS API}
+
+    The general pattern here is that each type of resource has a set of functions for using it,
+    plus an object type to allow defining your own implementations.
+    To use the resources, it is recommended that you use the functions rather than calling
+    methods directly. Using the functions results in better error messages from the compiler,
+    and may provide extra features or sanity checks. *)
 
 (** A base class for objects that can be queried at runtime for extra features. *)
 module Generic : sig
@@ -412,6 +418,9 @@ module Generic : sig
   end
 
   val probe : #t -> 'a ty -> 'a option
+  (** [probe t feature] checks whether [t] supports [feature].
+      This is mostly for internal use.
+      For example, {!Eio_unix.FD.peek} uses this to get the underlying Unix file descriptor from a flow. *)
 end
 
 (** Byte streams. *)
@@ -437,7 +446,7 @@ module Flow : sig
   (** Producer base class. *)
   class virtual source : object
     inherit Generic.t
-    method virtual read_methods : read_method list
+    method read_methods : read_method list
     method virtual read_into : Cstruct.t -> int
   end
 

@@ -401,8 +401,6 @@ let socket sock = object
     let buf = Cstruct.to_bigarray buf in
     Stream.read_into sock buf
 
-  method read_methods = []
-
   method write src =
     let buf = Luv.Buffer.create 4096 in
     try
@@ -534,8 +532,6 @@ end
 let secure_random =
   object
     inherit Eio.Flow.source
-
-    method read_methods = []
 
     method read_into buf =
       let ba = Cstruct.to_bigarray buf in

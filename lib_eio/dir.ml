@@ -10,6 +10,7 @@ exception Permission_denied of path * exn
 
 class virtual rw = object (_ : <Generic.t; Flow.source; Flow.sink; ..>)
   method probe _ = None
+  method read_methods = []
 end
 
 type create = [`Never | `If_missing of Unix_perm.t | `Or_truncate of Unix_perm.t | `Exclusive of Unix_perm.t]

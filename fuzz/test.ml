@@ -17,8 +17,6 @@ let mock_flow next = object (self)
 
   val mutable next = next
 
-  method read_methods = []
-
   method read_into buf =
     match next with
     | [] ->
