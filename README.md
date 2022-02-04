@@ -32,6 +32,7 @@ This is an unreleased repository, as it's very much a work-in-progress.
   * [Streams](#streams)
   * [Example: Worker Pool](#example-worker-pool)
 * [Design Note: Determinism](#design-note-determinism)
+* [Provider Interfaces](#provider-interfaces)
 * [Examples](#examples)
 * [Porting from Lwt](#porting-from-lwt)
 * [Further Reading](#further-reading)
@@ -1000,6 +1001,60 @@ This means that adding `traceln` to deterministic code will not affect its sched
 In particular, if you test your code by providing (deterministic) mocks then the tests will be deterministic.
 An easy way to write tests is by having the mocks call `traceln` and then comparing the trace output with the expected output.
 See Eio's own tests for examples, e.g., [tests/test_switch.md](tests/test_switch.md).
+
+## Provider Interfaces
+
+Eio applications use resources by calling functions (such as `Eio.Flow.read`).
+These functions are actually wrappers that call methods on the resources.
+This allows you to define your own resources.
+
+Here's a flow that produces an endless stream of zeros (like "/dev/zero"):
+
+```ocaml
+let zero = object
+  inherit Eio.Flow.source
+
+  method read_into buf =
+    Cstruct.memset buf 0;
+    Cstruct.len buf
+end
+```
+
+It can then be used like any other Eio flow:
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  let r = Eio.Buf_read.of_flow zero ~max_size:100 in
+  traceln "Got: %S" (Eio.Buf_read.take 4 r);;
++Got: "\000\000\000\000"
+- : unit = ()
+```
+
+The `Flow.source` interface has some extra methods that can be used for optimisations
+(for example, instead of filling a buffer with zeros it could be more efficient to share
+a pre-allocated block of zeros).
+Using `inherit` provides default implementations of these methods that say no optimisations are available.
+It also protects you somewhat from API changes in future, as defaults can be provided for any new methods that get added.
+
+Although it is possible to *use* an object by calling its methods directly,
+it is recommended that you use the functions instead.
+The functions provide type information to the compiler, leading to clearer error messages,
+and may provide extra features or sanity checks.
+
+For example `Eio.Flow.read` is defined as:
+
+```ocaml
+let read (t : #Eio.Flow.source) buf =
+  let got = t#read_into buf in
+  assert (got > 0 && got <= Cstruct.length buf);
+  got
+```
+
+As an exception to this rule, it is fine to use the methods of `env` directly
+(e.g. using `main env#stdin` instead of `main (Eio.Stdenv.stdin env)`.
+Here, the compiler already has the type from the `Eio_main.run` call immediately above it,
+and `env` is acting as a simple record.
+We avoid doing that in this guide only to avoid alarming OCaml users unfamiliar with object syntax.
 
 ## Examples
 

@@ -11,7 +11,7 @@ let close (t : #close) = t#close
 
 class virtual source = object (_ : <Generic.t; ..>)
   method probe _ = None
-  method virtual read_methods : read_method list
+  method read_methods : read_method list = []
   method virtual read_into : Cstruct.t -> int
 end
 
@@ -43,7 +43,7 @@ let cstruct_source data : source =
       in
       aux ()
 
-    method read_methods =
+    method! read_methods =
       [ Read_source_buffer self#read_source_buffer ]
 
     method read_into dst =
@@ -80,6 +80,7 @@ let buffer_sink b =
 
 class virtual two_way = object (_ : <source; sink; ..>)
   method probe _ = None
+  method read_methods = []
 
   method virtual shutdown : shutdown_command -> unit
 end

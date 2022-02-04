@@ -969,7 +969,6 @@ end
 
 let secure_random = object
   inherit Eio.Flow.source
-  method read_methods = []
   method read_into buf = Low_level.getrandom buf
 end
 

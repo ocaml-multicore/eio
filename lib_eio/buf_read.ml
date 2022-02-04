@@ -114,8 +114,6 @@ let as_flow t =
   object
     inherit Flow.source
 
-    method read_methods = []
-
     method read_into dst =
       ensure t 1;
       let len = min (buffered_bytes t) (Cstruct.length dst) in
