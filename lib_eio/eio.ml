@@ -3,15 +3,33 @@ open Effect
 module Hook = Hook
 module Cancel = Cancel
 
+module Private = struct
+  module Fibre_context = Cancel.Fibre_context
+
+  module Effects = struct
+    type 'a enqueue = 'a Suspend.enqueue
+    type _ eff += 
+      | Suspend = Suspend.Suspend
+      | Fork = Fibre.Fork
+      | Get_context = Cancel.Get_context
+      | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
+  end
+
+  module Effect = Effect
+end
+
+let traceln ?__POS__ fmt =
+  perform Private.Effects.Trace ?__POS__ fmt
+
+module Promise = Promise
+module Fibre = Fibre
+module Switch = Switch
+
 module Std = struct
   module Promise = Promise
   module Fibre = Fibre
   module Switch = Switch
-
-  type _ eff += Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
-
-  let traceln ?__POS__ fmt =
-    perform Trace ?__POS__ fmt
+  let traceln = traceln
 end
 
 module Semaphore = Semaphore
@@ -48,19 +66,4 @@ module Stdenv = struct
   let secure_random (t: <secure_random : #Flow.source; ..>) = t#secure_random
   let fs (t : <fs : #Dir.t; ..>) = t#fs
   let cwd (t : <cwd : #Dir.t; ..>) = t#cwd
-end
-
-module Private = struct
-  module Fibre_context = Cancel.Fibre_context
-
-  module Effects = struct
-    type 'a enqueue = 'a Suspend.enqueue
-    type _ eff += 
-      | Suspend = Suspend.Suspend
-      | Fork = Fibre.Fork
-      | Get_context = Cancel.Get_context
-      | Trace = Std.Trace
-  end
-
-  module Effect = Effect
 end
