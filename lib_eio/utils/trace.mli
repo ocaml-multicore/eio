@@ -1,3 +1,5 @@
+(** The default implementation of {!Eio.traceln}. *)
+
 val mutex : Mutex.t
 
 val default_traceln :

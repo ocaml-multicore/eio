@@ -1,59 +1,65 @@
-(** Effects based parallel IO for OCaml *)
+(** Effects based parallel IO for OCaml.
 
-(** Reporting multiple failures at once. *)
-module Exn : sig
-  type with_bt = exn * Printexc.raw_backtrace
+    Eio provides support for concurrency (juggling many tasks) and
+    parallelism (using multiple CPU cores for performance).
 
-  exception Multiple of exn list
-  (** Raised if multiple fibres fail, to report all the exceptions. *)
+    It provides facilities for creating and coordinating fibres (light-weight
+    threads) and domains (for parallel processing), as well as interfaces for
+    interacting with resources provided by the operating system.
 
-  val combine : with_bt -> with_bt -> with_bt
-  (** [combine x y] returns a single exception and backtrace to use to represent two errors.
-      Only one of the backtraces will be kept.
-      The resulting exception is typically just [Multiple [y; x]],
-      but various heuristics are used to simplify the result:
-      - Combining with a {!Cancel.Cancelled} exception does nothing, as these don't need to be reported.
-        The result is only [Cancelled] if there is no other exception available.
-      - If [x] is a [Multiple] exception then [y] is added to it, to avoid nested [Multiple] exceptions.
-      - Duplicate exceptions are removed (using physical equality of the exception). *)
-end
+    These features must be used within an {e event loop},
+    provided by an Eio {e backend}.
+    Applications can use {!Eio_main.run} to run a suitable loop.
 
-(** Handles for removing callbacks. *)
-module Hook : sig
-  type t
-
-  val remove : t -> unit
-  (** [remove t] removes a previously-added hook.
-      If the hook has already been removed, this does nothing. *)
-
-  val null : t
-  (** A dummy hook. Removing it does nothing. *)
-end
+    See {{:https://github.com/ocaml-multicore/eio}} for a tutorial. *)
 
 (** {1 Concurrency primitives} *)
 
-(** Grouping fibres and other resources. *)
+(** Grouping fibres and other resources so they can be turned off together. *)
 module Switch : sig
+  (** Many resources in Eio (such as fibres and file handles) require a switch to
+      be provided when they are created. The resource cannot outlive its switch.
+
+      If a function wants to create such resources, and was not passed a switch
+      as an argument, it will need to create a switch using {!run}.
+      This doesn't return until all resources attached to it have been freed,
+      preventing the function from leaking resources.
+
+      Any function creating resources that outlive it needs to be given a
+      switch by its caller.
+
+      Each switch includes its own {!Cancel.t} context.
+      Calling {!fail} cancels all fibres attached to the switch and, once they
+      have exited, reports the error.
+
+      Example:
+      {[
+         Switch.run (fun sw ->
+            let flow = Dir.open_in ~sw dir "myfile.txt" in
+            ...
+         );
+         (* [flow] will have been closed by this point *)
+      ]}
+  *)
+
   type t
-  (** A switch contains a group of fibres and other resources (such as open file handles).
-      Once a switch is turned off, the fibres should cancel themselves.
-      A switch is created with [Switch.run fn],
-      which does not return until all fibres attached to the switch have finished,
-      and all attached resources have been closed.
-      Each switch includes its own {!Cancel.t} context. *)
+  (** A switch contains a group of fibres and other resources (such as open file handles). *)
 
   val run : (t -> 'a) -> 'a
   (** [run fn] runs [fn] with a fresh switch (initially on).
-      When [fn] exits, [run] waits for all operations registered with the switch to finish
-      (it does not turn the switch off itself).
-      If {!fail} is called, [run] re-raises the exception. *)
+
+      When [fn] finishes, [run] waits for all fibres registered with the switch to finish,
+      and then releases all attached resources.
+
+      If {!fail} is called, [run] will re-raise the exception (after everything is cleaned up).
+      If [fn] raises an exception, it is passed to {!fail}. *)
 
   val run_protected : (t -> 'a) -> 'a
   (** [run_protected fn] is like [run] but ignores cancellation requests from the parent context. *)
 
   val check : t -> unit
   (** [check t] checks that [t] is still on.
-      @raise Cancelled If the switch is off. *)
+      @raise Cancel.Cancelled If the switch is off. *)
 
   val get_error : t -> exn option
   (** [get_error t] is like [check t] except that it returns the exception instead of raising it.
@@ -63,7 +69,8 @@ module Switch : sig
   (** [fail t ex] adds [ex] to [t]'s set of failures and
       ensures that the switch's cancellation context is cancelled,
       to encourage all fibres to exit as soon as possible.
-      It returns immediately, without waiting for the shutdown actions to complete.
+
+      [fail] returns immediately, without waiting for the shutdown actions to complete.
       The exception will be raised later by {!run}, and [run]'s caller is responsible for handling it.
       {!Exn.combine} is used to avoid duplicate or unnecessary exceptions.
       @param bt A backtrace to attach to [ex] *)
@@ -71,24 +78,46 @@ module Switch : sig
   val on_release : t -> (unit -> unit) -> unit
   (** [on_release t fn] registers [fn] to be called once [t]'s main function has returned
       and all fibres have finished.
+
       If [fn] raises an exception, it is passed to {!fail}.
+
       Release handlers are run in LIFO order, in series.
-      If you want to allow other release handlers to run concurrently, you can start the release
-      operation and then call [on_release] again from within [fn] to register a function to await the result.
-      This will be added to a fresh batch of handlers, run after the original set have finished.
+
       Note that [fn] is called within a {!Cancel.protect}, since aborting clean-up actions is usually a bad idea
       and the switch may have been cancelled by the time it runs. *)
 
-  val on_release_cancellable : t -> (unit -> unit) -> Hook.t
+  type hook
+  (** A handle for removing a callback. *)
+
+  val null_hook : hook
+  (** A dummy hook. Removing it does nothing. *)
+
+  val on_release_cancellable : t -> (unit -> unit) -> hook
   (** Like [on_release], but the handler can be removed later. *)
+
+  val remove_hook : hook -> unit
+  (** [remove_hook h] removes a previously-added hook.
+      If the hook has already been removed, this does nothing. *)
 
   val dump : t Fmt.t
   (** Dump out details of the switch's state for debugging. *)
 end
 
+(** A promise is a placeholder for result that will arrive in the future. *)
 module Promise : sig
-  (** Promises are thread-safe and so can be shared between domains and used
-      to communicate between them. *)
+  (** Unlike lazy values, you cannot "force" promises;
+      a promise is resolved when the maker of the promise is ready.
+
+      Promises are thread-safe and so can be shared between domains and used
+      to communicate between them.
+
+      Example:
+      {[
+        let promise, resolver = Promise.create () in
+        Fibre.both
+          (fun () -> traceln "Got %d" (Promise.await promise))
+          (fun () -> Promise.fulfill resolver 42)
+      ]} *)
 
   type !'a t
   (** An ['a t] is a promise for a value of type ['a]. *)
@@ -135,7 +164,7 @@ module Promise : sig
       changed by the time this call returns. *)
 
   val is_resolved : 'a t -> bool
-  (** [is_resolved t] is [true] iff [state t] is [Fulfilled] or [Broken]. *)
+  (** [is_resolved t] is [state t <> `Unresolved]. *)
 
   val create_with_id : Ctf.id -> 'a t * 'a u
   (** Like [create], but the caller creates the tracing ID.
@@ -143,17 +172,25 @@ module Promise : sig
       to give them a different type in the trace output. *)
 end
 
+(** A fibre is a light-weight thread. *)
 module Fibre : sig
+  (** Within a domain, only one fibre can be running at a time.
+      A fibre runs until it performs an IO operation (directly or indirectly).
+      At that point, it may be suspended and the next fibre on the run queue runs. *)
+
   val both : (unit -> unit) -> (unit -> unit) -> unit
   (** [both f g] runs [f ()] and [g ()] concurrently.
+
       They run in a new cancellation sub-context, and
       if either raises an exception, the other is cancelled.
       [both] waits for both functions to finish even if one raises
       (it will then re-raise the original exception).
+
       [f] runs immediately, without switching to any other thread.
       [g] is inserted at the head of the run-queue, so it runs next even if other threads are already enqueued.
       You can get other scheduling orders by adding calls to {!yield} in various places.
       e.g. to append both fibres to the end of the run-queue, yield immediately before calling [both].
+
       If both fibres fail, {!Exn.combine} is used to combine the exceptions. *)
 
   val pair : (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
@@ -165,14 +202,17 @@ module Fibre : sig
 
   val first : (unit -> 'a) -> (unit -> 'a) -> 'a
   (** [first f g] runs [f ()] and [g ()] concurrently.
+
       They run in a new cancellation sub-context, and when one finishes the other is cancelled.
       If one raises, the other is cancelled and the exception is reported.
+
       As with [both], [f] runs immediately and [g] is scheduled next, ahead of any other queued work.
-      If both fibres fail, {!Exn.combine} is used to combine the exceptions
-      (excluding {!Cancel.Cancelled} when cancelled). *)
+
+      If both fibres fail, {!Exn.combine} is used to combine the exceptions. *)
 
   val any : (unit -> 'a) list -> 'a
   (** [any fs] is like [first], but for any number of fibres.
+
       [any []] just waits forever (or until cancelled). *)
 
   val await_cancel : unit -> 'a
@@ -181,19 +221,24 @@ module Fibre : sig
 
   val fork : sw:Switch.t -> (unit -> unit) -> unit
   (** [fork ~sw fn] runs [fn ()] in a new fibre, but does not wait for it to complete.
+
       The new fibre is attached to [sw] (which can't finish until the fibre ends).
+
       The new fibre inherits [sw]'s cancellation context.
-      If the fibre raises an exception, [sw] is turned off.
+      If the fibre raises an exception, [fail sw] is called.
       If [sw] is already off then [fn] fails immediately, but the calling thread continues.
+
       [fn] runs immediately, without switching to any other fibre first.
       The calling fibre is placed at the head of the run queue, ahead of any previous items. *)
 
   val fork_sub : sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
   (** [fork_sub ~sw ~on_error fn] is like [fork], but it creates a new sub-switch for the fibre.
+
       This means that you can cancel the child switch without cancelling the parent.
       This is a convenience function for running {!Switch.run} inside a {!fork}.
+
       @param on_error This is called if the fibre raises an exception.
-                      If it raises in turn, the parent switch is turned off.
+                      If it raises in turn, the parent switch is failed.
                       It is not called if the parent [sw] itself is cancelled. *)
 
   val fork_on_accept :
@@ -210,11 +255,12 @@ module Fibre : sig
 
       If [accept] raises an exception then the effect is the same as [Switch.run accept].
       If [handle] raises an exception, it is passed to [on_handler_error].
-      If that raises in turn, the parent switch is turned off.
+      If that raises in turn, the parent switch is failed.
       [on_handler_error] is not called if the parent [sw] is itself cancelled. *)
 
   val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.t
   (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fibre and returns a promise for its result.
+
       This is just a convenience wrapper around {!fork}.
       If [fn] raises an exception then the promise is broken, but [sw] is not turned off. *)
 
@@ -229,43 +275,14 @@ module Fibre : sig
       Automatically calls {!check} just before resuming. *)
 end
 
-val traceln :
-  ?__POS__:string * int * int * int ->
-  ('a, Format.formatter, unit, unit) format4 -> 'a
-(** [traceln fmt] outputs a debug message (typically to stderr).
-    Trace messages are printed by default and do not require logging to be configured first.
-    The message is printed with a newline, and is flushed automatically.
-    [traceln] is intended for quick debugging rather than for production code.
-
-    Unlike most Eio operations, [traceln] will never switch to another fibre;
-    if the OS is not ready to accept the message then the whole domain waits.
-
-    It is safe to call [traceln] from multiple domains at the same time.
-    Each line will be written atomically.
-
-    Examples:
-    {[
-      traceln "x = %d" x;
-      traceln "x = %d" x ~__POS__;   (* With location information *)
-    ]}
-    @param __POS__ Display [__POS__] as the location of the [traceln] call. *)
-
-(** Commonly used standard features. This module is intended to be [open]ed. *)
-module Std : sig
-  module Promise = Promise
-  module Fibre = Fibre
-  module Switch = Switch
-
-  val traceln :
-    ?__POS__:string * int * int * int ->
-    ('a, Format.formatter, unit, unit) format4 -> 'a
-    (** Same as {!Eio.traceln}. *)
-end
-
-(** A counting semaphore.
-    The API is based on OCaml's [Semaphore.Counting]. *)
+(** A counting semaphore. *)
 module Semaphore : sig
-  (** Semaphores are thread-safe and so can be shared between domains and used
+  (** The API is based on OCaml's [Semaphore.Counting].
+
+      The difference is that when waiting for the semaphore this will switch to the next runnable fibre,
+      whereas the stdlib one will block the whole domain.
+
+      Semaphores are thread-safe and so can be shared between domains and used
       to synchronise between them. *)
 
   type t
@@ -291,7 +308,19 @@ end
 
 (** A stream/queue. *)
 module Stream : sig
-  (** Streams are thread-safe and so can be shared between domains and used
+  (** Reading from an empty queue will wait until an item is available.
+      Writing to a full queue will wait until there is space.
+
+      Example:
+      {[
+        let t = Stream.create 100 in
+        Stream.add t 1;
+        Stream.add t 2;
+        assert (Stream.take t = 1);
+        assert (Stream.take t = 2)
+      ]}
+
+      Streams are thread-safe and so can be shared between domains and used
       to communicate between them. *)
 
   type 'a t
@@ -299,19 +328,25 @@ module Stream : sig
 
   val create : int -> 'a t
   (** [create capacity] is a new stream which can hold up to [capacity] items without blocking writers.
-      If [capacity = 0] then writes block until a reader is ready. *)
+
+      - If [capacity = 0] then writes block until a reader is ready.
+      - If [capacity = 1] then this acts as a "mailbox".
+      - If [capacity = max_int] then the stream is effectively unbounded. *)
 
   val add : 'a t -> 'a -> unit
   (** [add t item] adds [item] to [t].
+
       If this would take [t] over capacity, it blocks until there is space. *)
 
   val take : 'a t -> 'a
   (** [take t] takes the next item from the head of [t].
+
       If no items are available, it waits until one becomes available. *)
 
   val take_nonblocking : 'a t -> 'a option
   (** [take_nonblocking t] is like [Some (take t)] except that
       it returns [None] if the stream is empty rather than waiting.
+
       Note that if another domain may add to the stream then a [None]
       result may already be out-of-date by the time this returns. *)
 
@@ -322,7 +357,7 @@ module Stream : sig
   (** [is_empty t] is [length t = 0]. *)
 end
 
-(** Cancelling other fibres when an exception occurs. *)
+(** Cancelling fibres. *)
 module Cancel : sig
   (** This is the low-level interface to cancellation.
       Every {!Switch} includes a cancellation context and most users will just use that API instead.
@@ -363,20 +398,25 @@ module Cancel : sig
   exception Cancelled of exn
   (** [Cancelled ex] indicates that the context was cancelled with exception [ex].
       It is usually not necessary to report a [Cancelled] exception to the user,
-      as the original problem will be handled elsewhere. *)
+      as the original problem will be handled elsewhere.
+
+      The nested exception is only intended for debug-level logging and should generally be ignored. *)
 
   exception Cancel_hook_failed of exn list
   (** Raised by {!cancel} if any of the cancellation hooks themselves fail. *)
 
   val sub : (t -> 'a) -> 'a
   (** [sub fn] installs a new cancellation context [t], runs [fn t] inside it, and then restores the old context.
+
       If the old context is cancelled while [fn] is running then [t] is cancelled too.
       [t] cannot be used after [sub] returns. *)
 
   val protect : (unit -> 'a) -> 'a
   (** [protect fn] runs [fn] in a new cancellation context that isn't cancelled when its parent is.
+
       This can be used to clean up resources on cancellation.
       However, it is usually better to use {!Switch.on_release} (which calls this for you).
+
       Note that [protect] does not check its parent context when it finishes. *)
 
   val check : t -> unit
@@ -385,19 +425,36 @@ module Cancel : sig
 
   val get_error : t -> exn option
   (** [get_error t] is like [check t] except that it returns the exception instead of raising it.
+
       If [t] is finished, this returns (rather than raising) the [Invalid_argument] exception too. *)
 
   val cancel : t -> exn -> unit
   (** [cancel t ex] marks [t] and its child contexts as cancelled, recursively,
       and calls all registered fibres' cancellation functions, passing [Cancelled ex] as the argument.
+
       All cancellation functions are run, even if some of them raise exceptions.
+
       If [t] is already cancelled then this does nothing.
+
       Note that the caller of this function is still responsible for handling the error somehow
       (e.g. reporting it to the user); it does not become the responsibility of the cancelled thread(s).
+
       @raise Cancel_hook_failed if one or more hooks fail. *)
 
   val dump : t Fmt.t
   (** Show the cancellation sub-tree rooted at [t], for debugging. *)
+end
+
+(** Commonly used standard features. This module is intended to be [open]ed. *)
+module Std : sig
+  module Promise = Promise
+  module Fibre = Fibre
+  module Switch = Switch
+
+  val traceln :
+    ?__POS__:string * int * int * int ->
+    ('a, Format.formatter, unit, unit) format4 -> 'a
+    (** Same as {!Eio.traceln}. *)
 end
 
 (** {1 Cross-platform OS API}
@@ -406,7 +463,10 @@ end
     plus an object type to allow defining your own implementations.
     To use the resources, it is recommended that you use the functions rather than calling
     methods directly. Using the functions results in better error messages from the compiler,
-    and may provide extra features or sanity checks. *)
+    and may provide extra features or sanity checks.
+
+    The system resources are available from the {!Stdenv.t} provided by your event loop
+    (e.g. {!Lwt_main.run}). *)
 
 (** A base class for objects that can be queried at runtime for extra features. *)
 module Generic : sig
@@ -425,25 +485,17 @@ end
 
 (** Byte streams. *)
 module Flow : sig
-  type shutdown_command = [ `Receive | `Send | `All ]
+  (** Flows are used to represent byte streams, such as open files and network sockets.
+      A {!source} provides a stream of bytes. A {!sink} consumes a stream.
+      A {!two_way} can do both.
+
+      To read structured data (e.g. a line at a time), wrap a source using {!Buf_read}. *)
+
+  (** {2 Reading} *)
 
   type read_method = ..
   (** Sources can offer a list of ways to read them, in order of preference. *)
 
-  type read_method += Read_source_buffer of ((Cstruct.t list -> unit) -> unit)
-  (** If a source offers [Read_source_buffer rsb] then the user can call [rsb fn]
-      to borrow a view of the source's buffers.
-      [rb] will raise [End_of_file] if no more data will be produced.
-      If no data is currently available, [rb] will wait for some to become available before calling [fn].
-      [fn] must not continue to use the buffers after it returns. *)
-
-  class type close = object
-    method close : unit
-  end
-
-  val close : #close -> unit
-
-  (** Producer base class. *)
   class virtual source : object
     inherit Generic.t
     method read_methods : read_method list
@@ -452,15 +504,18 @@ module Flow : sig
 
   val read : #source -> Cstruct.t -> int
   (** [read src buf] reads one or more bytes into [buf].
-      It returns the number of bytes written (which may be less than the
-      buffer size even if there is more data to be read).
-      [buf] must not be zero-length.
 
+      It returns the number of bytes read (which may be less than the
+      buffer size even if there is more data to be read).
       [read src] just makes a single call to [src#read_into]
       (and asserts that the result is in range).
-      Use {!read_exact} instead if you want to fill [buf] completely.
-      Use {!Buf_read.line} to read complete lines.
-      Use {!copy} to stream data directly from a source to a sink.
+
+      - Use {!read_exact} instead if you want to fill [buf] completely.
+      - Use {!Buf_read.line} to read complete lines.
+      - Use {!copy} to stream data directly from a source to a sink.
+
+      [buf] must not be zero-length.
+
       @raise End_of_file if there is no more data to read *)
 
   val read_exact : #source -> Cstruct.t -> unit
@@ -470,11 +525,25 @@ module Flow : sig
   val read_methods : #source -> read_method list
   (** [read_methods flow] is a list of extra ways of reading from [flow],
       with the preferred (most efficient) methods first.
+
       If no method is suitable, {!read} should be used as the fallback. *)
 
   val string_source : string -> source
+  (** [string_source s] is a source that gives the bytes of [s]. *)
 
   val cstruct_source : Cstruct.t list -> source
+  (** [cstruct_source cs] is a source that gives the bytes of [cs]. *)
+
+  type read_method += Read_source_buffer of ((Cstruct.t list -> unit) -> unit)
+  (** If a source offers [Read_source_buffer rsb] then the user can call [rsb fn]
+      to borrow a view of the source's buffers.
+
+      [rsb] will raise [End_of_file] if no more data will be produced.
+      If no data is currently available, [rsb] will wait for some to become available before calling [fn].
+
+      [fn] must not continue to use the buffers after it returns. *)
+
+  (** {2 Writing} *)
 
   (** Consumer base class. *)
   class virtual sink : object
@@ -486,10 +555,19 @@ module Flow : sig
   (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
 
   val copy_string : string -> #sink -> unit
+  (** [copy_string s = copy (string_source s)] *)
 
   val buffer_sink : Buffer.t -> sink
+  (** [buffer_sink b] is a sink that adds anything sent to it to [b]. *)
 
-  (** Bidirectional stream base class. *)
+  (** {2 Bidirectional streams} *)
+
+  type shutdown_command = [
+    | `Receive  (** Indicate that no more reads will be done *)
+    | `Send     (** Indicate that no more writes will be done *)
+    | `All      (** Indicate that no more reads or writes will be done *)
+  ]
+
   class virtual two_way : object
     inherit source
     inherit sink
@@ -498,32 +576,64 @@ module Flow : sig
   end
 
   val shutdown : #two_way -> shutdown_command -> unit
+  (** [shutdown t cmd] indicates that the caller has finished reading or writing [t]
+      (depending on [cmd]).
+
+      This is useful in some protocols to indicate that you have finished sending the request,
+      and that the remote peer should now send the response. *)
+
+  (** {2 Closing}
+
+      Flows are usually attached to switches and closed automatically when the switch
+      finished. However, it can be useful to close them sooner manually in some cases. *)
+
+  class type close = object
+    method close : unit
+  end
+
+  val close : #close -> unit
+  (** [close t] marks the flow as closed. It can no longer be used after this. *)
 end
 
 (** Buffered input and parsing *)
 module Buf_read : sig
   (** This module provides fairly efficient non-backtracking parsers.
       It is modelled on Angstrom's API, and you should use that if
-      backtracking is needed. *)
+      backtracking is needed.
+
+      Example:
+      {[
+        let r = Buf_read.of_flow flow ~max_size:1_000_000 in
+        Buf_read.line r
+      ]}
+  *)
 
   type t
+  (** An input buffer. *)
 
   exception Buffer_limit_exceeded
+  (** Raised if parsing an item would require enlarging the buffer beyond its configured limit. *)
 
   type 'a parser = t -> 'a
   (** An ['a parser] is a function that consumes and returns a value of type ['a].
       @raise Failure The flow can't be parsed as a value of type ['a].
       @raise End_of_file The flow ended without enough data to parse an ['a].
-      @raise Buffer_limit_exceeded The value was larger than the requested maximum buffer size. *)
+      @raise Buffer_limit_exceeded Parsing the value would exceed the configured size limit. *)
 
   val parse : ?initial_size:int -> max_size:int -> 'a parser -> #Flow.source -> ('a, [> `Msg of string]) result
   (** [parse p flow ~max_size] uses [p] to parse everything in [flow].
+
       It is a convenience function that does
-      [let buf = of_flow flow ~max_size in format_errors (p <* eof) buf]
+      {[
+        let buf = of_flow flow ~max_size in
+        format_errors (p <* eof) buf
+      ]}
+
       @param initial_size see {!of_flow}. *)
 
   val of_flow : ?initial_size:int -> max_size:int -> #Flow.source -> t
   (** [of_flow ~max_size flow] is a buffered reader backed by [flow].
+
       @param initial_size The initial amount of memory to allocate for the buffer.
       @param max_size The maximum size to which the buffer may grow.
                       This must be large enough to hold the largest single item
@@ -535,20 +645,25 @@ module Buf_read : sig
                       to need. *)
 
   val as_flow : t -> Flow.source
-  (** [as_flow t] is a buffered flow. Reading from it will return data from the buffer,
+  (** [as_flow t] is a buffered flow.
+
+      Reading from it will return data from the buffer,
       only reading the underlying flow if the buffer is empty. *)
 
   (** {2 Reading data} *)
 
   val line : string parser
   (** [line] parses one line.
+
       Lines can be terminated by either LF or CRLF.
       The returned string does not include the terminator.
+
       If [End_of_file] is reached after seeing some data but before seeing a line
       terminator, the data seen is returned as the last line. *)
 
   val lines : string Seq.t parser
   (** [lines] returns a sequence that lazily reads the next line until the end of the input is reached.
+
       [lines = seq line ~stop:at_end_of_input] *)
 
   val char : char -> unit parser
@@ -560,10 +675,12 @@ module Buf_read : sig
 
   val peek_char : char option parser
   (** [peek_char] returns [Some c] where [c] is the next character, but does not consume it.
+
       Returns [None] at the end of the input stream rather than raising [End_of_file]. *)
 
   val string : string -> unit parser
   (** [string s] checks that [s] is the next string in the stream and consumes it.
+
       @raise Failure if [s] is not a prefix of the stream. *)
 
   val take : int -> string parser
@@ -571,26 +688,33 @@ module Buf_read : sig
 
   val take_all : string parser
   (** [take_all] takes all remaining data until end-of-file.
+
       Returns [""] if already at end-of-file.
+
       @raise Buffer_limit_exceeded if the remaining data exceeds or equals the buffer limit
              (it needs one extra byte to confirm it has reached end-of-file). *)
 
   val take_while : (char -> bool) -> string parser
   (** [take_while p] finds the first byte for which [p] is false
       and consumes and returns all bytes before that.
+
       If [p] is true for all remaining bytes, it returns everything until end-of-file.
+
       It will return the empty string if there are no matching characters
       (and therefore never raises [End_of_file]). *)
 
   val skip_while : (char -> bool) -> unit parser
   (** [skip_while p] skips zero or more bytes for which [p] is [true].
+
       [skip_while p t] does the same thing as [ignore (take_while p t)],
       except that it is not limited by the buffer size. *)
 
   val skip : int -> unit parser
   (** [skip n] discards the next [n] bytes.
+
       [skip n] = [map ignore (take n)],
       except that the number of skipped bytes may be larger than the buffer (it will not grow).
+
       Note: if [End_of_file] is raised, all bytes in the stream will have been consumed. *)
 
   val at_end_of_input : bool parser
@@ -612,6 +736,7 @@ module Buf_read : sig
   val pair : 'a parser -> 'b parser -> ('a * 'b) parser
   (** [pair a b] is a parser that first uses [a] to parse a value [x],
       then uses [b] to parse a value [y], then returns [(x, y)].
+
       Note that this module does not support backtracking, so if [b] fails
       then the bytes consumed by [a] are lost. *)
 
@@ -627,6 +752,7 @@ module Buf_read : sig
   (** [format_errors p] catches [Failure], [End_of_file] and
       [Buffer_limit_exceeded] exceptions and returns them as a formatted error message. *)
 
+  (** Convenient syntax for some of the combinators. *)
   module Syntax : sig
     val ( let+ ) : 'a parser -> ('a -> 'b) -> 'b parser
     (** Syntax for {!map}. *)
@@ -657,39 +783,70 @@ module Buf_read : sig
 
   val peek : t -> Cstruct.t
   (** [peek t] returns a view onto the active part of [t]'s internal buffer.
+
       Performing any operation that might add to the buffer may invalidate this,
       so it should be used immediately and then forgotten.
+
       [Cstruct.length (peek t) = buffered_bytes t]. *)
 
   val ensure : t -> int -> unit
   (** [ensure t n] ensures that the buffer contains at least [n] bytes of data.
+
       If not, it reads from the flow until there is.
+
       [buffered_bytes (ensure t n) >= n].
+
       @raise End_of_file if the flow ended before [n] bytes were available
       @raise Buffer_limit_exceeded if [n] exceeds the buffer's maximum size *)
 
   val consume : t -> int -> unit
-  (** [consume t n] discards the first [n] bytes from [t].
-      [buffered_bytes t' = buffered_bytes t - n] *)
+  (** [consume t n] discards the first [n] bytes from [t]'s buffer.
+
+      Use this after {!peek} to mark some bytes as consumed.
+
+      [buffered_bytes t' = buffered_bytes t - n]
+
+      Note: unlike {!skip}, this will not read data from the underlying flow. *)
 
   val consumed_bytes : t -> int
   (** [consumed_bytes t] is the total number of bytes consumed.
+
       i.e. it is the offset into the stream of the next byte to be parsed. *)
 
   val eof_seen : t -> bool
   (** [eof_seen t] indicates whether we've received [End_of_file] from the underlying flow.
-      If so, there will never be any further data beyond what [peek] already returns. *)
+
+      If so, there will never be any further data beyond what [peek] already returns.
+
+      Note that this returns [false] if we're at the end of the stream but don't know it yet.
+      Use {!at_end_of_input} to be sure. *)
 end
 
+(** Networking. *)
 module Net : sig
+  (** Example:
+      {[
+        let addr = `Tcp (Ipaddr.V4.loopback, 8080)
+
+        let http_get ~net ~stdout addr =
+          Switch.run @@ fun sw ->
+          let flow = Net.connect ~sw net addr in
+          Flow.copy_string "GET / HTTP/1.0\r\n\r\n" flow;
+          Flow.shutdown flow `Send;
+          Flow.copy flow stdout
+        ]}
+  *)
+
   exception Connection_reset of exn
 
+  (** IP addresses. *)
   module Ipaddr : sig
     type 'a t = private string
     (** The raw bytes of the IP address.
         It is either 4 bytes long (for an IPv4 address) or
         16 bytes long (for IPv6). *)
 
+    (** IPv4 addresses. *)
     module V4 : sig
       val any : [> `V4] t
       (** A special IPv4 address, for use only with [listen], representing
@@ -699,6 +856,7 @@ module Net : sig
       (** A special IPv4 address representing the host machine ([127.0.0.1]). *)
     end
 
+    (** IPv6 addresses. *)
     module V6 : sig
       val any : [> `V6] t
       (** A special IPv6 address, for use only with [listen], representing
@@ -709,6 +867,8 @@ module Net : sig
     end
 
     val pp : [< `V4 | `V6] t Fmt.t
+    (** [pp] formats IP addresses.
+        For IPv6 addresses, it follows {{:http://tools.ietf.org/html/rfc5952}}. *)
 
     type v4v6 = [`V4 | `V6] t
 
@@ -722,6 +882,7 @@ module Net : sig
         @raise Invalid_argument if it is not 4 or 16 bytes long. *)
   end
 
+  (** Network addresses. *)
   module Sockaddr : sig
     type t = [
       | `Unix of string
@@ -731,17 +892,46 @@ module Net : sig
     val pp : Format.formatter -> t -> unit
   end
 
+  (** {2 Provider Interfaces} *)
+
   class virtual listening_socket : object
     inherit Generic.t
     method virtual close : unit
     method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.t
   end
 
+  class virtual t : object
+    method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
+    method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
+  end
+
+  (** {2 Out-bound Connections} *)
+
+  val connect : sw:Switch.t -> #t -> Sockaddr.t -> <Flow.two_way; Flow.close>
+  (** [connect ~sw t addr] is a new socket connected to remote address [addr].
+
+      The new socket will be closed when [sw] finishes, unless closed manually first. *)
+
+  (** {2 Incoming Connections} *)
+
+  val listen : ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.t -> listening_socket
+  (** [listen ~sw ~backlog t addr] is a new listening socket bound to local address [addr].
+
+      The new socket will be closed when [sw] finishes, unless closed manually first.
+
+      For (non-abstract) Unix domain sockets, the path will be removed afterwards.
+
+      @param backlog The number of pending connections that can be queued up (see listen(2)).
+      @param reuse_addr Set the {!Unix.SO_REUSEADDR} socket option.
+                        For Unix paths, also remove any stale left-over socket.
+      @param reuse_port Set the {!Unix.SO_REUSEPORT} socket option. *)
+
   val accept :
     sw:Switch.t ->
     #listening_socket ->
     <Flow.two_way; Flow.close> * Sockaddr.t
   (** [accept ~sw socket] waits until a new connection is ready on [socket] and returns it.
+
       The new socket will be closed automatically when [sw] finishes, if not closed earlier.
       If you want to handle multiple connections, consider using {!accept_sub} instead. *)
 
@@ -751,29 +941,15 @@ module Net : sig
     on_error:(exn -> unit) ->
     (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
     unit
-  (** [accept socket fn] waits for a new connection to [socket] and then runs [fn ~sw flow client_addr] in a new fibre,
+  (** [accept socket fn] accepts a connection and handles it in a new fibre.
+
+      After accepting a connection to [socket], it runs [fn ~sw flow client_addr] in a new fibre,
       using {!Fibre.fork_on_accept}.
+
       [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
-
-  class virtual t : object
-    method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
-    method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
-  end
-
-  val listen : ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.t -> listening_socket
-  (** [listen ~sw ~backlog t addr] is a new listening socket bound to local address [addr].
-      The new socket will be closed when [sw] finishes, unless closed manually first.
-      For (non-abstract) Unix domain sockets, the path will be removed afterwards.
-      @param backlog The number of pending connections that can be queued up (see listen(2)).
-      @param reuse_addr Set the [Unix.SO_REUSEADDR] socket option.
-                        For Unix paths, also remove any stale left-over socket.
-      @param reuse_port Set the [Unix.SO_REUSEPORT] socket option. *)
-
-  val connect : sw:Switch.t -> #t -> Sockaddr.t -> <Flow.two_way; Flow.close>
-  (** [connect ~sw t addr] is a new socket connected to remote address [addr].
-      The new socket will be closed when [sw] finishes, unless closed manually first. *)
 end
 
+(** Parallel computation across multiple CPU cores. *)
 module Domain_manager : sig
   class virtual t : object
     method virtual run_raw : 'a. (unit -> 'a) -> 'a
@@ -784,9 +960,12 @@ module Domain_manager : sig
 
   val run : #t -> (unit -> 'a) -> 'a
   (** [run t f] runs [f ()] in a newly-created domain and returns the result.
+
       Other fibres in the calling domain can run in parallel with the new domain.
+
       Warning: [f] must only access thread-safe values from the calling domain,
       but this is not enforced by the type system.
+
       If the calling fibre is cancelled, this is propagated to the spawned domain. *)
 
   val run_raw : #t -> (unit -> 'a) -> 'a
@@ -794,6 +973,7 @@ module Domain_manager : sig
       and so cannot perform IO, fork fibres, etc. *)
 end
 
+(** Clocks, time, sleeping and timeouts. *)
 module Time : sig
   class virtual clock : object
     method virtual now : float
@@ -819,12 +999,25 @@ module Time : sig
       raising exception [Timeout]. *)
 end
 
+(** Tranditional Unix permissions. *)
 module Unix_perm : sig
   type t = int
   (** This is the same as {!Unix.file_perm}, but avoids a dependency on [Unix]. *)
 end
 
+(** File-system access. *)
 module Dir : sig
+  (** A [Dir.t] represents access to a directory and contents, recursively.
+
+      {!Stdenv.fs} provides access to the whole file-system.
+
+      Example:
+
+      {[
+        Eio.Dir.load fs "/etc/passwd"
+      ]}
+  *)
+
   type path = string
 
   exception Already_exists of path * exn
@@ -837,15 +1030,15 @@ module Dir : sig
     inherit Flow.sink
   end
 
-  type create = [`Never | `If_missing of Unix_perm.t | `Or_truncate of Unix_perm.t | `Exclusive of Unix_perm.t]
-  (** When to create a new file:
-      If [`Never] then it's an error if the named file doesn't exist.
-      If [`If_missing] then an existing file is simply opened.
-      If [`Or_truncate] then an existing file truncated to zero length.
-      If [`Exclusive] then it is an error is the file does exist.
-      If a new file is created, the given permissions are used for it. *)
+  (** When to create a new file. *)
+  type create = [
+    | `Never                            (** fail if the named file doesn't exist *)
+    | `If_missing of Unix_perm.t        (** create if file doesn't already exist *)
+    | `Or_truncate of Unix_perm.t       (** any existing file is truncated to zero length *)
+    | `Exclusive of Unix_perm.t         (** always create; fail if the file already exists *)
+  ]
+  (** If a new file is created, the given permissions are used for it. *)
 
-  (** A [Dir.t] represents access to a directory and contents, recursively. *)
   class virtual t : object
     method virtual open_in : sw:Switch.t -> path -> <Flow.source; Flow.close>
     method virtual open_out :
@@ -861,16 +1054,16 @@ module Dir : sig
     method virtual close : unit
   end
 
+  (** {1 Reading files} *)
+
   val load : #t -> path -> string
   (** [load t path] returns the contents of the given file.
-      This is a convenience wrapper around {!with_open_in}. *)
 
-  val save : ?append:bool -> create:create -> #t -> path -> string -> unit
-  (** [save t path data ~create] writes [data] to [path].
-      This is a convenience wrapper around {!with_open_out}. *)
+      This is a convenience wrapper around {!with_open_in}. *)
 
   val open_in : sw:Switch.t -> #t -> path -> <Flow.source; Flow.close>
   (** [open_in ~sw t path] opens [t/path] for reading.
+
       Note: files are always opened in binary mode. *)
 
   val with_open_in : #t -> path -> (<Flow.source; Flow.close> -> 'a) -> 'a
@@ -878,7 +1071,16 @@ module Dir : sig
       it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
   val with_lines : #t -> path -> (string Seq.t -> 'a) -> 'a
-  (** [with_lines t path fn] is a convenience function for streaming the lines of the file. *)
+  (** [with_lines t path fn] is a convenience function for streaming the lines of the file.
+
+      It uses {!Buf_read.lines}. *)
+
+  (** {1 Writing files} *)
+
+  val save : ?append:bool -> create:create -> #t -> path -> string -> unit
+  (** [save t path data ~create] writes [data] to [path].
+
+      This is a convenience wrapper around {!with_open_out}. *)
 
   val open_out :
     sw:Switch.t ->
@@ -886,6 +1088,7 @@ module Dir : sig
     create:create ->
     #t -> path -> <rw; Flow.close>
   (** [open_out ~sw t path] opens [t/path] for reading and writing.
+
       Note: files are always opened in binary mode.
       @param append Open for appending: always write at end of file.
       @param create Controls whether to create the file, and what permissions to give it if so. *)
@@ -897,11 +1100,14 @@ module Dir : sig
   (** [with_open_out] is like [open_out], but calls [fn flow] with the new flow and closes
       it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
+  (** {1 Directories} *)
+
   val mkdir : #t -> perm:Unix.file_perm -> path -> unit
   (** [mkdir t ~perm path] creates a new directory [t/path] with permissions [perm]. *)
 
   val open_dir : sw:Switch.t -> #t -> path -> <t; Flow.close>
   (** [open_dir ~sw t path] opens [t/path].
+
       This can be passed to functions to grant access only to the subtree [t/path]. *)
 
   val with_open_dir : #t -> path -> (<t; Flow.close> -> 'a) -> 'a
@@ -911,6 +1117,19 @@ end
 
 (** The standard environment of a process. *)
 module Stdenv : sig
+  (** All access to the outside world comes from running the event loop,
+      which provides a {!t}.
+
+      Example:
+      {[
+        let () =
+          Eio_main.run @@ fun env ->
+          Eio.Dir.with_open_dir env#fs "/srv/www" @@ fun www ->
+          serve_files www
+            ~net:env#net
+      ]}
+  *)
+
   type t = <
     stdin  : Flow.source;
     stdout : Flow.sink;
@@ -923,27 +1142,104 @@ module Stdenv : sig
     secure_random : Flow.source;
   >
 
+  (** {1 Standard streams}
+
+      To use these, see {!Flow}. *)
+
   val stdin  : <stdin  : #Flow.source as 'a; ..> -> 'a
   val stdout : <stdout : #Flow.sink   as 'a; ..> -> 'a
   val stderr : <stderr : #Flow.sink   as 'a; ..> -> 'a
 
+  (** {1 File-system access}
+
+      To use these, see {!Dir}. *)
+
+  val cwd : <cwd : #Dir.t as 'a; ..> -> 'a
+  (** [cwd t] is the current working directory of the process (this may change
+      over time if the process does a "chdir" operation, which is not recommended). *)
+
+  val fs : <fs : #Dir.t as 'a; ..> -> 'a
+  (** [fs t] is the process's full access to the filesystem.
+
+      Paths can be absolute or relative (to the current working directory).
+      Using relative paths with this is similar to using them with {!cwd},
+      except that this will follow ".." and symlinks to other parts of the filesystem.
+
+      [fs] is useful for handling paths passed in by the user. *)
+
+  (** {1 Network}
+
+      To use this, see {!Net}.
+  *)
+
   val net : <net : #Net.t as 'a; ..> -> 'a
+  (** [net t] gives access to the process's network namespace. *)
+
+  (** {1 Domains (using multiple CPU cores)}
+
+      To use this, see {!Domain_manager}.
+  *)
+
   val domain_mgr : <domain_mgr : #Domain_manager.t as 'a; ..> -> 'a
+  (** [domain_mgr t] allows running code on other cores. *)
+
+  (** {1 Time}
+
+      To use this, see {!Time}.
+  *)
+
   val clock : <clock : #Time.clock as 'a; ..> -> 'a
+  (** [clock t] is the system clock. *)
+
+  (** {1 Randomness} *)
 
   val secure_random : <secure_random : #Flow.source as 'a; ..> -> 'a
   (** [secure_random t] is a source of random bytes suitable for cryptographic purposes. *)
 
-  val cwd : <cwd : #Dir.t as 'a; ..> -> 'a
-  (** [cwd t] is the current working directory of the process (this may change
-      over time if the process does a `chdir` operation, which is not recommended). *)
+end
 
-  val fs : <fs : #Dir.t as 'a; ..> -> 'a
-  (** [fs t] is the process's full access to the filesystem.
-      Paths can be absolute or relative (to the current working directory).
-      Using relative paths with this is similar to using them with {!cwd},
-      except that this will follow symlinks to other parts of the filesystem.
-      [fs] is useful for handling paths passed in by the user. *)
+(** {1 Errors and Debugging} *)
+
+val traceln :
+  ?__POS__:string * int * int * int ->
+  ('a, Format.formatter, unit, unit) format4 -> 'a
+(** [traceln fmt] outputs a debug message (typically to stderr).
+
+    Trace messages are printed by default and do not require logging to be configured first.
+    The message is printed with a newline, and is flushed automatically.
+    [traceln] is intended for quick debugging rather than for production code.
+
+    Unlike most Eio operations, [traceln] will never switch to another fibre;
+    if the OS is not ready to accept the message then the whole domain waits.
+
+    It is safe to call [traceln] from multiple domains at the same time.
+    Each line will be written atomically.
+
+    Examples:
+    {[
+      traceln "x = %d" x;
+      traceln "x = %d" x ~__POS__;   (* With location information *)
+    ]}
+    @param __POS__ Display [__POS__] as the location of the [traceln] call. *)
+
+
+(** Reporting multiple failures at once. *)
+module Exn : sig
+  type with_bt = exn * Printexc.raw_backtrace
+
+  exception Multiple of exn list
+  (** Raised if multiple fibres fail, to report all the exceptions. *)
+
+  val combine : with_bt -> with_bt -> with_bt
+  (** [combine x y] returns a single exception and backtrace to use to represent two errors.
+
+      Only one of the backtraces will be kept.
+      The resulting exception is typically just [Multiple [y; x]],
+      but various heuristics are used to simplify the result:
+      - Combining with a {!Cancel.Cancelled} exception does nothing, as these don't need to be reported.
+        The result is only [Cancelled] if there is no other exception available.
+      - If [x] is a [Multiple] exception then [y] is added to it, to avoid nested [Multiple] exceptions.
+      - Duplicate exceptions are removed (using physical equality of the exception). *)
 end
 
 (** {1 Provider API for OS schedulers} *)

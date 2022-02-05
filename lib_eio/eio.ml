@@ -1,6 +1,5 @@
 open Effect
 
-module Hook = Hook
 module Cancel = Cancel
 
 module Private = struct
