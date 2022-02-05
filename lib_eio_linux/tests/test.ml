@@ -25,7 +25,7 @@ let test_poll_add () =
   Eio_linux.Low_level.await_writable w;
   let sent = Unix.write (Eio_linux.FD.to_unix `Peek w) (Bytes.of_string "!") 0 1 in
   assert (sent = 1);
-  let result = Promise.await thread in
+  let result = Promise.await_exn thread in
   Alcotest.(check string) "Received data" "!" result
 
 let test_poll_add_busy () =
@@ -38,9 +38,9 @@ let test_poll_add_busy () =
   let w = Option.get (Eio_linux.get_fd_opt w) |> Eio_linux.FD.to_unix `Peek in
   let sent = Unix.write w (Bytes.of_string "!!") 0 2 in
   assert (sent = 2);
-  let a = Promise.await a in
+  let a = Promise.await_exn a in
   Alcotest.(check string) "Received data" "!" a;
-  let b = Promise.await b in
+  let b = Promise.await_exn b in
   Alcotest.(check string) "Received data" "!" b
 
 (* Write a string to a pipe and read it out again. *)

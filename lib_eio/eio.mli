@@ -116,7 +116,7 @@ module Promise : sig
         let promise, resolver = Promise.create () in
         Fibre.both
           (fun () -> traceln "Got %d" (Promise.await promise))
-          (fun () -> Promise.fulfill resolver 42)
+          (fun () -> Promise.resolve resolver 42)
       ]} *)
 
   type !'a t
@@ -129,47 +129,44 @@ module Promise : sig
   (** [create ()] is a fresh promise/resolver pair.
       The promise is initially unresolved. *)
 
+  val create_resolved : 'a -> 'a t
+  (** [create_resolved x] is a promise that is already resolved with result [x]. *)
+
   val await : 'a t -> 'a
   (** [await t] blocks until [t] is resolved.
-      If [t] is already resolved then this returns immediately.
-      If [t] is broken, it raises the exception. *)
+      If [t] is already resolved then this returns immediately. *)
 
-  val await_result : 'a t -> ('a, exn) result
-  (** [await_result t] is like [await t], but returns [Error ex] if [t] is broken
-      instead of raising an exception.
-      Note that if the [await_result] itself is cancelled then it still raises. *)
+  val resolve : 'a u -> 'a -> unit
+  (** [resolve u v] resolves [u]'s promise with the value [v].
+      Any threads waiting for the result will be added to the run queue.
+      @raise Invalid_argument if [u] is already resolved. *)
 
-  val fulfill : 'a u -> 'a -> unit
-  (** [fulfill u v] successfully resolves [u]'s promise with the value [v].
-      Any threads waiting for the result will be added to the run queue. *)
-
-  val break : 'a u -> exn -> unit
-  (** [break u ex] resolves [u]'s promise with the exception [ex].
-      Any threads waiting for the result will be added to the run queue. *)
-
-  val resolve : 'a u -> ('a, exn) result -> unit
-  (** [resolve t (Ok x)] is [fulfill t x] and
-      [resolve t (Error ex)] is [break t ex]. *)
-
-  val fulfilled : 'a -> 'a t
-  (** [fulfilled x] is a promise that is already fulfilled with result [x]. *)
-
-  val broken : exn -> 'a t
-  (** [broken x] is a promise that is already broken with exception [ex]. *)
-
-  val state : 'a t -> [`Unresolved | `Fulfilled of 'a | `Broken of exn]
-  (** [state t] is the current state of [t].
-      If the state is [`Unresolved] then it may change in future, otherwise it won't.
+  val peek : 'a t -> 'a option
+  (** [peek t] is [Some v] if the promise has been resolved to [v], or [None] otherwise.
+      If the result is [None] then it may change in future, otherwise it won't.
       If another domain has access to the resolver then the state may have already
       changed by the time this call returns. *)
 
   val is_resolved : 'a t -> bool
-  (** [is_resolved t] is [state t <> `Unresolved]. *)
+  (** [is_resolved t] is [Option.is_some (peek t)]. *)
 
   val create_with_id : Ctf.id -> 'a t * 'a u
-  (** Like [create], but the caller creates the tracing ID.
+  (** Like {!create}, but the caller creates the tracing ID.
       This can be useful when implementing other primitives that use promises internally,
       to give them a different type in the trace output. *)
+
+  (** {1 Result promises} *)
+
+  type 'a or_exn = ('a, exn) result t
+
+  val resolve_ok : ('a, 'b) result u -> 'a -> unit
+  (** [resolve_ok u x] is [resolve u (Ok x)]. *)
+
+  val resolve_error : ('a, 'b) result u -> 'b -> unit
+  (** [resolve_error u x] is [resolve u (Error x)]. *)
+
+  val await_exn : 'a or_exn -> 'a
+  (** [await_exn t] is like [await t], but if the result is [Error ex] then it raises [ex]. *)
 end
 
 (** A fibre is a light-weight thread. *)
@@ -258,7 +255,7 @@ module Fibre : sig
       If that raises in turn, the parent switch is failed.
       [on_handler_error] is not called if the parent [sw] is itself cancelled. *)
 
-  val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.t
+  val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.or_exn
   (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fibre and returns a promise for its result.
 
       This is just a convenience wrapper around {!fork}.

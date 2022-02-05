@@ -757,7 +757,7 @@ One fibre can wait for a promise and another can resolve it:
     )
     (fun () ->
       traceln "Resolving promise";
-      Promise.fulfill resolver 42
+      Promise.resolve resolver 42
     );;
 +Waiting for promise...
 +Resolving promise
@@ -765,10 +765,8 @@ One fibre can wait for a promise and another can resolve it:
 - : unit = ()
 ```
 
-A promise is initially "unresolved". It can then either become "fulfilled" (as in the example above) or "broken" (with an exception).
-Either way, the promise is then said to be "resolved". A promise can only be resolved once.
-Awaiting a promise that is already resolved immediately returns the resolved value
-(or raises the exception, if broken).
+A promise is initially "unresolved", and can only be resolved once.
+Awaiting a promise that is already resolved immediately returns the resolved value.
 
 Promises are one of the easiest tools to use safely:
 it doesn't matter whether you wait on a promise before or after it is resolved,
@@ -781,9 +779,9 @@ Promises are also useful for integrating with callback-based libraries. For exam
 let wrap fn x =
   let promise, resolver = Promise.create () in
   fn x
-    ~on_success:(Promise.resolve resolver)
-    ~on_error:(Promise.break resolver);
-  Promise.await promise
+    ~on_success:(Promise.resolve_ok resolver)
+    ~on_error:(Promise.resolve_error resolver);
+  Promise.await_exn promise
 ```
 
 ### Example: Concurrent Cache
@@ -797,16 +795,16 @@ let make_cache ~sw fn =
   let tbl = Hashtbl.create 10 in
   fun key ->
     match Hashtbl.find_opt tbl key with
-    | Some p -> Promise.await p
+    | Some p -> Promise.await_exn p
     | None ->
       let p, r = Promise.create () in
       Hashtbl.add tbl key p;
       Fibre.fork ~sw (fun () ->
         match fn key with
-        | v -> Promise.fulfill r v
-        | exception ex -> Promise.break r ex
+        | v -> Promise.resolve_ok r v
+        | exception ex -> Promise.resolve_error r ex
       );
-      Promise.await p
+      Promise.await_exn p
 ```
 
 Notice that we store the new promise in the cache immediately,
@@ -917,7 +915,7 @@ let run_worker id stream =
   while true do
     let request, reply = Eio.Stream.take stream in
     traceln "Worker %s processing request %d" id request;
-    Promise.fulfill reply (handle_job request)
+    Promise.resolve reply (handle_job request)
   done
 
 let submit stream request =
@@ -974,8 +972,8 @@ let run_worker id stream =
     let request, reply = Eio.Stream.take stream in
     traceln "Worker %s processing request %d" id request;
     match handle_job request with
-    | result -> Promise.fulfill reply result
-    | exception ex -> Promise.break reply ex; Fibre.check ()
+    | result -> Promise.resolve_ok reply result
+    | exception ex -> Promise.resolve_error reply ex; Fibre.check ()
   done
 ```
 

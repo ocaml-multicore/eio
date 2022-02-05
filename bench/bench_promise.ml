@@ -1,8 +1,12 @@
 open Eio.Std
 
-type payload = {
-  value : int;
-  next : payload Promise.u;
+type request = {
+  req_body : int;
+  response : response option Promise.u;
+}
+and response = {
+  resp_body : int;
+  next_request : request Promise.u;
 }
 
 (* A client and server exchange these payload values.
@@ -11,32 +15,32 @@ type payload = {
 let rec run_server ~n_iters ~i r =
   (* Set up reply channel *)
   let p2, r2 = Promise.create () in
-  (* Send i and reply channel to client *)
-  Promise.fulfill r { value = i; next = r2 };
+  (* Send i and next_request channel to client *)
+  Promise.resolve r (Some { resp_body = i; next_request = r2 });
   (* Await client's response, with new send channel *)
-  let { value; next } = Promise.await p2 in
-  assert (value = i);
+  let { req_body; response } = Promise.await p2 in
+  assert (req_body = i);
   if i < n_iters then
-    run_server ~n_iters ~i:(succ i) next
+    run_server ~n_iters ~i:(succ i) response
   else
-    Promise.break next Exit
+    Promise.resolve response None
 
 let rec run_client ~n_iters ~i p =
   (* Wait for message and reply channel from server *)
   match Promise.await p with
-  | { value; next } ->
-    assert (value = i);
+  | Some { resp_body; next_request } ->
+    assert (resp_body = i);
     (* Create new channel for next message *)
     let p2, r2 = Promise.create () in
     (* Send reply message and new channel to the server *)
-    Promise.fulfill next { value = i; next = r2 };
+    Promise.resolve next_request { req_body = i; response = r2 };
     run_client ~n_iters ~i:(succ i) p2
-  | exception Exit ->
+  | None ->
     assert (i = n_iters + 1)
 
 let bench_resolved ~clock ~n_iters =
   let t0 = Eio.Time.now clock in
-  let p = Promise.fulfilled 1 in
+  let p = Promise.create_resolved 1 in
   let t = ref 0 in
   for _ = 1 to n_iters do
     t := !t + Promise.await p;

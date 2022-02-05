@@ -21,8 +21,8 @@ let fork_promise ~sw f =
   let p, r = Promise.create_with_id (Cancel.Fibre_context.tid new_fibre) in
   let f () =
     match Switch.with_op sw f with
-    | x -> Promise.fulfill r x
-    | exception ex -> Promise.break r ex
+    | x -> Promise.resolve_ok r x
+    | exception ex -> Promise.resolve_error r ex
   in
   perform (Fork (new_fibre, f));
   p
@@ -85,7 +85,7 @@ let pair f g =
   Switch.run @@ fun sw ->
   let x = fork_promise ~sw f in
   let y = g () in
-  (Promise.await x, y)
+  (Promise.await_exn x, y)
 
 let fork_sub ~sw ~on_error f =
   fork ~sw (fun () ->
@@ -141,14 +141,14 @@ let any fs =
             let p, r = Promise.create () in
             let f () =
               match wrap f with
-              | x -> Promise.fulfill r x
-              | exception ex -> Promise.break r ex
+              | x -> Promise.resolve_ok r x
+              | exception ex -> Promise.resolve_error r ex
             in
             perform (Fork (new_fibre, f));
             p :: aux fs
         in
         let ps = aux fs in
-        Cancel.protect (fun () -> List.iter Promise.await ps)
+        Cancel.protect (fun () -> List.iter Promise.await_exn ps)
       )
   in
   match !r, Cancel.get_error parent_c with

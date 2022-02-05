@@ -144,7 +144,7 @@ Wait for either a promise or a cancellation; cancellation first:
           (fun () -> failwith "Cancelled")
       );
       Fibre.yield ();
-      Promise.fulfill r ();
+      Promise.resolve r ();
       traceln "Main thread done";
     );;
 +Waiting
@@ -158,7 +158,7 @@ Wait for either a promise or a switch; promise resolves first:
 # run (fun sw ->
       let p, r = Promise.create () in
       Fibre.fork ~sw (fun () -> traceln "Waiting"; Promise.await p; traceln "Resolved");
-      Promise.fulfill r ();
+      Promise.resolve r ();
       Fibre.yield ();
       traceln "Now cancelling...";
       Switch.fail sw (Failure "Cancelled")
@@ -174,9 +174,9 @@ Wait for either a promise or a switch; switch cancelled first. Result version.
 ```ocaml
 # run (fun sw ->
       let p, r = Promise.create () in
-      Fibre.fork ~sw (fun () -> traceln "Waiting"; ignore (Promise.await_result p); traceln "Resolved");
+      Fibre.fork ~sw (fun () -> traceln "Waiting"; Promise.await p; traceln "Resolved");
       Switch.fail sw (Failure "Cancelled");
-      Promise.fulfill r ()
+      Promise.resolve r ()
     );;
 +Waiting
 Exception: Failure "Cancelled".
@@ -187,8 +187,8 @@ Wait for either a promise or a switch; promise resolves first but switch off wit
 ```ocaml
 # run (fun sw ->
       let p, r = Promise.create () in
-      Fibre.fork ~sw (fun () -> traceln "Waiting"; ignore (Promise.await_result p); traceln "Resolved");
-      Promise.fulfill r ();
+      Fibre.fork ~sw (fun () -> traceln "Waiting"; Promise.await p; traceln "Resolved");
+      Promise.resolve r ();
       traceln "Now cancelling...";
       Switch.fail sw (Failure "Cancelled")
     );;
@@ -220,10 +220,10 @@ A child can fail independently of the parent:
       let p1, r1 = Promise.create () in
       let p2, r2 = Promise.create () in
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
-      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await p1);
-      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await p2);
-      Promise.break r1 (Failure "Child error");
-      Promise.fulfill r2 ();
+      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await_exn p1);
+      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await_exn p2);
+      Promise.resolve_error r1 (Failure "Child error");
+      Promise.resolve_ok r2 ();
       Fibre.yield ();
       traceln "Parent fibre is still running"
     );;
@@ -262,8 +262,8 @@ A child error handler raises:
 # run (fun sw ->
       let p, r = Promise.create () in
       let on_error = raise in
-      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await p);
-      Promise.break r (Failure "Child error escapes");
+      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await_exn p);
+      Promise.resolve_error r (Failure "Child error escapes");
       Fibre.yield ();
       traceln "Not reached"
     );;
@@ -277,8 +277,8 @@ A child error handler deals with the exception:
 # run (fun sw ->
       let p, r = Promise.create () in
       let on_error = traceln "caught: %a" Fmt.exn in
-      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await p);
-      Promise.break r (Failure "Child error is caught");
+      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await_exn p);
+      Promise.resolve_error r (Failure "Child error is caught");
       Fibre.yield ();
       traceln "Still running"
     );;
