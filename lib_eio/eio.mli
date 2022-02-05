@@ -729,6 +729,16 @@ module Buf_read : sig
 
   val seq : ?stop:bool parser -> 'a parser -> 'a Seq.t parser
   (** [seq p] is a sequence that uses [p] to get the next item.
+
+      A sequence node can only be used while the stream is at
+      the expected position, and will raise [Invalid_argument]
+      if any bytes have been consumed in the meantime. This
+      also means that each node can only be used once; use
+      {!Seq.memoize} to make the sequence persistent.
+
+      It is not necessary to consume all the elements of the
+      sequence.
+
       @param stop This is used before parsing each item.
                   The sequence ends if this returns [true].
                   The default is {!at_end_of_input}. *)

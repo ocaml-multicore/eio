@@ -481,3 +481,33 @@ Error (`Msg "Buffer size limit exceeded when reading at offset 0")
 +mock_flow returning Eof
 Exception: End_of_file.
 ```
+
+A sequence node remembers its offset and fails if used out of sequence:
+
+```ocaml
+# next := ["one"; "\ntwo\n"; "three"];;
+- : unit = ()
+# let i = R.of_flow mock_flow ~max_size:100;;
+val i : R.t = <abstr>
+# let seq = R.lines i;;
+val seq : string Seq.t = <fun>
+# let line, seq' = match seq () with Cons (a, b) -> (a, b) | _ -> assert false;;
++mock_flow returning 3 bytes
++mock_flow returning 5 bytes
+val line : string = "one"
+val seq' : string Seq.t = <fun>
+
+# seq ();;
+Exception:
+Invalid_argument
+ "Sequence is stale (expected to be used at offset 0, but stream is now at 4)".
+
+# seq' ();;
+- : string Seq.node = Seq.Cons ("two", <fun>)
+
+# seq' ();;
+Exception:
+Invalid_argument
+ "Sequence is stale (expected to be used at offset 4, but stream is now at 8)".
+```
+
