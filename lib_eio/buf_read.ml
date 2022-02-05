@@ -278,11 +278,20 @@ let parse ?initial_size ~max_size p flow =
   let buf = of_flow flow ?initial_size ~max_size in
   format_errors (p <* end_of_input) buf
 
+[@@inline never]
+let bad_offset ~expected actual =
+  Fmt.invalid_arg "Sequence is stale (expected to be used at offset %d, but stream is now at %d)"
+    expected actual
+
 let seq ?(stop=at_end_of_input) p t =
-  let rec aux () =
+  let rec aux offset () =
+    if offset <> t.consumed then bad_offset ~expected:offset t.consumed;
     if stop t then Seq.Nil
-    else Seq.Cons (p t, aux)
+    else (
+      let item = p t in
+      Seq.Cons (item, aux t.consumed)
+    )
   in
-  aux
+  aux t.consumed
 
 let lines t = seq line t
