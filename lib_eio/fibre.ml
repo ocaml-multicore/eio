@@ -11,12 +11,14 @@ let fork_raw cc f =
   perform (Fork (new_fibre, f))
 
 let fork ~sw f =
+  Switch.check_our_domain sw;
   fork_raw sw.Switch.cancel @@ fun () ->
   Switch.with_op sw @@ fun () ->
   try f ()
   with ex -> Switch.fail sw ex
 
 let fork_promise ~sw f =
+  Switch.check_our_domain sw;
   let new_fibre = Cancel.Fibre_context.make ~cc:sw.Switch.cancel in
   let p, r = Promise.create_with_id (Cancel.Fibre_context.tid new_fibre) in
   let f () =
@@ -33,6 +35,7 @@ let fork_on_accept ~on_handler_error ~sw:adopting_sw accept handle =
      but itself still running in the original context.
      This situation is unusual because we have a switch but we're not in [Switch.run],
      so we have to make sure we finish it safely in all cases. *)
+  Switch.check_our_domain adopting_sw;
   Switch.check adopting_sw;
   let cc = Cancel.create ~protected:false in
   let deactivate = Cancel.activate cc ~parent:adopting_sw.cancel in

@@ -87,3 +87,105 @@ Spawning when already cancelled - no new domain is started:
   Eio.Domain_manager.run mgr (fun () -> traceln "Domain spawned - shouldn't happen!");;
 Exception: Failure "Simulated error".
 ```
+
+Using a cancellation context across domains is not permitted:
+
+```ocaml
+# run @@ fun mgr ->
+  Switch.run @@ fun sw ->
+  let p, r = Promise.create () in
+  Fibre.both
+    (fun () ->
+       Eio.Domain_manager.run mgr @@ fun () ->
+       Eio.Cancel.sub @@ fun cc ->
+       Promise.resolve r cc;
+       Fibre.await_cancel ()
+    )
+    (fun () ->
+       let cc = Promise.await p in
+       Eio.Cancel.cancel cc Exit
+    );;
+Exception:
+Invalid_argument "Cancellation context accessed from wrong domain!".
+```
+
+Likewise, switches can't be shared:
+
+```ocaml
+# run @@ fun mgr ->
+  Switch.run @@ fun sw ->
+  let p, r = Promise.create () in
+  Fibre.both
+    (fun () ->
+       Eio.Domain_manager.run mgr @@ fun () ->
+       Switch.run @@ fun sw ->
+       Promise.resolve r sw;
+       Fibre.await_cancel ()
+    )
+    (fun () ->
+       let sw = Promise.await p in
+       Switch.fail sw Exit
+    );;
+Exception: Invalid_argument "Switch accessed from wrong domain!".
+```
+
+Can't register a release handler across domains:
+
+```ocaml
+# run @@ fun mgr ->
+  Switch.run @@ fun sw ->
+  let p, r = Promise.create () in
+  Fibre.both
+    (fun () ->
+       Eio.Domain_manager.run mgr @@ fun () ->
+       Switch.run @@ fun sw ->
+       Promise.resolve r sw;
+       Fibre.await_cancel ()
+    )
+    (fun () ->
+       let sw = Promise.await p in
+       Switch.on_release sw ignore
+    );;
+Exception: Invalid_argument "Switch accessed from wrong domain!".
+```
+
+Can't release a release handler across domains:
+
+```ocaml
+# run @@ fun mgr ->
+  Switch.run @@ fun sw ->
+  let p, r = Promise.create () in
+  Fibre.both
+    (fun () ->
+       Eio.Domain_manager.run mgr @@ fun () ->
+       Switch.run @@ fun sw ->
+       let hook = Switch.on_release_cancellable sw ignore in
+       Promise.resolve r hook;
+       Fibre.await_cancel ()
+    )
+    (fun () ->
+       let hook = Promise.await p in
+       Switch.remove_hook hook
+    );;
+Exception: Invalid_argument "Switch hook removed from wrong domain!".
+```
+
+Can't fork into another domain:
+
+```ocaml
+# run @@ fun mgr ->
+  Switch.run @@ fun sw ->
+  let p, r = Promise.create () in
+  Fibre.both
+    (fun () ->
+       Eio.Domain_manager.run mgr @@ fun () ->
+       Switch.run @@ fun sw ->
+       Promise.resolve r sw;
+       Fibre.await_cancel ()
+    )
+    (fun () ->
+       let sw = Promise.await p in
+       Fibre.fork ~sw ignore;
+    );;
+Exception: Invalid_argument "Switch accessed from wrong domain!".
+```
