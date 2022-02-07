@@ -8,11 +8,11 @@
 open Eio.Std
 
 let pp_promise pp f x =
-  match Promise.state x with
-  | `Unresolved -> Fmt.string f "unresolved"
-  | `Broken (Failure msg) -> Fmt.pf f "broken:%s" msg
-  | `Broken ex -> Fmt.pf f "broken:%a" Fmt.exn ex
-  | `Fulfilled x -> Fmt.pf f "fulfilled:%a" pp x
+  match Promise.peek x with
+  | None -> Fmt.string f "unresolved"
+  | Some Error (Failure msg) -> Fmt.pf f "broken:%s" msg
+  | Some Error ex -> Fmt.pf f "broken:%a" Fmt.exn ex
+  | Some Ok x -> Fmt.pf f "fulfilled:%a" pp x
 ```
 
 # Test cases
@@ -24,13 +24,13 @@ Create a promise, fork a thread waiting for it, then fulfull it:
     Switch.run @@ fun sw ->
     let p, r = Promise.create () in
     traceln "Initial state: %a" (pp_promise Fmt.string) p;
-    let thread = Fibre.fork_promise ~sw (fun () -> Promise.await p) in
-    Promise.fulfill r "ok";
+    let thread = Fibre.fork_promise ~sw (fun () -> Promise.await_exn p) in
+    Promise.resolve_ok r "ok";
     traceln "After being fulfilled: %a" (pp_promise Fmt.string) p;
     traceln "Thread before yield: %a" (pp_promise Fmt.string) thread;
     Fibre.yield ();
     traceln "Thread after yield: %a" (pp_promise Fmt.string) thread;
-    traceln "Final result: %s" (Promise.await thread);;
+    traceln "Final result: %s" (Promise.await_exn thread);;
 +Initial state: unresolved
 +After being fulfilled: fulfilled:ok
 +Thread before yield: unresolved
@@ -45,13 +45,13 @@ Create a promise, fork a thread waiting for it, then break it:
     Switch.run @@ fun sw ->
     let p, r = Promise.create () in
     traceln "Initial state: %a" (pp_promise Fmt.string) p;
-    let thread = Fibre.fork_promise ~sw (fun () -> Promise.await p) in
-    Promise.break r (Failure "test");
+    let thread = Fibre.fork_promise ~sw (fun () -> Promise.await_exn p) in
+    Promise.resolve_error r (Failure "test");
     traceln "After being broken: %a" (pp_promise Fmt.string) p;
     traceln "Thread before yield: %a" (pp_promise Fmt.string) thread;
     Fibre.yield ();
     traceln "Thread after yield: %a" (pp_promise Fmt.string) thread;
-    match Promise.await thread with
+    match Promise.await_exn thread with
     | x -> failwith x
     | exception (Failure msg) -> traceln "Final result exception: %s" msg;;
 +Initial state: unresolved
@@ -75,7 +75,7 @@ Some simple tests of `fork`:
       Switch.run (fun sw ->
           Fibre.fork ~sw (fun () -> Promise.await p1; incr i; raise Exit);
           traceln "Forked code waiting; i is still %d" !i;
-          Promise.fulfill r1 ()
+          Promise.resolve r1 ()
         );
       assert false
     with Exit ->
@@ -99,19 +99,19 @@ Basic semaphore tests:
     let c = fork (fun () -> Ctf.label "c"; Semaphore.acquire sem; incr running) in
     let d = fork (fun () -> Ctf.label "d"; Semaphore.acquire sem; incr running) in
     traceln "Semaphore means that only %d threads are running" !running;
-    Promise.await a;
-    Promise.await b;
+    Promise.await_exn a;
+    Promise.await_exn b;
     (* a finishes and c starts *)
     decr running;
     Semaphore.release sem;
     traceln "One finished; now %d is running " !running;
     Fibre.yield ();
     traceln "Yield allows C to start; now %d are running " !running;
-    Promise.await c;
+    Promise.await_exn c;
     (* b finishes and d starts *)
     decr running;
     Semaphore.release sem;
-    Promise.await d;
+    Promise.await_exn d;
     decr running;
     Semaphore.release sem;
     decr running;

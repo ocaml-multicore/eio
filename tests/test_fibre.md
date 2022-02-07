@@ -240,7 +240,7 @@ Exception: Failure "simulated error".
          Fibre.await_cancel ()
       ) in
       Switch.fail sw Exit;
-      Promise.await child
+      Promise.await_exn child
     );
   "not reached";;
 +Forked child

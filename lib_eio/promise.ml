@@ -22,9 +22,8 @@
    ensuring that no-one else can mutate it either). *)
 
 type 'a state =
-  | Fulfilled of 'a
-  | Broken of exn
-  | Unresolved of ('a, exn) result Waiters.t * Mutex.t
+  | Resolved of 'a
+  | Unresolved of 'a Waiters.t * Mutex.t
   (* The Unresolved state's mutex box contains:
      - Full access to the Waiters.
      - Half access to the promise's state.
@@ -35,11 +34,13 @@ type !'a t = {
 
   state : 'a state Atomic.t;
   (* This atomic box contains either:
-     - A non-zero share of the reference to the Fulfilled or Broken state.
+     - A non-zero share of the reference to the Resolved state.
      - A half-share of the reference to the Unresolved state. *)
 }
 
 type 'a u = 'a t
+
+type 'a or_exn = ('a, exn) result t
 
 let create_with_id id =
   let t = {
@@ -53,27 +54,19 @@ let create ?label () =
   Ctf.note_created ?label id Ctf.Promise;
   create_with_id id
 
-let fulfilled x =
+let create_resolved x =
   let id = Ctf.mint_id () in
   Ctf.note_created id Ctf.Promise;
-  { id; state = Atomic.make (Fulfilled x) }
+  { id; state = Atomic.make (Resolved x) }
 
-let broken ex =
-  let id = Ctf.mint_id () in
-  Ctf.note_created id Ctf.Promise;
-  { id; state = Atomic.make (Broken ex) }
-
-let await_result t =
+let await t =
   match Atomic.get t.state with
   (* If the atomic is resolved, we take a share of that reference and return
      the remainder to the atomic (which will still be non-zero). We can then
      continue to know that the promise is resolved after the [Atomic.get]. *)
-  | Fulfilled x ->
+  | Resolved x ->
     Ctf.note_read t.id;
-    Ok x
-  | Broken ex ->
-    Ctf.note_read t.id;
-    Error ex
+    x
   | Unresolved (q, mutex) ->
     (* We discovered that the promise was unresolved, but we can't be sure it still is,
        since we had to return the half-share reference to the atomic. So the [get] is
@@ -91,24 +84,19 @@ let await_result t =
       Waiters.await ~mutex:(Some mutex) q t.id
     (* Otherwise, the promise was resolved by the time we took the lock.
        Release the lock (which is fine, as we didn't change anything). *)
-    | Fulfilled x ->
+    | Resolved x ->
       Mutex.unlock mutex;
       Ctf.note_read t.id;
-      Ok x
-    | Broken ex ->
-      Mutex.unlock mutex;
-      Ctf.note_read t.id;
-      Error ex
+      x
 
-let await t =
-  match await_result t with
+let await_exn t =
+  match await t with
   | Ok x -> x
   | Error ex -> raise ex
 
-let rec fulfill t v =
+let rec resolve t v =
   match Atomic.get t.state with
-  | Broken ex -> invalid_arg ("Can't fulfill already-broken promise: " ^ Printexc.to_string ex)
-  | Fulfilled _ -> invalid_arg "Can't fulfill already-fulfilled promise"
+  | Resolved _ -> invalid_arg "Can't resolve already-resolved promise"
   | Unresolved (q, mutex) as prev ->
     (* The above [get] just gets us access to the mutex;
        By the time we get here, the promise may have become resolved. *)
@@ -122,51 +110,29 @@ let rec fulfill t v =
        it), allowing us to change it.
        Note: we don't actually need an atomic CAS here, just a get and a set
        would do, but this seems simplest. *)
-    if Atomic.compare_and_set t.state prev (Fulfilled v) then (
+    if Atomic.compare_and_set t.state prev (Resolved v) then (
       (* The atomic now has half-access to the fullfilled state (which counts
          as non-zero), and we have the other half. Now we need to restore the
          mutex invariant by clearing the wakers. *)
       Ctf.note_resolved t.id ~ex:None;
-      Waiters.wake_all q (Ok v);
+      Waiters.wake_all q v;
       Mutex.unlock mutex
     ) else (
-      (* Otherwise, the promise was already fulfilled when we opened the mutex.
+      (* Otherwise, the promise was already resolved when we opened the mutex.
          Close it without any changes and retry. *)
       Mutex.unlock mutex;
-      fulfill t v
+      resolve t v
     )
 
-let rec break t ex =
-  match Atomic.get t.state with
-  | Broken orig -> invalid_arg (Printf.sprintf "Can't break already-broken promise: %s -> %s"
-                                  (Printexc.to_string orig) (Printexc.to_string ex))
-  | Fulfilled _ -> invalid_arg (Printf.sprintf "Can't break already-fulfilled promise (with %s)"
-                                  (Printexc.to_string ex))
-  | Unresolved (q, mutex) as prev ->
-    (* Same logic as for [fulfill]. *)
-    Mutex.lock mutex;
-    if Atomic.compare_and_set t.state prev (Broken ex) then (
-      Ctf.note_resolved t.id ~ex:(Some ex);
-      Waiters.wake_all q (Error ex);
-      Mutex.unlock mutex
-    ) else (
-      Mutex.unlock mutex;
-      break t ex
-    )
+let resolve_ok    u x = resolve u (Ok x)
+let resolve_error u x = resolve u (Error x)
 
-let resolve t = function
-  | Ok x -> fulfill t x
-  | Error ex -> break t ex
-
-let state t =
+let peek t =
   match Atomic.get t.state with
-  | Unresolved _ -> `Unresolved
-  | Fulfilled x -> `Fulfilled x
-  | Broken ex -> `Broken ex
+  | Unresolved _ -> None
+  | Resolved x -> Some x
 
 let id t = t.id
 
 let is_resolved t =
-  match Atomic.get t.state with
-  | Fulfilled _ | Broken _ -> true
-  | Unresolved _ -> false
+  Option.is_some (peek t)
