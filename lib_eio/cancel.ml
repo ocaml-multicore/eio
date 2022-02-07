@@ -22,6 +22,7 @@ type t = {
   children : t Lwt_dllist.t;
   fibres : fibre_context Lwt_dllist.t;
   protected : bool;
+  domain : Domain.id;         (* Prevent access from other domains *)
 }
 and fibre_context = {
   tid : Ctf.id;
@@ -94,7 +95,7 @@ let move_fibre_to t fibre =
 let create ~protected =
   let children = Lwt_dllist.create () in
   let fibres = Lwt_dllist.create () in
-  { state = Finished; children; protected; fibres }
+  { state = Finished; children; protected; fibres; domain = Domain.self () }
 
 (* Links [t] into the tree as a child of [parent] and returns a function to remove it again. *)
 let activate t ~parent =
@@ -143,7 +144,11 @@ and cancel_child ex t acc =
   if t.protected then acc
   else cancel_internal t ex acc
 
+let check_our_domain t =
+  if Domain.self () <> t.domain then invalid_arg "Cancellation context accessed from wrong domain!"
+
 let cancel t ex =
+  check_our_domain t;
   let fns = cancel_internal t ex [] in
   let cex = Cancelled ex in
   let rec aux = function

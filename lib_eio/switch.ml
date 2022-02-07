@@ -1,7 +1,3 @@
-type hook = Hook.t
-let remove_hook = Hook.remove
-let null_hook = Hook.null
-
 type t = {
   id : Ctf.id;
   mutable fibres : int;
@@ -11,6 +7,18 @@ type t = {
   cancel : Cancel.t;
 }
 
+type hook =
+  | Null
+  | Hook : Domain.id * 'a Lwt_dllist.node -> hook
+
+let null_hook = Null
+
+let remove_hook = function
+  | Null -> ()
+  | Hook (id, n) ->
+    if Domain.self () <> id then invalid_arg "Switch hook removed from wrong domain!";
+    Lwt_dllist.remove n
+
 let dump f t =
   Fmt.pf f "@[<v2>Switch %d (%d extra fibres):@,%a@]"
     (t.id :> int)
@@ -18,6 +26,9 @@ let dump f t =
     Cancel.dump t.cancel
 
 let is_finished t = Cancel.is_finished t.cancel
+
+let check_our_domain t =
+  if Domain.self () <> t.cancel.domain then invalid_arg "Switch accessed from wrong domain!"
 
 let check t =
   if is_finished t then invalid_arg "Switch finished!";
@@ -31,6 +42,7 @@ let combine_exn ex = function
   | Some ex1 -> Exn.combine ex1 ex
 
 let fail ?(bt=Printexc.get_raw_backtrace ()) t ex =
+  check_our_domain t;
   if t.exs = None then
     Ctf.note_resolved t.id ~ex:(Some ex);
   t.exs <- Some (combine_exn (ex, bt) t.exs);
@@ -136,15 +148,21 @@ let run_in t fn =
   | exception ex -> Cancel.move_fibre_to old_cc ctx; raise ex
 
 let on_release_full t fn =
-  match t.cancel.state with
-  | On | Cancelling _ -> Lwt_dllist.add_r fn t.on_release
-  | Finished ->
+  if Domain.self () = t.cancel.domain then (
+    match t.cancel.state with
+    | On | Cancelling _ -> Lwt_dllist.add_r fn t.on_release
+    | Finished ->
+      match Cancel.protect fn with
+      | () -> invalid_arg "Switch finished!"
+      | exception ex -> raise (Exn.Multiple [ex; Invalid_argument "Switch finished!"])
+  ) else (
     match Cancel.protect fn with
-    | () -> invalid_arg "Switch finished!"
-    | exception ex -> raise (Exn.Multiple [ex; Invalid_argument "Switch finished!"])
+    | () -> invalid_arg "Switch accessed from wrong domain!"
+    | exception ex -> raise (Exn.Multiple [ex; Invalid_argument "Switch accessed from wrong domain!"])
+  )
 
 let on_release t fn =
   ignore (on_release_full t fn : _ Lwt_dllist.node)
 
 let on_release_cancellable t fn =
-  Hook.Node (on_release_full t fn)
+  Hook (t.cancel.domain, on_release_full t fn)
