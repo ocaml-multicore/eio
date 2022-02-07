@@ -628,6 +628,13 @@ module Buf_read : sig
 
       @param initial_size see {!of_flow}. *)
 
+  val parse_exn : ?initial_size:int -> max_size:int -> 'a parser -> #Flow.source -> 'a
+  (** [parse_exn] wraps {!parse}, but raises [Failure msg] if that returns [Error (`Msg msg)].
+
+      Catching exceptions with [parse] and then raising them might seem pointless,
+      but this has the effect of turning e.g. an [End_of_file] exception into a [Failure]
+      with a more user-friendly message. *)
+
   val of_flow : ?initial_size:int -> max_size:int -> #Flow.source -> t
   (** [of_flow ~max_size flow] is a buffered reader backed by [flow].
 

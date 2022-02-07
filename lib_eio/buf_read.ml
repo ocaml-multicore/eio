@@ -278,6 +278,11 @@ let parse ?initial_size ~max_size p flow =
   let buf = of_flow flow ?initial_size ~max_size in
   format_errors (p <* end_of_input) buf
 
+let parse_exn ?initial_size ~max_size p flow =
+  match parse ?initial_size ~max_size p flow with
+  | Ok x -> x
+  | Error (`Msg m) -> failwith m
+
 [@@inline never]
 let bad_offset ~expected actual =
   Fmt.invalid_arg "Sequence is stale (expected to be used at offset %d, but stream is now at %d)"
