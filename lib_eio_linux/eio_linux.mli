@@ -1,3 +1,10 @@
+(** Eio backend using Linux's io_uring.
+
+    You will normally not use this module directly.
+    Instead, use {!Eio_main.run} to start an event loop and then use the API in the {!Eio} module.
+
+    However, it is possible to use this module directly if you only want to support recent versions of Linux. *)
+
 (*
  * Copyright (C) 2020-2021 Anil Madhavapeddy
  *
@@ -16,11 +23,10 @@
 
 open Eio.Std
 
-type t
-
 (** Wrap [Unix.file_descr] to track whether it has been closed. *)
 module FD : sig
   type t
+  (** Either a [Unix.file_descr] or nothing (if closed) .*)
 
   val is_open : t -> bool
   (** [is_open t] is [true] if {!close} hasn't been called yet. *)
@@ -36,7 +42,7 @@ module FD : sig
       @param close_unix If [true], closing [t] also closes [fd].
                         If [false], the caller is responsible for closing [fd],
                         which must not happen until after [t] is closed.
-      @param seekable If true, we pass [-1] as the file offset, to use the current offset.
+      @param seekable If true, we pass [-1] to io_uring as the "file offset", to use the current offset.
                       If false, pass [0] as the file offset, which is needed for sockets. *)
 
   val to_unix : [< `Peek | `Take] -> t -> Unix.file_descr
@@ -78,6 +84,9 @@ val run : ?queue_depth:int -> ?block_size:int -> ?polling_timeout:int -> (stdenv
     For portable code, you should use {!Eio_main.run} instead, which will use this automatically
     if running on Linux with a recent-enough kernel version. *)
 
+(** {1 Low-level API} *)
+
+(** Low-level API for using uring directly. *)
 module Low_level : sig
   val noop : unit -> unit
   (** [noop ()] performs a uring noop. This is only useful for benchmarking. *)
@@ -90,6 +99,10 @@ module Low_level : sig
   (** {1 Memory allocation functions} *)
 
   val alloc : unit -> Uring.Region.chunk
+  (** Allocate a chunk of memory from the fixed buffer.
+
+      Passing such memory to Linux can be faster than using normal memory, in certain cases.
+      There is a limited amount of such memory, and this will block until some is available. *)
 
   val free : Uring.Region.chunk -> unit
 
@@ -110,38 +123,45 @@ module Low_level : sig
     resolve:Uring.Resolve.t ->
     ?dir:FD.t -> string -> FD.t
   (** [openat2 ~sw ~flags ~perm ~resolve ~dir path] opens [dir/path].
+
       See {!Uring.openat2} for details. *)
 
   val read_upto : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> int
   (** [read_upto fd chunk len] reads at most [len] bytes from [fd],
       returning as soon as some data is available.
+
       @param file_offset Read from the given position in [fd] (default: 0).
       @raise End_of_file Raised if all data has already been read. *)
 
   val read_exactly : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
   (** [read_exactly fd chunk len] reads exactly [len] bytes from [fd],
       performing multiple read operations if necessary.
+
       @param file_offset Read from the given position in [fd] (default: 0).
       @raise End_of_file Raised if the stream ends before [len] bytes have been read. *)
 
   val readv : ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> int
   (** [readv] is like {!read_upto} but can read into any cstruct(s),
       not just chunks of the pre-shared buffer.
+
       If multiple buffers are given, they are filled in order. *)
 
   val write : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
   (** [write fd buf len] writes exactly [len] bytes from [buf] to [fd].
+
       It blocks until the OS confirms the write is done,
       and resubmits automatically if the OS doesn't write all of it at once. *)
 
   val writev : ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> unit
   (** [writev] is like {!write} but can write from any cstruct(s),
       not just chunks of the pre-shared buffer.
+
       If multiple buffers are given, they are sent in order.
       It will make multiple OS calls if the OS doesn't write all of it at once. *)
 
   val splice : FD.t -> dst:FD.t -> len:int -> int
   (** [splice src ~dst ~len] attempts to copy up to [len] bytes of data from [src] to [dst].
+
       @return The number of bytes copied.
       @raise End_of_file [src] is at the end of the file.
       @raise Unix.Unix_error(EINVAL, "splice", _) if splice is not supported for these FDs. *)
@@ -162,6 +182,7 @@ module Low_level : sig
 
   val accept : sw:Switch.t -> FD.t -> (FD.t * Unix.sockaddr)
   (** [accept ~sw t] blocks until a new connection is received on listening socket [t].
+
       It returns the new connection and the address of the connecting peer.
       The new connection has the close-on-exec flag set automatically.
       The new connection is attached to [sw] and will be closed when that finishes, if
@@ -174,6 +195,7 @@ module Low_level : sig
 
   val getrandom : Cstruct.t -> int
   (**[ getrandom buf] reads some random bytes into [buf] and returns the number of bytes written.
+
      It uses Linux's [getrandom] call, which is like reading from /dev/urandom
      except that it will block (the whole domain) if used at early boot
      when the random system hasn't been initialised yet. *)
