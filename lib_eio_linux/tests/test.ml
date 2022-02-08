@@ -1,5 +1,7 @@
 open Eio.Std
 
+module Ctf = Eio.Private.Ctf
+
 let () =
   Logs.(set_level ~all:true (Some Debug));
   Logs.set_reporter @@ Logs.format_reporter ();

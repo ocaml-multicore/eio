@@ -1,6 +1,7 @@
 (** A suspended fibre with its context. *)
 
 open Eio.Private.Effect.Deep
+module Ctf = Eio.Private.Ctf
 
 type 'a t = {
   fibre : Eio.Private.Fibre_context.t;

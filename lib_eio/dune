@@ -1,7 +1,7 @@
 (library
   (name eio)
   (public_name eio)
-  (libraries cstruct ctf lwt-dllist fmt)
+  (libraries cstruct lwt-dllist fmt)
   (flags (:standard -w -50)))
 
 (rule

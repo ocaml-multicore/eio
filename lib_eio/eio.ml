@@ -15,6 +15,7 @@ module Private = struct
   end
 
   module Effect = Effect
+  module Ctf = Ctf
 end
 
 let traceln ?__POS__ fmt =

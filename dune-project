@@ -12,7 +12,6 @@
  (description "An effect-based IO API for multicore OCaml with fibres.")
  (depends
   base-domains
-  (ctf (= :version))
   (cstruct (>= 6.0.1))
   lwt-dllist
   (optint (>= 0.1.0))
@@ -20,6 +19,7 @@
   (fmt (>= 0.8.9))
   (astring (and (>= 0.8.5) :with-test))
   (crowbar (and (>= 0.2) :with-test))
+  (mtime (>= 1.2.0))
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name eio_linux)
@@ -28,7 +28,6 @@
  (depends
   (alcotest (and (>= 1.4.0) :with-test))
   base-domains
-  (ctf (= :version))
   (eio (= :version))
   (mdx (and (>= 1.10.0) :with-test))
   (logs (>= 0.7.0))
@@ -40,21 +39,12 @@
  (description "An eio implementation for most platforms, using luv.")
  (depends
   base-domains
-  (ctf (= :version))
   (eio (= :version))
   (luv (>= 0.5.11))
   (luv_unix (>= 0.5.0))
   (mdx (and (>= 1.10.0) :with-test))
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))))
-(package
- (name ctf)
- (synopsis "CTF tracing")
- (description "Trace IO events.")
- (depends
-  (alcotest (and (>= 1.4.0) :with-test))
-  (mtime (>= 1.2.0))
-  (cstruct (>= 6.0.1))))
 (package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")

@@ -1,4 +1,0 @@
-(library
-  (name ctf)
-  (public_name ctf)
-  (libraries cstruct mtime))

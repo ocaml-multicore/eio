@@ -1,4 +1,4 @@
 (library
  (name eio_utils)
  (public_name eio.utils)
- (libraries eio psq fmt ctf optint))
+ (libraries eio psq fmt optint))

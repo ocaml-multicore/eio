@@ -205,9 +205,8 @@ The library can write traces in CTF format, showing when threads (fibres) are cr
 We can run the previous code with tracing enabled (writing to a new `trace.ctf` file) like this:
 
 ```ocaml
-# #require "ctf.unix";;
 # let () =
-    Ctf_unix.with_tracing "trace.ctf" @@ fun () ->
+    Eio_unix.Ctf.with_tracing "trace.ctf" @@ fun () ->
     Eio_main.run main;;
 +x = 1
 +y = 1

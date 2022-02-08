@@ -150,11 +150,6 @@ module Promise : sig
   val is_resolved : 'a t -> bool
   (** [is_resolved t] is [Option.is_some (peek t)]. *)
 
-  val create_with_id : Ctf.id -> 'a t * 'a u
-  (** Like {!create}, but the caller creates the tracing ID.
-      This can be useful when implementing other primitives that use promises internally,
-      to give them a different type in the trace output. *)
-
   (** {1 Result promises} *)
 
   type 'a or_exn = ('a, exn) result t
@@ -1327,4 +1322,6 @@ module Private : sig
 
   (** Temporary hack for compatibility with ocaml.4.12+domains *)
   module Effect = Effect
+
+  module Ctf = Ctf
 end
