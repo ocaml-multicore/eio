@@ -97,7 +97,6 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 - `eio_linux` provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
 - `eio_main` selects an appropriate backend (e.g. `eio_linux` or `eio_luv`), depending on your platform.
-- `ctf` provides tracing support.
 
 ## Getting Started
 
