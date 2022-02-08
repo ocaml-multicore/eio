@@ -886,10 +886,12 @@ module Net : sig
 
     type v4v6 = [`V4 | `V6] t
 
-    val classify :
+    val fold :
+      v4:([> `V4] t -> 'a) -> 
+      v6:([> `V6] t -> 'a) ->
       [< `V4 | `V6] t ->
-      [ `V4 of [> `V4] t
-      | `V6 of [> `V6] t]
+      'a
+    (** [fold ~v4 ~v6 t] is [v4 t] if [t] is an IPv4 address, or [v6 t] if it's an IPv6 address. *)
 
     val of_raw : string -> v4v6
     (** [of_raw addr] casts [addr] to an IP address.
