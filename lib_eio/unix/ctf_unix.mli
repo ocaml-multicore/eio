@@ -1,7 +1,7 @@
-val timestamper : Ctf.log_buffer -> int -> unit
+val timestamper : Eio.Private.Ctf.log_buffer -> int -> unit
 (** Uses [Mtime_clock] to write timestamps. *)
 
-val mmap_buffer : size:int -> string -> Ctf.log_buffer
+val mmap_buffer : size:int -> string -> Eio.Private.Ctf.log_buffer
 (** [mmap_buffer ~size path] initialises file [path] as an empty buffer for tracing. *)
 
 val with_tracing : ?size:int -> string -> (unit -> 'a) -> 'a

@@ -40,3 +40,5 @@ module Private : sig
     | Await_readable : Unix.file_descr -> unit eff      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit eff      (** See {!await_writable} *)
 end
+
+module Ctf = Ctf_unix

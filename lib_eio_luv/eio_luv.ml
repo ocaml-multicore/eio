@@ -21,6 +21,8 @@ open Eio.Std
 open Eio.Private.Effect
 open Eio.Private.Effect.Deep
 
+module Ctf = Eio.Private.Ctf
+
 module Fibre_context = Eio.Private.Fibre_context
 module Lf_queue = Eio_utils.Lf_queue
 

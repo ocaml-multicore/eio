@@ -1,3 +1,5 @@
+module Ctf = Eio.Private.Ctf
+
 let mutex = Mutex.create ()
 
 let default_traceln ?__POS__:pos fmt =

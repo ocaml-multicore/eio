@@ -7,6 +7,8 @@
 ```ocaml
 open Eio.Std
 
+module Ctf = Eio.Private.Ctf
+
 let pp_promise pp f x =
   match Promise.peek x with
   | None -> Fmt.string f "unresolved"

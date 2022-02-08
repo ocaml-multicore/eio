@@ -1,5 +1,7 @@
 open Bigarray
 
+module Ctf = Eio.Private.Ctf
+
 let timestamper log_buffer ofs =
   let ns = Mtime.to_uint64_ns @@ Mtime_clock.now () in
   Ctf.BS.set_int64_le log_buffer ofs ns

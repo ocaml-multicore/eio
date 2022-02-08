@@ -22,6 +22,7 @@ open Eio.Private.Effect
 open Eio.Private.Effect.Deep
 
 module Fibre_context = Eio.Private.Fibre_context
+module Ctf = Eio.Private.Ctf
 
 module Suspended = Eio_utils.Suspended
 module Zzz = Eio_utils.Zzz

@@ -20,3 +20,5 @@ module Ipaddr = struct
   let to_unix : _ Eio.Net.Ipaddr.t -> Unix.inet_addr = Obj.magic
   let of_unix : Unix.inet_addr -> _ Eio.Net.Ipaddr.t = Obj.magic
 end
+
+module Ctf = Ctf_unix
