@@ -545,7 +545,7 @@ module Flow : sig
   (** Consumer base class. *)
   class virtual sink : object
     inherit Generic.t
-    method virtual write : 'a. (#source as 'a) -> unit
+    method virtual copy : 'a. (#source as 'a) -> unit
   end
 
   val copy : #source -> #sink -> unit

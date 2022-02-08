@@ -783,7 +783,7 @@ let flow fd =
 
     method read_methods = []
 
-    method write src =
+    method copy src =
       match get_fd_opt src with
       | Some src -> fast_copy_try_splice src fd
       | None ->
