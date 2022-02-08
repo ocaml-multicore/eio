@@ -1,5 +1,3 @@
-(** Keep track of scheduled alarms. *)
-
 module Key = struct
   type t = Optint.Int63.t
   let compare = Optint.Int63.compare
