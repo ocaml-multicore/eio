@@ -1051,7 +1051,7 @@ let zero = object
 
   method read_into buf =
     Cstruct.memset buf 0;
-    Cstruct.len buf
+    Cstruct.length buf
 end
 ```
 
