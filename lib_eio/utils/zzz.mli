@@ -1,11 +1,12 @@
 (** A set of timers. *)
 
+(** A handle to a registered timer. *)
 module Key : sig
   type t
 end
 
 type t
-(** A queue of scheduled events. *)
+(** A set of timers (implemented as a priority queue). *)
 
 val create : unit -> t
 (** [create ()] is a fresh empty queue. *)
@@ -13,7 +14,8 @@ val create : unit -> t
 val add : t -> float -> unit Suspended.t -> Key.t
 (** [add t time thread] adds a new event, due at [time], and returns its ID.
     You must use {!Eio.Private.Fibre_context.set_cancel_fn} on [thread] before
-    calling {!pop}. *)
+    calling {!pop}.
+    Your cancel function should call {!remove} (in addition to resuming [thread]). *)
 
 val remove : t -> Key.t -> unit
 (** [remove t key] removes an event previously added with [add]. *)

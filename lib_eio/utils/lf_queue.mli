@@ -7,6 +7,7 @@ type 'a t
 exception Closed
 
 val create : unit -> 'a t
+(** [create ()] is a new empty queue. *)
 
 val push : 'a t -> 'a -> unit
 (** [push t x] adds [x] to the tail of the queue.
@@ -21,9 +22,11 @@ val push_head : 'a t -> 'a -> unit
 val pop : 'a t -> 'a option
 (** [pop t] removes the head item from [t] and returns it.
     Returns [None] if [t] is currently empty.
-    @raise Closed if [t] has been closed. *)
+    @raise Closed if [t] has been closed and is empty. *)
 
 val is_empty : 'a t -> bool
+(** [is_empty t] is [true] if calling [pop] would return [None].
+    @raise Closed if [t] has been closed and is empty. *)
 
 val close : 'a t -> unit
 (** [close t] marks [t] as closed, preventing any further items from being pushed. *)

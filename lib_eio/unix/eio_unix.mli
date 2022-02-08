@@ -10,8 +10,7 @@ val await_readable : Unix.file_descr -> unit
 val await_writable : Unix.file_descr -> unit
 (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
-type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
-
+(** Get a [Unix.file_descr] from an Eio object. *)
 module FD : sig
   val peek : #Eio.Generic.t -> Unix.file_descr option
   (** [peek x] is the Unix file descriptor underlying [x], if any.
@@ -22,15 +21,22 @@ module FD : sig
       [x] can no longer be used after this, and the caller is responsible for closing the FD. *)
 end
 
+(** Convert between Eio.Net.Ipaddr and Unix.inet_addr. *)
 module Ipaddr : sig
+  (** Internally, these are actually the same type, so these are just casts. *)
+
   val to_unix : [< `V4 | `V6] Eio.Net.Ipaddr.t -> Unix.inet_addr
   val of_unix : Unix.inet_addr -> Eio.Net.Ipaddr.v4v6
 end
 
-module Effects : sig
+(** API for Eio backends only. *)
+module Private : sig
   open Eio.Private.Effect
 
+  type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
+  (** See {!FD}. *)
+
   type _ eff += 
-    | Await_readable : Unix.file_descr -> unit eff
-    | Await_writable : Unix.file_descr -> unit eff
+    | Await_readable : Unix.file_descr -> unit eff      (** See {!await_readable} *)
+    | Await_writable : Unix.file_descr -> unit eff      (** See {!await_writable} *)
 end
