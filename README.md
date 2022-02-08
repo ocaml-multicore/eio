@@ -1,15 +1,17 @@
 # Eio -- Effects-Based Parallel IO for OCaml
 
-This library implements an effects-based direct-style IO
-stack for multicore OCaml.
-
-This is an unreleased repository, as it's very much a work-in-progress.
+Eio provides an effects-based direct-style IO stack for OCaml 5.0.
+It aims to be easy to use, secure, well documented, and fast.
+A generic cross-platform API is implemented by optimised backends for different platforms.
+Eio replaces existing concurrency libraries such as Lwt
+(Eio and Lwt libraries can also be used together).
 
 ## Contents
 
 <!-- vim-markdown-toc GFM -->
 
 * [Motivation](#motivation)
+* [Current Status](#current-status)
 * [Structure of the Code](#structure-of-the-code)
 * [Getting Started](#getting-started)
 * [Testing with Mocks](#testing-with-mocks)
@@ -33,7 +35,7 @@ This is an unreleased repository, as it's very much a work-in-progress.
   * [Example: Worker Pool](#example-worker-pool)
 * [Design Note: Determinism](#design-note-determinism)
 * [Provider Interfaces](#provider-interfaces)
-* [Examples](#examples)
+* [Example Applications](#example-applications)
 * [Porting from Lwt](#porting-from-lwt)
 * [Further Reading](#further-reading)
 
@@ -45,7 +47,7 @@ The `Unix` library provided with OCaml uses blocking IO operations, and is not w
 For many years, the solution to this has been libraries such as Lwt and Async, which provide a monadic interface.
 These libraries allow writing code as if there were multiple threads of execution, each with their own stack, but the stacks are simulated using the heap.
 
-The multicore version of OCaml adds support for "effects", removing the need for monadic code here.
+OCaml 5.0 adds support for "effects", removing the need for monadic code here.
 Using effects brings several advantages:
 
 1. It's faster, because no heap allocations are needed to simulate a stack.
@@ -54,17 +56,39 @@ Using effects brings several advantages:
 4. Other features of the language (such as `try ... with ...`) can be used in concurrent code.
 
 Additionally, modern operating systems provide high-performance alternatives to the old Unix `select` call.
-For example, Linux's io-uring system has applications write the operations they want to perform to a ring buffer,
+For example, Linux's io_uring system has applications write the operations they want to perform to a ring buffer,
 which Linux handles asynchronously.
 
-Due to this, we anticipate many OCaml users will want to rewrite their IO code once OCaml 5.00 is released.
+Due to this, we anticipate many OCaml users will want to rewrite their IO code once OCaml 5.0 is released.
 It would be very beneficial to use this opportunity to standardise a single concurrency API for OCaml,
 and we hope that Eio will be that API.
 
-At present, the library provides a generic backend based on libuv, which should work on most platforms,
-plus an optimised backend for Linux using io-uring.
-It is able to run a web-server with [good performance][http-bench], but many features are still missing.
+## Current Status
+
+Eio can be used with OCaml 5.00.0+trunk or with 4.12.0+domains.
+
+Eio is able to run a web-server with [good performance][http-bench],
+but you are likely to encounter missing features while using it.
 If you'd like to help out, please try porting your program to use Eio and submit PRs or open issues when you find problems.
+Remember that you can always fall back to using Lwt libraries to provide missing features if necessary.
+
+Platform support:
+
+- Unix and macos: should be fully working using the libuv backend.
+- Linux: can additionally use io_uring for better performance on recent kernels.
+- Windows: should be mostly working - see [#123](https://github.com/ocaml-multicore/eio/issues/125) for remaining tasks.
+- MirageOS: waiting for [ocaml-freestanding](https://github.com/mirage/ocaml-freestanding) to be updated to OCaml 5.0.
+- Browsers: waiting for [js_of_ocaml](https://github.com/ocsigen/js_of_ocaml/issues/1088) to be updated to OCaml 5.0.
+
+Feature status:
+
+- Concurrency primitives: Fibres, cancellation, promises, streams and semaphores are all working.
+- Multicore support: Working.
+- Networking: Clients and servers using TCP and Unix domain sockets work. UDP not yet done.
+- File-systems: Can create files and directories, load, save, parse, etc. Most other operations missing.
+- Spawning sub-processes: Not implemented yet.
+
+See [Awesome Multicore OCaml][] for links to work migrating other projects to Eio.
 
 ## Structure of the Code
 
@@ -78,7 +102,8 @@ If you'd like to help out, please try porting your program to use Eio and submit
 ## Getting Started
 
 You'll need a version of the OCaml compiler with effects.
-You can get one like this:
+`5.00.0+trunk` often works but is a moving target, so we suggest using `4.12.0+domains` for now.
+You can get it like this:
 
 ```
 opam switch create 4.12.0+domains --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
@@ -113,7 +138,7 @@ let main ~stdout =
   Eio.Flow.copy_string "Hello, world!\n" stdout
 ```
 
-We use `Eio_main.run` to run the event loop and call it from there:
+We use `Eio_main.run` to run the event loop and call `main` from there:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
@@ -135,7 +160,7 @@ Note that:
 ## Testing with Mocks
 
 Because external resources are provided to `main` as arguments, we can easily replace them with mocks for testing.
-For example:
+For example, instead of giving `main` the real standard output, we can have it write to a buffer:
 
 ```ocaml
 # Eio_main.run @@ fun _env ->
@@ -146,8 +171,8 @@ For example:
 - : unit = ()
 ```
 
-`traceln` provides convenient printf-style debugging, without requiring you to plumb `stderr` through your code.
-It's actually using the `Format` module, so you can use the extended formatting directives here too.
+`traceln` (`Eio.Std.traceln`) provides convenient printf-style debugging, without requiring you to plumb `stderr` through your code.
+It uses the `Format` module, so you can use the extended formatting directives here too.
 
 ## Fibres
 
@@ -301,7 +326,7 @@ But then the function can't return until `Switch.run` does, at which point the f
 
 So, a `Switch.run` puts a bound on the lifetime of things created within it,
 leading to clearer code and avoiding resource leaks.
-For example, `fork` creates a new fibre that continues running after `fork` returns,
+The `Fibre.fork` call above creates a new fibre that continues running after `fork` returns,
 so it needs to take a switch argument.
 
 Every switch also creates a new cancellation context.
@@ -383,7 +408,7 @@ Note that not all cases are well-optimised yet, but the idea is for each backend
 ## Networking
 
 Eio provides a simple high-level API for networking.
-Here is a client that connects to address `addr` using `network` and sends a message:
+Here is a client that connects to address `addr` using network `net` and sends a message:
 
 ```ocaml
 let run_client ~net ~addr =
@@ -442,20 +467,11 @@ let main ~net ~addr =
 
 ## Design Note: Object Capabilities
 
-The `Eio` high-level API follows the principles of the [Object-capability model][] (Ocaps).
-In this model, having a reference to an "object" (which could be a function or closure) grants permission to use it.
-The only ways to get a reference are to create a new object, or to be passed an existing reference by another object.
-For A to pass a reference B to another object C, A requires access (i.e. references) to both B and C.
-In particular, for B to get a reference to C, there must be a path in the reference graph between them
-on which all objects allow it.
-
-This is all just standard programming practice, really, except that it disallows patterns that break this model:
-
-- Global variables are not permitted. Otherwise, B could store itself in a global variable and C could collect it.
-- Modules that use C code or the OS to provide the effect of globals are also not permitted.
-
-For example, OCaml's `Unix` module provides access to the network and filesystem to any code that wants it.
-By contrast, an Eio module that wants such access must receive it explicitly.
+Eio follows the principles of the [Object-capability model][].
+The key idea here is that the lambda calculus already contains a perfectly good security system:
+a function can only access things that are in its scope.
+If we can avoid breaking this model (for example, by adding global variables to our language)
+then we can reason about the security properties of code quite easily.
 
 Consider the network example in the previous section.
 Imagine this is a large program and we want to know:
@@ -463,24 +479,44 @@ Imagine this is a large program and we want to know:
 1. Does this program modify the filesystem?
 2. Does this program send telemetry data over the network?
 
-In an Ocap language, we don't have to read the entire code-base to find the answers:
+In a capability-safe language, we don't have to read the entire code-base to find the answers:
 
-- All authority starts at the (privileged) `run` function with the `env` parameter,
+- All authority starts at the (privileged) `Eio_main.run` function with the `env` parameter,
   so we must check this code.
+
 - Only `env`'s network access is used, so we know this program doesn't access the filesystem,
   answering question 1 immediately.
-- To check whether telemetry is sent, we need to follow the `network` authority as it is passed to `main`.
-- `main` uses `network` to open a listening socket on the loopback interface, which it passes to `run_server`.
-  `run_server` does not get the full `network` access, so we probably don't need to read that code; however,
+
+- To check whether telemetry is sent, we need to follow the `net` authority as it is passed to `main`.
+
+- `main` uses `net` to open a listening socket on the loopback interface, which it passes to `run_server`.
+  `run_server` does not get the full `net` access, so we probably don't need to read that code; however,
   we might want to check whether we granted other parties access to this port on our loopback network.
-- `run_client` does get `network`, so we do need to read that.
-  We could make that code easier to audit by passing it `(fun () -> Eio.Net.connect network addr)` instead of `network`.
+
+- `run_client` does get `net`, so we do need to read that.
+  We could make that code easier to audit by passing it `(fun () -> Eio.Net.connect network addr)` instead of `net` .
   Then we could see that `run_client` could only connect to our loopback address.
 
-Since OCaml is not an Ocap language, code can ignore Eio and use the non-Ocap APIs directly.
-Therefore, this cannot be used as a security mechanism.
+Some key features required for a capability system are:
+
+1. The language must be memory-safe.
+   OCaml allows all code to use e.g. `Obj.magic` or `Array.unsafe_set`.
+
+2. The default scope must not provide access to the outside world.
+   OCaml's `Stdlib.open_in` gives all code access to the file-system.
+
+3. No top-level mutable state.
+   In OCaml, if two libraries use a module `Foo` with top-level mutable state, then they could communicate using that
+   without first being introduced to each other by the main application code.
+   
+4. APIs should make it easy to restrict access.
+   For example, having a "directory" object should allow access to that sub-tree of the file-system only.
+   If the file-system abstraction provides a `get_parent` function then access to any directory is
+   equivalent to access to everything.
+
+Since OCaml is not a capability language, code can ignore Eio and use the non-capability APIs directly.
 However, it still makes non-malicious code easier to understand and test
-and may allow for an Ocap extension to the language in the future.
+and may allow for an extension to the language in the future.
 See [Emily][] for a previous attempt at this.
 
 ## Buffering and Parsing
@@ -563,7 +599,7 @@ let message =
 
 ## Filesystem Access
 
-Access to the filesystem is also controlled by capabilities, and `env` provides two:
+Access to the filesystem is controlled by capabilities, and `env` provides two:
 
 - `fs` provides full access (just like OCaml's stdlib).
 - `cwd` restricts access to files beneath the current working directory.
@@ -658,7 +694,8 @@ A program that operates on the current directory will probably want to use `cwd`
 whereas a program that accepts a path from the user will probably want to use `fs`,
 perhaps with `open_dir` to constrain all access to be within that directory.
 
-Note: the `eio_luv` backend doesn't have the `openat`, `mkdirat`, etc., calls that are necessary to implement these checks without races,
+Note: the `eio_luv` backend doesn't have the `openat`, `mkdirat`, etc.,
+calls that are necessary to implement these checks without races,
 so be careful if symlinks out of the subtree may be created while the program is running.
 
 ## Time
@@ -1054,10 +1091,11 @@ Here, the compiler already has the type from the `Eio_main.run` call immediately
 and `env` is acting as a simple record.
 We avoid doing that in this guide only to avoid alarming OCaml users unfamiliar with object syntax.
 
-## Examples
+## Example Applications
 
 - [gemini-eio][] is a simple Gemini browser. It shows how to integrate Eio with `ocaml-tls`, `angstrom`, and `notty`.
 - [ocaml-multicore/retro-httpaf-bench](https://github.com/ocaml-multicore/retro-httpaf-bench) includes a simple HTTP server using Eio. It shows how to use Eio with `httpaf`, and how to use multiple domains for increased performance.
+- [Awesome Multicore OCaml][] lists many other projects.
 
 ## Porting from Lwt
 
@@ -1087,3 +1125,4 @@ Some background about the effects system can be found in:
 [Emily]: https://www.hpl.hp.com/techreports/2006/HPL-2006-116.pdf
 [http-bench]: https://github.com/ocaml-multicore/retro-httpaf-bench
 [gemini-eio]: https://gitlab.com/talex5/gemini-eio
+[Awesome Multicore OCaml]: https://github.com/patricoferris/awesome-multicore-ocaml
