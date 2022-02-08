@@ -57,10 +57,10 @@ let string_source s = cstruct_source [Cstruct.of_string s]
 
 class virtual sink = object (_ : <Generic.t; ..>)
   method probe _ = None
-  method virtual write : 'a. (#source as 'a) -> unit
+  method virtual copy : 'a. (#source as 'a) -> unit
 end
 
-let copy (src : #source) (dst : #sink) = dst#write src
+let copy (src : #source) (dst : #sink) = dst#copy src
 
 let copy_string s = copy (string_source s)
 
@@ -68,7 +68,7 @@ let buffer_sink b =
   object
     inherit sink
 
-    method write src =
+    method copy src =
       let buf = Cstruct.create 4096 in
       try
         while true do

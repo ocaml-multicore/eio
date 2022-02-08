@@ -376,7 +376,7 @@ let flow fd = object (_ : <source; sink; ..>)
 
   method read_methods = []
 
-  method write src =
+  method copy src =
     let buf = Luv.Buffer.create 4096 in
     try
       while true do
@@ -401,7 +401,7 @@ let socket sock = object
     let buf = Cstruct.to_bigarray buf in
     Stream.read_into sock buf
 
-  method write src =
+  method copy src =
     let buf = Luv.Buffer.create 4096 in
     try
       while true do
