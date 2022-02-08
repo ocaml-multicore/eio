@@ -365,7 +365,7 @@ let flow fd = object (_ : <source; sink; ..>)
 
   method probe : type a. a Eio.Generic.ty -> a option = function
     | FD -> Some fd
-    | Eio_unix.Unix_file_descr op -> Some (File.to_unix op fd)
+    | Eio_unix.Private.Unix_file_descr op -> Some (File.to_unix op fd)
     | _ -> None
 
   method read_into buf =
@@ -394,7 +394,7 @@ let socket sock = object
   inherit Eio.Flow.two_way as super
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
-    | Eio_unix.Unix_file_descr op -> Stream.to_unix_opt op sock
+    | Eio_unix.Private.Unix_file_descr op -> Stream.to_unix_opt op sock
     | x -> super#probe x
 
   method read_into buf =
@@ -426,7 +426,7 @@ class virtual ['a] listening_socket ~backlog sock = object (self)
   inherit Eio.Net.listening_socket as super
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
-    | Eio_unix.Unix_file_descr op -> Stream.to_unix_opt op sock
+    | Eio_unix.Private.Unix_file_descr op -> Stream.to_unix_opt op sock
     | x -> super#probe x
 
   val ready = Eio.Semaphore.make 0
@@ -738,14 +738,14 @@ let rec run main =
               let k = { Suspended.k; fibre } in
               fn fibre (enqueue_result_thread st k)
             )
-        | Eio_unix.Effects.Await_readable fd -> Some (fun k ->
+        | Eio_unix.Private.Await_readable fd -> Some (fun k ->
             match Fibre_context.get_error fibre with
             | Some e -> discontinue k e
             | None ->
               let k = { Suspended.k; fibre } in
               Poll.await_readable st k fd
           )
-        | Eio_unix.Effects.Await_writable fd -> Some (fun k ->
+        | Eio_unix.Private.Await_writable fd -> Some (fun k ->
             match Fibre_context.get_error fibre with
             | Some e -> discontinue k e
             | None ->

@@ -770,7 +770,7 @@ let flow fd =
 
     method probe : type a. a Eio.Generic.ty -> a option = function
       | FD -> Some fd
-      | Eio_unix.Unix_file_descr op -> Some (FD.to_unix op fd)
+      | Eio_unix.Private.Unix_file_descr op -> Some (FD.to_unix op fd)
       | _ -> None
 
     method read_into buf =
@@ -808,7 +808,7 @@ let listening_socket fd = object
   inherit Eio.Net.listening_socket
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
-    | Eio_unix.Unix_file_descr op -> Some (FD.to_unix op fd)
+    | Eio_unix.Private.Unix_file_descr op -> Some (FD.to_unix op fd)
     | _ -> None
 
   method close = FD.close fd
@@ -1105,7 +1105,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
                 )
             )
           | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eio_utils.Trace.default_traceln)
-          | Eio_unix.Effects.Await_readable fd -> Some (fun k ->
+          | Eio_unix.Private.Await_readable fd -> Some (fun k ->
               match Fibre_context.get_error fibre with
               | Some e -> discontinue k e
               | None ->
@@ -1116,7 +1116,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
                   );
                 schedule st
             )
-          | Eio_unix.Effects.Await_writable fd -> Some (fun k ->
+          | Eio_unix.Private.Await_writable fd -> Some (fun k ->
               match Fibre_context.get_error fibre with
               | Some e -> discontinue k e
               | None ->
