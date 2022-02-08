@@ -91,10 +91,10 @@ module Ipaddr = struct
 
   type v4v6 = [`V4 | `V6] t
 
-  let classify t =
+  let fold ~v4 ~v6 t =
     match String.length t with
-    | 4 -> `V4 t
-    | 16 -> `V6 t
+    | 4 -> v4 t
+    | 16 -> v6 t
     | _ -> assert false
 
   let of_raw t =
@@ -102,15 +102,12 @@ module Ipaddr = struct
     | 4 | 16 -> t
     | x -> Fmt.invalid_arg "An IP address must be either 4 or 16 bytes long (%S is %d bytes)" t x
 
-  let pp f t =
-    match classify t with
-    | `V4 t -> V4.pp f t
-    | `V6 t -> V6.pp f t
+  let pp f = fold ~v4:(V4.pp f) ~v6:(V6.pp f)
 
-  let pp_for_uri f t =
-    match classify t with
-    | `V4 t -> V4.pp f t
-    | `V6 t -> Fmt.pf f "[%a]" V6.pp t
+  let pp_for_uri f =
+    fold
+      ~v4:(V4.pp f)
+      ~v6:(Fmt.pf f "[%a]" V6.pp)
 end
 
 module Sockaddr = struct
