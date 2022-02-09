@@ -151,6 +151,10 @@ Exception: Failure "Simulated error".
 Working with UDP and endpoints:
 
 ```ocaml
+# let pp_addr ppf (addr, port) = 
+  Fmt.pf ppf "%a:%d" Eio.Net.Ipaddr.pp addr port;;
+val pp_addr :
+  Format.formatter -> [< `V4 | `V6 ] Eio.Net.Ipaddr.t * int -> unit = <fun>
 # run @@ fun ~net sw ->
   let e1 = `Udp (Eio.Net.Ipaddr.V4.loopback, 8081) in
   let e2 = `Udp (Eio.Net.Ipaddr.V4.loopback, 8082) in
@@ -158,17 +162,19 @@ Working with UDP and endpoints:
     (fun () ->
       let e = Eio.Net.endpoint ~sw net e2 in
       let buf = Cstruct.create 20 in
-      traceln "Waiting to receive data from %a" Eio.Net.Sockaddr.pp e2;
-      let recv = Eio.Net.recv e buf in
-      traceln "Received message: %s" (Cstruct.(to_string (sub buf 0 recv)))
+      traceln "Waiting to receive data on %a" Eio.Net.Sockaddr.pp e2;
+      let addr, recv = Eio.Net.recv e buf in
+      traceln "Received message from %a: %s"
+      (Fmt.option pp_addr) addr
+      (Cstruct.(to_string (sub buf 0 recv)))
     )
     (fun () ->
       let e = Eio.Net.endpoint ~sw net e1 in
       traceln "Sending data from %a to %a" Eio.Net.Sockaddr.pp e1 Eio.Net.Sockaddr.pp e2;
       Eio.Net.send e e2 (Cstruct.of_string "UDP Message"));;
-+Waiting to receive data from udp:127.0.0.1:8082
++Waiting to receive data on udp:127.0.0.1:8082
 +Sending data from udp:127.0.0.1:8081 to udp:127.0.0.1:8082
-+Received message: UDP Message
++Received message from 127.0.0.1:8081: UDP Message
 - : unit = ()
 ```
 

@@ -141,7 +141,7 @@ let accept_sub ~sw (t : #listening_socket) ~on_error handle =
 
 class virtual endpoint = object
   method virtual send : Sockaddr.t -> Cstruct.t -> unit
-  method virtual recv : Cstruct.t -> int
+  method virtual recv : Cstruct.t -> (Ipaddr.v4v6 * int) option * int
 end
 
 let send (t:#endpoint) = t#send

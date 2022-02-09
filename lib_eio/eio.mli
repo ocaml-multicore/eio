@@ -914,7 +914,7 @@ module Net : sig
 
   class virtual endpoint : object
     method virtual send : Sockaddr.t -> Cstruct.t -> unit
-    method virtual recv : Cstruct.t -> int
+    method virtual recv : Cstruct.t -> (Ipaddr.v4v6 * int) option * int
   end
 
   class virtual t : object
@@ -975,9 +975,10 @@ module Net : sig
   val send : #endpoint -> Sockaddr.t -> Cstruct.t -> unit
   (** [send e addr buf] sends the data in [buf] to the address [addr] using the endpoint [e]. *)
 
-  val recv : #endpoint -> Cstruct.t -> int
+  val recv : #endpoint -> Cstruct.t -> (Ipaddr.v4v6 * int) option * int
   (** [recv e buf] receives data from the endpoint [e] putting it in [buf]. The number of bytes received is 
-      returned, if the [buf] is too small the read my be partial. *)
+      returned along with the sender IP address and port if possible. If the [buf] is too small the read may 
+      be partial. *)
 end
 
 (** Parallel computation across multiple CPU cores. *)

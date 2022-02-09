@@ -490,9 +490,9 @@ module Endpoint = struct
           )
       ) in
     match r with
-    | Ok (buf', _sockaddr, _recv_flags) -> 
-      (* if List.mem `PARTIAL recv_flags then print_endline "PARTIAL"; Should the Eio API expose partial reading when the buffer is too small *)
-      Luv.Buffer.size buf'
+    | Ok (buf', sockaddr, _recv_flags) -> 
+      (* if List.mem `PARTIAL recv_flags then raise Partial_read; Is this an exception? *)
+      Option.map luv_ip_addr_to_eio sockaddr, Luv.Buffer.size buf'
     | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
     | Error x -> raise (Luv_error x)
 
