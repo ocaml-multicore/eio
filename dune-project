@@ -6,6 +6,7 @@
 (license ISC)
 (authors "Anil Madhavapeddy" "Thomas Leonard")
 (maintainers "anil@recoil.org")
+(documentation "https://ocaml-multicore.github.io/eio/")
 (package
  (name eio)
  (synopsis "Effect-based direct-style IO API for OCaml")
