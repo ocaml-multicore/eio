@@ -92,11 +92,11 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 
 ## Structure of the Code
 
-- `eio` provides concurrency primitives (promises, etc.) and a high-level, cross-platform OS API.
-- `eio_luv` provides a cross-platform backend for these APIs using [luv](https://github.com/aantron/luv) (libuv).
-- `eio_linux` provides a Linux io-uring backend for these APIs,
+- [Eio][] provides concurrency primitives (promises, etc.) and a high-level, cross-platform OS API.
+- [Eio_luv][] provides a cross-platform backend for these APIs using [luv](https://github.com/aantron/luv) (libuv).
+- [Eio_linux][] provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
-- `eio_main` selects an appropriate backend (e.g. `eio_linux` or `eio_luv`), depending on your platform.
+- [Eio_main][] selects an appropriate backend (e.g. `eio_linux` or `eio_luv`), depending on your platform.
 
 ## Getting Started
 
@@ -121,7 +121,7 @@ opam install eio_main utop		# (for opam 2.1)
 
 Try out the examples interactively by running `utop` in the shell.
 
-First `require` the `eio_main` library. It's also convenient to open the `Eio.Std`
+First `require` the `eio_main` library. It's also convenient to open the [Eio.Std][]
 module, as follows. (The leftmost `#` shown below is the Utop prompt, so enter the text after the 
 prompt and return after each line.)
 
@@ -130,14 +130,14 @@ prompt and return after each line.)
 # open Eio.Std;;
 ```
 
-This function writes a greeting to `stdout`:
+This function writes a greeting to `stdout` using [Eio.Flow][]:
 
 ```ocaml
 let main ~stdout =
   Eio.Flow.copy_string "Hello, world!\n" stdout
 ```
 
-We use `Eio_main.run` to run the event loop and call `main` from there:
+We use [Eio_main.run][] to run the event loop and call `main` from there:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
@@ -170,12 +170,12 @@ For example, instead of giving `main` the real standard output, we can have it w
 - : unit = ()
 ```
 
-`traceln` (`Eio.Std.traceln`) provides convenient printf-style debugging, without requiring you to plumb `stderr` through your code.
+[Eio.traceln][] provides convenient printf-style debugging, without requiring you to plumb `stderr` through your code.
 It uses the `Format` module, so you can use the extended formatting directives here too.
 
 ## Fibres
 
-Here's an example running two threads of execution (fibres) concurrently:
+Here's an example running two threads of execution concurrently using [Eio.Fibre][]:
 
 ```ocaml
 let main _env =
@@ -229,7 +229,7 @@ Note that the output from `traceln` appears in the trace as well as on the conso
 
 ## Cancellation
 
-Every fibre has a cancellation context.
+Every fibre has a [cancellation context][Eio.Cancel].
 If one of the `Fibre.both` fibres fails, the other is cancelled:
 
 ```ocaml
@@ -282,7 +282,7 @@ If you want to make an operation non-cancellable, wrap it with `Cancel.protect`
 
 ## Switches
 
-A switch is used to group fibres together, so they can be waited on together.
+A [switch][Eio.Switch] is used to group fibres together, so they can be waited on together.
 This is a form of [structured concurrency][].
 For example:
 
@@ -405,7 +405,7 @@ Note that not all cases are well-optimised yet, but the idea is for each backend
 
 ## Networking
 
-Eio provides a simple high-level API for networking.
+Eio provides a simple high-level API for [networking][Eio.Net].
 Here is a client that connects to address `addr` using network `net` and sends a message:
 
 ```ocaml
@@ -522,7 +522,7 @@ See [Emily][] for a previous attempt at this.
 Reading from an Eio flow directly may give you more or less data than you wanted.
 For example, if you want to read a line of text from a TCP stream,
 the flow will tend to give you the data in packet-sized chunks, not lines.
-To solve this, you can wrap the flow with a buffer and read from that.
+To solve this, you can wrap the flow with a [buffer][Eio.Buf_read] and read from that.
 
 Here's a simple command-line interface that reads `stdin` one line at a time:
 
@@ -597,7 +597,7 @@ let message =
 
 ## Filesystem Access
 
-Access to the filesystem is controlled by capabilities, and `env` provides two:
+Access to the [filesystem][Eio.Dir] is controlled by capabilities, and `env` provides two:
 
 - `fs` provides full access (just like OCaml's stdlib).
 - `cwd` restricts access to files beneath the current working directory.
@@ -698,7 +698,7 @@ so be careful if symlinks out of the subtree may be created while the program is
 
 ## Time
 
-The standard environment provides a clock with the usual POSIX time:
+The standard environment provides a [clock][Eio.Time] with the usual POSIX time:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
@@ -731,7 +731,7 @@ let sum_to n =
   !total
 ```
 
-We can use `Eio.Domain_manager` to run this in a separate domain:
+We can use [Eio.Domain_manager][] to run this in a separate domain:
 
 ```ocaml
 let main ~domain_mgr =
@@ -778,7 +778,7 @@ and these work even when the fibres are running in different domains.
 
 ### Promises
 
-Promises are a simple and reliable way to communicate between fibres.
+[Promises][Eio.Promise] are a simple and reliable way to communicate between fibres.
 One fibre can wait for a promise and another can resolve it:
 
 ```ocaml
@@ -894,7 +894,7 @@ You will need to add a mutex if you want to share it between domains.
 
 ### Streams
 
-A stream is a bounded queue. Reading from an empty stream waits until an item is available.
+A [stream][Eio.Stream] is a bounded queue. Reading from an empty stream waits until an item is available.
 Writing to a full stream waits for space.
 
 ```ocaml
@@ -1124,3 +1124,21 @@ Some background about the effects system can be found in:
 [http-bench]: https://github.com/ocaml-multicore/retro-httpaf-bench
 [gemini-eio]: https://gitlab.com/talex5/gemini-eio
 [Awesome Multicore OCaml]: https://github.com/patricoferris/awesome-multicore-ocaml
+[Eio]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html
+[Eio.Std]: https://ocaml-multicore.github.io/eio/eio/Eio/Std/index.html
+[Eio.Fibre]: https://ocaml-multicore.github.io/eio/eio/Eio/Fibre/index.html
+[Eio.Flow]: https://ocaml-multicore.github.io/eio/eio/Eio/Flow/index.html
+[Eio.Cancel]: https://ocaml-multicore.github.io/eio/eio/Eio/Cancel/index.html
+[Eio.Switch]: https://ocaml-multicore.github.io/eio/eio/Eio/Switch/index.html
+[Eio.Net]: https://ocaml-multicore.github.io/eio/eio/Eio/Net/index.html
+[Eio.Buf_read]: https://ocaml-multicore.github.io/eio/eio/Eio/Buf_read/index.html
+[Eio.Dir]: https://ocaml-multicore.github.io/eio/eio/Eio/Dir/index.html
+[Eio.Time]: https://ocaml-multicore.github.io/eio/eio/Eio/Time/index.html
+[Eio.Domain_manager]: https://ocaml-multicore.github.io/eio/eio/Eio/Domain_manager/index.html
+[Eio.Promise]: https://ocaml-multicore.github.io/eio/eio/Eio/Promise/index.html
+[Eio.Stream]: https://ocaml-multicore.github.io/eio/eio/Eio/Stream/index.html
+[Eio_luv]: https://ocaml-multicore.github.io/eio/eio_luv/Eio_luv/index.html
+[Eio_linux]: https://ocaml-multicore.github.io/eio/eio_linux/Eio_linux/index.html
+[Eio_main]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html
+[Eio.traceln]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html#val-traceln
+[Eio_main.run]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html#val-run
