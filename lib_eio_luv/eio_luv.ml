@@ -434,7 +434,7 @@ class virtual ['a] listening_socket ~backlog sock = object (self)
   val ready = Eio.Semaphore.make 0
 
   method private virtual make_client : 'a Luv.Stream.t
-  method private virtual get_client_addr : 'a Stream.t -> Eio.Net.Sockaddr.t
+  method private virtual get_client_addr : 'a Stream.t -> Eio.Net.Sockaddr.stream
 
   method close = Handle.close sock
 
@@ -554,7 +554,6 @@ let net = object
       if String.length path > 0 && path.[0] <> Char.chr 0 then
         Switch.on_release sw (fun () -> Unix.unlink path);
       listening_unix_socket ~backlog sock
-    | _ -> assert false 
 
   (* todo: how do you cancel connect operations with luv? *)
   method connect ~sw = function
@@ -567,7 +566,6 @@ let net = object
       let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
       await_exn (fun _loop _fibre -> Luv.Pipe.connect (Handle.get "connect" sock) path);
       socket sock
-    | _ -> assert false
 
   method endpoint ~sw = function
     | `Udp (host, port) -> 
@@ -576,7 +574,6 @@ let net = object
       let addr = luv_addr_of_eio host port in
       Luv.UDP.bind sock addr |> or_raise;
       endpoint (Handle.of_luv ~sw sock)
-    | _ -> assert false
 end
 
 let secure_random =

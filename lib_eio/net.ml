@@ -111,11 +111,16 @@ module Ipaddr = struct
 end
 
 module Sockaddr = struct
-  type t = [
+  type stream = [
     | `Unix of string
     | `Tcp of Ipaddr.v4v6 * int
+  ]
+
+  type datagram = [
     | `Udp of Ipaddr.v4v6 * int
   ]
+
+  type t = [ stream | datagram ]
 
   let pp f = function
     | `Unix path ->
@@ -129,7 +134,7 @@ end
 class virtual listening_socket = object (_ : #Generic.t)
   method probe _ = None
   method virtual close : unit
-  method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.t
+  method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.stream
 end
 
 let accept ~sw (t : #listening_socket) = t#accept ~sw
@@ -140,7 +145,7 @@ let accept_sub ~sw (t : #listening_socket) ~on_error handle =
   Fibre.fork_on_accept ~sw accept handle ~on_handler_error:on_error
 
 class virtual endpoint = object
-  method virtual send : Sockaddr.t -> Cstruct.t -> unit
+  method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
   method virtual recv : Cstruct.t -> (Ipaddr.v4v6 * int) option * int
 end
 
@@ -148,9 +153,9 @@ let send (t:#endpoint) = t#send
 let recv (t:#endpoint) = t#recv
 
 class virtual t = object
-  method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
-  method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
-  method virtual endpoint : sw:Switch.t -> Sockaddr.t -> endpoint
+  method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
+  method virtual connect : sw:Switch.t -> Sockaddr.stream -> <Flow.two_way; Flow.close>
+  method virtual endpoint : sw:Switch.t -> Sockaddr.datagram -> endpoint
 end
 
 let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw
