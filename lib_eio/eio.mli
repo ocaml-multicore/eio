@@ -372,7 +372,7 @@ module Cancel : sig
       It is possible the exception will get lost (if something catches it and forgets to re-raise).
       It is also possible to get this exception even when not cancelled, for example by awaiting
       a promise which another fibre has resolved to a cancelled exception.
-      When in doubt, call {!Fibre.check ()} to find out if your fibre is really cancelled.
+      When in doubt, use [Fibre.check ()] to find out if your fibre is really cancelled.
       Ideally this should be done any time you have caught an exception and are planning to ignore it,
       although if you forget then the next IO operation will typically abort anyway.
 
