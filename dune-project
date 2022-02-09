@@ -11,6 +11,7 @@
  (synopsis "Effect-based direct-style IO API for OCaml")
  (description "An effect-based IO API for multicore OCaml with fibres.")
  (depends
+  (ocaml (>= 4.12.0))
   base-domains
   (cstruct (>= 6.0.1))
   lwt-dllist
