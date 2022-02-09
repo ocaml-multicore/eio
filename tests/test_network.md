@@ -80,7 +80,7 @@ Exception: Graceful_shutdown.
 Handling one connection on a Unix domain socket:
 
 ```ocaml
-# run (test_address (`Unix "/tmp/eio-test.sock"));;
+# run (test_address (`Unix "eio-test.sock"));;
 +Connecting to server...
 +Server accepted connection from client
 +Server received: "Hello from client"
