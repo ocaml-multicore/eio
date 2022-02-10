@@ -492,7 +492,7 @@ In a capability-safe language, we don't have to read the entire code-base to fin
   we might want to check whether we granted other parties access to this port on our loopback network.
 
 - `run_client` does get `net`, so we do need to read that.
-  We could make that code easier to audit by passing it `(fun () -> Eio.Net.connect network addr)` instead of `net` .
+  We could make that code easier to audit by passing it `(fun () -> Eio.Net.connect net addr)` instead of `net` .
   Then we could see that `run_client` could only connect to our loopback address.
 
 Some key features required for a capability system are:

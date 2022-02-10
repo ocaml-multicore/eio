@@ -217,7 +217,7 @@ module Fibre : sig
       The new fibre is attached to [sw] (which can't finish until the fibre ends).
 
       The new fibre inherits [sw]'s cancellation context.
-      If the fibre raises an exception, [fail sw] is called.
+      If the fibre raises an exception, [Switch.fail sw] is called.
       If [sw] is already off then [fn] fails immediately, but the calling thread continues.
 
       [fn] runs immediately, without switching to any other fibre first.
@@ -254,7 +254,7 @@ module Fibre : sig
   (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fibre and returns a promise for its result.
 
       This is just a convenience wrapper around {!fork}.
-      If [fn] raises an exception then the promise is broken, but [sw] is not turned off. *)
+      If [fn] raises an exception then the promise is resolved to the error, but [sw] is not failed. *)
 
   val check : unit -> unit
   (** [check ()] checks that the fibre's context hasn't been cancelled.
