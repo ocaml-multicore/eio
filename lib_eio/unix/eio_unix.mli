@@ -29,6 +29,12 @@ module Ipaddr : sig
   val of_unix : Unix.inet_addr -> Eio.Net.Ipaddr.v4v6
 end
 
+val sleep : float -> unit
+(** [sleep d] sleeps for [d] seconds, allowing other fibres to run.
+    This is can be useful for debugging (e.g. to introduce delays to trigger a race condition)
+    without having to plumb {!Eio.Stdenv.clock} through your code.
+    It can also be used in programs that don't care about tracking determinism. *)
+
 (** API for Eio backends only. *)
 module Private : sig
   open Eio.Private.Effect
@@ -39,6 +45,7 @@ module Private : sig
   type _ eff += 
     | Await_readable : Unix.file_descr -> unit eff      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit eff      (** See {!await_writable} *)
+    | Get_system_clock : Eio.Time.clock eff             (** See {!sleep} *)
 end
 
 module Ctf = Ctf_unix

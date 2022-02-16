@@ -1128,6 +1128,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
                   );
                 schedule st
             )
+          | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
           | Low_level.Alloc -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               Low_level.alloc_buf st k
