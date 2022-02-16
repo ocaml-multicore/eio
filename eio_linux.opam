@@ -36,3 +36,6 @@ build: [
   ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
+pin-depends: [
+    ["uring.0.2" "git+https://github.com/patricoferris/ocaml-uring.git#a2cd6f45bd5ebf847987110ae97323e10faebed6"]
+]
