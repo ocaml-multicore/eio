@@ -90,3 +90,15 @@ Check ordering works:
 +Short timer finished
 Exception: Failure "Simulated cancel".
 ```
+
+Check Unix debug clock:
+```ocaml
+# Eio_main.run @@ fun _ ->
+  Fibre.both
+    (fun () -> traceln "First thread starts"; Eio_unix.sleep 0.001; traceln "Sleep done")
+    (fun () -> traceln "Second thread starts");;
++First thread starts
++Second thread starts
++Sleep done
+- : unit = ()
+```

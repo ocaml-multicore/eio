@@ -754,6 +754,7 @@ let rec run main =
               let k = { Suspended.k; fibre } in
               Poll.await_writable st k fd
           )
+        | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
         | _ -> None
     }
   in

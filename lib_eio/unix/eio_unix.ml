@@ -6,10 +6,14 @@ module Private = struct
   type _ eff += 
     | Await_readable : Unix.file_descr -> unit eff
     | Await_writable : Unix.file_descr -> unit eff
+    | Get_system_clock : Eio.Time.clock eff
 end
 
 let await_readable fd = perform (Private.Await_readable fd)
 let await_writable fd = perform (Private.Await_writable fd)
+
+let sleep d =
+  Eio.Time.sleep (perform Private.Get_system_clock) d
 
 module FD = struct
   let peek x = Eio.Generic.probe x (Private.Unix_file_descr `Peek)
