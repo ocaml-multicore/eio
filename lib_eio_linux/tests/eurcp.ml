@@ -1,3 +1,5 @@
+[@@@warning "-deprecated"]
+
 let setup_log style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
   Logs.set_level level;
