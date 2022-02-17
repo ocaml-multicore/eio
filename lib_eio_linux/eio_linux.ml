@@ -799,8 +799,8 @@ let fallback_copy src dst =
     done
   with End_of_file -> ()
 
-let endpoint sock = object
-  inherit Eio.Net.endpoint
+let udp_socket sock = object
+  inherit [Eio.Net.Sockaddr.datagram] Eio.Net.datagram_socket
 
   method send sockaddr buf = 
     let addr = match sockaddr with 
@@ -814,8 +814,9 @@ let endpoint sock = object
     let addr, recv = Low_level.recv_msg sock [buf] in
     match Uring.Sockaddr.get addr with
       | Unix.ADDR_INET (inet, port) ->
-        Some (Eio_unix.Ipaddr.of_unix inet, port), recv
-      | Unix.ADDR_UNIX _ -> None, recv
+        `Udp (Eio_unix.Ipaddr.of_unix inet, port), recv
+      | Unix.ADDR_UNIX _ -> 
+        raise (Failure "Expected INET UDP socket address but got Unix domain socket address.")
 end
 
 let flow fd =
@@ -928,7 +929,7 @@ let net = object
     Low_level.connect sock addr;
     (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
 
-  method endpoint ~sw = function
+  method datagram_socket ~sw = function
     | `Udp (host, port) ->
       let host = Eio_unix.Ipaddr.to_unix host in
       let addr = Unix.ADDR_INET (host, port) in
@@ -938,7 +939,7 @@ let net = object
       Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
       let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
       Unix.bind sock_unix addr;
-      endpoint sock
+      udp_socket sock
 end
 
 type stdenv = <

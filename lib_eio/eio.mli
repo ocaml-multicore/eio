@@ -909,7 +909,7 @@ module Net : sig
 
     type t = [ stream | datagram ]
 
-    val pp : Format.formatter -> t -> unit
+    val pp : Format.formatter -> [< t] -> unit
   end
 
   (** {2 Provider Interfaces} *)
@@ -920,15 +920,15 @@ module Net : sig
     method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.stream
   end
 
-  class virtual endpoint : object
-    method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
-    method virtual recv : Cstruct.t -> (Ipaddr.v4v6 * int) option * int
+  class virtual ['addr] datagram_socket : object
+    method virtual send : 'addr -> Cstruct.t -> unit
+    method virtual recv : Cstruct.t -> 'addr * int
   end
 
   class virtual t : object
     method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
     method virtual connect : sw:Switch.t -> Sockaddr.stream -> <Flow.two_way; Flow.close>
-    method virtual endpoint : sw:Switch.t -> Sockaddr.datagram -> endpoint
+    method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> Sockaddr.datagram datagram_socket
   end
 
   (** {2 Out-bound Connections} *)
@@ -976,17 +976,18 @@ module Net : sig
 
   (** {2 Datagram Sockets} *)
 
-  val endpoint : sw:Switch.t -> #t -> Sockaddr.datagram -> endpoint
-  (** [endpoint ~sw t addr] creates a new, connectionless endpoint that data can be sent to
+  val datagram_socket : sw:Switch.t -> #t -> Sockaddr.datagram -> Sockaddr.datagram datagram_socket
+  (** [datagram_socket ~sw t addr] creates a new, datagram socket that data can be sent to
       and received from. The new socket will be closed when [sw] finishes. *)
 
-  val send : #endpoint -> Sockaddr.datagram -> Cstruct.t -> unit
-  (** [send e addr buf] sends the data in [buf] to the address [addr] using the endpoint [e]. *)
+  val send : 'addr datagram_socket -> 'addr -> Cstruct.t -> unit
+  (** [send sock addr buf] sends the data in [buf] to the address [addr] using the 
+      the socket [sock]. *)
 
-  val recv : #endpoint -> Cstruct.t -> (Ipaddr.v4v6 * int) option * int
-  (** [recv e buf] receives data from the endpoint [e] putting it in [buf]. The number of bytes received is 
-      returned along with the sender IP address and port if possible. If the [buf] is too small the read may 
-      be partial. *)
+  val recv : 'addr datagram_socket -> Cstruct.t -> 'addr * int
+  (** [recv sock buf] receives data from the socket [sock] putting it in [buf]. The number of bytes received is 
+      returned along with the sender address and port. If the [buf] is too small then excess bytes may be discarded
+      depending on the type of the socket the message is received from. *)
 end
 
 (** Parallel computation across multiple CPU cores. *)

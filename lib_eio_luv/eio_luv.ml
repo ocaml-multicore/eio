@@ -475,7 +475,7 @@ let luv_ip_addr_to_eio addr =
   let port = Luv.Sockaddr.port addr |> Option.get in
   (Eio_unix.Ipaddr.of_unix (Unix.inet_addr_of_string host), port)
 
-module Endpoint = struct
+module Udp = struct
   type 'a t = [`UDP] Handle.t
 
   let recv (sock:'a t) buf =
@@ -490,26 +490,27 @@ module Endpoint = struct
           )
       ) in
     match r with
-    | Ok (buf', sockaddr, _recv_flags) -> 
-      (* if List.mem `PARTIAL recv_flags then raise Partial_read; Is this an exception? *)
-      Option.map luv_ip_addr_to_eio sockaddr, Luv.Buffer.size buf'
+    | Ok (buf', Some sockaddr, _recv_flags) ->
+      `Udp (luv_ip_addr_to_eio sockaddr), Luv.Buffer.size buf'
     | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
     | Error x -> raise (Luv_error x)
+    | _ ->
+      (* TODO: Handle EAGAIN i.e. when the sockaddr is None... *)
+      assert false
 
   let send t buf = function 
   | `Udp (host, port) ->
     let bufs = [ Cstruct.to_bigarray buf ] in
     await_exn (fun _loop _fibre -> Luv.UDP.send (Handle.get "send" t) bufs (luv_addr_of_eio host port))
-  | _ -> assert false
 end
 
-let endpoint endp = object
-  inherit Eio.Net.endpoint
+let udp_socket endp = object
+  inherit [Eio.Net.Sockaddr.datagram] Eio.Net.datagram_socket
 
-  method send sockaddr bufs = Endpoint.send endp bufs sockaddr 
+  method send sockaddr bufs = Udp.send endp bufs sockaddr 
   method recv buf = 
     let buf = Cstruct.to_bigarray buf in
-    Endpoint.recv endp buf
+    Udp.recv endp buf
 end
 
 let listening_ip_socket ~backlog sock = object
@@ -567,13 +568,13 @@ let net = object
       await_exn (fun _loop _fibre -> Luv.Pipe.connect (Handle.get "connect" sock) path);
       socket sock
 
-  method endpoint ~sw = function
+  method datagram_socket ~sw = function
     | `Udp (host, port) -> 
-      let domain = match Eio.Net.Ipaddr.classify host with `V4 _ -> `INET | _ -> `INET6 in
+      let domain = Eio.Net.Ipaddr.fold ~v4:(fun _ -> `INET) ~v6:(fun _ -> `INET6) host in
       let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise in
       let addr = luv_addr_of_eio host port in
       Luv.UDP.bind sock addr |> or_raise;
-      endpoint (Handle.of_luv ~sw sock)
+      udp_socket (Handle.of_luv ~sw sock)
 end
 
 let secure_random =
