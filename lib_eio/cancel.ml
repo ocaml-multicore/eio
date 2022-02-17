@@ -158,9 +158,11 @@ let cancel t ex =
       | () -> aux fns
       | exception ex2 -> ex2 :: aux fns
   in
-  match protect (fun () -> aux fns) with
-  | [] -> ()
-  | exns -> raise (Cancel_hook_failed exns)
+  if fns <> [] then (
+    match protect (fun () -> aux fns) with
+    | [] -> ()
+    | exns -> raise (Cancel_hook_failed exns)
+  )
 
 let sub fn =
   let ctx = perform Get_context in

@@ -1309,7 +1309,8 @@ module Private : sig
           [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
 
       | Fork : Fibre_context.t * (unit -> unit) -> unit eff
-      (** See {!Fibre.fork} *)
+      (** [perform (Fork new_context f)] creates a new fibre and runs [f] in it, with context [new_context].
+          [f] must not raise an exception. See {!Fibre.fork}. *)
 
       | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
       (** [perform Trace fmt] writes trace logging to the configured trace output.
@@ -1318,6 +1319,7 @@ module Private : sig
           the whole domain must block until it is. *)
 
       | Get_context : Fibre_context.t eff
+      (** [perform Get_context] immediately returns the current fibre's context (without switching fibres). *)
   end
 
   (** Temporary hack for compatibility with ocaml.4.12+domains *)

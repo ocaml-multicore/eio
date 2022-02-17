@@ -717,15 +717,10 @@ let rec run main =
           Some (fun k -> continue k Eio_utils.Trace.default_traceln)
         | Eio.Private.Effects.Fork (new_fibre, f) ->
           Some (fun k -> 
-            let k = { Suspended.k; fibre } in
-            enqueue_at_head st k ();
-            fork ~new_fibre (fun () ->
-                match f () with
-                | () ->
-                  Ctf.note_resolved (Fibre_context.tid new_fibre) ~ex:None
-                | exception ex ->
-                  Ctf.note_resolved (Fibre_context.tid new_fibre) ~ex:(Some ex)
-              ))
+              let k = { Suspended.k; fibre } in
+              enqueue_at_head st k ();
+              fork ~new_fibre f
+            )
         | Eio.Private.Effects.Get_context -> Some (fun k -> continue k fibre)
         | Enter_unchecked fn -> Some (fun k ->
             fn st { Suspended.k; fibre }

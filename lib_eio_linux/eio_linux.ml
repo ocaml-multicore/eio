@@ -1097,13 +1097,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
           | Eio.Private.Effects.Fork (new_fibre, f) -> Some (fun k ->
               let k = { Suspended.k; fibre } in
               enqueue_at_head st k ();
-              fork ~new_fibre (fun () ->
-                  match f () with
-                  | () ->
-                    Ctf.note_resolved (Fibre_context.tid new_fibre) ~ex:None
-                  | exception ex ->
-                    Ctf.note_resolved (Fibre_context.tid new_fibre) ~ex:(Some ex)
-                )
+              fork ~new_fibre f
             )
           | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eio_utils.Trace.default_traceln)
           | Eio_unix.Private.Await_readable fd -> Some (fun k ->

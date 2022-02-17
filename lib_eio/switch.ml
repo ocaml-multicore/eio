@@ -27,9 +27,12 @@ let dump f t =
 
 let is_finished t = Cancel.is_finished t.cancel
 
+(* Check switch belongs to this domain (and isn't finished). It's OK if it's cancelling. *)
 let check_our_domain t =
+  if is_finished t then invalid_arg "Switch finished!";
   if Domain.self () <> t.cancel.domain then invalid_arg "Switch accessed from wrong domain!"
 
+(* Check isn't cancelled (or finished). *)
 let check t =
   if is_finished t then invalid_arg "Switch finished!";
   Cancel.check t.cancel
@@ -41,6 +44,7 @@ let combine_exn ex = function
   | None -> ex
   | Some ex1 -> Exn.combine ex1 ex
 
+(* Note: raises if [t] is finished or called from wrong domain. *)
 let fail ?(bt=Printexc.get_raw_backtrace ()) t ex =
   check_our_domain t;
   if t.exs = None then
