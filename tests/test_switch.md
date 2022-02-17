@@ -76,11 +76,11 @@ Exception: Failure "Failed".
 Exception: Failure "Failed".
 ```
 
-`Fibre.both`, first fails but the other doesn't stop:
+`Fibre.both`, first fails immediately and the other doesn't start:
 
 ```ocaml
 # run (fun sw ->
-      Fibre.both (fun () -> failwith "Failed") ignore;
+      Fibre.both (fun () -> failwith "Failed") (fun () -> traceln "Second OK");
       traceln "Not reached"
     );;
 Exception: Failure "Failed".

@@ -55,13 +55,7 @@ module Eio_null = struct
                 (* Arrange for the forking fibre to run immediately after the new one. *)
                 t.run_q <- Deep.continue k :: t.run_q;
                 (* Create and run the new fibre (using fibre context [new_fibre]). *)
-                fork ~new_fibre (fun () ->
-                    try f ()
-                    with _ ->
-                      (* Fibre.fork handles exceptions for us.
-                         This is just to allow for tracing. *)
-                      ()
-                  )
+                fork ~new_fibre f
               )
             | Eio.Private.Effects.Get_context -> Some (fun k ->
                 Deep.continue k fibre
