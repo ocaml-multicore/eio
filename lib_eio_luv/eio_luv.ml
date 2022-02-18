@@ -478,25 +478,30 @@ let luv_ip_addr_to_eio addr =
 module Udp = struct
   type 'a t = [`UDP] Handle.t
 
+  (* When the sender address in the callback of [recv_start] is [None], this usually indicates
+     EAGAIN according to the luv documentation which can be ignored. Libuv calls the callback 
+     in case C programs wish to handle the allocated buffer in some way. *)
   let recv (sock:'a t) buf =
     let r = enter (fun t k ->
         Fibre_context.set_cancel_fn k.fibre (fun ex ->
             Luv.UDP.recv_stop (Handle.get "recv_into:cancel" sock) |> or_raise;
             enqueue_failed_thread t k ex
           );
-        Luv.UDP.recv_start (Handle.get "recv_start" sock) ~allocate:(fun _ -> buf) (fun r ->
+        Luv.UDP.recv_start (Handle.get "recv_start" sock) ~allocate:(fun _ -> buf) (function
+          | Ok (_, None, _) -> ()
+          | Ok (buf, Some addr, flags) ->
             Luv.UDP.recv_stop (Handle.get "recv_stop" sock) |> or_raise;
-            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k r
+            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k (Ok (buf, addr, flags))
+          | Error _ as err ->
+            Luv.UDP.recv_stop (Handle.get "recv_stop" sock) |> or_raise;
+            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k err
           )
       ) in
     match r with
-    | Ok (buf', Some sockaddr, _recv_flags) ->
+    | Ok (buf', sockaddr, _recv_flags) ->
       `Udp (luv_ip_addr_to_eio sockaddr), Luv.Buffer.size buf'
     | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
     | Error x -> raise (Luv_error x)
-    | _ ->
-      (* TODO: Handle EAGAIN i.e. when the sockaddr is None... *)
-      assert false
 
   let send t buf = function 
   | `Udp (host, port) ->
