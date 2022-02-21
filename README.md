@@ -23,7 +23,7 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Design Note: Results vs Exceptions](#design-note-results-vs-exceptions)
 * [Performance](#performance)
 * [Networking](#networking)
-* [Design Note: Object Capabilities](#design-note-object-capabilities)
+* [Design Note: Capabilities](#design-note-capabilities)
 * [Buffering and Parsing](#buffering-and-parsing)
 * [Filesystem Access](#filesystem-access)
 * [Time](#time)
@@ -463,9 +463,9 @@ let main ~net ~addr =
 - : unit = ()
 ```
 
-## Design Note: Object Capabilities
+## Design Note: Capabilities
 
-Eio follows the principles of the [Object-capability model][].
+Eio follows the principles of [capability-based security][].
 The key idea here is that the lambda calculus already contains a perfectly good security system:
 a function can only access things that are in its scope.
 If we can avoid breaking this model (for example, by adding global variables to our language)
@@ -508,7 +508,7 @@ Some key features required for a capability system are:
    without first being introduced to each other by the main application code.
    
 4. APIs should make it easy to restrict access.
-   For example, having a "directory" object should allow access to that sub-tree of the file-system only.
+   For example, having a "directory" should allow access to that sub-tree of the file-system only.
    If the file-system abstraction provides a `get_parent` function then access to any directory is
    equivalent to access to everything.
 
@@ -1089,6 +1089,8 @@ Here, the compiler already has the type from the `Eio_main.run` call immediately
 and `env` is acting as a simple record.
 We avoid doing that in this guide only to avoid alarming OCaml users unfamiliar with object syntax.
 
+See [Dynamic Dispatch](doc/rationale.md#dynamic-dispatch) for more discussion about the use of objects here.
+
 ## Example Applications
 
 - [gemini-eio][] is a simple Gemini browser. It shows how to integrate Eio with `ocaml-tls`, `angstrom`, and `notty`.
@@ -1120,7 +1122,7 @@ Some background about the effects system can be found in:
 [mirage-trace-viewer]: https://github.com/talex5/mirage-trace-viewer
 [structured concurrency]: https://en.wikipedia.org/wiki/Structured_concurrency
 [typed effects]: https://www.janestreet.com/tech-talks/effective-programming/
-[Object-capability model]: https://en.wikipedia.org/wiki/Object-capability_model
+[capability-based security]: https://en.wikipedia.org/wiki/Object-capability_model
 [Emily]: https://www.hpl.hp.com/techreports/2006/HPL-2006-116.pdf
 [http-bench]: https://github.com/ocaml-multicore/retro-httpaf-bench
 [gemini-eio]: https://gitlab.com/talex5/gemini-eio
