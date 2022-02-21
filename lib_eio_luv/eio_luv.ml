@@ -510,7 +510,7 @@ module Udp = struct
 end
 
 let udp_socket endp = object
-  inherit [Eio.Net.Sockaddr.datagram] Eio.Net.datagram_socket
+  inherit Eio.Net.datagram_socket
 
   method send sockaddr bufs = Udp.send endp bufs sockaddr 
   method recv buf = 

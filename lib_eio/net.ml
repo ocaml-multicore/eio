@@ -144,18 +144,18 @@ let accept_sub ~sw (t : #listening_socket) ~on_error handle =
   let handle sw (flow, addr) = handle ~sw flow addr in
   Fibre.fork_on_accept ~sw accept handle ~on_handler_error:on_error
 
-class virtual ['addr] datagram_socket = object
-  method virtual send : 'addr -> Cstruct.t -> unit
-  method virtual recv : Cstruct.t -> 'addr * int
+class virtual datagram_socket = object
+  method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
+  method virtual recv : Cstruct.t -> Sockaddr.datagram * int
 end
 
-let send (t:'addr #datagram_socket) = t#send
-let recv (t:'addr #datagram_socket) = t#recv
+let send (t:#datagram_socket) = t#send
+let recv (t:#datagram_socket) = t#recv
 
 class virtual t = object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
   method virtual connect : sw:Switch.t -> Sockaddr.stream -> <Flow.two_way; Flow.close>
-  method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> Sockaddr.datagram datagram_socket
+  method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> datagram_socket
 end
 
 let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw

@@ -920,15 +920,15 @@ module Net : sig
     method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.stream
   end
 
-  class virtual ['addr] datagram_socket : object
-    method virtual send : 'addr -> Cstruct.t -> unit
-    method virtual recv : Cstruct.t -> 'addr * int
+  class virtual datagram_socket : object
+    method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
+    method virtual recv : Cstruct.t -> Sockaddr.datagram * int
   end
 
   class virtual t : object
     method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
     method virtual connect : sw:Switch.t -> Sockaddr.stream -> <Flow.two_way; Flow.close>
-    method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> Sockaddr.datagram datagram_socket
+    method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> datagram_socket
   end
 
   (** {2 Out-bound Connections} *)
@@ -976,15 +976,15 @@ module Net : sig
 
   (** {2 Datagram Sockets} *)
 
-  val datagram_socket : sw:Switch.t -> #t -> Sockaddr.datagram -> Sockaddr.datagram datagram_socket
-  (** [datagram_socket ~sw t addr] creates a new, datagram socket that data can be sent to
+  val datagram_socket : sw:Switch.t -> #t -> Sockaddr.datagram -> datagram_socket
+  (** [datagram_socket ~sw t addr] creates a new datagram socket that data can be sent to
       and received from. The new socket will be closed when [sw] finishes. *)
 
-  val send : 'addr datagram_socket -> 'addr -> Cstruct.t -> unit
+  val send : datagram_socket -> Sockaddr.datagram -> Cstruct.t -> unit
   (** [send sock addr buf] sends the data in [buf] to the address [addr] using the 
-      the socket [sock]. *)
+      the datagram socket [sock]. *)
 
-  val recv : 'addr datagram_socket -> Cstruct.t -> 'addr * int
+  val recv : datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
   (** [recv sock buf] receives data from the socket [sock] putting it in [buf]. The number of bytes received is 
       returned along with the sender address and port. If the [buf] is too small then excess bytes may be discarded
       depending on the type of the socket the message is received from. *)

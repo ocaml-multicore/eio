@@ -800,7 +800,7 @@ let fallback_copy src dst =
   with End_of_file -> ()
 
 let udp_socket sock = object
-  inherit [Eio.Net.Sockaddr.datagram] Eio.Net.datagram_socket
+  inherit Eio.Net.datagram_socket
 
   method send sockaddr buf = 
     let addr = match sockaddr with 
@@ -934,7 +934,6 @@ let net = object
       let host = Eio_unix.Ipaddr.to_unix host in
       let addr = Unix.ADDR_INET (host, port) in
       let sock_unix = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
-      (* TODO: Should expose these as arguments. *)
       Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
       Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
       let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
