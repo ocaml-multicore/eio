@@ -577,9 +577,10 @@ let net = object
     | `Udp (host, port) -> 
       let domain = Eio.Net.Ipaddr.fold ~v4:(fun _ -> `INET) ~v6:(fun _ -> `INET6) host in
       let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise in
+      let dg_sock = Handle.of_luv ~sw sock in
       let addr = luv_addr_of_eio host port in
       Luv.UDP.bind sock addr |> or_raise;
-      udp_socket (Handle.of_luv ~sw sock)
+      udp_socket dg_sock
 end
 
 let secure_random =

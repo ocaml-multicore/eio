@@ -154,12 +154,12 @@ Working with UDP and endpoints:
 # run @@ fun ~net sw ->
   let e1 = `Udp (Eio.Net.Ipaddr.V4.loopback, 8081) in
   let e2 = `Udp (Eio.Net.Ipaddr.V4.loopback, 8082) in
+  let listening_socket = Eio.Net.datagram_socket ~sw net e2 in
   Fibre.both
     (fun () ->
-      let e = Eio.Net.datagram_socket ~sw net e2 in
       let buf = Cstruct.create 20 in
       traceln "Waiting to receive data on %a" Eio.Net.Sockaddr.pp e2;
-      let addr, recv = Eio.Net.recv e buf in
+      let addr, recv = Eio.Net.recv listening_socket buf in
       traceln "Received message from %a: %s"
       Eio.Net.Sockaddr.pp addr
       (Cstruct.(to_string (sub buf 0 recv)))
