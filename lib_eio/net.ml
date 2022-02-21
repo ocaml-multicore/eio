@@ -111,22 +111,30 @@ module Ipaddr = struct
 end
 
 module Sockaddr = struct
-  type t = [
+  type stream = [
     | `Unix of string
     | `Tcp of Ipaddr.v4v6 * int
   ]
+
+  type datagram = [
+    | `Udp of Ipaddr.v4v6 * int
+  ]
+
+  type t = [ stream | datagram ]
 
   let pp f = function
     | `Unix path ->
       Format.fprintf f "unix:%s" path
     | `Tcp (addr, port) ->
       Format.fprintf f "tcp:%a:%d" Ipaddr.pp_for_uri addr port
+    | `Udp (addr, port) ->
+      Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
 class virtual listening_socket = object (_ : #Generic.t)
   method probe _ = None
   method virtual close : unit
-  method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.t
+  method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.stream
 end
 
 let accept ~sw (t : #listening_socket) = t#accept ~sw
@@ -136,10 +144,21 @@ let accept_sub ~sw (t : #listening_socket) ~on_error handle =
   let handle sw (flow, addr) = handle ~sw flow addr in
   Fibre.fork_on_accept ~sw accept handle ~on_handler_error:on_error
 
+class virtual datagram_socket = object
+  method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
+  method virtual recv : Cstruct.t -> Sockaddr.datagram * int
+end
+
+let send (t:#datagram_socket) = t#send
+let recv (t:#datagram_socket) = t#recv
+
 class virtual t = object
-  method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
-  method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
+  method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
+  method virtual connect : sw:Switch.t -> Sockaddr.stream -> <Flow.two_way; Flow.close>
+  method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> datagram_socket
 end
 
 let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw
 let connect ~sw (t:#t) = t#connect ~sw
+
+let datagram_socket ~sw (t:#t) = t#datagram_socket ~sw

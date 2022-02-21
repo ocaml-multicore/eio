@@ -895,12 +895,21 @@ module Net : sig
 
   (** Network addresses. *)
   module Sockaddr : sig
-    type t = [
+    type stream = [
       | `Unix of string
       | `Tcp of Ipaddr.v4v6 * int
     ]
+    (** Socket addresses that we can build a {! Flow.two_way} for i.e. stream-oriented
+        protocols. *)
 
-    val pp : Format.formatter -> t -> unit
+    type datagram = [
+      | `Udp of Ipaddr.v4v6 * int
+    ]
+    (** Socket addresses that are message-oriented. *)
+
+    type t = [ stream | datagram ]
+
+    val pp : Format.formatter -> [< t] -> unit
   end
 
   (** {2 Provider Interfaces} *)
@@ -908,24 +917,30 @@ module Net : sig
   class virtual listening_socket : object
     inherit Generic.t
     method virtual close : unit
-    method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.t
+    method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.stream
+  end
+
+  class virtual datagram_socket : object
+    method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
+    method virtual recv : Cstruct.t -> Sockaddr.datagram * int
   end
 
   class virtual t : object
-    method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.t -> listening_socket
-    method virtual connect : sw:Switch.t -> Sockaddr.t -> <Flow.two_way; Flow.close>
+    method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
+    method virtual connect : sw:Switch.t -> Sockaddr.stream -> <Flow.two_way; Flow.close>
+    method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> datagram_socket
   end
 
   (** {2 Out-bound Connections} *)
 
-  val connect : sw:Switch.t -> #t -> Sockaddr.t -> <Flow.two_way; Flow.close>
+  val connect : sw:Switch.t -> #t -> Sockaddr.stream -> <Flow.two_way; Flow.close>
   (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
       The new socket will be closed when [sw] finishes, unless closed manually first. *)
 
   (** {2 Incoming Connections} *)
 
-  val listen : ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.t -> listening_socket
+  val listen : ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.stream -> listening_socket
   (** [listen ~sw ~backlog t addr] is a new listening socket bound to local address [addr].
 
       The new socket will be closed when [sw] finishes, unless closed manually first.
@@ -940,7 +955,7 @@ module Net : sig
   val accept :
     sw:Switch.t ->
     #listening_socket ->
-    <Flow.two_way; Flow.close> * Sockaddr.t
+    <Flow.two_way; Flow.close> * Sockaddr.stream
   (** [accept ~sw socket] waits until a new connection is ready on [socket] and returns it.
 
       The new socket will be closed automatically when [sw] finishes, if not closed earlier.
@@ -950,7 +965,7 @@ module Net : sig
     sw:Switch.t ->
     #listening_socket ->
     on_error:(exn -> unit) ->
-    (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.t -> unit) ->
+    (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.stream -> unit) ->
     unit
   (** [accept socket fn] accepts a connection and handles it in a new fibre.
 
@@ -958,6 +973,21 @@ module Net : sig
       using {!Fibre.fork_on_accept}.
 
       [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
+
+  (** {2 Datagram Sockets} *)
+
+  val datagram_socket : sw:Switch.t -> #t -> Sockaddr.datagram -> datagram_socket
+  (** [datagram_socket ~sw t addr] creates a new datagram socket that data can be sent to
+      and received from. The new socket will be closed when [sw] finishes. *)
+
+  val send : datagram_socket -> Sockaddr.datagram -> Cstruct.t -> unit
+  (** [send sock addr buf] sends the data in [buf] to the address [addr] using the 
+      the datagram socket [sock]. *)
+
+  val recv : datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
+  (** [recv sock buf] receives data from the socket [sock] putting it in [buf]. The number of bytes received is 
+      returned along with the sender address and port. If the [buf] is too small then excess bytes may be discarded
+      depending on the type of the socket the message is received from. *)
 end
 
 (** Parallel computation across multiple CPU cores. *)

@@ -434,7 +434,7 @@ class virtual ['a] listening_socket ~backlog sock = object (self)
   val ready = Eio.Semaphore.make 0
 
   method private virtual make_client : 'a Luv.Stream.t
-  method private virtual get_client_addr : 'a Stream.t -> Eio.Net.Sockaddr.t
+  method private virtual get_client_addr : 'a Stream.t -> Eio.Net.Sockaddr.stream
 
   method close = Handle.close sock
 
@@ -474,6 +474,49 @@ let luv_ip_addr_to_eio addr =
   let host = Luv.Sockaddr.to_string addr |> Option.get in
   let port = Luv.Sockaddr.port addr |> Option.get in
   (Eio_unix.Ipaddr.of_unix (Unix.inet_addr_of_string host), port)
+
+module Udp = struct
+  type 'a t = [`UDP] Handle.t
+
+  (* When the sender address in the callback of [recv_start] is [None], this usually indicates
+     EAGAIN according to the luv documentation which can be ignored. Libuv calls the callback 
+     in case C programs wish to handle the allocated buffer in some way. *)
+  let recv (sock:'a t) buf =
+    let r = enter (fun t k ->
+        Fibre_context.set_cancel_fn k.fibre (fun ex ->
+            Luv.UDP.recv_stop (Handle.get "recv_into:cancel" sock) |> or_raise;
+            enqueue_failed_thread t k ex
+          );
+        Luv.UDP.recv_start (Handle.get "recv_start" sock) ~allocate:(fun _ -> buf) (function
+          | Ok (_, None, _) -> ()
+          | Ok (buf, Some addr, flags) ->
+            Luv.UDP.recv_stop (Handle.get "recv_stop" sock) |> or_raise;
+            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k (Ok (buf, addr, flags))
+          | Error _ as err ->
+            Luv.UDP.recv_stop (Handle.get "recv_stop" sock) |> or_raise;
+            if Fibre_context.clear_cancel_fn k.fibre then enqueue_thread t k err
+          )
+      ) in
+    match r with
+    | Ok (buf', sockaddr, _recv_flags) ->
+      `Udp (luv_ip_addr_to_eio sockaddr), Luv.Buffer.size buf'
+    | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
+    | Error x -> raise (Luv_error x)
+
+  let send t buf = function 
+  | `Udp (host, port) ->
+    let bufs = [ Cstruct.to_bigarray buf ] in
+    await_exn (fun _loop _fibre -> Luv.UDP.send (Handle.get "send" t) bufs (luv_addr_of_eio host port))
+end
+
+let udp_socket endp = object
+  inherit Eio.Net.datagram_socket
+
+  method send sockaddr bufs = Udp.send endp bufs sockaddr 
+  method recv buf = 
+    let buf = Cstruct.to_bigarray buf in
+    Udp.recv endp buf
+end
 
 let listening_ip_socket ~backlog sock = object
   inherit [[ `TCP ]] listening_socket ~backlog sock
@@ -529,6 +572,15 @@ let net = object
       let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
       await_exn (fun _loop _fibre -> Luv.Pipe.connect (Handle.get "connect" sock) path);
       socket sock
+
+  method datagram_socket ~sw = function
+    | `Udp (host, port) -> 
+      let domain = Eio.Net.Ipaddr.fold ~v4:(fun _ -> `INET) ~v6:(fun _ -> `INET6) host in
+      let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise in
+      let dg_sock = Handle.of_luv ~sw sock in
+      let addr = luv_addr_of_eio host port in
+      Luv.UDP.bind sock addr |> or_raise;
+      udp_socket dg_sock
 end
 
 let secure_random =

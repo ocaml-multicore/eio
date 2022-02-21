@@ -378,6 +378,26 @@ let rec enqueue_connect fd addr st action =
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_connect fd addr st action) st.io_q
 
+let rec enqueue_send_to fd addr buf st action =
+  Log.debug (fun l -> l "send_to: submitting call");
+  Ctf.label "send_to";
+  let retry = with_cancel_hook ~action st (fun () ->
+      Uring.send_msg st.uring (FD.get "send_to" fd) addr buf (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_send_to fd addr buf st action) st.io_q
+
+let rec enqueue_recv_msg fd msghdr st action =
+  Log.debug (fun l -> l "recv_msg: submitting call");
+  Ctf.label "recv_msg";
+  let retry = with_cancel_hook ~action st (fun () ->
+      Uring.recv_msg st.uring (FD.get "recv_msg" fd) msghdr (Job action);
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_recv_msg fd msghdr st action) st.io_q 
+
 let rec enqueue_accept fd client_addr st action =
   Log.debug (fun l -> l "accept: submitting call");
   Ctf.label "accept";
@@ -630,6 +650,22 @@ module Low_level = struct
       raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
     )
 
+  let send_to fd addr buf =
+    let res = enter (enqueue_send_to fd addr buf) in
+    Log.debug (fun l -> l "send_to returned");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "send_to", ""))
+    )
+
+  let recv_msg fd buf =
+    let msghdr = Uring.Msghdr.create buf in
+    let res = enter (enqueue_recv_msg fd msghdr) in
+    Log.debug (fun l -> l "recv_msg returned");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", ""))
+    );
+    Uring.Msghdr.get_sockaddr msghdr, res
+
   let with_chunk fn =
     let chunk = alloc () in
     Fun.protect ~finally:(fun () -> free chunk) @@ fun () ->
@@ -763,6 +799,26 @@ let fallback_copy src dst =
     done
   with End_of_file -> ()
 
+let udp_socket sock = object
+  inherit Eio.Net.datagram_socket
+
+  method send sockaddr buf = 
+    let addr = match sockaddr with 
+      | `Udp (host, port) -> 
+        let host = Eio_unix.Ipaddr.to_unix host in
+        Unix.ADDR_INET (host, port)
+    in
+    Low_level.send_to sock addr [buf] 
+  
+  method recv buf =
+    let addr, recv = Low_level.recv_msg sock [buf] in
+    match Uring.Sockaddr.get addr with
+      | Unix.ADDR_INET (inet, port) ->
+        `Udp (Eio_unix.Ipaddr.of_unix inet, port), recv
+      | Unix.ADDR_UNIX _ -> 
+        raise (Failure "Expected INET UDP socket address but got Unix domain socket address.")
+end
+
 let flow fd =
   let is_tty = lazy (Unix.isatty (FD.get "isatty" fd)) in
   object (_ : <source; sink; ..>)
@@ -872,6 +928,17 @@ let net = object
     let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
     Low_level.connect sock addr;
     (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
+
+  method datagram_socket ~sw = function
+    | `Udp (host, port) ->
+      let host = Eio_unix.Ipaddr.to_unix host in
+      let addr = Unix.ADDR_INET (host, port) in
+      let sock_unix = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+      Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+      Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
+      let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
+      Unix.bind sock_unix addr;
+      udp_socket sock
 end
 
 type stdenv = <
