@@ -267,6 +267,10 @@ module Fiber : sig
       Automatically calls {!check} just before resuming. *)
 end
 
+(**/**)
+module Fibre = Fiber [@@deprecated "Now spelt Fiber"]
+(**/**)
+
 (** A counting semaphore. *)
 module Semaphore : sig
   (** The API is based on OCaml's [Semaphore.Counting].
@@ -441,6 +445,9 @@ end
 module Std : sig
   module Promise = Promise
   module Fiber = Fiber
+  (**/**)
+  module Fibre = Fiber [@@deprecated "Now spelt Fiber"]
+  (**/**)
   module Switch = Switch
 
   val traceln :

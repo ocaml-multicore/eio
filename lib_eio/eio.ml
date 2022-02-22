@@ -23,11 +23,13 @@ let traceln ?__POS__ fmt =
 
 module Promise = Promise
 module Fiber = Fiber
+module Fibre = Fiber
 module Switch = Switch
 
 module Std = struct
   module Promise = Promise
   module Fiber = Fiber
+  module Fibre = Fiber
   module Switch = Switch
   let traceln = traceln
 end
