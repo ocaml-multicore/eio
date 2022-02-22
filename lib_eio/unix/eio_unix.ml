@@ -7,6 +7,7 @@ module Private = struct
     | Await_readable : Unix.file_descr -> unit eff
     | Await_writable : Unix.file_descr -> unit eff
     | Get_system_clock : Eio.Time.clock eff
+    | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> < Eio.Flow.two_way; Eio.Flow.close > eff
 end
 
 let await_readable fd = perform (Private.Await_readable fd)
@@ -18,6 +19,8 @@ let sleep d =
 module FD = struct
   let peek x = Eio.Generic.probe x (Private.Unix_file_descr `Peek)
   let take x = Eio.Generic.probe x (Private.Unix_file_descr `Take)
+
+  let as_socket ~sw ~close_unix fd = perform (Private.Socket_of_fd (sw, close_unix, fd))
 end
 
 module Ipaddr = struct
