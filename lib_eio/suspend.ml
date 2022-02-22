@@ -1,12 +1,12 @@
 open Effect
 
 type 'a enqueue = ('a, exn) result -> unit
-type _ eff += Suspend : (Cancel.fibre_context -> 'a enqueue -> unit) -> 'a eff
+type _ eff += Suspend : (Cancel.fiber_context -> 'a enqueue -> unit) -> 'a eff
 
 let enter_unchecked fn = perform (Suspend fn)
 
 let enter fn =
-  enter_unchecked @@ fun fibre enqueue ->
-  match Cancel.Fibre_context.get_error fibre with
-  | None -> fn fibre enqueue
+  enter_unchecked @@ fun fiber enqueue ->
+  match Cancel.Fiber_context.get_error fiber with
+  | None -> fn fiber enqueue
   | Some ex -> enqueue (Error ex)

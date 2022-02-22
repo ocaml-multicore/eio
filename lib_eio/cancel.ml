@@ -9,10 +9,10 @@ type state =
   | Finished
 
 (* There is a tree of cancellation contexts for each domain.
-   A fibre is always in exactly one context, but can move to a new child and back (see [sub]).
-   While a fibre is performing a cancellable operation, it sets a cancel function.
-   When a context is cancelled, we attempt to call and remove each fibre's cancellation function, if any.
-   Cancelling always happens from the fibre's own domain, but the cancellation function may be removed
+   A fiber is always in exactly one context, but can move to a new child and back (see [sub]).
+   While a fiber is performing a cancellable operation, it sets a cancel function.
+   When a context is cancelled, we attempt to call and remove each fiber's cancellation function, if any.
+   Cancelling always happens from the fiber's own domain, but the cancellation function may be removed
    from another domain as soon as an operation is known to have succeeded.
    An operation may either finish normally or be cancelled;
    whoever manages to clear the cancellation function is responsible for resuming the continuation.
@@ -20,18 +20,18 @@ type state =
 type t = {
   mutable state : state;
   children : t Lwt_dllist.t;
-  fibres : fibre_context Lwt_dllist.t;
+  fibers : fiber_context Lwt_dllist.t;
   protected : bool;
   domain : Domain.id;         (* Prevent access from other domains *)
 }
-and fibre_context = {
+and fiber_context = {
   tid : Ctf.id;
   mutable cancel_context : t;
-  mutable cancel_node : fibre_context Lwt_dllist.node option; (* Our entry in [cancel_context.fibres] *)
+  mutable cancel_node : fiber_context Lwt_dllist.node option; (* Our entry in [cancel_context.fibers] *)
   cancel_fn : (exn -> unit) option Atomic.t;
 }
 
-type _ eff += Get_context : fibre_context eff
+type _ eff += Get_context : fiber_context eff
 
 let pp_state f t =
   begin match t.state with
@@ -41,8 +41,8 @@ let pp_state f t =
   end;
   if t.protected then Fmt.pf f " (protected)"
 
-let pp_fibre f fibre =
-  Fmt.pf f "%d" (fibre.tid :> int)
+let pp_fiber f fiber =
+  Fmt.pf f "%d" (fiber.tid :> int)
 
 let pp_lwt_dlist ~sep pp f t =
   let first = ref true in
@@ -55,7 +55,7 @@ let pp_lwt_dlist ~sep pp f t =
 let rec dump f t =
   Fmt.pf f "@[<v2>%a [%a]%a@]"
     pp_state t
-    (pp_lwt_dlist ~sep:(Fmt.any ",") pp_fibre) t.fibres
+    (pp_lwt_dlist ~sep:(Fmt.any ",") pp_fiber) t.fibers
     pp_children t.children
 and pp_children f ts =
   ts |> Lwt_dllist.iter_l (fun t ->
@@ -85,17 +85,17 @@ let is_finished t =
   | Finished -> true
   | On | Cancelling _ -> false
 
-let move_fibre_to t fibre =
-  let new_node = Lwt_dllist.add_r fibre t.fibres in     (* Add to new context *)
-  fibre.cancel_context <- t;
-  Option.iter Lwt_dllist.remove fibre.cancel_node;      (* Remove from old context *)
-  fibre.cancel_node <- Some new_node
+let move_fiber_to t fiber =
+  let new_node = Lwt_dllist.add_r fiber t.fibers in     (* Add to new context *)
+  fiber.cancel_context <- t;
+  Option.iter Lwt_dllist.remove fiber.cancel_node;      (* Remove from old context *)
+  fiber.cancel_node <- Some new_node
 
 (* Note: the new value is not linked into the cancellation tree. *)
 let create ~protected =
   let children = Lwt_dllist.create () in
-  let fibres = Lwt_dllist.create () in
-  { state = Finished; children; protected; fibres; domain = Domain.self () }
+  let fibers = Lwt_dllist.create () in
+  { state = Finished; children; protected; fibers; domain = Domain.self () }
 
 (* Links [t] into the tree as a child of [parent] and returns a function to remove it again. *)
 let activate t ~parent =
@@ -109,11 +109,11 @@ let activate t ~parent =
     Lwt_dllist.remove node
 
 (* Runs [fn] with a fresh cancellation context. *)
-let with_cc ~ctx:fibre ~parent ~protected fn =
+let with_cc ~ctx:fiber ~parent ~protected fn =
   let t = create ~protected in
   let deactivate = activate t ~parent in
-  move_fibre_to t fibre;
-  let cleanup () = move_fibre_to parent fibre; deactivate () in
+  move_fiber_to t fiber;
+  let cleanup () = move_fiber_to parent fiber; deactivate () in
   match fn t with
   | x            -> cleanup (); x
   | exception ex -> cleanup (); raise ex
@@ -127,8 +127,8 @@ let protect fn =
   fn ()
 
 let rec cancel_internal t ex acc_fns =
-  let collect_cancel_fn fibre acc =
-    match Atomic.exchange fibre.cancel_fn None with
+  let collect_cancel_fn fiber acc =
+    match Atomic.exchange fiber.cancel_fn None with
     | None -> acc        (* The operation succeeded and so can't be cancelled now *)
     | Some cancel_fn -> cancel_fn :: acc
   in
@@ -138,7 +138,7 @@ let rec cancel_internal t ex acc_fns =
   | On ->
     let bt = Printexc.get_raw_backtrace () in
     t.state <- Cancelling (ex, bt);
-    let acc_fns = Lwt_dllist.fold_l collect_cancel_fn t.fibres acc_fns in
+    let acc_fns = Lwt_dllist.fold_l collect_cancel_fn t.fibers acc_fns in
     Lwt_dllist.fold_r (cancel_child ex) t.children acc_fns
 and cancel_child ex t acc =
   if t.protected then acc
@@ -179,8 +179,8 @@ let sub_unchecked fn =
   fn t;
   parent
 
-module Fibre_context = struct
-  type t = fibre_context
+module Fiber_context = struct
+  type t = fiber_context
 
   let tid t = t.tid
   let cancellation_context t = t.cancel_context
@@ -188,7 +188,7 @@ module Fibre_context = struct
   let get_error t = get_error t.cancel_context
 
   let set_cancel_fn t fn =
-    (* if Atomic.exchange t.cancel_fn (Some fn) <> None then failwith "Fibre already has a cancel function!" *)
+    (* if Atomic.exchange t.cancel_fn (Some fn) <> None then failwith "Fiber already has a cancel function!" *)
     Atomic.set t.cancel_fn (Some fn)
 
   let clear_cancel_fn t =
@@ -198,7 +198,7 @@ module Fibre_context = struct
     let tid = Ctf.mint_id () in
     Ctf.note_created tid Ctf.Task;
     let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = Atomic.make None } in
-    t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibres);
+    t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibers);
     t
 
   let make_root () =

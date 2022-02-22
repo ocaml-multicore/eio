@@ -1,7 +1,7 @@
 (** This library is used to write event traces in mirage-profile's CTF format. *)
 
 type id = private int
-(** Each thread/fibre/promise is identified by a unique ID. *) 
+(** Each thread/fiber/promise is identified by a unique ID. *) 
 
 (** {2 Recording events}
     Libraries and applications can use these functions to make the traces more useful. *)

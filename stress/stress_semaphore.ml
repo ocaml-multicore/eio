@@ -11,14 +11,14 @@ let main ~domain_mgr =
   let sem = Eio.Semaphore.make n_tokens in
   Switch.run (fun sw ->
       for _ = 1 to n_domains do
-        Fibre.fork ~sw (fun () ->
+        Fiber.fork ~sw (fun () ->
             Eio.Domain_manager.run domain_mgr (fun () ->
                 let i = ref 0 in
                 while !i < n_iters do
                   let got = ref false in
-                  Fibre.first
+                  Fiber.first
                     (fun () -> Eio.Semaphore.acquire sem; got := true)
-                    (fun () -> Fibre.yield ());
+                    (fun () -> Fiber.yield ());
                   if !got then (
                     incr i;
                     Eio.Semaphore.release sem;

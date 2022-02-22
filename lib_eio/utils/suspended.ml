@@ -1,14 +1,14 @@
-(** A suspended fibre with its context. *)
+(** A suspended fiber with its context. *)
 
 open Eio.Private.Effect.Deep
 module Ctf = Eio.Private.Ctf
 
 type 'a t = {
-  fibre : Eio.Private.Fibre_context.t;
+  fiber : Eio.Private.Fiber_context.t;
   k : ('a, [`Exit_scheduler]) continuation;
 }
 
-let tid t = Eio.Private.Fibre_context.tid t.fibre
+let tid t = Eio.Private.Fiber_context.tid t.fiber
 
 let continue t v =
   Ctf.note_switch (tid t);

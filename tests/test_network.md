@@ -56,7 +56,7 @@ let run_server ~sw socket =
 
 let test_address addr ~net sw =
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
-  Fibre.both
+  Fiber.both
     (fun () -> run_server ~sw server)
     (fun () ->
       run_client ~sw ~net ~addr;
@@ -108,11 +108,11 @@ Cancelling the read:
 # run @@ fun ~net sw ->
   let shutdown, set_shutdown = Promise.create () in
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
-  Fibre.both
+  Fiber.both
     (fun () ->
         Eio.Net.accept_sub server ~sw (fun ~sw flow _addr ->
           try
-            Fibre.both
+            Fiber.both
               (fun () -> raise (Promise.await shutdown))
               (fun () ->
                 let msg = read_all flow in
@@ -126,7 +126,7 @@ Cancelling the read:
       traceln "Connecting to server...";
       let flow = Eio.Net.connect ~sw net addr in
       traceln "Connection opened - cancelling server's read";
-      Fibre.yield ();
+      Fiber.yield ();
       Promise.resolve set_shutdown Graceful_shutdown;
       let msg = read_all flow in
       traceln "Client received: %S" msg
@@ -155,7 +155,7 @@ Working with UDP and endpoints:
   let e1 = `Udp (Eio.Net.Ipaddr.V4.loopback, 8081) in
   let e2 = `Udp (Eio.Net.Ipaddr.V4.loopback, 8082) in
   let listening_socket = Eio.Net.datagram_socket ~sw net e2 in
-  Fibre.both
+  Fiber.both
     (fun () ->
       let buf = Cstruct.create 20 in
       traceln "Waiting to receive data on %a" Eio.Net.Sockaddr.pp e2;
@@ -183,7 +183,7 @@ Extracting file descriptors from Eio objects:
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   traceln "Listening socket has Unix FD: %b" (Eio_unix.FD.peek server <> None);
   let have_client, have_server =
-    Fibre.pair
+    Fiber.pair
       (fun () -> 
          let flow = Eio.Net.connect ~sw net addr in
          (Eio_unix.FD.peek flow <> None)

@@ -1,34 +1,34 @@
 open Effect
 
-type _ eff += Fork : Cancel.fibre_context * (unit -> unit) -> unit eff
+type _ eff += Fork : Cancel.fiber_context * (unit -> unit) -> unit eff
 
 let yield () =
-  let fibre = Suspend.enter (fun fibre enqueue -> enqueue (Ok fibre)) in
-  Cancel.check fibre.cancel_context
+  let fiber = Suspend.enter (fun fiber enqueue -> enqueue (Ok fiber)) in
+  Cancel.check fiber.cancel_context
 
 (* Note: [f] must not raise an exception, as that would terminate the whole scheduler. *)
-let fork_raw new_fibre f =
-  perform (Fork (new_fibre, f))
+let fork_raw new_fiber f =
+  perform (Fork (new_fiber, f))
 
 let fork ~sw f =
   Switch.check_our_domain sw;
   if Cancel.is_on sw.cancel then (
-    let new_fibre = Cancel.Fibre_context.make ~cc:sw.cancel in
-    fork_raw new_fibre @@ fun () ->
+    let new_fiber = Cancel.Fiber_context.make ~cc:sw.cancel in
+    fork_raw new_fiber @@ fun () ->
     Switch.with_op sw @@ fun () ->
     match f () with
     | () ->
-      Ctf.note_resolved (Cancel.Fibre_context.tid new_fibre) ~ex:None
+      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
     | exception ex ->
       Switch.fail sw ex;  (* The [with_op] ensures this will succeed *)
-      Ctf.note_resolved (Cancel.Fibre_context.tid new_fibre) ~ex:(Some ex)
-  ) (* else the fibre should report the error to [sw], but [sw] is failed anyway *)
+      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
+  ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
 
 let fork_promise ~sw f =
   Switch.check_our_domain sw;
-  let new_fibre = Cancel.Fibre_context.make ~cc:sw.Switch.cancel in
-  let p, r = Promise.create_with_id (Cancel.Fibre_context.tid new_fibre) in
-  fork_raw new_fibre (fun () ->
+  let new_fiber = Cancel.Fiber_context.make ~cc:sw.Switch.cancel in
+  let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
+  fork_raw new_fiber (fun () ->
       match Switch.with_op sw f with
       | x -> Promise.resolve_ok r x
       | exception ex -> Promise.resolve_error r ex        (* Can't fail; only we have [r] *)
@@ -47,13 +47,13 @@ let fork_on_accept ~on_handler_error ~sw:adopting_sw accept handle =
   let deactivate = Cancel.activate cc ~parent:adopting_sw.cancel in
   let child_switch = Switch.create cc in
   (* We must prevent [adopting_sw] from finishing while it has a child switch. *)
-  Switch.inc_fibres adopting_sw;
+  Switch.inc_fibers adopting_sw;
   let run_child fn =
     match Switch.run_internal child_switch (fun (_ : Switch.t) -> fn ()) with
-    | () -> deactivate (); Switch.dec_fibres adopting_sw; Switch.check adopting_sw
-    | exception ex -> deactivate (); Switch.dec_fibres adopting_sw; raise ex
+    | () -> deactivate (); Switch.dec_fibers adopting_sw; Switch.check adopting_sw
+    | exception ex -> deactivate (); Switch.dec_fibers adopting_sw; raise ex
   in
-  (* From this point we have a [child_switch] that may have fibres and other resources attached to it.
+  (* From this point we have a [child_switch] that may have fibers and other resources attached to it.
      We must call [run_child] on it in all cases. *)
   match accept child_switch with
   | exception ex ->
@@ -70,13 +70,13 @@ let fork_on_accept ~on_handler_error ~sw:adopting_sw accept handle =
     end;
     assert false        (* [run_child] must have failed if its parent is cancelled *)
   | x ->
-    (* Accept succeeded. Fork a new fibre into [adopting_sw] and
+    (* Accept succeeded. Fork a new fiber into [adopting_sw] and
        run it with [child_switch] as its context. *)
-    let new_fibre = Cancel.Fibre_context.make ~cc:child_switch.cancel in
-    fork_raw new_fibre @@ fun () ->
+    let new_fiber = Cancel.Fiber_context.make ~cc:child_switch.cancel in
+    fork_raw new_fiber @@ fun () ->
     match run_child (fun () -> Switch.check child_switch; handle child_switch x) with
     | () ->
-      Ctf.note_resolved (Cancel.Fibre_context.tid new_fibre) ~ex:None
+      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
     | exception ex ->
       (* No point reporting an error if we're being cancelled. Also, nowhere to run it. *)
       if Cancel.is_on adopting_sw.cancel then (
@@ -87,7 +87,7 @@ let fork_on_accept ~on_handler_error ~sw:adopting_sw accept handle =
           Switch.fail adopting_sw ex;
           Switch.fail adopting_sw ex2
       );
-      Ctf.note_resolved (Cancel.Fibre_context.tid new_fibre) ~ex:(Some ex)
+      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
 
 let all xs =
   Switch.run @@ fun sw ->
@@ -120,8 +120,8 @@ let fork_sub ~sw ~on_error f =
 exception Not_first
 
 let await_cancel () =
-  Suspend.enter @@ fun fibre enqueue ->
-  Cancel.Fibre_context.set_cancel_fn fibre (fun ex -> enqueue (Error ex))
+  Suspend.enter @@ fun fiber enqueue ->
+  Cancel.Fiber_context.set_cancel_fn fiber (fun ex -> enqueue (Error ex))
 
 let any fs =
   let r = ref `None in
@@ -135,7 +135,7 @@ let any fs =
               | `Ex _ | `Ok _ -> ()
             end
           | exception Cancel.Cancelled _ when not (Cancel.is_on cc) ->
-            (* If this is in response to us asking the fibre to cancel then we can just ignore it.
+            (* If this is in response to us asking the fiber to cancel then we can just ignore it.
                If it's in response to our parent context being cancelled (which also cancels [cc]) then
                we'll check that context and raise it at the end anyway. *)
             ()
@@ -152,9 +152,9 @@ let any fs =
           | [] -> await_cancel ()
           | [f] -> wrap f; []
           | f :: fs ->
-            let new_fibre = Cancel.Fibre_context.make ~cc in
-            let p, r = Promise.create_with_id (Cancel.Fibre_context.tid new_fibre) in
-            fork_raw new_fibre (fun () ->
+            let new_fiber = Cancel.Fiber_context.make ~cc in
+            let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
+            fork_raw new_fiber (fun () ->
                 match wrap f with
                 | x -> Promise.resolve_ok r x
                 | exception ex -> Promise.resolve_error r ex

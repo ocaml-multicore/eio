@@ -26,11 +26,11 @@ Create a promise, fork a thread waiting for it, then fulfull it:
     Switch.run @@ fun sw ->
     let p, r = Promise.create () in
     traceln "Initial state: %a" (pp_promise Fmt.string) p;
-    let thread = Fibre.fork_promise ~sw (fun () -> Promise.await_exn p) in
+    let thread = Fiber.fork_promise ~sw (fun () -> Promise.await_exn p) in
     Promise.resolve_ok r "ok";
     traceln "After being fulfilled: %a" (pp_promise Fmt.string) p;
     traceln "Thread before yield: %a" (pp_promise Fmt.string) thread;
-    Fibre.yield ();
+    Fiber.yield ();
     traceln "Thread after yield: %a" (pp_promise Fmt.string) thread;
     traceln "Final result: %s" (Promise.await_exn thread);;
 +Initial state: unresolved
@@ -47,11 +47,11 @@ Create a promise, fork a thread waiting for it, then break it:
     Switch.run @@ fun sw ->
     let p, r = Promise.create () in
     traceln "Initial state: %a" (pp_promise Fmt.string) p;
-    let thread = Fibre.fork_promise ~sw (fun () -> Promise.await_exn p) in
+    let thread = Fiber.fork_promise ~sw (fun () -> Promise.await_exn p) in
     Promise.resolve_error r (Failure "test");
     traceln "After being broken: %a" (pp_promise Fmt.string) p;
     traceln "Thread before yield: %a" (pp_promise Fmt.string) thread;
-    Fibre.yield ();
+    Fiber.yield ();
     traceln "Thread after yield: %a" (pp_promise Fmt.string) thread;
     match Promise.await_exn thread with
     | x -> failwith x
@@ -69,13 +69,13 @@ Some simple tests of `fork`:
     Eio_main.run @@ fun _stdenv ->
     let i = ref 0 in
     Switch.run (fun sw ->
-        Fibre.fork ~sw (fun () -> incr i);
+        Fiber.fork ~sw (fun () -> incr i);
       );
     traceln "Forked code ran; i is now %d" !i;
     let p1, r1 = Promise.create () in
     try
       Switch.run (fun sw ->
-          Fibre.fork ~sw (fun () -> Promise.await p1; incr i; raise Exit);
+          Fiber.fork ~sw (fun () -> Promise.await p1; incr i; raise Exit);
           traceln "Forked code waiting; i is still %d" !i;
           Promise.resolve r1 ()
         );
@@ -95,7 +95,7 @@ Basic semaphore tests:
     Switch.run @@ fun sw ->
     let running = ref 0 in
     let sem = Semaphore.make 2 in
-    let fork = Fibre.fork_promise ~sw in
+    let fork = Fiber.fork_promise ~sw in
     let a = fork (fun () -> Ctf.label "a"; Semaphore.acquire sem; incr running) in
     let b = fork (fun () -> Ctf.label "b"; Semaphore.acquire sem; incr running) in
     let c = fork (fun () -> Ctf.label "c"; Semaphore.acquire sem; incr running) in
@@ -107,7 +107,7 @@ Basic semaphore tests:
     decr running;
     Semaphore.release sem;
     traceln "One finished; now %d is running " !running;
-    Fibre.yield ();
+    Fiber.yield ();
     traceln "Yield allows C to start; now %d are running " !running;
     Promise.await_exn c;
     (* b finishes and d starts *)
@@ -132,8 +132,8 @@ Releasing a semaphore when no-one is waiting for it:
     let sem = Semaphore.make 0 in
     Semaphore.release sem;        (* Release with free-counter *)
     traceln "Initial config: %d" (Semaphore.get_value sem);
-    Fibre.fork ~sw (fun () -> Ctf.label "a"; Semaphore.acquire sem);
-    Fibre.fork ~sw (fun () -> Ctf.label "b"; Semaphore.acquire sem);
+    Fiber.fork ~sw (fun () -> Ctf.label "a"; Semaphore.acquire sem);
+    Fiber.fork ~sw (fun () -> Ctf.label "b"; Semaphore.acquire sem);
     traceln "A running: %d" (Semaphore.get_value sem);
     Semaphore.release sem;        (* Release with a non-empty wait-queue *)
     traceln "Now b running: %d" (Semaphore.get_value sem);

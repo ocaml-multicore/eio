@@ -25,11 +25,11 @@ let run_bench ?domain_mgr ~clock () =
   let t0 = Eio.Time.now clock in
   try
     Switch.run (fun sw ->
-        Fibre.fork ~sw (run_sender stream1);
-        Fibre.fork ~sw (run_sender stream2);
+        Fiber.fork ~sw (run_sender stream1);
+        Fiber.fork ~sw (run_sender stream2);
         for _ = 1 to n_iters do
           ignore @@
-          Fibre.first
+          Fiber.first
             (fun () -> Eio.Stream.take stream1)
             (fun () -> Eio.Stream.take stream2)
         done;

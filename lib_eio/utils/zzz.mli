@@ -13,7 +13,7 @@ val create : unit -> t
 
 val add : t -> float -> unit Suspended.t -> Key.t
 (** [add t time thread] adds a new event, due at [time], and returns its ID.
-    You must use {!Eio.Private.Fibre_context.set_cancel_fn} on [thread] before
+    You must use {!Eio.Private.Fiber_context.set_cancel_fn} on [thread] before
     calling {!pop}.
     Your cancel function should call {!remove} (in addition to resuming [thread]). *)
 

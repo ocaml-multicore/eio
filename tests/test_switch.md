@@ -37,13 +37,13 @@ Turning off a switch still allows you to perform clean-up operations:
 Exception: Failure "Cancel".
 ```
 
-`Fibre.both`, both fibres pass:
+`Fiber.both`, both fibers pass:
 
 ```ocaml
 # run (fun _sw ->
-    Fibre.both
-      (fun () -> for i = 1 to 2 do traceln "i = %d" i; Fibre.yield () done)
-      (fun () -> for j = 1 to 2 do traceln "j = %d" j; Fibre.yield () done)
+    Fiber.both
+      (fun () -> for i = 1 to 2 do traceln "i = %d" i; Fiber.yield () done)
+      (fun () -> for j = 1 to 2 do traceln "j = %d" j; Fiber.yield () done)
   );;
 +i = 1
 +j = 1
@@ -52,57 +52,57 @@ Exception: Failure "Cancel".
 - : unit = ()
 ```
 
-`Fibre.both`, only 1st succeeds:
+`Fiber.both`, only 1st succeeds:
 
 ```ocaml
 # run (fun sw ->
-      Fibre.both
-        (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield () done)
+      Fiber.both
+        (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fiber.yield () done)
         (fun () -> failwith "Failed")
     );;
 +i = 1
 Exception: Failure "Failed".
 ```
 
-`Fibre.both`, only 2nd succeeds:
+`Fiber.both`, only 2nd succeeds:
 
 ```ocaml
 # run (fun sw ->
-      Fibre.both
-        (fun () -> Fibre.yield (); failwith "Failed")
-        (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fibre.yield () done)
+      Fiber.both
+        (fun () -> Fiber.yield (); failwith "Failed")
+        (fun () -> for i = 1 to 5 do traceln "i = %d" i; Fiber.yield () done)
     );;
 +i = 1
 Exception: Failure "Failed".
 ```
 
-`Fibre.both`, first fails immediately and the other doesn't start:
+`Fiber.both`, first fails immediately and the other doesn't start:
 
 ```ocaml
 # run (fun sw ->
-      Fibre.both (fun () -> failwith "Failed") (fun () -> traceln "Second OK");
+      Fiber.both (fun () -> failwith "Failed") (fun () -> traceln "Second OK");
       traceln "Not reached"
     );;
 Exception: Failure "Failed".
 ```
 
-`Fibre.both`, second fails but the other doesn't stop:
+`Fiber.both`, second fails but the other doesn't stop:
 
 ```ocaml
 # run (fun sw ->
-      Fibre.both ignore (fun () -> failwith "Failed");
+      Fiber.both ignore (fun () -> failwith "Failed");
       traceln "not reached"
     );;
 Exception: Failure "Failed".
 ```
 
-`Fibre.both`, both fibres fail:
+`Fiber.both`, both fibers fail:
 
 ```ocaml
 # run (fun sw ->
-      Fibre.both
-        (fun () -> Eio.Cancel.protect Fibre.yield; failwith "Failed 1")
-        (fun () -> Eio.Cancel.protect Fibre.yield; failwith "Failed 2")
+      Fiber.both
+        (fun () -> Eio.Cancel.protect Fiber.yield; failwith "Failed 1")
+        (fun () -> Eio.Cancel.protect Fiber.yield; failwith "Failed 2")
     );;
 Exception: Multiple exceptions:
 Failure("Failed 1")
@@ -110,12 +110,12 @@ and
 Failure("Failed 2")
 ```
 
-The switch is already turned off when we try to fork. The new fibre doesn't start:
+The switch is already turned off when we try to fork. The new fiber doesn't start:
 
 ```ocaml
 # run (fun sw ->
       Switch.fail sw (Failure "Cancel");
-      Fibre.fork ~sw (fun () -> traceln "Not reached");
+      Fiber.fork ~sw (fun () -> traceln "Not reached");
       traceln "Main continues"
     );;
 +Main continues
@@ -138,12 +138,12 @@ Wait for either a promise or a cancellation; cancellation first:
 ```ocaml
 # run (fun sw ->
       let p, r = Promise.create () in
-      Fibre.fork ~sw (fun () ->
-        Fibre.both
+      Fiber.fork ~sw (fun () ->
+        Fiber.both
           (fun () -> traceln "Waiting"; Promise.await p; traceln "Resolved")
           (fun () -> failwith "Cancelled")
       );
-      Fibre.yield ();
+      Fiber.yield ();
       Promise.resolve r ();
       traceln "Main thread done";
     );;
@@ -157,9 +157,9 @@ Wait for either a promise or a switch; promise resolves first:
 ```ocaml
 # run (fun sw ->
       let p, r = Promise.create () in
-      Fibre.fork ~sw (fun () -> traceln "Waiting"; Promise.await p; traceln "Resolved");
+      Fiber.fork ~sw (fun () -> traceln "Waiting"; Promise.await p; traceln "Resolved");
       Promise.resolve r ();
-      Fibre.yield ();
+      Fiber.yield ();
       traceln "Now cancelling...";
       Switch.fail sw (Failure "Cancelled")
     );;
@@ -174,7 +174,7 @@ Wait for either a promise or a switch; switch cancelled first. Result version.
 ```ocaml
 # run (fun sw ->
       let p, r = Promise.create () in
-      Fibre.fork ~sw (fun () -> traceln "Waiting"; Promise.await p; traceln "Resolved");
+      Fiber.fork ~sw (fun () -> traceln "Waiting"; Promise.await p; traceln "Resolved");
       Switch.fail sw (Failure "Cancelled");
       Promise.resolve r ()
     );;
@@ -187,7 +187,7 @@ Wait for either a promise or a switch; promise resolves first but switch off wit
 ```ocaml
 # run (fun sw ->
       let p, r = Promise.create () in
-      Fibre.fork ~sw (fun () -> traceln "Waiting"; Promise.await p; traceln "Resolved");
+      Fiber.fork ~sw (fun () -> traceln "Waiting"; Promise.await p; traceln "Resolved");
       Promise.resolve r ();
       traceln "Now cancelling...";
       Switch.fail sw (Failure "Cancelled")
@@ -204,8 +204,8 @@ Child switches are cancelled when the parent is cancelled, but `on_error` isn't 
 # run (fun sw ->
       let p, _ = Promise.create () in
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
-      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await p);
-      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await p);
+      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await p);
+      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await p);
       Switch.fail sw (Failure "Cancel parent")
     );;
 +Child 1
@@ -220,17 +220,17 @@ A child can fail independently of the parent:
       let p1, r1 = Promise.create () in
       let p2, r2 = Promise.create () in
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
-      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await_exn p1);
-      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await_exn p2);
+      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await_exn p1);
+      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await_exn p2);
       Promise.resolve_error r1 (Failure "Child error");
       Promise.resolve_ok r2 ();
-      Fibre.yield ();
-      traceln "Parent fibre is still running"
+      Fiber.yield ();
+      traceln "Parent fiber is still running"
     );;
 +Child 1
 +Child 2
 +child: Failure("Child error")
-+Parent fibre is still running
++Parent fiber is still running
 - : unit = ()
 ```
 
@@ -241,18 +241,18 @@ A child can be cancelled independently of the parent:
       let p, _ = Promise.create () in
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
       let child = ref None in
-      Fibre.fork_sub ~sw ~on_error (fun sw ->
+      Fiber.fork_sub ~sw ~on_error (fun sw ->
           traceln "Child 1";
           child := Some sw;
           Promise.await ~sw p
         );
       Switch.fail (Option.get !child) (Failure "Cancel child");
-      Fibre.yield ();
-      traceln "Parent fibre is still running"
+      Fiber.yield ();
+      traceln "Parent fiber is still running"
     );;
 +Child 1
 +child: Failure("Cancel child")
-+Parent fibre is still running
++Parent fiber is still running
 - : unit = ()
 ```
 
@@ -262,9 +262,9 @@ A child error handler raises:
 # run (fun sw ->
       let p, r = Promise.create () in
       let on_error = raise in
-      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await_exn p);
+      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await_exn p);
       Promise.resolve_error r (Failure "Child error escapes");
-      Fibre.yield ();
+      Fiber.yield ();
       traceln "Not reached"
     );;
 +Child
@@ -277,9 +277,9 @@ A child error handler deals with the exception:
 # run (fun sw ->
       let p, r = Promise.create () in
       let on_error = traceln "caught: %a" Fmt.exn in
-      Fibre.fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await_exn p);
+      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await_exn p);
       Promise.resolve_error r (Failure "Child error is caught");
-      Fibre.yield ();
+      Fiber.yield ();
       traceln "Still running"
     );;
 +Child
@@ -291,7 +291,7 @@ A child error handler deals with the exception:
 # Release handlers
 
 ```ocaml
-let release label = Fibre.yield (); traceln "release %s" label
+let release label = Fiber.yield (); traceln "release %s" label
 ```
 
 Release on success:
@@ -356,23 +356,23 @@ Using switch from inside release handler:
 ```ocaml
 # run (fun sw ->
     Switch.on_release sw (fun () ->
-      Fibre.fork ~sw (fun () ->
+      Fiber.fork ~sw (fun () ->
         traceln "Starting release 1";
-        Fibre.yield ();
+        Fiber.yield ();
         traceln "Finished release 1"
       );
     );
     Switch.on_release sw (fun () ->
-      Fibre.fork ~sw (fun () ->
+      Fiber.fork ~sw (fun () ->
         Switch.on_release sw (fun () -> traceln "Late release");
         traceln "Starting release 2";
-        Fibre.yield ();
+        Fiber.yield ();
         traceln "Finished release 2"
       );
     );
-    traceln "Main fibre done"
+    traceln "Main fiber done"
   );;
-+Main fibre done
++Main fiber done
 +Starting release 2
 +Starting release 1
 +Finished release 2
@@ -387,8 +387,8 @@ All release hooks run, even if some fail, and all errors are reported:
 
 ```ocaml
 # run (fun sw ->
-    Fibre.fork ~sw (fun () -> try Fibre.await_cancel () with _ -> failwith "cancel1 failed");
-    Fibre.fork ~sw (fun () -> try Fibre.await_cancel () with _ -> failwith "cancel2 failed");
+    Fiber.fork ~sw (fun () -> try Fiber.await_cancel () with _ -> failwith "cancel1 failed");
+    Fiber.fork ~sw (fun () -> try Fiber.await_cancel () with _ -> failwith "cancel2 failed");
     raise Exit
   );;
 Exception:
@@ -404,10 +404,10 @@ Failure("cancel1 failed")
 
 ```ocaml
 # run (fun sw ->
-    Fibre.fork ~sw (fun () ->
+    Fiber.fork ~sw (fun () ->
       Switch.run @@ fun sw ->
-      try Fibre.await_cancel () with _ -> failwith "cleanup failed");
-    Fibre.fork ~sw (fun () -> failwith "simulated error")
+      try Fiber.await_cancel () with _ -> failwith "cleanup failed");
+    Fiber.fork ~sw (fun () -> failwith "simulated error")
   );;
 Exception:
 Multiple exceptions:
