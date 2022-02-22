@@ -32,14 +32,14 @@ The domain raises an exception:
 Exception: Failure "Exception from new domain".
 ```
 
-We can still run other fibres in the main domain while waiting.
+We can still run other fibers in the main domain while waiting.
 Here, we use a mutex to check that the parent domain really did run while waiting for the child domain.
 
 ```ocaml
 # run @@ fun mgr ->
   let mutex = Stdlib.Mutex.create () in
   Mutex.lock mutex;
-  Fibre.both
+  Fiber.both
     (fun () ->
       traceln "Spawning new domain...";
       let response = Eio.Domain_manager.run mgr (fun () ->
@@ -50,11 +50,11 @@ Here, we use a mutex to check that the parent domain really did run while waitin
       traceln "Got %S from spawned domain" response
     )
     (fun () ->
-      traceln "Other fibres can still run";
+      traceln "Other fibers can still run";
       Mutex.unlock mutex
     );;
 +Spawning new domain...
-+Other fibres can still run
++Other fibers can still run
 +Got "Hello from new domain" from spawned domain
 - : unit = ()
 ```
@@ -63,18 +63,18 @@ Cancelling another domain:
 
 ```ocaml
 # run @@ fun mgr ->
-  Fibre.both
+  Fiber.both
     (fun () ->
        try
          Eio.Domain_manager.run mgr (fun () ->
-           try Fibre.await_cancel ()
+           try Fiber.await_cancel ()
            with ex -> traceln "Spawned domain got %a" Fmt.exn ex; raise ex
          )
-       with ex -> traceln "Spawning fibre got %a" Fmt.exn ex; raise ex
+       with ex -> traceln "Spawning fiber got %a" Fmt.exn ex; raise ex
     )
     (fun () -> failwith "Simulated error");;
 +Spawned domain got Cancelled: Failure("Simulated error")
-+Spawning fibre got Cancelled: Failure("Simulated error")
++Spawning fiber got Cancelled: Failure("Simulated error")
 Exception: Failure "Simulated error".
 ```
 
@@ -94,12 +94,12 @@ Using a cancellation context across domains is not permitted:
 # run @@ fun mgr ->
   Switch.run @@ fun sw ->
   let p, r = Promise.create () in
-  Fibre.both
+  Fiber.both
     (fun () ->
        Eio.Domain_manager.run mgr @@ fun () ->
        Eio.Cancel.sub @@ fun cc ->
        Promise.resolve r cc;
-       Fibre.await_cancel ()
+       Fiber.await_cancel ()
     )
     (fun () ->
        let cc = Promise.await p in
@@ -115,12 +115,12 @@ Likewise, switches can't be shared:
 # run @@ fun mgr ->
   Switch.run @@ fun sw ->
   let p, r = Promise.create () in
-  Fibre.both
+  Fiber.both
     (fun () ->
        Eio.Domain_manager.run mgr @@ fun () ->
        Switch.run @@ fun sw ->
        Promise.resolve r sw;
-       Fibre.await_cancel ()
+       Fiber.await_cancel ()
     )
     (fun () ->
        let sw = Promise.await p in
@@ -135,12 +135,12 @@ Can't register a release handler across domains:
 # run @@ fun mgr ->
   Switch.run @@ fun sw ->
   let p, r = Promise.create () in
-  Fibre.both
+  Fiber.both
     (fun () ->
        Eio.Domain_manager.run mgr @@ fun () ->
        Switch.run @@ fun sw ->
        Promise.resolve r sw;
-       Fibre.await_cancel ()
+       Fiber.await_cancel ()
     )
     (fun () ->
        let sw = Promise.await p in
@@ -155,13 +155,13 @@ Can't release a release handler across domains:
 # run @@ fun mgr ->
   Switch.run @@ fun sw ->
   let p, r = Promise.create () in
-  Fibre.both
+  Fiber.both
     (fun () ->
        Eio.Domain_manager.run mgr @@ fun () ->
        Switch.run @@ fun sw ->
        let hook = Switch.on_release_cancellable sw ignore in
        Promise.resolve r hook;
-       Fibre.await_cancel ()
+       Fiber.await_cancel ()
     )
     (fun () ->
        let hook = Promise.await p in
@@ -176,16 +176,16 @@ Can't fork into another domain:
 # run @@ fun mgr ->
   Switch.run @@ fun sw ->
   let p, r = Promise.create () in
-  Fibre.both
+  Fiber.both
     (fun () ->
        Eio.Domain_manager.run mgr @@ fun () ->
        Switch.run @@ fun sw ->
        Promise.resolve r sw;
-       Fibre.await_cancel ()
+       Fiber.await_cancel ()
     )
     (fun () ->
        let sw = Promise.await p in
-       Fibre.fork ~sw ignore;
+       Fiber.fork ~sw ignore;
     );;
 Exception: Invalid_argument "Switch accessed from wrong domain!".
 ```

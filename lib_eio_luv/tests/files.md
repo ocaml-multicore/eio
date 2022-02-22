@@ -55,7 +55,7 @@ let main env =
   Fun.protect ~finally:(fun () -> Unix.unlink name) @@ fun () ->
   Switch.run @@ fun sw ->
   let fd = Eio_luv.Low_level.File.open_ ~sw name [`NONBLOCK] |> Eio_luv.Low_level.or_raise in
-  Fibre.both
+  Fiber.both
     (fun () -> read_exactly fd (Luv.Buffer.create 1))
     (fun () -> raise Exit);;
 ```

@@ -12,14 +12,14 @@ let run fn =
   traceln "%s" (fn ())
 ```
 
-# Fibre.first
+# Fiber.first
 
 First finishes, second is cancelled:
 
 ```ocaml
 # run @@ fun () ->
   let p, r = Promise.create () in
-  Fibre.first
+  Fiber.first
     (fun () -> "a")
     (fun () -> Promise.await p);;
 +a
@@ -31,7 +31,7 @@ Second finishes, first is cancelled:
 ```ocaml
 # run @@ fun () ->
   let p, r = Promise.create () in
-  Fibre.first
+  Fiber.first
     (fun () -> Promise.await p)
     (fun () -> "b");;
 +b
@@ -42,7 +42,7 @@ If both succeed, we pick the first one:
 
 ```ocaml
 # run @@ fun () ->
-  Fibre.first
+  Fiber.first
     (fun () -> "a")
     (fun () -> "b");;
 +a
@@ -53,7 +53,7 @@ One crashes - report it:
 
 ```ocaml
 # run @@ fun () ->
-  Fibre.first
+  Fiber.first
     (fun () -> "a")
     (fun () -> failwith "b crashed");;
 Exception: Failure "b crashed".
@@ -61,7 +61,7 @@ Exception: Failure "b crashed".
 
 ```ocaml
 # run @@ fun () ->
-  Fibre.first
+  Fiber.first
     (fun () -> failwith "a crashed")
     (fun () -> "b");;
 Exception: Failure "a crashed".
@@ -71,7 +71,7 @@ Both crash - report both:
 
 ```ocaml
 # run @@ fun () ->
-  Fibre.first
+  Fiber.first
     (fun () -> failwith "a crashed")
     (fun () -> failwith "b crashed");;
 Exception: Multiple exceptions:
@@ -84,18 +84,18 @@ Cancelled before it can crash:
 
 ```ocaml
 # run @@ fun () ->
-  Fibre.first
+  Fiber.first
     (fun () -> "a")
-    (fun () -> Fibre.yield (); failwith "b crashed");;
+    (fun () -> Fiber.yield (); failwith "b crashed");;
 +a
 - : unit = ()
 ```
 
-One claims to be cancelled (for some reason other than the other fibre finishing):
+One claims to be cancelled (for some reason other than the other fiber finishing):
 
 ```ocaml
 # run @@ fun () ->
-  Fibre.first
+  Fiber.first
     (fun () -> raise (Eio.Cancel.Cancelled (Failure "cancel-a")))
     (fun () -> "b");;
 Exception: Cancelled: Failure("cancel-a")
@@ -103,8 +103,8 @@ Exception: Cancelled: Failure("cancel-a")
 
 ```ocaml
 # run @@ fun () ->
-  Fibre.first
-    (fun () -> Fibre.yield (); "a")
+  Fiber.first
+    (fun () -> Fiber.yield (); "a")
     (fun () -> raise (Eio.Cancel.Cancelled (Failure "cancel-b")));;
 Exception: Cancelled: Failure("cancel-b")
 ```
@@ -114,9 +114,9 @@ Cancelled from parent:
 ```ocaml
 # run @@ fun () ->
   let p, r = Promise.create () in
-  Fibre.both
+  Fiber.both
     (fun () ->
-      failwith @@ Fibre.first
+      failwith @@ Fiber.first
         (fun () -> Promise.await p)
         (fun () -> Promise.await p)
     )
@@ -129,11 +129,11 @@ Cancelled from parent while already cancelling:
 
 ```ocaml
 # run @@ fun () ->
-  Fibre.both
+  Fiber.both
     (fun () ->
-      let _ = Fibre.first
+      let _ = Fiber.first
         (fun () -> "a")
-        (fun () -> Fibre.yield (); failwith "cancel-b")
+        (fun () -> Fiber.yield (); failwith "cancel-b")
       in
       traceln "Parent cancel failed"
     )
@@ -149,7 +149,7 @@ but just as plain `Exit` after we leave the context in which the cancellation st
 ```ocaml
 # run @@ fun () ->
   let p, r = Promise.create () in
-  Fibre.both
+  Fiber.both
     (fun () ->
       try
         Switch.run (fun _ ->
@@ -165,36 +165,36 @@ but just as plain `Exit` after we leave the context in which the cancellation st
 Exception: Stdlib.Exit.
 ```
 
-# Fibre.pair
+# Fiber.pair
 
 ```ocaml
 # run @@ fun () ->
-  let x, y = Fibre.pair (fun () -> "a") (fun () -> "b") in
+  let x, y = Fiber.pair (fun () -> "a") (fun () -> "b") in
   x ^ y;;
 +ab
 - : unit = ()
 ```
 
-# Fibre.all
+# Fiber.all
 
 ```ocaml
 # run @@ fun () ->
-  Fibre.all [];
-  Fibre.all (List.init 3 (fun x () -> traceln "fibre %d" x));
+  Fiber.all [];
+  Fiber.all (List.init 3 (fun x () -> traceln "fiber %d" x));
   "done";;
-+fibre 0
-+fibre 1
-+fibre 2
++fiber 0
++fiber 1
++fiber 2
 +done
 - : unit = ()
 ```
 
-# Fibre.any
+# Fiber.any
 
 ```ocaml
 # run @@ fun () ->
   string_of_int @@
-  Fibre.any (List.init 3 (fun x () -> traceln "%d" x; Fibre.yield (); x));;
+  Fiber.any (List.init 3 (fun x () -> traceln "%d" x; Fiber.yield (); x));;
 +0
 +1
 +2
@@ -202,13 +202,13 @@ Exception: Stdlib.Exit.
 - : unit = ()
 ```
 
-# Fibre.await_cancel
+# Fiber.await_cancel
 
 ```ocaml
 # run @@ fun () ->
-  Fibre.both
+  Fiber.both
     (fun () ->
-       try Fibre.await_cancel ()
+       try Fiber.await_cancel ()
        with Eio.Cancel.Cancelled _ as ex ->
          traceln "Caught: %a" Fmt.exn ex;
          raise ex
@@ -219,25 +219,25 @@ Exception: Stdlib.Exit.
 Exception: Failure "simulated error".
 ```
 
-# Fibre.fork
+# Fiber.fork
 
-`Fibre.fork_promise ~sw` inherits the cancellation context from `sw`, not from the current fibre:
+`Fiber.fork_promise ~sw` inherits the cancellation context from `sw`, not from the current fiber:
 
 ```ocaml
 # run @@ fun () ->
   let switch = ref None in
-  Fibre.both
+  Fiber.both
     (fun () ->
        Switch.run @@ fun sw ->
        switch := Some sw;
-       Fibre.await_cancel ()
+       Fiber.await_cancel ()
     )
     (fun () ->
       let sw = Option.get !switch in
       Eio.Cancel.protect @@ fun () ->
-      let child = Fibre.fork_promise ~sw (fun () ->
+      let child = Fiber.fork_promise ~sw (fun () ->
          traceln "Forked child";
-         Fibre.await_cancel ()
+         Fiber.await_cancel ()
       ) in
       Switch.fail sw Exit;
       Promise.await_exn child
@@ -249,13 +249,13 @@ Exception: Stdlib.Exit.
 
 # Scheduling order
 
-Forking runs the child first, and puts the calling fibre at the head of the run-queue.
+Forking runs the child first, and puts the calling fiber at the head of the run-queue.
 
 ```ocaml
 # run @@ fun () ->
   Switch.run @@ fun sw ->
-  Fibre.fork ~sw (fun () -> traceln "1st child runs"; Fibre.yield (); traceln "Queued work");
-  Fibre.fork ~sw (fun () -> traceln "2nd child runs immediately");
+  Fiber.fork ~sw (fun () -> traceln "1st child runs"; Fiber.yield (); traceln "Queued work");
+  Fiber.fork ~sw (fun () -> traceln "2nd child runs immediately");
   traceln "Caller runs before queued work";
   "ok";;
 +1st child runs
@@ -271,8 +271,8 @@ Same with `both`:
 ```ocaml
 # run @@ fun () ->
   Switch.run @@ fun sw ->
-  Fibre.fork ~sw (fun () -> traceln "Enqueuing work for later"; Fibre.yield (); traceln "Queued work");
-  Fibre.both
+  Fiber.fork ~sw (fun () -> traceln "Enqueuing work for later"; Fiber.yield (); traceln "Queued work");
+  Fiber.both
     (fun () -> traceln "1st branch")
     (fun () -> traceln "2nd branch");
   "ok";;
@@ -289,8 +289,8 @@ Same with `first`:
 ```ocaml
 # run @@ fun () ->
   Switch.run @@ fun sw ->
-  Fibre.fork ~sw (fun () -> traceln "Enqueuing work for later"; Fibre.yield (); traceln "Queued work");
-  Fibre.first
+  Fiber.fork ~sw (fun () -> traceln "Enqueuing work for later"; Fiber.yield (); traceln "Queued work");
+  Fiber.first
     (fun () -> traceln "1st branch")
     (fun () -> traceln "2nd branch");
   "ok";;
@@ -305,32 +305,32 @@ Same with `first`:
 # fork_on_accept
 
 We can attach resources to the switch in the accept function,
-and they get released when the child fibre finishes.
+and they get released when the child fiber finishes.
 
 ```ocaml
 let test_fork_on_accept ?(reraise=false) ?(cancel=false) ?(in_accept=ignore) ?(in_handler=ignore) sw =
   let on_handler_error =
     if reraise then raise
-    else (fun ex -> traceln "on_handler_error: %a" Fmt.exn ex; Fibre.check ())
+    else (fun ex -> traceln "on_handler_error: %a" Fmt.exn ex; Fiber.check ())
   in
-  Fibre.both (fun () ->
-    Fibre.fork_on_accept ~sw ~on_handler_error
+  Fiber.both (fun () ->
+    Fiber.fork_on_accept ~sw ~on_handler_error
       (fun sw ->
          traceln "Got connection";
-         Switch.on_release sw (fun () -> traceln "Releasing connection"; Fibre.check ());
+         Switch.on_release sw (fun () -> traceln "Releasing connection"; Fiber.check ());
          in_accept sw;
          1
       )
       (fun sw x ->
          traceln "Run handler with %d" x;
-         Fibre.yield ();
+         Fiber.yield ();
          in_handler sw;
          traceln "Handler done"
       );
     )
     (fun () -> if cancel then failwith "Simulated failure");
-  traceln "Main fibre resumes";
-  "Main fibre result"
+  traceln "Main fiber resumes";
+  "Main fiber result"
 ```
 
 The success case:
@@ -340,10 +340,10 @@ The success case:
   Switch.run test_fork_on_accept;;
 +Got connection
 +Run handler with 1
-+Main fibre resumes
++Main fiber resumes
 +Handler done
 +Releasing connection
-+Main fibre result
++Main fiber result
 - : unit = ()
 ```
 
@@ -364,10 +364,10 @@ The handler function fails:
   Switch.run @@ test_fork_on_accept ~in_handler:(fun _ -> failwith "Handler fails");;
 +Got connection
 +Run handler with 1
-+Main fibre resumes
++Main fiber resumes
 +Releasing connection
 +on_handler_error: Failure("Handler fails")
-+Main fibre result
++Main fiber result
 - : unit = ()
 ```
 
@@ -379,8 +379,8 @@ Turning off the child switch in the accept function. We treat this as the handle
 +Got connection
 +Releasing connection
 +on_handler_error: Failure("Accept turn-off")
-+Main fibre resumes
-+Main fibre result
++Main fiber resumes
++Main fiber result
 - : unit = ()
 ```
 
@@ -391,7 +391,7 @@ Propagating handling errors to the parent:
   Switch.run @@ test_fork_on_accept ~in_handler:(fun _  -> failwith "Handler fails") ~reraise:true;;
 +Got connection
 +Run handler with 1
-+Main fibre resumes
++Main fiber resumes
 +Releasing connection
 Exception: Failure "Handler fails".
 ```
@@ -400,7 +400,7 @@ Cancelling while in accept:
 
 ```ocaml
 # run @@ fun () ->
-  Switch.run @@ test_fork_on_accept ~in_accept:(fun _  -> Fibre.await_cancel ()) ~cancel:true;;
+  Switch.run @@ test_fork_on_accept ~in_accept:(fun _  -> Fiber.await_cancel ()) ~cancel:true;;
 +Got connection
 +Releasing connection
 Exception: Failure "Simulated failure".
@@ -410,7 +410,7 @@ Cancelling while in handler. `on_hander_error` is not called for cancellations:
 
 ```ocaml
 # run @@ fun () ->
-  Switch.run @@ test_fork_on_accept ~in_handler:(fun _  -> Fibre.await_cancel ()) ~cancel:true;;
+  Switch.run @@ test_fork_on_accept ~in_handler:(fun _  -> Fiber.await_cancel ()) ~cancel:true;;
 +Got connection
 +Run handler with 1
 +Releasing connection
@@ -425,14 +425,14 @@ until the connection is released.
 # run @@ fun () ->
   Switch.run @@ fun sw ->
   let bg_switch = ref None in
-  Fibre.fork_sub ~sw ~on_error:(traceln "Background thread failed: %a" Fmt.exn) (fun sw ->
-     bg_switch := Some sw; Fibre.await_cancel ()
+  Fiber.fork_sub ~sw ~on_error:(traceln "Background thread failed: %a" Fmt.exn) (fun sw ->
+     bg_switch := Some sw; Fiber.await_cancel ()
   );
   let bg_switch = Option.get !bg_switch in
   test_fork_on_accept bg_switch
     ~in_accept:(fun _  ->
        Switch.fail bg_switch (Failure "Background switch turned off");
-       Fibre.yield ()
+       Fiber.yield ()
     );;
 +Got connection
 +Releasing connection
@@ -446,14 +446,14 @@ The child outlives the forking context. The error handler runs in `bg_switch`, s
 # run @@ fun () ->
   Switch.run @@ fun sw ->
   let bg_switch = ref None in
-  Fibre.fork_sub ~sw ~on_error:(traceln "Background thread failed: %a" Fmt.exn) (fun sw ->
-     bg_switch := Some sw; Fibre.yield ()
+  Fiber.fork_sub ~sw ~on_error:(traceln "Background thread failed: %a" Fmt.exn) (fun sw ->
+     bg_switch := Some sw; Fiber.yield ()
   );
   let bg_switch = Option.get !bg_switch in
   let x = Switch.run (fun _ ->
      test_fork_on_accept bg_switch
        ~in_handler:(fun _ ->
-          Fibre.yield ();
+          Fiber.yield ();
           failwith "Simulated error"
        )
   ) in
@@ -462,10 +462,10 @@ The child outlives the forking context. The error handler runs in `bg_switch`, s
   ;;
 +Got connection
 +Run handler with 1
-+Main fibre resumes
++Main fiber resumes
 +Main switch done
 +Releasing connection
 +on_handler_error: Failure("Simulated error")
-+Main fibre result
++Main fiber result
 - : unit = ()
 ```

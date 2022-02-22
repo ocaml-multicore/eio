@@ -10,7 +10,7 @@ let run_bench ~domain_mgr ~clock ~use_domains ~n_iters ~capacity =
     Gc.full_major ();
     let _minor0, prom0, _major0 = Gc.counters () in
     let t0 = Eio.Time.now clock in
-    Fibre.both
+    Fiber.both
       (fun () ->
          if use_domains then (
            Eio.Domain_manager.run domain_mgr @@ fun () ->

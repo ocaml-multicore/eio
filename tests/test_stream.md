@@ -57,7 +57,7 @@ Readers have to wait when the stream is empty:
 # run @@ fun () ->
   let t = S.create 2 in
   add t 1;
-  Fibre.both
+  Fiber.both
     (fun () -> take t; take t)
     (fun () -> add t 2);;
 +Adding 1 to stream
@@ -77,7 +77,7 @@ Writers have to wait when the stream is full:
 # run @@ fun () ->
   let t = S.create 3 in
   add t 1;
-  Fibre.both
+  Fiber.both
     (fun () ->
       add t 2;
       add t 3;
@@ -113,7 +113,7 @@ A zero-length queue is synchronous:
 ```ocaml
 # run @@ fun () ->
   let t = S.create 0 in
-  Fibre.both
+  Fiber.both
     (fun () ->
       add t 1;
       add t 2;
@@ -139,7 +139,7 @@ Cancel reading from a stream:
 # run @@ fun () ->
   let t = S.create 1 in
   try
-    Fibre.both
+    Fiber.both
       (fun () -> take t)
       (fun () -> raise Cancel);
     assert false;
@@ -162,7 +162,7 @@ Cancel writing to a stream:
 # run @@ fun () ->
   let t = S.create 1 in
   try
-    Fibre.both
+    Fiber.both
       (fun () -> add t 1; add t 2)
       (fun () -> raise Cancel);
     assert false;
@@ -190,13 +190,13 @@ Cancel writing to a zero-length stream:
 # run @@ fun () ->
   let t = S.create 0 in
   try
-    Fibre.both
+    Fiber.both
       (fun () -> add t 1)
       (fun () -> raise Cancel);
     assert false;
   with Cancel ->
     traceln "Cancelled";
-    Fibre.both
+    Fiber.both
       (fun () -> add t 2)
       (fun () -> take t);;
 +Adding 1 to stream
@@ -219,7 +219,7 @@ Trying to use a stream with a cancelled context:
   begin try take t   with ex -> traceln "%a" Fmt.exn ex end;
   (* Check we released the mutex correctly: *)
   Eio.Cancel.protect @@ fun () ->
-  Fibre.both
+  Fiber.both
     (fun () -> add  t 1)
     (fun () -> take t)
   ;;
@@ -240,9 +240,9 @@ Readers queue up:
 # run @@ fun () ->
   let t = S.create 0 in
   Switch.run @@ fun sw ->
-  Fibre.fork ~sw (fun () -> take t; traceln "a done");
-  Fibre.fork ~sw (fun () -> take t; traceln "b done");
-  Fibre.fork ~sw (fun () -> take t; traceln "c done");
+  Fiber.fork ~sw (fun () -> take t; traceln "a done");
+  Fiber.fork ~sw (fun () -> take t; traceln "b done");
+  Fiber.fork ~sw (fun () -> take t; traceln "c done");
   add t 1;
   add t 2;
   add t 3;;
@@ -270,9 +270,9 @@ Writers queue up:
 # run @@ fun () ->
   let t = S.create 0 in
   Switch.run @@ fun sw ->
-  Fibre.fork ~sw (fun () -> add t 1);
-  Fibre.fork ~sw (fun () -> add t 2);
-  Fibre.fork ~sw (fun () -> add t 3);
+  Fiber.fork ~sw (fun () -> add t 1);
+  Fiber.fork ~sw (fun () -> add t 2);
+  Fiber.fork ~sw (fun () -> add t 3);
   take t;
   take t;
   take t;;
@@ -299,7 +299,7 @@ Cancelling writing to a stream:
   add t 0;
   Switch.run @@ fun sw ->
   try
-    Fibre.both
+    Fiber.both
       (fun () -> add t 1)
       (fun () -> raise Cancel)
   with Cancel ->
@@ -343,7 +343,7 @@ Non-blocking take with zero-capacity stream:
 # run @@ fun () ->
   let t = S.create 0 in
   take_nonblocking t;
-  Fibre.both
+  Fiber.both
     (fun () -> add t 0)
     (fun () -> take_nonblocking t);
   take_nonblocking t;;

@@ -12,18 +12,18 @@ open Eio.Std
 
 (* An Eio backend with no actual IO *)
 module Eio_null = struct
-  module Fibre_context = Eio.Private.Fibre_context
+  module Fiber_context = Eio.Private.Fiber_context
 
   (* The scheduler could just return [unit], but this is clearer. *)
   type exit = Exit_scheduler
 
   type t = {
-    (* Suspended fibres waiting to run again.
+    (* Suspended fibers waiting to run again.
        A real system would probably use [Eio_utils.Lf_queue]. *)
     mutable run_q : (unit -> exit) list;
   }
 
-  (* Resume the next runnable fibre, if any. *)
+  (* Resume the next runnable fiber, if any. *)
   let schedule t : exit =
     match t.run_q with
     | f :: fs -> t.run_q <- fs; f ()
@@ -32,33 +32,33 @@ module Eio_null = struct
   (* Run [main] in an Eio main loop. *)
   let run main =
     let t = { run_q = [] } in
-    let rec fork ~new_fibre:fibre fn =
+    let rec fork ~new_fiber:fiber fn =
       let open Eio.Private.Effect in
-      (* Create a new fibre and run [fn] in it. *)
+      (* Create a new fiber and run [fn] in it. *)
       Deep.match_with fn ()
-        { retc = (fun () -> Fibre_context.destroy fibre; schedule t);
-          exnc = (fun ex -> Fibre_context.destroy fibre; raise ex);
+        { retc = (fun () -> Fiber_context.destroy fiber; schedule t);
+          exnc = (fun ex -> Fiber_context.destroy fiber; raise ex);
           effc = fun (type a) (e : a eff) : ((a, exit) Deep.continuation -> exit) option ->
             match e with
             | Eio.Private.Effects.Suspend f -> Some (fun k ->
-                (* Ask [f] to register whatever callbacks are needed to resume the fibre.
+                (* Ask [f] to register whatever callbacks are needed to resume the fiber.
                    e.g. it might register a callback with a promise, for when that's resolved. *)
-                f fibre (function
-                    (* The fibre is ready to run again. Add it to the queue. *)
+                f fiber (function
+                    (* The fiber is ready to run again. Add it to the queue. *)
                     | Ok v -> t.run_q <- t.run_q @ [fun () -> Deep.continue k v]
                     | Error ex -> t.run_q <- t.run_q @ [fun () -> Deep.discontinue k ex]
                   );
-                (* Switch to the next runnable fibre while this one's blocked. *)
+                (* Switch to the next runnable fiber while this one's blocked. *)
                 schedule t
               )
-            | Eio.Private.Effects.Fork (new_fibre, f) -> Some (fun k ->
-                (* Arrange for the forking fibre to run immediately after the new one. *)
+            | Eio.Private.Effects.Fork (new_fiber, f) -> Some (fun k ->
+                (* Arrange for the forking fiber to run immediately after the new one. *)
                 t.run_q <- Deep.continue k :: t.run_q;
-                (* Create and run the new fibre (using fibre context [new_fibre]). *)
-                fork ~new_fibre f
+                (* Create and run the new fiber (using fiber context [new_fiber]). *)
+                fork ~new_fiber f
               )
             | Eio.Private.Effects.Get_context -> Some (fun k ->
-                Deep.continue k fibre
+                Deep.continue k fiber
               )
             | Eio.Private.Effects.Trace -> Some (fun k ->
                 Deep.continue k Eio_utils.Trace.default_traceln
@@ -66,8 +66,8 @@ module Eio_null = struct
             | _ -> None
         }
     in
-    let new_fibre = Fibre_context.make_root () in
-    let Exit_scheduler = fork ~new_fibre main in
+    let new_fiber = Fiber_context.make_root () in
+    let Exit_scheduler = fork ~new_fiber main in
     ()
 end
 ```
@@ -78,7 +78,7 @@ It supports forking, tracing, suspending and cancellation:
 # Eio_null.run @@ fun () ->
   let s = Eio.Stream.create 1 in
   try
-    Fibre.both
+    Fiber.both
       (fun () ->
          for x = 1 to 3 do
            traceln "Sending %d" x;

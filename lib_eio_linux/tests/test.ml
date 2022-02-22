@@ -8,7 +8,7 @@ let () =
   Printexc.record_backtrace true
 
 let read_one_byte ~sw r =
-  Fibre.fork_promise ~sw (fun () ->
+  Fiber.fork_promise ~sw (fun () ->
       let r = Option.get (Eio_linux.get_fd_opt r) in
       Eio_linux.Low_level.await_readable r;
       let b = Bytes.create 1 in
@@ -22,7 +22,7 @@ let test_poll_add () =
   Switch.run @@ fun sw ->
   let r, w = Eio_linux.pipe sw in
   let thread = read_one_byte ~sw r in
-  Fibre.yield ();
+  Fiber.yield ();
   let w = Option.get (Eio_linux.get_fd_opt w) in
   Eio_linux.Low_level.await_writable w;
   let sent = Unix.write (Eio_linux.FD.to_unix `Peek w) (Bytes.of_string "!") 0 1 in
@@ -36,7 +36,7 @@ let test_poll_add_busy () =
   let r, w = Eio_linux.pipe sw in
   let a = read_one_byte ~sw r in
   let b = read_one_byte ~sw r in
-  Fibre.yield ();
+  Fiber.yield ();
   let w = Option.get (Eio_linux.get_fd_opt w) |> Eio_linux.FD.to_unix `Peek in
   let sent = Unix.write w (Bytes.of_string "!!") 0 2 in
   assert (sent = 2);
@@ -52,7 +52,7 @@ let test_copy () =
   let msg = "Hello!" in
   let from_pipe, to_pipe = Eio_linux.pipe sw in
   let buffer = Buffer.create 20 in
-  Fibre.both
+  Fiber.both
     (fun () -> Eio.Flow.copy from_pipe (Eio.Flow.buffer_sink buffer))
     (fun () ->
        Eio.Flow.copy (Eio.Flow.string_source msg) to_pipe;
@@ -72,8 +72,8 @@ let test_direct_copy () =
   let buffer = Buffer.create 20 in
   let to_output = Eio.Flow.buffer_sink buffer in
   Switch.run (fun sw ->
-      Fibre.fork ~sw (fun () -> Ctf.label "copy1"; Eio.Flow.copy from_pipe1 to_pipe2; Eio.Flow.close to_pipe2);
-      Fibre.fork ~sw (fun () -> Ctf.label "copy2"; Eio.Flow.copy from_pipe2 to_output);
+      Fiber.fork ~sw (fun () -> Ctf.label "copy1"; Eio.Flow.copy from_pipe1 to_pipe2; Eio.Flow.close to_pipe2);
+      Fiber.fork ~sw (fun () -> Ctf.label "copy2"; Eio.Flow.copy from_pipe2 to_output);
       Eio.Flow.copy (Eio.Flow.string_source msg) to_pipe1;
       Eio.Flow.close to_pipe1;
     );
@@ -95,7 +95,7 @@ let test_iovec () =
       let got = Eio_linux.Low_level.readv from_pipe cs in
       recv (Cstruct.shiftv cs got)
   in
-  Fibre.both
+  Fiber.both
     (fun () -> recv [Cstruct.sub message 5 3; Cstruct.sub message 15 3])
     (fun () ->
        let b = Cstruct.of_string "barfoo" in

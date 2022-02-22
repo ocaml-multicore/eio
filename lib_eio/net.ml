@@ -142,7 +142,7 @@ let accept ~sw (t : #listening_socket) = t#accept ~sw
 let accept_sub ~sw (t : #listening_socket) ~on_error handle =
   let accept sw = t#accept ~sw in
   let handle sw (flow, addr) = handle ~sw flow addr in
-  Fibre.fork_on_accept ~sw accept handle ~on_handler_error:on_error
+  Fiber.fork_on_accept ~sw accept handle ~on_handler_error:on_error
 
 class virtual datagram_socket = object
   method virtual send : Sockaddr.datagram -> Cstruct.t -> unit

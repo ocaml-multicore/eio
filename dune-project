@@ -10,7 +10,7 @@
 (package
  (name eio)
  (synopsis "Effect-based direct-style IO API for OCaml")
- (description "An effect-based IO API for multicore OCaml with fibres.")
+ (description "An effect-based IO API for multicore OCaml with fibers.")
  (depends
   (ocaml (>= 4.12.0))
   base-domains

@@ -27,7 +27,7 @@ This guide explains how to write correct multicore programs using Eio.
 Note that using multiple cores is only useful to make your program run faster, when one core isn't enough.
 Programs that need to juggle a large number of IO tasks
 (such as downloading multiple files in parallel while providing an interactive user interface),
-but don't need much CPU time, can just use multiple fibres on a single core instead.
+but don't need much CPU time, can just use multiple fibers on a single core instead.
 Doing that avoids the problems described in this document.
 
 Before we start, we'll define a wrapper around `Eio_main.run` for the examples below.
@@ -48,12 +48,12 @@ val run : (((unit -> 'a) -> 'a) -> unit) -> unit = <fun>
 
 There are two big difficulties with multicore programming.
 We'll start with the simpler one.
-Consider this program, which runs two fibres on a single domain:
+Consider this program, which runs two fibers on a single domain:
 
 ```ocaml
 # Eio_main.run @@ fun _ ->
   let x = ref 0 in
-  Fibre.both
+  Fiber.both
     (fun () -> incr x)
     (fun () -> incr x);
   traceln "x = %d" !x;;
@@ -63,7 +63,7 @@ Consider this program, which runs two fibres on a single domain:
 
 Because we're only using a single domain, only one `incr` call can be running at once.
 `x` gets incremented twice, and the final result is always `2`.
-`both` runs the first fibre until it finishes or waits for something, and then switches to the next runnable fibre.
+`both` runs the first fiber until it finishes or waits for something, and then switches to the next runnable fiber.
 
 However, trying to do the same thing with two cores adds a new behaviour:
 
@@ -71,7 +71,7 @@ However, trying to do the same thing with two cores adds a new behaviour:
 ```ocaml
 # run @@ fun run_in_new_domain ->
   let x = ref 0 in
-  Fibre.both
+  Fiber.both
     (fun () -> run_in_new_domain (fun () -> incr x))
     (fun () -> run_in_new_domain (fun () -> incr x));
   traceln "x = %d" !x;;
@@ -87,7 +87,7 @@ One way to see that this can happen is to realise that `incr x` is really made u
 2. Add one to it.
 3. Store the result back at `x`.
 
-This wasn't a problem when using fibres because none of these steps performs an effect,
+This wasn't a problem when using fibers because none of these steps performs an effect,
 so once `incr` starts it continues until it's finished.
 But with domains, both domains may perform step 1 at the same time, reading `0`, and
 then both domains will write `1` as the result.
@@ -104,7 +104,7 @@ Consider this program:
 let test run_in_new_domain =
   let x = ref 5 in
   let ready = ref false in
-  Fibre.both
+  Fiber.both
     (fun () -> run_in_new_domain (fun () ->
        x := !x * 2;
        ready := true
@@ -239,7 +239,7 @@ Recall the test program above:
 let test run_in_new_domain =
   let x = ref 5 in
   let ready = ref false in
-  Fibre.both
+  Fiber.both
     (fun () -> run_in_new_domain (fun () ->
        x := !x * 2;
        ready := true
@@ -327,7 +327,7 @@ We could fix our program by replacing the `ref` cells with atomics, like this:
 let test run_in_new_domain =
   let x = Atomic.make 5 in
   let ready = Atomic.make false in
-  Fibre.both
+  Fiber.both
     (fun () -> run_in_new_domain (fun () ->
        Atomic.set x (Atomic.get x * 2);
        Atomic.set ready true
@@ -361,7 +361,7 @@ Here's a new version, mixing atomic and non-atomic locations:
 let test run_in_new_domain =
   let x = ref 5 in
   let ready = Atomic.make false in
-  Fibre.both
+  Fiber.both
     (fun () -> run_in_new_domain (fun () ->
        x := !x * 2;
        Atomic.set ready true
@@ -372,7 +372,7 @@ let test run_in_new_domain =
     ))
 ```
 
-Initially (before the `Fibre.both`) the memory looks like this:
+Initially (before the `Fiber.both`) the memory looks like this:
 
 ```
 x     : [ABR]5----------------->
@@ -422,7 +422,7 @@ What if we create new locations from a domain? For example, what does this do?
 ```ocaml
 let test run_in_new_domain =
   let x = ref [1; 2; 3] in
-  Fibre.both
+  Fiber.both
     (fun () -> run_in_new_domain (fun () ->
        x := [4; 5; 6]
     ))
@@ -485,7 +485,7 @@ let example q =
 ```
 
 If `q` is only updated by its owning domain (as in 2) then this assertion will always pass.
-`Queue.length` will not perform an effect which could switch fibres, so nothing else can update `q`.
+`Queue.length` will not perform an effect which could switch fibers, so nothing else can update `q`.
 If another domain wants to change it, it sends a message to `q`'s domain, which is added to the domain's
 run-queue and will take effect later.
 
@@ -493,7 +493,7 @@ However, if `q` is wrapped by a mutex (as in 3) then the assertion could fail.
 The first `Queue.length` will lock and then release the queue, then the second will lock and release it again.
 Another domain could change the value between these two calls.
 
-You can often run most of your program's logic in a single domain, using fibres,
+You can often run most of your program's logic in a single domain, using fibers,
 while sending self-contained CPU-intensive jobs to a pool of worker domains.
 This gets most of the benefits of using multiple domains while avoiding most of the problems.
 See the "Worker Pool" example in the main README for an example.

@@ -19,7 +19,7 @@ module Low_level : sig
     request:[< `File | `Addr_info | `Name_info | `Random | `Thread_pool ] Luv.Request.t ->
     (Luv.Loop.t -> ('a -> unit) -> unit) -> 'a
   (** [await_with_cancel ~request fn] converts a function using a luv-style callback to one using effects.
-      It sets the fibre's cancel function to cancel [request], and clears it when the operation completes. *)
+      It sets the fiber's cancel function to cancel [request], and clears it when the operation completes. *)
 
   (** {1 Time functions} *)
 

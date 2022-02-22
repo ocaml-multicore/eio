@@ -1,6 +1,6 @@
 type 'a waiter = {
   enqueue : ('a, exn) result -> unit;
-  ctx : Cancel.Fibre_context.t;
+  ctx : Cancel.Fiber_context.t;
 }
 
 type 'a t = 'a waiter Lwt_dllist.t
@@ -18,7 +18,7 @@ let add_waiter t cb =
 (* Wake a waiter with the result.
    Returns [false] if the waiter got cancelled while we were trying to wake it. *)
 let wake { enqueue; ctx } r =
-  if Cancel.Fibre_context.clear_cancel_fn ctx then (enqueue (Ok r); true)
+  if Cancel.Fiber_context.clear_cancel_fn ctx then (enqueue (Ok r); true)
   else false (* [cancel] gets called and we enqueue an error *)
 
 let wake_all (t:_ t) v =
@@ -38,8 +38,8 @@ let rec wake_one t v =
 
 let is_empty = Lwt_dllist.is_empty
 
-let await_internal ~mutex (t:'a t) id (ctx:Cancel.fibre_context) enqueue =
-  match Cancel.Fibre_context.get_error ctx with
+let await_internal ~mutex (t:'a t) id (ctx:Cancel.fiber_context) enqueue =
+  match Cancel.Fiber_context.get_error ctx with
   | Some ex ->
     Option.iter Mutex.unlock mutex;
     enqueue (Error ex)
@@ -53,7 +53,7 @@ let await_internal ~mutex (t:'a t) id (ctx:Cancel.fibre_context) enqueue =
       Hook.remove !resolved_waiter;
       enqueue (Error ex)
     in
-    Cancel.Fibre_context.set_cancel_fn ctx cancel;
+    Cancel.Fiber_context.set_cancel_fn ctx cancel;
     let waiter = { enqueue; ctx } in
     match mutex with
     | None ->

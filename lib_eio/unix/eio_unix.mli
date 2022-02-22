@@ -30,7 +30,7 @@ module Ipaddr : sig
 end
 
 val sleep : float -> unit
-(** [sleep d] sleeps for [d] seconds, allowing other fibres to run.
+(** [sleep d] sleeps for [d] seconds, allowing other fibers to run.
     This is can be useful for debugging (e.g. to introduce delays to trigger a race condition)
     without having to plumb {!Eio.Stdenv.clock} through your code.
     It can also be used in programs that don't care about tracking determinism. *)

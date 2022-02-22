@@ -21,7 +21,7 @@ open Eio.Std
 open Eio.Private.Effect
 open Eio.Private.Effect.Deep
 
-module Fibre_context = Eio.Private.Fibre_context
+module Fiber_context = Eio.Private.Fiber_context
 module Ctf = Eio.Private.Ctf
 
 module Suspended = Eio_utils.Suspended
@@ -138,7 +138,7 @@ type t = {
   io_q: (t -> unit) Queue.t;     (* waiting for room on [uring] *)
   mem_q : Uring.Region.chunk Suspended.t Queue.t;
 
-  (* The queue of runnable fibres ready to be resumed. Note: other domains can also add work items here. *)
+  (* The queue of runnable fibers ready to be resumed. Note: other domains can also add work items here. *)
   run_q : runnable Lf_queue.t;
 
   (* When adding to [run_q] from another domain, this domain may be sleeping and so won't see the event.
@@ -211,7 +211,7 @@ let cancel job =
 
 (* Cancellation
 
-   For operations that can be cancelled we need to set the fibre's cancellation function.
+   For operations that can be cancelled we need to set the fiber's cancellation function.
    The typical sequence is:
 
    1. We submit an operation, getting back a uring job (needed for cancellation).
@@ -219,7 +219,7 @@ let cancel job =
 
    The cancellation function owns the uring job.
 
-   When the job completes, we remove the cancellation function from the fibre.
+   When the job completes, we remove the cancellation function from the fiber.
    The function must have been set by this point because we don't poll for
    completions until the above steps have finished.
 
@@ -227,26 +227,26 @@ let cancel job =
    which will submit a cancellation request to uring.
    If the operation completes before Linux processes the cancellation, we get [ENOENT], which we ignore.
 
-   If the context is cancelled before starting then we discontinue the fibre. *)
+   If the context is cancelled before starting then we discontinue the fiber. *)
 
 (* [with_cancel_hook ~action st fn] calls [fn] to create a job,
-   then sets the fibre's cancel function to cancel it.
+   then sets the fiber's cancel function to cancel it.
    If [action] is already cancelled, it schedules [action] to be discontinued.
    @return Whether to retry the operation later, once there is space. *)
 let with_cancel_hook ~action st fn =
-  match Fibre_context.get_error action.Suspended.fibre with
+  match Fiber_context.get_error action.Suspended.fiber with
   | Some ex -> enqueue_failed_thread st action ex; false
   | None ->
     match fn () with
     | None -> true
     | Some job ->
-      Fibre_context.set_cancel_fn action.fibre (fun _ -> cancel job);
+      Fiber_context.set_cancel_fn action.fiber (fun _ -> cancel job);
       false
 
 let clear_cancel (action : _ Suspended.t) =
   (* It doesn't matter whether the operation was cancelled or not;
      there's nothing we need to do with the job now. *)
-  ignore (Fibre_context.clear_cancel_fn action.fibre : bool)
+  ignore (Fiber_context.clear_cancel_fn action.fiber : bool)
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
   let fd = FD.get "submit_rw_req" fd in
@@ -430,7 +430,7 @@ let submit_pending_io st =
    Returns only if there is nothing to do and no queued operations. *)
 let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* This is not a fair scheduler *)
-  (* Wakeup any paused fibres *)
+  (* Wakeup any paused fibers *)
   match Lf_queue.pop run_q with
   | Some Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
   | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
@@ -496,7 +496,7 @@ and handle_complete st ~runnable result =
     complete_rw_req st req result
   | Job k ->
     clear_cancel k;
-    begin match Fibre_context.get_error k.fibre with
+    begin match Fiber_context.get_error k.fiber with
       | None -> Suspended.continue k result
       | Some e ->
         (* If cancelled, report that instead.
@@ -508,7 +508,7 @@ and handle_complete st ~runnable result =
     Suspended.continue k result
   | Job_fn (k, f) ->
     clear_cancel k;
-    begin match Fibre_context.get_error k.fibre with
+    begin match Fiber_context.get_error k.fiber with
       | None -> f result
       | Some e -> Suspended.discontinue k e
     end
@@ -516,7 +516,7 @@ and complete_rw_req st ({len; cur_off; action; _} as req) res =
   match res, len with
   | 0, _ -> Suspended.discontinue action End_of_file
   | e, _ when e < 0 ->
-    begin match Fibre_context.get_error action.fibre with
+    begin match Fiber_context.get_error action.fiber with
       | Some e -> Suspended.discontinue action e        (* If cancelled, report that instead. *)
       | None ->
         if errno_is_retry e then (
@@ -1103,75 +1103,75 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
   let eventfd = FD.placeholder ~seekable:false ~close_unix:false in
   let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; io_jobs = 0 } in
   Log.debug (fun l -> l "starting main thread");
-  let rec fork ~new_fibre:fibre fn =
-    Ctf.note_switch (Fibre_context.tid fibre);
+  let rec fork ~new_fiber:fiber fn =
+    Ctf.note_switch (Fiber_context.tid fiber);
     match_with fn ()
-      { retc = (fun () -> Fibre_context.destroy fibre; schedule st);
+      { retc = (fun () -> Fiber_context.destroy fiber; schedule st);
         exnc = (fun ex ->
-            Fibre_context.destroy fibre;
+            Fiber_context.destroy fiber;
             Printexc.raise_with_backtrace ex (Printexc.get_raw_backtrace ())
           );
         effc = fun (type a) (e : a eff) ->
           match e with
           | Enter fn -> Some (fun k ->
-              match Fibre_context.get_error fibre with
+              match Fiber_context.get_error fiber with
               | Some e -> discontinue k e
               | None ->
-                let k = { Suspended.k; fibre } in
+                let k = { Suspended.k; fiber } in
                 fn st k;
                 schedule st
             )
           | Enter_unchecked fn -> Some (fun k ->
-              let k = { Suspended.k; fibre } in
+              let k = { Suspended.k; fiber } in
               fn st k;
               schedule st
             )
           | Low_level.ERead args -> Some (fun k ->
-              let k = { Suspended.k; fibre } in
+              let k = { Suspended.k; fiber } in
               enqueue_read st k args;
               schedule st)
           | Close fd -> Some (fun k ->
-              let k = { Suspended.k; fibre } in
+              let k = { Suspended.k; fiber } in
               enqueue_close st k fd;
               schedule st
             )
           | Low_level.EWrite args -> Some (fun k ->
-              let k = { Suspended.k; fibre } in
+              let k = { Suspended.k; fiber } in
               enqueue_write st k args;
               schedule st
             )
           | Low_level.Sleep_until time -> Some (fun k ->
-              let k = { Suspended.k; fibre } in
-              match Fibre_context.get_error fibre with
+              let k = { Suspended.k; fiber } in
+              match Fiber_context.get_error fiber with
               | Some ex -> Suspended.discontinue k ex
               | None ->
                 let job = Zzz.add sleep_q time k in
-                Fibre_context.set_cancel_fn fibre (fun ex ->
+                Fiber_context.set_cancel_fn fiber (fun ex ->
                     Zzz.remove sleep_q job;
                     enqueue_failed_thread st k ex
                   );
                 schedule st
             )
-          | Eio.Private.Effects.Get_context -> Some (fun k -> continue k fibre)
+          | Eio.Private.Effects.Get_context -> Some (fun k -> continue k fiber)
           | Eio.Private.Effects.Suspend f -> Some (fun k ->
-              let k = { Suspended.k; fibre } in
-              f fibre (function
+              let k = { Suspended.k; fiber } in
+              f fiber (function
                   | Ok v -> enqueue_thread st k v
                   | Error ex -> enqueue_failed_thread st k ex
                 );
               schedule st
             )
-          | Eio.Private.Effects.Fork (new_fibre, f) -> Some (fun k ->
-              let k = { Suspended.k; fibre } in
+          | Eio.Private.Effects.Fork (new_fiber, f) -> Some (fun k ->
+              let k = { Suspended.k; fiber } in
               enqueue_at_head st k ();
-              fork ~new_fibre f
+              fork ~new_fiber f
             )
           | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eio_utils.Trace.default_traceln)
           | Eio_unix.Private.Await_readable fd -> Some (fun k ->
-              match Fibre_context.get_error fibre with
+              match Fiber_context.get_error fiber with
               | Some e -> discontinue k e
               | None ->
-                let k = { Suspended.k; fibre } in
+                let k = { Suspended.k; fiber } in
                 enqueue_poll_add_unix fd Uring.Poll_mask.(pollin + pollerr) st k (fun res ->
                     if res >= 0 then Suspended.continue k ()
                     else Suspended.discontinue k (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
@@ -1179,10 +1179,10 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
                 schedule st
             )
           | Eio_unix.Private.Await_writable fd -> Some (fun k ->
-              match Fibre_context.get_error fibre with
+              match Fiber_context.get_error fiber with
               | Some e -> discontinue k e
               | None ->
-                let k = { Suspended.k; fibre } in
+                let k = { Suspended.k; fiber } in
                 enqueue_poll_add_unix fd Uring.Poll_mask.(pollout + pollerr) st k (fun res ->
                     if res >= 0 then Suspended.continue k ()
                     else Suspended.discontinue k (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
@@ -1191,7 +1191,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
             )
           | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
           | Low_level.Alloc -> Some (fun k ->
-              let k = { Suspended.k; fibre } in
+              let k = { Suspended.k; fiber } in
               Low_level.alloc_buf st k
             )
           | Low_level.Free buf -> Some (fun k ->
@@ -1202,8 +1202,8 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
       }
   in
   let `Exit_scheduler =
-    let new_fibre = Fibre_context.make_root () in
-    fork ~new_fibre (fun () ->
+    let new_fiber = Fiber_context.make_root () in
+    fork ~new_fiber (fun () ->
         Switch.run_protected (fun sw ->
             let fd = eio_eventfd 0 in
             st.eventfd.fd <- `Open fd;
@@ -1214,7 +1214,7 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
                 Unix.close fd
               );
             Log.debug (fun f -> f "Monitoring eventfd %a" FD.pp st.eventfd);
-            Fibre.first
+            Fiber.first
               (fun () -> main stdenv)
               (fun () -> monitor_event_fd st)
           )

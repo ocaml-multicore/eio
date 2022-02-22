@@ -1,9 +1,9 @@
 type t = {
   id : Ctf.id;
-  mutable fibres : int;
+  mutable fibers : int;
   mutable exs : (exn * Printexc.raw_backtrace) option;
   on_release : (unit -> unit) Lwt_dllist.t;
-  waiter : unit Waiters.t;              (* The main [top]/[sub] function may wait here for fibres to finish. *)
+  waiter : unit Waiters.t;              (* The main [top]/[sub] function may wait here for fibers to finish. *)
   cancel : Cancel.t;
 }
 
@@ -20,9 +20,9 @@ let remove_hook = function
     Lwt_dllist.remove n
 
 let dump f t =
-  Fmt.pf f "@[<v2>Switch %d (%d extra fibres):@,%a@]"
+  Fmt.pf f "@[<v2>Switch %d (%d extra fibers):@,%a@]"
     (t.id :> int)
-    t.fibres
+    t.fibers
     Cancel.dump t.cancel
 
 let is_finished t = Cancel.is_finished t.cancel
@@ -56,27 +56,27 @@ let fail ?(bt=Printexc.get_raw_backtrace ()) t ex =
     let bt = Printexc.get_raw_backtrace () in
     t.exs <- Some (combine_exn (ex, bt) t.exs)
 
-let inc_fibres t =
+let inc_fibers t =
   check t;
-  t.fibres <- t.fibres + 1
+  t.fibers <- t.fibers + 1
 
-let dec_fibres t =
-  t.fibres <- t.fibres - 1;
-  if t.fibres = 0 then
+let dec_fibers t =
+  t.fibers <- t.fibers - 1;
+  if t.fibers = 0 then
     Waiters.wake_all t.waiter ()
 
 let with_op t fn =
-  inc_fibres t;
+  inc_fibers t;
   Fun.protect fn
-    ~finally:(fun () -> dec_fibres t)
+    ~finally:(fun () -> dec_fibers t)
 
 let or_raise = function
   | Ok x -> x
   | Error ex -> raise ex
 
 let rec await_idle t =
-  (* Wait for fibres to finish: *)
-  while t.fibres > 0 do
+  (* Wait for fibers to finish: *)
+  while t.fibers > 0 do
     Ctf.note_try_read t.id;
     Waiters.await ~mutex:None t.waiter t.id
   done;
@@ -85,7 +85,7 @@ let rec await_idle t =
   Lwt_dllist.transfer_l t.on_release queue;
   let rec release () =
     match Lwt_dllist.take_opt_r queue with
-    | None when t.fibres = 0 && Lwt_dllist.is_empty t.on_release -> ()
+    | None when t.fibers = 0 && Lwt_dllist.is_empty t.on_release -> ()
     | None -> await_idle t
     | Some fn ->
       begin
@@ -108,7 +108,7 @@ let create cancel =
   Ctf.note_created id Ctf.Switch;
   {
     id;
-    fibres = 0;
+    fibers = 0;
     exs = None;
     waiter = Waiters.create ();
     on_release = Lwt_dllist.create ();
@@ -125,7 +125,7 @@ let run_internal t fn =
     v
   | exception ex ->
     (* Main function failed.
-       Turn the switch off to cancel any running fibres, if it's not off already. *)
+       Turn the switch off to cancel any running fibers, if it's not off already. *)
     fail t ex;
     await_idle t;
     Ctf.note_read t.id;
@@ -146,10 +146,10 @@ let run_in t fn =
   with_op t @@ fun () ->
   let ctx = Effect.perform Cancel.Get_context in
   let old_cc = ctx.cancel_context in
-  Cancel.move_fibre_to t.cancel ctx;
+  Cancel.move_fiber_to t.cancel ctx;
   match fn () with
-  | ()           -> Cancel.move_fibre_to old_cc ctx;
-  | exception ex -> Cancel.move_fibre_to old_cc ctx; raise ex
+  | ()           -> Cancel.move_fiber_to old_cc ctx;
+  | exception ex -> Cancel.move_fiber_to old_cc ctx; raise ex
 
 let on_release_full t fn =
   if Domain.self () = t.cancel.domain then (
