@@ -32,6 +32,8 @@ module Switch : sig
       Calling {!fail} cancels all fibers attached to the switch and, once they
       have exited, reports the error.
 
+      Note: this concept is known as a "nursery" or "bundle" in some other systems.
+
       Example:
       {[
          Switch.run (fun sw ->
@@ -45,6 +47,8 @@ module Switch : sig
   type t
   (** A switch contains a group of fibers and other resources (such as open file handles). *)
 
+  (** {2 Switch creation} *)
+
   val run : (t -> 'a) -> 'a
   (** [run fn] runs [fn] with a fresh switch (initially on).
 
@@ -57,9 +61,11 @@ module Switch : sig
   val run_protected : (t -> 'a) -> 'a
   (** [run_protected fn] is like [run] but ignores cancellation requests from the parent context. *)
 
+  (** {2 Cancellation and failure} *)
+
   val check : t -> unit
   (** [check t] checks that [t] is still on.
-      @raise Cancel.Cancelled If the switch is off. *)
+      @raise Cancel.Cancelled If the switch has been cancelled. *)
 
   val get_error : t -> exn option
   (** [get_error t] is like [check t] except that it returns the exception instead of raising it.
@@ -75,6 +81,16 @@ module Switch : sig
       {!Exn.combine} is used to avoid duplicate or unnecessary exceptions.
       @param bt A backtrace to attach to [ex] *)
 
+  (** {2 Cleaning up resources}
+
+      It is possible to attach clean-up hooks to a switch.
+      Once all fibres within the switch have finished, these hooks are called.
+      For example, when a file is opened it will register a release hook to close it.
+
+      Functions that create such resources will take a switch argument
+      and call these functions for you.
+      You usually don't need to call these directly. *)
+
   val on_release : t -> (unit -> unit) -> unit
   (** [on_release t fn] registers [fn] to be called once [t]'s main function has returned
       and all fibers have finished.
@@ -87,17 +103,23 @@ module Switch : sig
       and the switch may have been cancelled by the time it runs. *)
 
   type hook
-  (** A handle for removing a callback. *)
+  (** A handle for removing a clean-up callback. *)
 
   val null_hook : hook
   (** A dummy hook. Removing it does nothing. *)
 
   val on_release_cancellable : t -> (unit -> unit) -> hook
-  (** Like [on_release], but the handler can be removed later. *)
+  (** Like [on_release], but the handler can be removed later.
+
+      For example, opening a file will call [on_release_cancellable] to ensure the file is closed later.
+      However, if the file is manually closed before that, it will use {!remove_hook} to remove the hook,
+      which is no longer needed. *)
 
   val remove_hook : hook -> unit
   (** [remove_hook h] removes a previously-added hook.
       If the hook has already been removed, this does nothing. *)
+
+  (** {2 Debugging} *)
 
   val dump : t Fmt.t
   (** Dump out details of the switch's state for debugging. *)
@@ -1309,16 +1331,66 @@ module Private : sig
 
     val tid : t -> Ctf.id
 
+    (** {2 Cancellation}
+
+        The {!Cancel} module describes the user's view of cancellation.
+
+        Internally, when the user calls a primitive operation that needs to block the fiber,
+        the [Suspend callback] effect is performed.
+        This suspends the fiber and calls [callback] from the scheduler's context,
+        passing it the suspended fiber's context.
+        If the operation can be cancelled,
+        the callback should use {!set_cancel_fn} to register a cancellation function.
+
+        There are two possible outcomes for the operation: it may complete normally,
+        or it may be cancelled.
+        If it is cancelled then the registered cancellation function is called.
+        This function will always be called from the fiber's own domain, but care must be taken
+        if the operation is being completed by another domain at the same time.
+
+        Consider the case of {!Stream.take}, which can be fulfilled by a {!Stream.add} from another domain.
+        We want to ensure that either the item is removed from the stream and returned to the waiting fiber,
+        or that the operation is cancelled and the item is not removed from the stream.
+
+        Therefore, cancelling and completing both attempt to clear the cancel function atomically,
+        so that only one can succeed. The case where [Stream.take] succeeds before cancellation:
+
+        + A fiber calls [Suspend] and is suspended.
+          The callback sets a cancel function and registers a waiter on the stream.
+        + When another domain has an item, it removes the cancel function (making the [take] uncancellable)
+          and begins resuming the fiber with the new item.
+        + If the taking fiber is cancelled after this, the cancellation will be ignored and the operation
+          will complete successfully. Future operations will fail immediately, however.
+
+        The case of cancellation winning the race:
+
+        + A fiber calls [Suspend] and is suspended.
+          The callback sets a cancel function and registers a waiter on the stream.
+        + The taking fiber is cancelled. Its cancellation function is called, which starts removing the waiter.
+        + If another domain tries to provide an item to the waiter as this is happening,
+          it will try to clear the cancel function and fail.
+          The item will be given to the next waiter instead.
+
+        Note that there is a mutex around the list of waiters, so the taking domain
+        can't finish removing the waiter and start another operation while the adding
+        domain is trying to resume it.
+        In future, we may want to make this lock-free by using a fresh atomic
+        to hold the cancel function for each operation.
+
+        Note: A fiber will only have a cancel function set while it is suspended. *)
+
     val cancellation_context : t -> Cancel.t
     (** [cancellation_context t] is [t]'s current cancellation context. *)
 
     val set_cancel_fn : t -> (exn -> unit) -> unit
     (** [set_cancel_fn t fn] sets [fn] as the fiber's cancel function.
+
         If the cancellation context is cancelled, the function is removed and called.
         When the operation completes, you must call {!clear_cancel_fn} to remove it. *)
 
     val clear_cancel_fn : t -> bool
     (** [clear_cancel_fn t] removes the function previously set with {!set_cancel_fn}, if any.
+
         Returns [true] if this call removed the function, or [false] if there wasn't one.
         This operation is atomic and thread-safe.
         An operation that completes in another domain must use this to indicate that the operation is
