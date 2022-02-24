@@ -139,6 +139,7 @@ module Low_level = struct
   module Handle = struct
     type 'a t = {
       mutable release_hook : Eio.Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
+      close_unix : bool;
       mutable fd : [`Open of 'a Luv.Handle.t | `Closed]
     }
 
@@ -155,19 +156,21 @@ module Low_level = struct
       let fd = get "close" t in
       t.fd <- `Closed;
       Eio.Switch.remove_hook t.release_hook;
-      enter_unchecked @@ fun t k ->
-      Luv.Handle.close fd (enqueue_thread t k)
+      if t.close_unix then (
+        enter_unchecked @@ fun t k ->
+        Luv.Handle.close fd (enqueue_thread t k)
+      )
 
     let ensure_closed t =
       if is_open t then close t
 
     let to_luv x = get "to_luv" x
 
-    let of_luv_no_hook fd =
-      { fd = `Open fd; release_hook = Eio.Switch.null_hook }
+    let of_luv_no_hook ~close_unix fd =
+      { fd = `Open fd; release_hook = Eio.Switch.null_hook; close_unix }
 
-    let of_luv ~sw fd =
-      let t = of_luv_no_hook fd in
+    let of_luv ?(close_unix=true) ~sw fd =
+      let t = of_luv_no_hook ~close_unix fd in
       t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
       t
 
@@ -187,6 +190,7 @@ module Low_level = struct
   module File = struct
     type t = {
       mutable release_hook : Eio.Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
+      close_unix : bool;
       mutable fd : [`Open of Luv.File.t | `Closed]
     }
 
@@ -210,11 +214,11 @@ module Low_level = struct
 
     let to_luv = get "to_luv"
 
-    let of_luv_no_hook fd =
-      { fd = `Open fd; release_hook = Eio.Switch.null_hook }
+    let of_luv_no_hook ~close_unix fd =
+      { fd = `Open fd; release_hook = Eio.Switch.null_hook; close_unix }
 
-    let of_luv ~sw fd =
-      let t = of_luv_no_hook fd in
+    let of_luv ?(close_unix=true) ~sw fd =
+      let t = of_luv_no_hook ~close_unix fd in
       t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
       t
 
@@ -303,6 +307,9 @@ module Low_level = struct
       | bufs -> write t bufs
 
     let to_unix_opt = Handle.to_unix_opt
+
+    let of_unix fd =
+      Luv_unix.Os_fd.Socket.from_unix fd |> or_raise
   end
 
   module Poll = struct
@@ -440,7 +447,7 @@ class virtual ['a] listening_socket ~backlog sock = object (self)
 
   method accept ~sw =
     Eio.Semaphore.acquire ready;
-    let client = self#make_client |> Handle.of_luv_no_hook in
+    let client = self#make_client |> Handle.of_luv_no_hook ~close_unix:true in
     match Luv.Stream.accept ~server:(Handle.get "accept" sock) ~client:(Handle.get "accept" client) with
     | Error e ->
       Handle.close client;
@@ -727,9 +734,9 @@ let cwd = object
 end
 
 let stdenv ~run_event_loop =
-  let stdin = lazy (source (File.of_luv_no_hook Luv.File.stdin)) in
-  let stdout = lazy (sink (File.of_luv_no_hook Luv.File.stdout)) in
-  let stderr = lazy (sink (File.of_luv_no_hook Luv.File.stderr)) in
+  let stdin = lazy (source (File.of_luv_no_hook Luv.File.stdin ~close_unix:true)) in
+  let stdout = lazy (sink (File.of_luv_no_hook Luv.File.stdout ~close_unix:true)) in
+  let stderr = lazy (sink (File.of_luv_no_hook Luv.File.stderr ~close_unix:true)) in
   object (_ : stdenv)
     method stdin  = Lazy.force stdin
     method stdout = Lazy.force stdout
@@ -802,6 +809,16 @@ let rec run main =
               Poll.await_writable st k fd
           )
         | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
+        | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
+            try
+              let fd = Low_level.Stream.of_unix fd in
+              let sock = Luv.TCP.init ~loop () |> or_raise in
+              let handle = Handle.of_luv ~sw ~close_unix sock in
+              Luv.TCP.open_ sock fd |> or_raise;
+              continue k (socket handle :> < Eio.Flow.two_way; Eio.Flow.close >)
+            with Luv_error _ as ex ->
+              discontinue k ex
+          )
         | _ -> None
     }
   in

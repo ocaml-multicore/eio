@@ -10,7 +10,7 @@ val await_readable : Unix.file_descr -> unit
 val await_writable : Unix.file_descr -> unit
 (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
-(** Get a [Unix.file_descr] from an Eio object. *)
+(** Convert between [Unix.file_descr] and Eio objects. *)
 module FD : sig
   val peek : #Eio.Generic.t -> Unix.file_descr option
   (** [peek x] is the Unix file descriptor underlying [x], if any.
@@ -19,6 +19,13 @@ module FD : sig
   val take : #Eio.Generic.t -> Unix.file_descr option
   (** [take x] is like [peek], but also marks [x] as closed on success (without actually closing the FD).
       [x] can no longer be used after this, and the caller is responsible for closing the FD. *)
+
+  val as_socket : sw:Eio.Switch.t -> close_unix:bool -> Unix.file_descr -> < Eio.Flow.two_way; Eio.Flow.close >
+  (** [as_socket ~sw ~close_unix:true fd] is an Eio flow that uses [fd].
+      It can be cast to e.g. {!Eio.source} for a one-way flow.
+      The socket object will be closed when [sw] finishes.
+      @param close_unix If [true], closing the object will also close the underlying FD.
+                        If [false], the caller is responsible for keeping [FD] open until the object is closed. *)
 end
 
 (** Convert between Eio.Net.Ipaddr and Unix.inet_addr. *)
@@ -46,6 +53,8 @@ module Private : sig
     | Await_readable : Unix.file_descr -> unit eff      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit eff      (** See {!await_writable} *)
     | Get_system_clock : Eio.Time.clock eff             (** See {!sleep} *)
+    | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr ->
+        < Eio.Flow.two_way; Eio.Flow.close > eff        (** See {!FD.as_socket} *)
 end
 
 module Ctf = Ctf_unix

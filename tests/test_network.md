@@ -254,3 +254,21 @@ Printing addresses with ports:
 +tcp:[::1]:8080
 - : unit = ()
 ```
+
+Wrapping a Unix FD as an Eio socket:
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let r, w = Unix.pipe () in
+  let source = (Eio_unix.FD.as_socket ~sw ~close_unix:true r :> Eio.Flow.source) in
+  let sink = (Eio_unix.FD.as_socket ~sw ~close_unix:true w :> Eio.Flow.sink) in
+  Fiber.both
+    (fun () -> Eio.Flow.copy_string "Hello\n!" sink)
+    (fun () ->
+       let b = Eio.Buf_read.of_flow source ~max_size:1000 in
+       traceln "Got: %S" (Eio.Buf_read.line b)
+    );;
++Got: "Hello"
+- : unit = ()
+```

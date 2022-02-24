@@ -38,10 +38,11 @@ module Low_level : sig
     (** [close t] closes [t].
         @raise Invalid_arg if [t] is already closed. *)
 
-    val of_luv : sw:Switch.t -> Luv.File.t -> t
+    val of_luv : ?close_unix:bool -> sw:Switch.t -> Luv.File.t -> t
     (** [of_luv ~sw fd] wraps [fd] as an open file descriptor.
         This is unsafe if [fd] is closed directly (before or after wrapping it).
-        @param sw The FD is closed when [sw] is released, if not closed manually first. *)
+        @param sw The FD is closed when [sw] is released, if not closed manually first.
+        @param close_unix if [true] (the default), calling [close] also closes [fd]. *)
 
     val to_luv : t -> Luv.File.t
     (** [to_luv t] returns the wrapped descriptor.
@@ -88,10 +89,11 @@ module Low_level : sig
         This allows unsafe access to the handle.
         @raise Invalid_arg if [t] is closed. *)
 
-    val of_luv : sw:Switch.t -> 'a Luv.Handle.t -> 'a t
+    val of_luv : ?close_unix:bool -> sw:Switch.t -> 'a Luv.Handle.t -> 'a t
     (** [of_luv ~sw h] wraps [h] as an open handle.
         This is unsafe if [h] is closed directly (before or after wrapping it).
-        @param sw The handle is closed when [sw] is released, if not closed manually first. *)
+        @param sw The handle is closed when [sw] is released, if not closed manually first.
+        @param close_unix if [true] (the default), calling [close] also closes [fd]. *)
   end
 end
 
