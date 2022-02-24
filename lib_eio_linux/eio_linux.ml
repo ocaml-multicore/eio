@@ -378,15 +378,16 @@ let rec enqueue_connect fd addr st action =
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_connect fd addr st action) st.io_q
 
-let rec enqueue_send_to fd addr buf st action =
-  Log.debug (fun l -> l "send_to: submitting call");
-  Ctf.label "send_to";
+let rec enqueue_send_msg fd ~fds ~dst buf st action =
+  Log.debug (fun l -> l "send_msg: submitting call");
+  Ctf.label "send_msg";
   let retry = with_cancel_hook ~action st (fun () ->
-      Uring.send_msg st.uring (FD.get "send_to" fd) addr buf (Job action)
+      let fds = List.map (FD.get "send_msg") fds in
+      Uring.send_msg st.uring (FD.get "send_msg" fd) ~fds ?dst buf (Job action)
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_send_to fd addr buf st action) st.io_q
+    Queue.push (fun st -> enqueue_send_msg fd ~fds ~dst buf st action) st.io_q
 
 let rec enqueue_recv_msg fd msghdr st action =
   Log.debug (fun l -> l "recv_msg: submitting call");
@@ -650,21 +651,36 @@ module Low_level = struct
       raise (Unix.Unix_error (Uring.error_of_errno res, "connect", ""))
     )
 
-  let send_to fd addr buf =
-    let res = enter (enqueue_send_to fd addr buf) in
-    Log.debug (fun l -> l "send_to returned");
+  let send_msg fd ?(fds=[]) ?dst buf =
+    let res = enter (enqueue_send_msg fd ~fds ~dst buf) in
+    Log.debug (fun l -> l "send_msg returned");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "send_to", ""))
+      raise (Unix.Unix_error (Uring.error_of_errno res, "send_msg", ""))
     )
 
   let recv_msg fd buf =
-    let msghdr = Uring.Msghdr.create buf in
+    let addr = Uring.Sockaddr.create () in
+    let msghdr = Uring.Msghdr.create ~addr buf in
     let res = enter (enqueue_recv_msg fd msghdr) in
     Log.debug (fun l -> l "recv_msg returned");
     if res < 0 then (
       raise (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", ""))
     );
-    Uring.Msghdr.get_sockaddr msghdr, res
+    addr, res
+
+  let recv_msg_with_fds ~sw ~max_fds fd buf =
+    let addr = Uring.Sockaddr.create () in
+    let msghdr = Uring.Msghdr.create ~n_fds:max_fds ~addr buf in
+    let res = enter (enqueue_recv_msg fd msghdr) in
+    Log.debug (fun l -> l "recv_msg returned");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", ""))
+    );
+    let fds =
+      Uring.Msghdr.get_fds msghdr
+      |> List.map (fun fd -> FD.of_unix ~sw ~seekable:(FD.is_seekable fd) ~close_unix:true fd)
+    in
+    addr, res, fds
 
   let with_chunk fn =
     let chunk = alloc () in
@@ -808,7 +824,7 @@ let udp_socket sock = object
         let host = Eio_unix.Ipaddr.to_unix host in
         Unix.ADDR_INET (host, port)
     in
-    Low_level.send_to sock addr [buf] 
+    Low_level.send_msg sock ~dst:addr [buf] 
   
   method recv buf =
     let addr, recv = Low_level.recv_msg sock [buf] in

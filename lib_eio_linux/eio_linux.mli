@@ -191,6 +191,17 @@ module Low_level : sig
   val shutdown : FD.t -> Unix.shutdown_command -> unit
   (** Like {!Unix.shutdown}. *)
 
+  val send_msg : FD.t -> ?fds:FD.t list -> ?dst:Unix.sockaddr -> Cstruct.t list -> unit
+  (** [send_msg socket bufs] is like [writev socket bufs], but also allows setting the destination address
+      (for unconnected sockets) and attaching FDs (for Unix-domain sockets). *)
+
+  val recv_msg : FD.t -> Cstruct.t list -> Uring.Sockaddr.t * int
+  (** [recv_msg socket bufs] is like [readv socket bufs] but also returns the address of the sender. *)
+
+  val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> FD.t -> Cstruct.t list -> Uring.Sockaddr.t * int * FD.t list
+  (** [recv_msg_with_fds] is like [recv_msg] but also allows receiving up to [max_fds] file descriptors
+      (sent using SCM_RIGHTS over a Unix domain socket). *)
+
   (** {1 Randomness} *)
 
   val getrandom : Cstruct.t -> int
