@@ -79,8 +79,15 @@ val pipe : Switch.t -> source * sink
 
 (** {1 Main Loop} *)
 
-val run : ?queue_depth:int -> ?block_size:int -> ?polling_timeout:int -> (stdenv -> unit) -> unit
+val run : ?queue_depth:int -> ?n_blocks:int -> ?block_size:int -> ?polling_timeout:int -> (stdenv -> unit) -> unit
 (** Run an event loop using io_uring.
+
+    Uses {!Uring.create} to create the io_uring,
+    and {!Uring.set_fixed_buffer} to set a [block_size * n_blocks] fixed buffer.
+
+    Note that if Linux resource limits prevent the requested fixed buffer from being allocated
+    then [run] will continue without one (and log a warning).
+
     For portable code, you should use {!Eio_main.run} instead, which will use this automatically
     if running on Linux with a recent-enough kernel version. *)
 
@@ -96,18 +103,28 @@ module Low_level : sig
   val sleep_until : float -> unit
   (** [sleep_until time] blocks until the current time is [time]. *)
 
-  (** {1 Memory allocation functions} *)
+  (** {1 Fixed-buffer memory allocation functions}
 
-  val alloc : unit -> Uring.Region.chunk
+      The size of the fixed buffer is set when calling {!run}, which attempts to allocate a fixed buffer.
+      However, that may fail due to resource limits. *)
+
+  val alloc_fixed : unit -> Uring.Region.chunk option
   (** Allocate a chunk of memory from the fixed buffer.
 
+      Warning: The memory is NOT zeroed out.
+
       Passing such memory to Linux can be faster than using normal memory, in certain cases.
-      There is a limited amount of such memory, and this will block until some is available. *)
+      There is a limited amount of such memory, and this will return [None] if none is available at present. *)
 
-  val free : Uring.Region.chunk -> unit
+  val alloc_fixed_or_wait : unit -> Uring.Region.chunk
+  (** Like {!alloc_fixed}, but if there are no chunks available then it waits until one is. *)
 
-  val with_chunk : (Uring.Region.chunk -> 'a) -> 'a
-  (** [with_chunk fn] runs [fn chunk] with a freshly allocated chunk and then frees it. *)
+  val free_fixed : Uring.Region.chunk -> unit
+
+  val with_chunk : fallback:(unit -> 'a) -> (Uring.Region.chunk -> 'a) -> 'a
+  (** [with_chunk ~fallback fn] runs [fn chunk] with a freshly allocated chunk and then frees it.
+
+      If no chunks are available, it runs [fallback ()] instead. *)
 
   (** {1 File manipulation functions} *)
 
