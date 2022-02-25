@@ -37,5 +37,5 @@ build: [
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
 pin-depends: [
-    ["uring.0.2" "git+https://github.com/ocaml-multicore/ocaml-uring.git#299f58f6ccf8e31562ba1057dde7dc75e6628ce4"]
+    ["uring.0.2" "git+https://github.com/ocaml-multicore/ocaml-uring.git#d24c68eceac84fba65057396adfea9d4f550d9db"]
 ]

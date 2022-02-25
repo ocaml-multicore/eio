@@ -134,7 +134,7 @@ type runnable =
 
 type t = {
   uring: io_job Uring.t;
-  mem: Uring.Region.t;
+  mem: Uring.Region.t option;
   io_q: (t -> unit) Queue.t;     (* waiting for room on [uring] *)
   mem_q : Uring.Region.chunk Suspended.t Queue.t;
 
@@ -535,13 +535,16 @@ and complete_rw_req st ({len; cur_off; action; _} as req) res =
   | n, Upto _ -> Suspended.continue action n
 
 module Low_level = struct
-  let alloc_buf st k =
-    Log.debug (fun l -> l "alloc: %d" (Uring.Region.avail st.mem));
-    match Uring.Region.alloc st.mem with
-    | buf -> Suspended.continue k buf
-    | exception Uring.Region.No_space ->
-      Queue.push k st.mem_q;
-      schedule st
+  let alloc_buf_or_wait st k =
+    match st.mem with
+    | None -> Suspended.discontinue k (Failure "No fixed buffer available")
+    | Some mem ->
+      Log.debug (fun l -> l "alloc: %d" (Uring.Region.avail mem));
+      match Uring.Region.alloc mem with
+      | buf -> Suspended.continue k buf
+      | exception Uring.Region.No_space ->
+        Queue.push k st.mem_q;
+        schedule st
 
   let free_buf st buf =
     match Queue.take_opt st.mem_q with
@@ -631,11 +634,14 @@ module Low_level = struct
       raise (Unix.Unix_error (Uring.error_of_errno res, "write", ""))
     )
 
-  type _ eff += Alloc : Uring.Region.chunk eff
-  let alloc () = perform Alloc
+  type _ eff += Alloc : Uring.Region.chunk option eff
+  let alloc_fixed () = perform Alloc
+
+  type _ eff += Alloc_or_wait : Uring.Region.chunk eff
+  let alloc_fixed_or_wait () = perform Alloc_or_wait
 
   type _ eff += Free : Uring.Region.chunk -> unit eff
-  let free buf = perform (Free buf)
+  let free_fixed buf = perform (Free buf)
 
   let splice src ~dst ~len =
     let res = enter (enqueue_splice ~src ~dst ~len) in
@@ -682,10 +688,13 @@ module Low_level = struct
     in
     addr, res, fds
 
-  let with_chunk fn =
-    let chunk = alloc () in
-    Fun.protect ~finally:(fun () -> free chunk) @@ fun () ->
-    fn chunk
+  let with_chunk ~fallback fn =
+    match alloc_fixed () with
+    | Some chunk ->
+      Fun.protect ~finally:(fun () -> free_fixed chunk) @@ fun () ->
+      fn chunk
+    | None ->
+      fallback ()
 
   let openfile ~sw path flags mode =
     let fd = Unix.openfile path flags mode in
@@ -773,7 +782,17 @@ let get_fd_opt t = Eio.Generic.probe t FD
 (* When copying between a source with an FD and a sink with an FD, we can share the chunk
    and avoid copying. *)
 let fast_copy src dst =
-  Low_level.with_chunk @@ fun chunk ->
+  let fallback () =
+    (* No chunks available. Use regular memory instead. *)
+    let buf = Cstruct.create 4096 in
+    try
+      while true do
+        let got = Low_level.readv src [buf] in
+        Low_level.writev dst [Cstruct.sub buf 0 got]
+      done
+    with End_of_file -> ()
+  in
+  Low_level.with_chunk ~fallback @@ fun chunk ->
   let chunk_size = Uring.Region.length chunk in
   try
     while true do
@@ -806,7 +825,17 @@ let copy_with_rsb rsb dst =
    the source to write into it. This used when the other methods
    aren't available. *)
 let fallback_copy src dst =
-  Low_level.with_chunk @@ fun chunk ->
+  let fallback () =
+    (* No chunks available. Use regular memory instead. *)
+    let buf = Cstruct.create 4096 in
+    try
+      while true do
+        let got = Eio.Flow.read src buf in
+        Low_level.writev dst [Cstruct.sub buf 0 got]
+      done
+    with End_of_file -> ()
+  in
+  Low_level.with_chunk ~fallback @@ fun chunk ->
   let chunk_cs = Uring.Region.to_cstruct chunk in
   try
     while true do
@@ -1091,8 +1120,8 @@ let monitor_event_fd t =
   done
 
 (* Don't use [Fun.protect] - it throws away the original exception! *)
-let with_uring ~fixed_buf_len ~queue_depth ?polling_timeout fn =
-  let uring = Uring.create ~fixed_buf_len ~queue_depth ?polling_timeout () in
+let with_uring ~queue_depth ?polling_timeout fn =
+  let uring = Uring.create ~queue_depth ?polling_timeout () in
   match fn uring with
   | x -> Uring.exit uring; x
   | exception ex ->
@@ -1103,14 +1132,22 @@ let with_uring ~fixed_buf_len ~queue_depth ?polling_timeout fn =
     end;
     Printexc.raise_with_backtrace ex bt
 
-let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
+let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout main =
   Log.debug (fun l -> l "starting run");
-  let stdenv = stdenv ~run_event_loop:(run ~queue_depth ~block_size ?polling_timeout) in
+  let n_blocks = Option.value n_blocks ~default:queue_depth in
+  let stdenv = stdenv ~run_event_loop:(run ~queue_depth ~n_blocks ~block_size ?polling_timeout) in
   (* TODO unify this allocation API around baregion/uring *)
-  let fixed_buf_len = block_size * queue_depth in
-  with_uring ~fixed_buf_len ~queue_depth ?polling_timeout @@ fun uring ->
-  let buf = Uring.buf uring in
-  let mem = Uring.Region.init ~block_size buf queue_depth in
+  with_uring ~queue_depth ?polling_timeout @@ fun uring ->
+  let mem =
+    let fixed_buf_len = block_size * n_blocks in
+    let buf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
+    match Uring.set_fixed_buffer uring buf with
+    | Ok () ->
+      Some (Uring.Region.init ~block_size buf n_blocks)
+    | Error `ENOMEM ->
+      Log.warn (fun f -> f "Failed to allocate %d byte fixed buffer" fixed_buf_len);
+      None
+  in
   let run_q = Lf_queue.create () in
   let eventfd_mutex = Mutex.create () in
   let sleep_q = Zzz.create () in
@@ -1211,8 +1248,16 @@ let rec run ?(queue_depth=64) ?(block_size=4096) ?polling_timeout main =
               continue k (flow fd :> < Eio.Flow.two_way; Eio.Flow.close >)
             )
           | Low_level.Alloc -> Some (fun k ->
+              match st.mem with
+              | None -> continue k None
+              | Some mem ->
+                match Uring.Region.alloc mem with
+                | buf -> continue k (Some buf)
+                | exception Uring.Region.No_space -> continue k None
+            )
+          | Low_level.Alloc_or_wait -> Some (fun k ->
               let k = { Suspended.k; fiber } in
-              Low_level.alloc_buf st k
+              Low_level.alloc_buf_or_wait st k
             )
           | Low_level.Free buf -> Some (fun k ->
               Low_level.free_buf st buf;
