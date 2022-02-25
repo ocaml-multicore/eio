@@ -28,3 +28,7 @@
  (enabled_if (= %{system} "linux"))
  (modules test)
  (libraries alcotest eio_linux))
+
+(mdx
+  (package eio_linux)
+  (packages eio_linux))
