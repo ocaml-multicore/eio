@@ -31,4 +31,5 @@
 
 (mdx
   (package eio_linux)
+  (enabled_if (= %{system} "linux"))
   (packages eio_linux))
