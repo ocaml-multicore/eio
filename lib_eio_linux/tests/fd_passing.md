@@ -11,7 +11,7 @@ open Eio.Std
 Sending a file descriptor over a Unix domain socket:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# Eio_linux.run @@ fun env ->
   Switch.run @@ fun sw ->
   let fd = Eio.Dir.open_out ~sw env#cwd "tmp.txt" ~create:(`Exclusive 0o600) in
   Eio.Flow.copy_string "Test data" fd;
