@@ -16,7 +16,7 @@ depends: [
   "mdx" {>= "1.10.0" & with-test}
   "logs" {>= "0.7.0"}
   "fmt" {>= "0.8.9"}
-  "uring" {>= "0.2"}
+  "uring" {>= "0.3"}
   "odoc" {with-doc}
 ]
 build: [
@@ -36,6 +36,3 @@ build: [
   ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
-pin-depends: [
-    ["uring.0.2" "git+https://github.com/ocaml-multicore/ocaml-uring.git#d24c68eceac84fba65057396adfea9d4f550d9db"]
-]
