@@ -18,8 +18,7 @@ let src = Logs.Src.create "eio_luv" ~doc:"Eio backend using luv"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 open Eio.Std
-open Eio.Private.Effect
-open Eio.Private.Effect.Deep
+module Effect = Eio.Private.Effect
 
 module Ctf = Eio.Private.Ctf
 
@@ -54,18 +53,18 @@ let or_raise_path path = function
 module Suspended = struct
   type 'a t = {
     fiber : Eio.Private.Fiber_context.t;
-    k : ('a, unit) continuation;
+    k : ('a, unit) Effect.Deep.continuation;
   }
 
   let tid t = Eio.Private.Fiber_context.tid t.fiber
 
   let continue t v =
     Ctf.note_switch (tid t);
-    continue t.k v
+    Effect.Deep.continue t.k v
 
   let discontinue t ex =
     Ctf.note_switch (tid t);
-    discontinue t.k ex
+    Effect.Deep.discontinue t.k ex
 
   let continue_result t = function
     | Ok x -> continue t x
@@ -78,13 +77,13 @@ type t = {
   run_q : (unit -> unit) Lf_queue.t;
 }
 
-type _ eff += Await : (Luv.Loop.t -> Eio.Private.Fiber_context.t -> ('a -> unit) -> unit) -> 'a eff
+type _ Effect.t += Await : (Luv.Loop.t -> Eio.Private.Fiber_context.t -> ('a -> unit) -> unit) -> 'a Effect.t
 
-type _ eff += Enter : (t -> 'a Suspended.t -> unit) -> 'a eff
-type _ eff += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a eff
+type _ Effect.t += Enter : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
+type _ Effect.t += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
 
-let enter fn = perform (Enter fn)
-let enter_unchecked fn = perform (Enter_unchecked fn)
+let enter fn = Effect.perform (Enter fn)
+let enter_unchecked fn = Effect.perform (Enter_unchecked fn)
 
 let enqueue_thread t k v =
   Lf_queue.push t.run_q (fun () -> Suspended.continue k v);
@@ -114,7 +113,7 @@ module Low_level = struct
   let or_raise = or_raise
 
   let await_exn fn =
-    perform (Await fn) |> or_raise
+    Effect.perform (Await fn) |> or_raise
 
   let await_with_cancel ~request fn =
     enter (fun st k ->
@@ -763,10 +762,11 @@ let rec run main =
   let stdenv = stdenv ~run_event_loop:run in
   let rec fork ~new_fiber:fiber fn =
     Ctf.note_switch (Fiber_context.tid fiber);
+    let open Effect.Deep in
     match_with fn ()
     { retc = (fun () -> Fiber_context.destroy fiber);
       exnc = (fun e -> Fiber_context.destroy fiber; raise e);
-      effc = fun (type a) (e : a eff) ->
+      effc = fun (type a) (e : a Effect.t) ->
         match e with
         | Await fn ->
           Some (fun k -> 

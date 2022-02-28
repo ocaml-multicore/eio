@@ -13,6 +13,7 @@ open Eio.Std
 (* An Eio backend with no actual IO *)
 module Eio_null = struct
   module Fiber_context = Eio.Private.Fiber_context
+  module Effect = Eio.Private.Effect    (* For compatibility with 4.12+domains *)
 
   (* The scheduler could just return [unit], but this is clearer. *)
   type exit = Exit_scheduler
@@ -33,35 +34,34 @@ module Eio_null = struct
   let run main =
     let t = { run_q = [] } in
     let rec fork ~new_fiber:fiber fn =
-      let open Eio.Private.Effect in
       (* Create a new fiber and run [fn] in it. *)
-      Deep.match_with fn ()
+      Effect.Deep.match_with fn ()
         { retc = (fun () -> Fiber_context.destroy fiber; schedule t);
           exnc = (fun ex -> Fiber_context.destroy fiber; raise ex);
-          effc = fun (type a) (e : a eff) : ((a, exit) Deep.continuation -> exit) option ->
+          effc = fun (type a) (e : a Effect.t) : ((a, exit) Effect.Deep.continuation -> exit) option ->
             match e with
             | Eio.Private.Effects.Suspend f -> Some (fun k ->
                 (* Ask [f] to register whatever callbacks are needed to resume the fiber.
                    e.g. it might register a callback with a promise, for when that's resolved. *)
                 f fiber (function
                     (* The fiber is ready to run again. Add it to the queue. *)
-                    | Ok v -> t.run_q <- t.run_q @ [fun () -> Deep.continue k v]
-                    | Error ex -> t.run_q <- t.run_q @ [fun () -> Deep.discontinue k ex]
+                    | Ok v -> t.run_q <- t.run_q @ [fun () -> Effect.Deep.continue k v]
+                    | Error ex -> t.run_q <- t.run_q @ [fun () -> Effect.Deep.discontinue k ex]
                   );
                 (* Switch to the next runnable fiber while this one's blocked. *)
                 schedule t
               )
             | Eio.Private.Effects.Fork (new_fiber, f) -> Some (fun k ->
                 (* Arrange for the forking fiber to run immediately after the new one. *)
-                t.run_q <- Deep.continue k :: t.run_q;
+                t.run_q <- Effect.Deep.continue k :: t.run_q;
                 (* Create and run the new fiber (using fiber context [new_fiber]). *)
                 fork ~new_fiber f
               )
             | Eio.Private.Effects.Get_context -> Some (fun k ->
-                Deep.continue k fiber
+                Effect.Deep.continue k fiber
               )
             | Eio.Private.Effects.Trace -> Some (fun k ->
-                Deep.continue k Eio_utils.Trace.default_traceln
+                Effect.Deep.continue k Eio_utils.Trace.default_traceln
               )
             | _ -> None
         }

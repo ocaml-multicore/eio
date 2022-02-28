@@ -1,26 +1,26 @@
-open Eio.Private.Effect
+module Effect = Eio.Private.Effect
 
 module Private = struct
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
 
-  type _ eff += 
-    | Await_readable : Unix.file_descr -> unit eff
-    | Await_writable : Unix.file_descr -> unit eff
-    | Get_system_clock : Eio.Time.clock eff
-    | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> < Eio.Flow.two_way; Eio.Flow.close > eff
+  type _ Effect.t += 
+    | Await_readable : Unix.file_descr -> unit Effect.t
+    | Await_writable : Unix.file_descr -> unit Effect.t
+    | Get_system_clock : Eio.Time.clock Effect.t
+    | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> < Eio.Flow.two_way; Eio.Flow.close > Effect.t
 end
 
-let await_readable fd = perform (Private.Await_readable fd)
-let await_writable fd = perform (Private.Await_writable fd)
+let await_readable fd = Effect.perform (Private.Await_readable fd)
+let await_writable fd = Effect.perform (Private.Await_writable fd)
 
 let sleep d =
-  Eio.Time.sleep (perform Private.Get_system_clock) d
+  Eio.Time.sleep (Effect.perform Private.Get_system_clock) d
 
 module FD = struct
   let peek x = Eio.Generic.probe x (Private.Unix_file_descr `Peek)
   let take x = Eio.Generic.probe x (Private.Unix_file_descr `Take)
 
-  let as_socket ~sw ~close_unix fd = perform (Private.Socket_of_fd (sw, close_unix, fd))
+  let as_socket ~sw ~close_unix fd = Effect.perform (Private.Socket_of_fd (sw, close_unix, fd))
 end
 
 module Ipaddr = struct

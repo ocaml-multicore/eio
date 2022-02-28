@@ -44,17 +44,17 @@ val sleep : float -> unit
 
 (** API for Eio backends only. *)
 module Private : sig
-  open Eio.Private.Effect
+  open Eio.Private
 
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
   (** See {!FD}. *)
 
-  type _ eff += 
-    | Await_readable : Unix.file_descr -> unit eff      (** See {!await_readable} *)
-    | Await_writable : Unix.file_descr -> unit eff      (** See {!await_writable} *)
-    | Get_system_clock : Eio.Time.clock eff             (** See {!sleep} *)
+  type _ Effect.t += 
+    | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
+    | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
+    | Get_system_clock : Eio.Time.clock Effect.t             (** See {!sleep} *)
     | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr ->
-        < Eio.Flow.two_way; Eio.Flow.close > eff        (** See {!FD.as_socket} *)
+        < Eio.Flow.two_way; Eio.Flow.close > Effect.t        (** See {!FD.as_socket} *)
 end
 
 module Ctf = Ctf_unix

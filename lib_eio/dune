@@ -6,12 +6,12 @@
 
 (rule
   (target effect.ml)
-  (enabled_if (>= %{ocaml_version} "5.00"))
+  (enabled_if (>= %{ocaml_version} "5.0"))
   (action
     (copy effect.new.ml effect.ml)))
 
 (rule
   (target effect.ml)
-  (enabled_if (< %{ocaml_version} "5.00"))
+  (enabled_if (< %{ocaml_version} "5.0"))
   (action
     (copy effect.compat.ml effect.ml)))
