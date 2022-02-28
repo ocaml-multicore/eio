@@ -79,7 +79,13 @@ val pipe : Switch.t -> source * sink
 
 (** {1 Main Loop} *)
 
-val run : ?queue_depth:int -> ?n_blocks:int -> ?block_size:int -> ?polling_timeout:int -> (stdenv -> unit) -> unit
+val run :
+  ?queue_depth:int ->
+  ?n_blocks:int ->
+  ?block_size:int ->
+  ?polling_timeout:int ->
+  ?fallback:([`Msg of string] -> unit) ->
+  (stdenv -> unit) -> unit
 (** Run an event loop using io_uring.
 
     Uses {!Uring.create} to create the io_uring,
@@ -89,7 +95,11 @@ val run : ?queue_depth:int -> ?n_blocks:int -> ?block_size:int -> ?polling_timeo
     then [run] will continue without one (and log a warning).
 
     For portable code, you should use {!Eio_main.run} instead, which will use this automatically
-    if running on Linux with a recent-enough kernel version. *)
+    if running on Linux with a recent-enough kernel version.
+
+    @param fallback Call this instead if io_uring is not available for some reason.
+                    The argument is a message describing the problem (for logging).
+                    The default simply raises an exception. *)
 
 (** {1 Low-level API} *)
 

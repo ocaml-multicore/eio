@@ -1118,25 +1118,29 @@ let monitor_event_fd t =
        at the run queue again and notice any new items. *)
   done
 
-(* Don't use [Fun.protect] - it throws away the original exception! *)
-let with_uring ~queue_depth ?polling_timeout fn =
-  let uring = Uring.create ~queue_depth ?polling_timeout () in
-  match fn uring with
-  | x -> Uring.exit uring; x
-  | exception ex ->
-    let bt = Printexc.get_raw_backtrace () in
-    begin
-      try Uring.exit uring
-      with ex2 -> Log.warn (fun f -> f "Uring.exit failed (%a) while handling another error" Fmt.exn ex2)
-    end;
-    Printexc.raise_with_backtrace ex bt
+let no_fallback (`Msg msg) = failwith msg
 
-let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout main =
+(* Don't use [Fun.protect] - it throws away the original exception! *)
+let with_uring ~queue_depth ?polling_timeout ?(fallback=no_fallback) fn =
+  match Uring.create ~queue_depth ?polling_timeout () with
+  | exception Unix.Unix_error(Unix.ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
+  | uring ->
+    match fn uring with
+    | x -> Uring.exit uring; x
+    | exception ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      begin
+        try Uring.exit uring
+        with ex2 -> Log.warn (fun f -> f "Uring.exit failed (%a) while handling another error" Fmt.exn ex2)
+      end;
+      Printexc.raise_with_backtrace ex bt
+
+let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fallback main =
   Log.debug (fun l -> l "starting run");
   let n_blocks = Option.value n_blocks ~default:queue_depth in
-  let stdenv = stdenv ~run_event_loop:(run ~queue_depth ~n_blocks ~block_size ?polling_timeout) in
+  let stdenv = stdenv ~run_event_loop:(run ~queue_depth ~n_blocks ~block_size ?polling_timeout ?fallback:None) in
   (* TODO unify this allocation API around baregion/uring *)
-  with_uring ~queue_depth ?polling_timeout @@ fun uring ->
+  with_uring ~queue_depth ?polling_timeout ?fallback @@ fun uring ->
   let mem =
     let fixed_buf_len = block_size * n_blocks in
     let buf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
