@@ -18,8 +18,7 @@ let src = Logs.Src.create "eio_linux" ~doc:"Effect-based IO system for Linux/io-
 module Log = (val Logs.src_log src : Logs.LOG)
 
 open Eio.Std
-open Eio.Private.Effect
-open Eio.Private.Effect.Deep
+module Effect = Eio.Private.Effect
 
 module Fiber_context = Eio.Private.Fiber_context
 module Ctf = Eio.Private.Ctf
@@ -42,7 +41,7 @@ let wrap_errors path fn =
   | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
   | Eio.Dir.Permission_denied _        as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
 
-type _ eff += Close : Unix.file_descr -> int eff
+type _ Effect.t += Close : Unix.file_descr -> int Effect.t
 
 module FD = struct
   type t = {
@@ -66,7 +65,7 @@ module FD = struct
     t.fd <- `Closed;
     Eio.Switch.remove_hook t.release_hook;
     if t.close_unix then (
-      let res = perform (Close fd) in
+      let res = Effect.perform (Close fd) in
       Log.debug (fun l -> l "close: woken up");
       if res < 0 then
         raise (Unix.Unix_error (Uring.error_of_errno res, "close", string_of_int (Obj.magic fd : int)))
@@ -186,9 +185,9 @@ let enqueue_failed_thread st k ex =
 let enqueue_at_head st k x =
   Lf_queue.push_head st.run_q (Thread (k, x))
 
-type _ eff += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a eff
-type _ eff += Enter : (t -> 'a Suspended.t -> unit) -> 'a eff
-let enter fn = perform (Enter fn)
+type _ Effect.t += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
+type _ Effect.t += Enter : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
+let enter fn = Effect.perform (Enter fn)
 
 (* Cancellations always come from the same domain, so no need to send wake events here. *)
 let rec enqueue_cancel job st action =
@@ -199,7 +198,7 @@ let rec enqueue_cancel job st action =
   | Some _ -> ()
 
 let cancel job =
-  let res = perform (Enter_unchecked (enqueue_cancel job)) in
+  let res = Effect.perform (Enter_unchecked (enqueue_cancel job)) in
   Log.debug (fun l -> l "cancel returned");
   if res = -2 then (
     Log.debug (fun f -> f "Cancel returned ENOENT - operation completed before cancel took effect")
@@ -556,21 +555,21 @@ module Low_level = struct
     Log.debug (fun l -> l "noop returned");
     if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
-  type _ eff += Sleep_until : float -> unit eff
+  type _ Effect.t += Sleep_until : float -> unit Effect.t
   let sleep_until d =
-    perform (Sleep_until d)
+    Effect.perform (Sleep_until d)
 
-  type _ eff += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
+  type _ Effect.t += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
 
   let read_exactly ?file_offset fd buf len =
-    let res = perform (ERead (file_offset, fd, buf, Exactly len)) in
+    let res = Effect.perform (ERead (file_offset, fd, buf, Exactly len)) in
     Log.debug (fun l -> l "read_exactly: woken up after read");
     if res < 0 then (
       raise (Unix.Unix_error (Uring.error_of_errno res, "read_exactly", ""))
     )
 
   let read_upto ?file_offset fd buf len =
-    let res = perform (ERead (file_offset, fd, buf, Upto len)) in
+    let res = Effect.perform (ERead (file_offset, fd, buf, Upto len)) in
     Log.debug (fun l -> l "read_upto: woken up after read");
     if res < 0 then (
       let err = Uring.error_of_errno res in
@@ -625,23 +624,23 @@ module Low_level = struct
       raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
     )
 
-  type _ eff += EWrite : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int eff
+  type _ Effect.t += EWrite : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
 
   let write ?file_offset fd buf len =
-    let res = perform (EWrite (file_offset, fd, buf, Exactly len)) in
+    let res = Effect.perform (EWrite (file_offset, fd, buf, Exactly len)) in
     Log.debug (fun l -> l "write: woken up after write");
     if res < 0 then (
       raise (Unix.Unix_error (Uring.error_of_errno res, "write", ""))
     )
 
-  type _ eff += Alloc : Uring.Region.chunk option eff
-  let alloc_fixed () = perform Alloc
+  type _ Effect.t += Alloc : Uring.Region.chunk option Effect.t
+  let alloc_fixed () = Effect.perform Alloc
 
-  type _ eff += Alloc_or_wait : Uring.Region.chunk eff
-  let alloc_fixed_or_wait () = perform Alloc_or_wait
+  type _ Effect.t += Alloc_or_wait : Uring.Region.chunk Effect.t
+  let alloc_fixed_or_wait () = Effect.perform Alloc_or_wait
 
-  type _ eff += Free : Uring.Region.chunk -> unit eff
-  let free_fixed buf = perform (Free buf)
+  type _ Effect.t += Free : Uring.Region.chunk -> unit Effect.t
+  let free_fixed buf = Effect.perform (Free buf)
 
   let splice src ~dst ~len =
     let res = enter (enqueue_splice ~src ~dst ~len) in
@@ -1157,6 +1156,7 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout main
   let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; io_jobs = 0 } in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~new_fiber:fiber fn =
+    let open Effect.Deep in
     Ctf.note_switch (Fiber_context.tid fiber);
     match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; schedule st);
@@ -1164,7 +1164,7 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout main
             Fiber_context.destroy fiber;
             Printexc.raise_with_backtrace ex (Printexc.get_raw_backtrace ())
           );
-        effc = fun (type a) (e : a eff) ->
+        effc = fun (type a) (e : a Effect.t) ->
           match e with
           | Enter fn -> Some (fun k ->
               match Fiber_context.get_error fiber with

@@ -1,5 +1,3 @@
-open Effect
-
 module Cancel = Cancel
 
 module Private = struct
@@ -7,11 +5,11 @@ module Private = struct
 
   module Effects = struct
     type 'a enqueue = 'a Suspend.enqueue
-    type _ eff += 
+    type _ Effect.t += 
       | Suspend = Suspend.Suspend
       | Fork = Fiber.Fork
       | Get_context = Cancel.Get_context
-      | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
+      | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) Effect.t
   end
 
   module Effect = Effect
@@ -19,7 +17,7 @@ module Private = struct
 end
 
 let traceln ?__POS__ fmt =
-  perform Private.Effects.Trace ?__POS__ fmt
+  Effect.perform Private.Effects.Trace ?__POS__ fmt
 
 module Promise = Promise
 module Fiber = Fiber

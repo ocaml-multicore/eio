@@ -1403,36 +1403,34 @@ module Private : sig
     (** [get_error t] is [Cancel.get_error (cancellation_context t)] *)
   end
 
-  module Effects : sig
-    open Effect
+  (** Temporary hack for compatibility with ocaml.4.12+domains *)
+  module Effect = Effect
 
+  module Effects : sig
     type 'a enqueue = ('a, exn) result -> unit
     (** A function provided by the scheduler to reschedule a previously-suspended thread. *)
 
-    type _ eff +=
-      | Suspend : (Fiber_context.t -> 'a enqueue -> unit) -> 'a eff
+    type _ Effect.t +=
+      | Suspend : (Fiber_context.t -> 'a enqueue -> unit) -> 'a Effect.t
       (** [Suspend fn] is performed when a fiber must be suspended
           (e.g. because it called {!Promise.await} on an unresolved promise).
           The effect handler runs [fn fiber enqueue] in the scheduler context,
           passing it the suspended fiber's context and a function to resume it.
           [fn] should arrange for [enqueue] to be called once the thread is ready to run again. *)
 
-      | Fork : Fiber_context.t * (unit -> unit) -> unit eff
+      | Fork : Fiber_context.t * (unit -> unit) -> unit Effect.t
       (** [perform (Fork new_context f)] creates a new fiber and runs [f] in it, with context [new_context].
           [f] must not raise an exception. See {!Fiber.fork}. *)
 
-      | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) eff
+      | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) Effect.t
       (** [perform Trace fmt] writes trace logging to the configured trace output.
           It must not switch fibers, as tracing must not affect scheduling.
           If the system is not ready to receive the trace output,
           the whole domain must block until it is. *)
 
-      | Get_context : Fiber_context.t eff
+      | Get_context : Fiber_context.t Effect.t
       (** [perform Get_context] immediately returns the current fiber's context (without switching fibers). *)
   end
-
-  (** Temporary hack for compatibility with ocaml.4.12+domains *)
-  module Effect = Effect
 
   module Ctf = Ctf
 end

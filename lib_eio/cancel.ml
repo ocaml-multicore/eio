@@ -1,5 +1,3 @@
-open Effect
-
 exception Cancelled = Exn.Cancelled
 exception Cancel_hook_failed = Exn.Cancel_hook_failed
 
@@ -31,7 +29,7 @@ and fiber_context = {
   cancel_fn : (exn -> unit) option Atomic.t;
 }
 
-type _ eff += Get_context : fiber_context eff
+type _ Effect.t += Get_context : fiber_context Effect.t
 
 let pp_state f t =
   begin match t.state with
@@ -119,7 +117,7 @@ let with_cc ~ctx:fiber ~parent ~protected fn =
   | exception ex -> cleanup (); raise ex
 
 let protect fn =
-  let ctx = perform Get_context in
+  let ctx = Effect.perform Get_context in
   with_cc ~ctx ~parent:ctx.cancel_context ~protected:true @@ fun _ ->
   (* Note: there is no need to check the new context after [fn] returns;
      the goal of cancellation is only to finish the thread promptly, not to report the error.
@@ -165,7 +163,7 @@ let cancel t ex =
   )
 
 let sub fn =
-  let ctx = perform Get_context in
+  let ctx = Effect.perform Get_context in
   let parent = ctx.cancel_context in
   with_cc ~ctx ~parent ~protected:false @@ fun t ->
   fn t
@@ -173,7 +171,7 @@ let sub fn =
 (* Like [sub], but it's OK if the new context is cancelled.
    (instead, return the parent context on exit so the caller can check that) *)
 let sub_unchecked fn =
-  let ctx = perform Get_context in
+  let ctx = Effect.perform Get_context in
   let parent = ctx.cancel_context in
   with_cc ~ctx ~parent ~protected:false @@ fun t ->
   fn t;
