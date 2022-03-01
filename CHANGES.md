@@ -23,7 +23,7 @@
 
 - Improve documentation (@talex5 #197 #194 #186 #185). In particular, explain more low-level details about how cancellation works.
 
-- Add an example `Eio_null` backend (@talex5 #189). This supports creating fibres, promises and cancellation, but provides no IO operations.
+- Add an example `Eio_null` backend (@talex5 #189). This supports creating fibers, promises and cancellation, but provides no IO operations.
 
 - `Effect.eff` is now `Effect.t` in OCaml trunk (@talex5 #201).
 
