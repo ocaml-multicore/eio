@@ -1,7 +1,7 @@
 # Setting up the environment
 
 ```ocaml
-# #require "eio_main";;
+# #require "eio_linux";;
 ```
 
 ```ocaml
