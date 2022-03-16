@@ -24,6 +24,7 @@ class virtual t = object
     path -> <rw; Flow.close>
   method virtual mkdir : perm:Unix_perm.t -> path -> unit
   method virtual open_dir : sw:Switch.t -> path -> t_with_close
+  method virtual read_dir : path -> string list
 end
 and virtual t_with_close = object
   (* This dummy class avoids an "Error: The type < .. > is not an object type" error from the compiler. *)
@@ -35,6 +36,7 @@ let open_in ~sw (t:#t) = t#open_in ~sw
 let open_out ~sw ?(append=false) ~create (t:#t) path = t#open_out ~sw ~append ~create path
 let open_dir ~sw (t:#t) = t#open_dir ~sw
 let mkdir (t:#t) = t#mkdir
+let read_dir (t:#t) path = t#read_dir path
 
 let with_open_in (t:#t) path fn =
   Switch.run @@ fun sw -> fn (open_in ~sw t path)

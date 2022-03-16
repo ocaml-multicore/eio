@@ -31,6 +31,11 @@ let try_mkdir dir path =
   | () -> traceln "mkdir %S -> ok" path
   | exception ex -> traceln "mkdir %S -> %a" path Fmt.exn ex
 
+let try_read_dir dir path =
+  match Eio.Dir.read_dir dir path with
+  | names -> traceln "read_dir [ %a ] -> ok" Fmt.(list ~sep:Fmt.comma string) names
+  | exception ex -> traceln "read_dir %a" Fmt.exn ex
+
 let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
@@ -217,6 +222,30 @@ Using `cwd` we can't access the parent, but using `fs` we can:
 +write "../test-file" -> Eio.Dir.Permission_denied ("../test-file", _)
 +mkdir "../outside-cwd" -> ok
 +write "../test-file" -> ok
++chdir ".."
+- : unit = ()
+```
+
+Reading directory entries under `cwd` and outside of `cwd`.
+
+```ocaml
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_mkdir cwd "readdir";
+  chdir "readdir";
+  Fun.protect ~finally:(fun () -> chdir "..") (fun () ->
+    try_mkdir cwd "test-1";
+    try_mkdir cwd "test-2";
+    let _entries = try_read_dir cwd "." in
+    let _perm_denied = try_read_dir cwd ".." in
+    ()
+  );;
++mkdir "readdir" -> ok
++chdir "readdir"
++mkdir "test-1" -> ok
++mkdir "test-2" -> ok
++read_dir [ test-1, test-2 ] -> ok
++read_dir Eio.Dir.Permission_denied ("..", _)
 +chdir ".."
 - : unit = ()
 ```

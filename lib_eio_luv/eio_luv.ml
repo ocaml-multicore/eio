@@ -252,6 +252,31 @@ module Low_level = struct
       let request = Luv.File.Request.make () in
       await_with_cancel ~request (fun loop -> Luv.File.mkdir ~loop ~request ~mode path)
 
+    let opendir path =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.opendir ~loop ~request path)
+
+    let closedir path =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.closedir ~loop ~request path)
+
+    let with_dir_to_read path fn =
+      match opendir path with
+      | Ok dir ->
+        Fun.protect ~finally:(fun () -> closedir dir |> or_raise) @@ fun () -> fn dir 
+      | Error _ as e -> e
+
+    let readdir path =
+      let fn dir =
+        let request = Luv.File.Request.make () in
+        match await_with_cancel ~request (fun loop -> Luv.File.readdir ~loop ~request dir) with
+        | Ok dirents ->
+          let dirs = Array.map (fun v -> v.Luv.File.Dirent.name) dirents |> Array.to_list in
+          Ok dirs 
+        | Error _ as e -> e
+      in
+        with_dir_to_read path fn
+
     let to_unix op t =
       let os_fd = Luv.File.get_osfhandle (get "to_unix" t) |> or_raise in
       let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
@@ -723,6 +748,10 @@ class dir dir_path = object (self)
   method mkdir ~perm path =
     let real_path = self#resolve_new path in
     File.mkdir ~mode:[`NUMERIC perm] real_path |> or_raise_path path
+
+  method read_dir path =
+    let path = self#resolve path in
+    File.readdir path |> or_raise_path path
 
   method close = ()
 end

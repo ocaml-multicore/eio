@@ -1077,6 +1077,10 @@ class dir fd = object
   method mkdir ~perm path =
     Low_level.mkdir_beneath ~perm ?dir:fd path
 
+  method read_dir _path =
+    (* TODO(patricoferris): Once liburing supports getdents64 https://github.com/axboe/liburing/issues/111 *)
+    assert false
+
   method close =
     FD.close (Option.get fd)
 end

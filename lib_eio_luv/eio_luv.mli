@@ -67,6 +67,8 @@ module Low_level : sig
     val mkdir : mode:Luv.File.Mode.t list -> string -> unit or_error
     (** Wraps {!Luv.File.mkdir} *)
 
+    val readdir : string -> string list or_error
+    (** Wraps {!Luv.File.readdir}. [readdir] opens and closes the directory for reading for the user. *)
   end
 
   module Random : sig
