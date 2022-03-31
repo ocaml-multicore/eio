@@ -100,12 +100,10 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 
 ## Getting Started
 
-You'll need a version of the OCaml compiler with effects.
-`5.00.0+trunk` often works but is a moving target, so we suggest using `4.12.0+domains` for now.
-You can get it like this:
+You'll need a version of the OCaml compiler with effects. You can get it like this:
 
 ```
-opam switch create 4.12.0+domains --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
+opam switch create . ocaml.5.0.0
 ```
 
 Then you'll need to install this library (and `utop` if you want to try it interactively):
