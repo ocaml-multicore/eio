@@ -164,14 +164,11 @@ let wake_buffer =
 
 let wakeup t =
   Mutex.lock t.eventfd_mutex;
-  match
-    Log.debug (fun f -> f "Sending wakeup on eventfd %a" FD.pp t.eventfd);
-    Atomic.set t.need_wakeup false; (* [t] will check [run_q] after getting the event below *)
-    let sent = Unix.single_write (FD.get "wakeup" t.eventfd) wake_buffer 0 8 in
-    assert (sent = 8)
-  with
-  | ()           -> Mutex.unlock t.eventfd_mutex
-  | exception ex -> Mutex.unlock t.eventfd_mutex; raise ex
+  Fun.protect ~finally:(fun () -> Mutex.unlock t.eventfd_mutex) @@ fun () ->
+  Log.debug (fun f -> f "Sending wakeup on eventfd %a" FD.pp t.eventfd);
+  Atomic.set t.need_wakeup false; (* [t] will check [run_q] after getting the event below *)
+  let sent = Unix.single_write (FD.get "wakeup" t.eventfd) wake_buffer 0 8 in
+  assert (sent = 8)
 
 let enqueue_thread st k x =
   Lf_queue.push st.run_q (Thread (k, x));

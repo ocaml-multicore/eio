@@ -112,9 +112,7 @@ let with_cc ~ctx:fiber ~parent ~protected fn =
   let deactivate = activate t ~parent in
   move_fiber_to t fiber;
   let cleanup () = move_fiber_to parent fiber; deactivate () in
-  match fn t with
-  | x            -> cleanup (); x
-  | exception ex -> cleanup (); raise ex
+  Fun.protect ~finally:cleanup @@ fun () -> fn t
 
 let protect fn =
   let ctx = Effect.perform Get_context in

@@ -15,9 +15,7 @@ type 'a t = {
 
 let with_mutex t f =
   Mutex.lock t.mutex;
-  match f () with
-  | x -> Mutex.unlock t.mutex; x
-  | exception ex -> Mutex.unlock t.mutex; raise ex
+  Fun.protect f ~finally:(fun () -> Mutex.unlock t.mutex)
 
 (* Invariants *)
 let validate t =

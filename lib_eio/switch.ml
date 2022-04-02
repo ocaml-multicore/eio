@@ -147,9 +147,7 @@ let run_in t fn =
   let ctx = Effect.perform Cancel.Get_context in
   let old_cc = ctx.cancel_context in
   Cancel.move_fiber_to t.cancel ctx;
-  match fn () with
-  | ()           -> Cancel.move_fiber_to old_cc ctx;
-  | exception ex -> Cancel.move_fiber_to old_cc ctx; raise ex
+  Fun.protect fn ~finally:(fun () -> Cancel.move_fiber_to old_cc ctx)
 
 let on_release_full t fn =
   if Domain.self () = t.cancel.domain then (
