@@ -324,6 +324,35 @@ module Semaphore : sig
   (** [get_value t] returns the current value of semaphore [t]. *)
 end
 
+(** A mutex *)
+module Mutex : sig 
+  
+  type t
+  (** The type for a concurrency-friendly Mutex. 
+      Do not mix it up with the Domain-wise Stdlib.Mutex. *)
+  
+  val create : unit -> t
+  (** [create ()] creates an initially unlocked mutex. *)
+  
+  val lock : t -> unit
+  (** [lock t] tries to lock the mutex:
+      - if it's already locked, the fiber is paused until it's unlocked.
+      - if it's unlocked, the mutex is locked and the fiber continues. *)
+  
+  exception Already_unlocked
+
+  val unlock : t -> unit
+  (** [unlock t] unlocks the mutex. If the mutex was already unlocked, 
+      this function raises `Already_unlocked`. *)
+  
+  val is_locked : t -> bool
+  (** [is_locked t] returns true if the mutex is currently locked *)
+
+  val with_lock : t -> (unit -> 'a) -> 'a
+  (** [with_lock t fn] holds the mutex locked while executing [fn] *)
+  
+end
+
 (** A stream/queue. *)
 module Stream : sig
   (** Reading from an empty queue will wait until an item is available.
