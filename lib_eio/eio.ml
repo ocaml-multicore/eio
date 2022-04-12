@@ -33,6 +33,8 @@ module Std = struct
 end
 
 module Semaphore = Semaphore
+module Eio_mutex = Eio_mutex
+module Condition = Condition
 module Stream = Stream
 module Exn = Exn
 module Generic = Generic
