@@ -260,9 +260,12 @@ module Low_level = struct
   end
 
   module Random = struct
-    let fill buf =
+    let rec fill buf =
       let request = Luv.Random.Request.make () in
-      await_with_cancel ~request (fun loop -> Luv.Random.random ~loop ~request buf) |> or_raise
+      match await_with_cancel ~request (fun loop -> Luv.Random.random ~loop ~request buf) with
+      | Ok x -> x 
+      | Error `EINTR -> fill buf
+      | Error x -> raise (Luv_error x)
   end
 
   module Stream = struct
