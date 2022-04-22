@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <sys/eventfd.h>
 #include <sys/random.h>
+#include <errno.h>
 
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
@@ -33,10 +34,16 @@ CAMLprim value caml_eio_mkdirat(value v_fd, value v_path, value v_perm) {
 CAMLprim value caml_eio_getrandom(value v_ba, value v_off, value v_len) {
   CAMLparam1(v_ba);
   ssize_t ret;
-  void *buf = Caml_ba_data_val(v_ba) + Long_val(v_off);
-  caml_enter_blocking_section();
-  ret = getrandom(buf, Long_val(v_len), 0);
-  caml_leave_blocking_section();
-  if (ret == -1) uerror("getrandom", Nothing);
+  size_t off = (size_t)Long_val(v_off);
+  size_t len = (size_t)Long_val(v_len);
+  while (off < len) {
+    void *buf = Caml_ba_data_val(v_ba) + off;
+    caml_enter_blocking_section();
+    ret = getrandom(buf, len - off, 0);
+    caml_leave_blocking_section();
+    if (ret < 0 && errno == EINTR) continue;
+    else if (ret < 0) uerror("getrandom", Nothing);
+    off += ret;
+  }
   CAMLreturn(Val_long(ret));
 }
