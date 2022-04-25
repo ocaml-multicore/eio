@@ -128,6 +128,7 @@ type io_job =
   (* When done, remove the cancel_fn from [Suspended.t] and call the callback (unless cancelled). *)
 
 type runnable =
+  | IO : runnable
   | Thread : 'a Suspended.t * 'a -> runnable
   | Failed_thread : 'a Suspended.t * exn -> runnable
 
@@ -432,16 +433,22 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* This is not a fair scheduler *)
   (* Wakeup any paused fibers *)
   match Lf_queue.pop run_q with
+  | None -> assert false    (* We should always have an IO job, at least *)
   | Some Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
   | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
-  | None ->
+  | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
+    (* This is not a fair scheduler: timers always run before all other IO *)
     let now = Unix.gettimeofday () in
     match Zzz.pop ~now sleep_q with
-    | `Due k -> Suspended.continue k ()                   (* A sleeping task is now due *)
+    | `Due k ->
+      Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
+      Suspended.continue k ()                   (* A sleeping task is now due *)
     | `Wait_until _ | `Nothing as next_due ->
       (* Handle any pending events before submitting. This is faster. *)
       match Uring.peek uring with
-      | Some { data = runnable; result } -> handle_complete st ~runnable result
+      | Some { data = runnable; result } ->
+        Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
+        handle_complete st ~runnable result
       | None ->
         let num_jobs = Uring.submit uring in
         st.io_jobs <- st.io_jobs + num_jobs;
@@ -452,7 +459,10 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
         in
         Log.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
                       (match timeout with None -> "inf" | Some v -> string_of_float v));
-        if timeout = None && st.io_jobs = 0 then (
+        if not (Lf_queue.is_empty st.run_q) then (
+          Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
+          schedule st
+        ) else if timeout = None && st.io_jobs = 0 then (
           (* Nothing further can happen at this point.
              If there are no events in progress but also still no memory available, something has gone wrong! *)
           assert (Queue.length mem_q = 0);
@@ -469,6 +479,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
             let result = Uring.wait ?timeout uring in
             Ctf.note_resume system_thread;
             Atomic.set st.need_wakeup false;
+            Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
             match result with
             | None ->
               (* Woken by a timeout, which is now due, or by a signal. *)
@@ -479,6 +490,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
             (* Someone added a new job while we were setting [need_wakeup] to [true].
                They might or might not have seen that, so we can't be sure they'll send an event. *)
             Atomic.set st.need_wakeup false;
+            Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
             schedule st
           )
         )
@@ -1152,6 +1164,7 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
       None
   in
   let run_q = Lf_queue.create () in
+  Lf_queue.push run_q IO;
   let eventfd_mutex = Mutex.create () in
   let sleep_q = Zzz.create () in
   let io_q = Queue.create () in

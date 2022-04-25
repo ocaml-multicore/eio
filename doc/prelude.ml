@@ -13,7 +13,7 @@ module Eio_main = struct
          multiple times, they'll get woken in the right order. At the moment,
          the scheduler only checks for expired timers when the run-queue is
          empty, so this is a convenient way to wait for the system to be idle.
-         Will need revising if we make the scheduler fair at some point. *)
+         TODO: This is no longer true (since #213). *)
       Eio.Time.sleep_until real_clock time;
       now := max !now time
   end
