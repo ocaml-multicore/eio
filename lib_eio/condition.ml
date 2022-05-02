@@ -1,27 +1,20 @@
-type 'a or_exn = V of 'a | Exn of exn
-
-type 'a t = {
-  waiters: 'a or_exn Waiters.t; 
+type t = {
+  waiters: unit Waiters.t; 
+  mutex: Mutex.t;
   id: Ctf.id
 }
 
 let create () = {
   waiters = Waiters.create ();
-  id = Ctf.mint_id ()}
+  id = Ctf.mint_id ();
+  mutex = Mutex.create ()
+}
 
-let wait ?mutex t = 
+let await ?mutex t = 
+  Mutex.lock t.mutex;
   Option.iter Eio_mutex.unlock mutex;
-  let res = Waiters.await ~mutex:None t.waiters t.id in
-  Option.iter Eio_mutex.lock mutex;
-  match res with
-  | V v -> v
-  | Exn exn -> raise exn
+  Waiters.await ~mutex:(Some t.mutex) t.waiters t.id;
+  Option.iter Eio_mutex.lock mutex
 
-let signal t v = 
-  Waiters.wake_one t.waiters (V v) |> ignore
-
-let broadcast t v =
-  Waiters.wake_all t.waiters (V v)
-
-let broadcast_exn t v =
-  Waiters.wake_all t.waiters (Exn v)
+let broadcast t =
+  Waiters.wake_all t.waiters ()

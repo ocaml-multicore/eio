@@ -356,29 +356,21 @@ end
 (** A condition variable *)
 module Condition : sig 
 
-  type 'a t
+  type t
   (** Condition variables to synchronize between fibers. *)
   
-  val create : unit -> 'a t
-  (** [create ()] creates a new condition variable signaling values of type ['a] *)
+  val create : unit -> t
+  (** [create ()] creates a new condition variable *)
   
-  val wait : ?mutex:Mutex.t -> 'a t -> 'a
-  (** [wait ~mutex cond] pauses the current fiber until it is notified by [cond]. 
+  val await : ?mutex:Mutex.t -> t -> unit
+  (** [await ~mutex cond] pauses the current fiber until it is notified by [cond]. 
       If [mutex] is set, it is unlocked while the fiber is waiting and locked when 
       it is woken up.
   *)
   
-  val signal : 'a t -> 'a -> unit
-  (** [signal cond value] wakes up a single waiting fiber with the given [value]. 
-      If no fibers are waiting, nothing happens. *)
-  
-  val broadcast : 'a t -> 'a -> unit
-  (** [broadcast cond value] wakes up a waiting fibers with the given [value]. 
-      If no fibers are waiting, nothing happens. *)
-  
-  val broadcast_exn : 'a t -> exn -> unit
-  (** [broadcast_exn cond exn] wakes up a waiting fibers with an exception [exn]. 
-      If no fibers are waiting, nothing happens. *)
+  val broadcast : t -> unit
+  (** [broadcast cond] wakes up waiting fibers. 
+      If no fibers are waiting, nothing happens and the function returns. *)
   
 end
 
