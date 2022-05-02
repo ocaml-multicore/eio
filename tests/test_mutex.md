@@ -7,7 +7,7 @@
 ```ocaml
 open Eio.Std
 
-module M = Eio.Eio_mutex
+module M = Eio.Mutex
 
 let run fn =
   Eio_main.run @@ fun _ ->
