@@ -77,3 +77,14 @@ Concurrent access to the mutex
 +Unlocked
 - : unit = ()
 ```
+
+Double unlock raises an exception
+
+```ocaml
+# run @@ fun () ->
+  let t = M.create () in
+  M.lock t;
+  M.unlock t;
+  M.unlock t;;
+Exception: Eio__Eio_mutex.Already_unlocked.
+```
