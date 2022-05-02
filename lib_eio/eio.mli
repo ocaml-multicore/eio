@@ -325,61 +325,58 @@ module Semaphore : sig
 end
 
 (** A mutex *)
-module Eio_mutex : sig 
+module Mutex : sig 
   
+  type t
   (** The type for a concurrency-friendly Mutex. 
       Do not mix it up with the Domain-wise Stdlib.Mutex. *)
-  type t
-
-  (** [create ()] creates an initially unlocked mutex*)
+  
   val create : unit -> t
-
+  (** [create ()] creates an initially unlocked mutex*)
+  
+  val lock : t -> unit
   (** [lock t] tries to lock the mutex:
       - if it's already locked, the fiber is paused until it's unlocked.
       - if it's unlocked, the mutex is locked and the fiber continues. *)
-  val lock : t -> unit
-
-  (** [unlock t] unlocks the mutex *)
+  
   val unlock : t -> unit
-
-  (** [is_locked t] returns true if the mutex is currently locked *)
+  (** [unlock t] unlocks the mutex *)
+  
   val is_locked : t -> bool
+  (** [is_locked t] returns true if the mutex is currently locked *)
 
-  (** [is_empty t] returns true if the mutex is currently empty *)
-  val is_empty : t -> bool
-
-  (** [with_lock t fn] holds the mutex locked while executing [fn] *)
   val with_lock : t -> (unit -> 'a) -> 'a
-
+  (** [with_lock t fn] holds the mutex locked while executing [fn] *)
+  
 end
 
 (** A condition variable *)
 module Condition : sig 
 
-  (** Condition variables to synchronize between fibers. *)
   type 'a t
-
-  (** [create ()] creates a new condition variable signaling values of type ['a] *)
+  (** Condition variables to synchronize between fibers. *)
+  
   val create : unit -> 'a t
-
+  (** [create ()] creates a new condition variable signaling values of type ['a] *)
+  
+  val wait : ?mutex:Mutex.t -> 'a t -> 'a
   (** [wait ~mutex cond] pauses the current fiber until it is notified by [cond]. 
       If [mutex] is set, it is unlocked while the fiber is waiting and locked when 
       it is woken up.
   *)
-  val wait : ?mutex:Eio_mutex.t -> 'a t -> 'a
-
+  
+  val signal : 'a t -> 'a -> unit
   (** [signal cond value] wakes up a single waiting fiber with the given [value]. 
       If no fibers are waiting, nothing happens. *)
-  val signal : 'a t -> 'a -> unit
-
+  
+  val broadcast : 'a t -> 'a -> unit
   (** [broadcast cond value] wakes up a waiting fibers with the given [value]. 
       If no fibers are waiting, nothing happens. *)
-  val broadcast : 'a t -> 'a -> unit
-
+  
+  val broadcast_exn : 'a t -> exn -> unit
   (** [broadcast_exn cond exn] wakes up a waiting fibers with an exception [exn]. 
       If no fibers are waiting, nothing happens. *)
-  val broadcast_exn : 'a t -> exn -> unit
-
+  
 end
 
 (** A stream/queue. *)
