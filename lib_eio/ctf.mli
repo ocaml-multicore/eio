@@ -47,6 +47,7 @@ type event =
   | Semaphore
   | Switch
   | Stream
+  | Mutex
 (** Types of threads or other recorded objects. *)
 
 val mint_id : unit -> id
