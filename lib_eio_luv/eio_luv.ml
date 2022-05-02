@@ -71,10 +71,14 @@ module Suspended = struct
     | Error x -> discontinue t x
 end
 
+type runnable =
+  | IO
+  | Thread of (unit -> unit)
+
 type t = {
   loop : Luv.Loop.t;
   async : Luv.Async.t;                          (* Will process [run_q] when prodded. *)
-  run_q : (unit -> unit) Lf_queue.t;
+  run_q : runnable Lf_queue.t;
 }
 
 type _ Effect.t += Await : (Luv.Loop.t -> Eio.Private.Fiber_context.t -> ('a -> unit) -> unit) -> 'a Effect.t
@@ -86,20 +90,20 @@ let enter fn = Effect.perform (Enter fn)
 let enter_unchecked fn = Effect.perform (Enter_unchecked fn)
 
 let enqueue_thread t k v =
-  Lf_queue.push t.run_q (fun () -> Suspended.continue k v);
+  Lf_queue.push t.run_q (Thread (fun () -> Suspended.continue k v));
   Luv.Async.send t.async |> or_raise
 
 let enqueue_result_thread t k r =
-  Lf_queue.push t.run_q (fun () -> Suspended.continue_result k r);
+  Lf_queue.push t.run_q (Thread (fun () -> Suspended.continue_result k r));
   Luv.Async.send t.async |> or_raise
 
 let enqueue_failed_thread t k ex =
-  Lf_queue.push t.run_q (fun () -> Suspended.discontinue k ex);
+  Lf_queue.push t.run_q (Thread (fun () -> Suspended.discontinue k ex));
   Luv.Async.send t.async |> or_raise
 
 (* Can only be called from our domain. *)
 let enqueue_at_head t k v =
-  Lf_queue.push_head t.run_q (fun () -> Suspended.continue k v);
+  Lf_queue.push_head t.run_q (Thread (fun () -> Suspended.continue k v));
   Luv.Async.send t.async |> or_raise
 
 let get_loop () =
@@ -751,16 +755,21 @@ let stdenv ~run_event_loop =
     method secure_random = secure_random
   end
 
-let rec wakeup run_q =
+let rec wakeup ~async run_q =
   match Lf_queue.pop run_q with
-  | Some f -> f (); wakeup run_q
+  | Some (Thread f) -> f (); wakeup ~async run_q
+  | Some IO when Lf_queue.is_empty run_q -> ()
+  | Some IO ->
+    Lf_queue.push run_q IO;
+    Luv.Async.send async |> or_raise
   | None -> ()
 
 let rec run main =
   Log.debug (fun l -> l "starting run");
   let loop = Luv.Loop.init () |> or_raise in
   let run_q = Lf_queue.create () in
-  let async = Luv.Async.init ~loop (fun _async -> wakeup run_q) |> or_raise in
+  Lf_queue.push run_q IO;
+  let async = Luv.Async.init ~loop (fun async -> wakeup ~async run_q) |> or_raise in
   let st = { loop; async; run_q } in
   let stdenv = stdenv ~run_event_loop:run in
   let rec fork ~new_fiber:fiber fn =
