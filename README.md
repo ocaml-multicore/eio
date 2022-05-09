@@ -65,7 +65,7 @@ and we hope that Eio will be that API.
 
 ## Current Status
 
-Eio can be used with OCaml 5.00.0+trunk or with 4.12.0+domains.
+Eio can be used with OCaml 5.0.0+trunk or with 4.12.0+domains.
 
 Eio is able to run a web-server with [good performance][http-bench],
 but you are likely to encounter missing features while using it.
@@ -84,7 +84,7 @@ Feature status:
 
 - Concurrency primitives: Fibers, cancellation, promises, streams and semaphores are all working.
 - Multicore support: Working.
-- Networking: Clients and servers using TCP and Unix domain sockets work. UDP not yet done.
+- Networking: Clients and servers using TCP and Unix domain sockets work. UDP also works.
 - File-systems: Can create files and directories, load, save, parse, etc. Most other operations missing.
 - Spawning sub-processes: Not implemented yet.
 
@@ -101,7 +101,7 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 ## Getting Started
 
 You'll need a version of the OCaml compiler with effects.
-`5.00.0+trunk` often works but is a moving target, so we suggest using `4.12.0+domains` for now.
+`5.0.0+trunk` often works but is a moving target, so we suggest using `4.12.0+domains` for now.
 You can get it like this:
 
 ```
