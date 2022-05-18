@@ -5,4 +5,4 @@
  (foreign_stubs
   (language c)
   (names eio_stubs))
- (libraries eio eio.utils eio.unix uring logs fmt))
+ (libraries eio eio.utils eio.unix threads uring logs fmt))

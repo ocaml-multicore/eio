@@ -654,6 +654,9 @@ module Low_level = struct
   type _ Effect.t += Free : Uring.Region.chunk -> unit Effect.t
   let free_fixed buf = Effect.perform (Free buf)
 
+  type _ Effect.t += Unblock : (unit -> 'a) -> 'a Effect.t
+  let unblock fn = Effect.perform (Unblock fn)
+
   let splice src ~dst ~len =
     let res = enter (enqueue_splice ~src ~dst ~len) in
     Log.debug (fun l -> l "splice returned");
@@ -1077,9 +1080,28 @@ class dir fd = object
   method mkdir ~perm path =
     Low_level.mkdir_beneath ~perm ?dir:fd path
 
-  method read_dir _path =
-    (* TODO(patricoferris): Once liburing supports getdents64 https://github.com/axboe/liburing/issues/111 *)
-    assert false
+  method read_dir path =
+    let rec read_all acc fd =
+      try
+        read_all (Unix.readdir fd :: acc) fd
+      with End_of_file -> List.rev acc |> List.filter (function ".." | "." -> false | _ -> true)
+    in
+    Switch.run (fun sw ->
+      (* Using openat2 to preserve the permission checking, but not using the returned
+         file descriptor. Uring doesn't support opendir. *)
+      let dir =
+        wrap_errors path @@ fun () ->
+        Low_level.openat2 ~sw ~seekable:false ?dir:fd path
+          ~access:`R
+          ~flags:Uring.Open_flags.(cloexec + path + directory)
+          ~perm:0
+          ~resolve:Uring.Resolve.beneath
+      in
+      Fun.protect ~finally:(fun () -> FD.close dir) @@ fun () ->
+      wrap_errors path @@ fun () ->
+      let handle = Low_level.unblock (fun () -> Unix.opendir path) in
+      Low_level.unblock (fun () -> read_all [] handle)
+    )
 
   method close =
     FD.close (Option.get fd)
@@ -1283,6 +1305,17 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
           | Low_level.Free buf -> Some (fun k ->
               Low_level.free_buf st buf;
               continue k ()
+            )
+          | Low_level.Unblock f -> Some (fun k ->
+              let k = { Suspended.k; fiber } in
+              let _t = Thread.create (fun () ->
+                let v = ref None in
+                run ~queue_depth ~n_blocks ~block_size ?polling_timeout ?fallback:None (fun _ -> v := Some (try Ok (f ()) with exn -> Error exn));
+                match Option.get !v with
+                  | Ok v -> enqueue_thread st k v
+                  | Error exn -> enqueue_failed_thread st k exn
+              ) () in
+              schedule st
             )
           | _ -> None
       }

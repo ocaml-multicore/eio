@@ -238,6 +238,7 @@ Reading directory entries under `cwd` and outside of `cwd`.
     try_mkdir cwd "test-2";
     let _entries = try_read_dir cwd "." in
     let _perm_denied = try_read_dir cwd ".." in
+    let _non_existent = try_read_dir cwd "test-3" in
     ()
   );;
 +mkdir "readdir" -> ok
@@ -246,6 +247,7 @@ Reading directory entries under `cwd` and outside of `cwd`.
 +mkdir "test-2" -> ok
 +read_dir [ test-1, test-2 ] -> ok
 +read_dir Eio.Dir.Permission_denied ("..", _)
++read_dir Eio.Dir.Not_found ("test-3", _)
 +chdir ".."
 - : unit = ()
 ```
