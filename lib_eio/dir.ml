@@ -36,7 +36,7 @@ let open_in ~sw (t:#t) = t#open_in ~sw
 let open_out ~sw ?(append=false) ~create (t:#t) path = t#open_out ~sw ~append ~create path
 let open_dir ~sw (t:#t) = t#open_dir ~sw
 let mkdir (t:#t) = t#mkdir
-let read_dir (t:#t) path = t#read_dir path
+let read_dir (t:#t) path = List.sort String.compare (t#read_dir path)
 
 let with_open_in (t:#t) path fn =
   Switch.run @@ fun sw -> fn (open_in ~sw t path)

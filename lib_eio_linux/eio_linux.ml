@@ -654,8 +654,15 @@ module Low_level = struct
   type _ Effect.t += Free : Uring.Region.chunk -> unit Effect.t
   let free_fixed buf = Effect.perform (Free buf)
 
-  type _ Effect.t += Unblock : (unit -> 'a) -> 'a Effect.t
-  let unblock fn = Effect.perform (Unblock fn)
+  let unblock fn =
+    let f fiber enqueue =
+      match Fiber_context.get_error fiber with
+      | Some err -> enqueue (Error err)
+      | None ->
+        let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
+        ()
+    in
+    Effect.perform (Eio.Private.Effects.Suspend f)
 
   let splice src ~dst ~len =
     let res = enter (enqueue_splice ~src ~dst ~len) in
@@ -1089,7 +1096,7 @@ class dir fd = object
     Switch.run (fun sw ->
       (* Using openat2 to preserve the permission checking, but not using the returned
          file descriptor. Uring doesn't support opendir. *)
-      let dir =
+      let _dir =
         wrap_errors path @@ fun () ->
         Low_level.openat2 ~sw ~seekable:false ?dir:fd path
           ~access:`R
@@ -1097,7 +1104,6 @@ class dir fd = object
           ~perm:0
           ~resolve:Uring.Resolve.beneath
       in
-      Fun.protect ~finally:(fun () -> FD.close dir) @@ fun () ->
       wrap_errors path @@ fun () ->
       let handle = Low_level.unblock (fun () -> Unix.opendir path) in
       Low_level.unblock (fun () -> read_all [] handle)
@@ -1305,17 +1311,6 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
           | Low_level.Free buf -> Some (fun k ->
               Low_level.free_buf st buf;
               continue k ()
-            )
-          | Low_level.Unblock f -> Some (fun k ->
-              let k = { Suspended.k; fiber } in
-              let _t = Thread.create (fun () ->
-                let v = ref None in
-                run ~queue_depth ~n_blocks ~block_size ?polling_timeout ?fallback:None (fun _ -> v := Some (try Ok (f ()) with exn -> Error exn));
-                match Option.get !v with
-                  | Ok v -> enqueue_thread st k v
-                  | Error exn -> enqueue_failed_thread st k exn
-              ) () in
-              schedule st
             )
           | _ -> None
       }

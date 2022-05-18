@@ -1186,7 +1186,7 @@ module Dir : sig
       it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
   val read_dir : #t -> path -> string list
-  (** [read_dir t path] reads directory entries for [t/path].*)
+  (** [read_dir t path] reads directory entries for [t/path]. The entries are sorted using {! String.compare}.*)
 end
 
 (** The standard environment of a process. *)
