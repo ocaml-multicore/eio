@@ -101,19 +101,32 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 ## Getting Started
 
 You'll need a version of the OCaml compiler with effects.
-`5.0.0+trunk` often works but is a moving target, so we suggest using `4.12.0+domains` for now.
+`5.0.0+trunk` often works but is a moving target, so we suggest using `4.12.0+domains` for now
+(however, this only supports x86_64 systems).
 You can get it like this:
 
 ```
 opam switch create 4.12.0+domains --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
 ```
 
-Then you'll need to install this library (and `utop` if you want to try it interactively):
+To use 5.0.0+trunk (which is needed on ARM), use this command instead:
+
+```
+opam switch create 5.0.0+trunk --repo=default,alpha=git+https://github.com/kit-ty-kate/opam-alpha-repository.git
+```
+
+If you want to run the latest development version from Git, run these commands
+(otherwise, skip them and you'll get the latest release from opam):
 
 ```
 git clone https://github.com/ocaml-multicore/eio.git
 cd eio
 opam pin -yn .
+```
+
+Finally, install this library (and `utop` if you want to try it interactively):
+
+```
 opam depext -i eio_main utop		# (for opam 2.0)
 opam install eio_main utop		# (for opam 2.1)
 ```
