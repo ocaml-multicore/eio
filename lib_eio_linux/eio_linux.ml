@@ -744,6 +744,8 @@ module Low_level = struct
 
   external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
 
+  external eio_getdents : Unix.file_descr -> string list = "caml_eio_getdents"
+
   let getrandom { Cstruct.buffer; off; len } =
     eio_getrandom buffer off len
 
@@ -786,6 +788,16 @@ module Low_level = struct
       let client_addr = Uring.Sockaddr.get client_addr in
       client, client_addr
     )
+
+    let open_dir ?dir ~sw path =
+      openat2 ~sw ~seekable:false ?dir path
+          ~access:`R
+          ~flags:Uring.Open_flags.(cloexec + directory)
+          ~perm:0
+          ~resolve:Uring.Resolve.beneath
+
+    let getdents dir =
+      unblock (fun () -> eio_getdents (FD.get "getdents" dir))
 end
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
@@ -1089,24 +1101,13 @@ class dir fd = object
 
   method read_dir path =
     let rec read_all acc fd =
-      try
-        read_all (Unix.readdir fd :: acc) fd
-      with End_of_file -> List.rev acc |> List.filter (function ".." | "." -> false | _ -> true)
+      match Low_level.getdents fd with
+      | [] -> List.filter (function ".." | "." -> false | _ -> true) acc
+      | files -> read_all (acc @ files) fd
     in
     Switch.run (fun sw ->
-      (* Using openat2 to preserve the permission checking, but not using the returned
-         file descriptor. Uring doesn't support opendir. *)
-      let _dir =
-        wrap_errors path @@ fun () ->
-        Low_level.openat2 ~sw ~seekable:false ?dir:fd path
-          ~access:`R
-          ~flags:Uring.Open_flags.(cloexec + path + directory)
-          ~perm:0
-          ~resolve:Uring.Resolve.beneath
-      in
-      wrap_errors path @@ fun () ->
-      let handle = Low_level.unblock (fun () -> Unix.opendir path) in
-      Low_level.unblock (fun () -> read_all [] handle)
+      let dir = Low_level.open_dir ~sw path in
+      read_all [] dir
     )
 
   method close =
