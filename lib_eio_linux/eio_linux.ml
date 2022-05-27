@@ -654,16 +654,6 @@ module Low_level = struct
   type _ Effect.t += Free : Uring.Region.chunk -> unit Effect.t
   let free_fixed buf = Effect.perform (Free buf)
 
-  let unblock fn =
-    let f fiber enqueue =
-      match Fiber_context.get_error fiber with
-      | Some err -> enqueue (Error err)
-      | None ->
-        let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
-        ()
-    in
-    Effect.perform (Eio.Private.Effects.Suspend f)
-
   let splice src ~dst ~len =
     let res = enter (enqueue_splice ~src ~dst ~len) in
     Log.debug (fun l -> l "splice returned");
@@ -797,7 +787,7 @@ module Low_level = struct
           ~resolve:Uring.Resolve.beneath
 
     let getdents dir =
-      unblock (fun () -> eio_getdents (FD.get "getdents" dir))
+      Eio_unix.run_in_systhread (fun () -> eio_getdents (FD.get "getdents" dir))
 end
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"

@@ -42,6 +42,10 @@ val sleep : float -> unit
     without having to plumb {!Eio.Stdenv.clock} through your code.
     It can also be used in programs that don't care about tracking determinism. *)
 
+val run_in_systhread : (unit -> 'a) -> 'a
+(** [run_in_systhread fn] runs the function [fn] in a newly created system thread (a {! Thread.t}).
+    This allows blocking calls to be made non-blocking. *)
+
 (** API for Eio backends only. *)
 module Private : sig
   open Eio.Private
