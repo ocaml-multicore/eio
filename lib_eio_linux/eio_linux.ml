@@ -1092,8 +1092,10 @@ class dir fd = object
   method read_dir path =
     let rec read_all acc fd =
       match Low_level.getdents fd with
-      | [] -> List.filter (function ".." | "." -> false | _ -> true) acc
-      | files -> read_all (acc @ files) fd
+      | [] -> acc
+      | files ->
+        let files = List.filter (function ".." | "." -> false | _ -> true) files in
+        read_all (files @ acc) fd
     in
     Switch.run (fun sw ->
       let dir = Low_level.open_dir ?dir:fd ~resolve:resolve_flags ~sw path in
