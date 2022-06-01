@@ -779,15 +779,22 @@ module Low_level = struct
       client, client_addr
     )
 
-    let open_dir ?dir ~sw ~resolve path =
-      openat2 ~sw ~seekable:false ?dir path
-          ~access:`R
-          ~flags:Uring.Open_flags.(cloexec + directory)
-          ~perm:0
-          ~resolve
+  let open_dir ?dir ~sw ~resolve path =
+    openat2 ~sw ~seekable:false ?dir path
+      ~access:`R
+      ~flags:Uring.Open_flags.(cloexec + directory)
+      ~perm:0
+      ~resolve
 
-    let getdents dir =
-      Eio_unix.run_in_systhread (fun () -> eio_getdents (FD.get "getdents" dir))
+  let read_dir fd =
+    let rec read_all acc fd =
+      match eio_getdents (FD.get "getdents" fd) with
+      | [] -> acc
+      | files ->
+        let files = List.filter (function ".." | "." -> false | _ -> true) files in
+        read_all (files @ acc) fd
+    in
+    Eio_unix.run_in_systhread (fun () -> read_all [] fd)
 end
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
@@ -1090,17 +1097,9 @@ class dir fd = object
     Low_level.mkdir_beneath ~perm ?dir:fd path
 
   method read_dir path =
-    let rec read_all acc fd =
-      match Low_level.getdents fd with
-      | [] -> acc
-      | files ->
-        let files = List.filter (function ".." | "." -> false | _ -> true) files in
-        read_all (files @ acc) fd
-    in
-    Switch.run (fun sw ->
-      let dir = Low_level.open_dir ?dir:fd ~resolve:resolve_flags ~sw path in
-      read_all [] dir
-    )
+    Switch.run @@ fun sw ->
+    let fd = Low_level.open_dir ?dir:fd ~resolve:resolve_flags ~sw path in
+    Low_level.read_dir fd
 
   method close =
     FD.close (Option.get fd)

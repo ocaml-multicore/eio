@@ -205,10 +205,10 @@ module Low_level : sig
   val fstat : FD.t -> Unix.stats
   (** Like {!Unix.fstat}. *)
 
-  val getdents : FD.t -> string list
-  (** [getdents dir] gets directory entries from [dir], but not necessarily all of them.
-      The function can be called multiple times on the open directory and will return the
-      empty list when there are no more entries to be returned. *)
+  val read_dir : FD.t -> string list
+  (** [read_dir dir] reads all directory entries from [dir].
+      The entries are not returned in any particular order
+      (not even necessarily the order in which Linux returns them). *)
 
   (** {1 Sockets} *)
 

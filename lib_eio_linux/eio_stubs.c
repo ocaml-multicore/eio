@@ -3,6 +3,7 @@
 #include <sys/eventfd.h>
 #include <sys/random.h>
 #include <sys/syscall.h>
+#include <limits.h>
 #include <errno.h>
 #include <dirent.h>
 
@@ -13,7 +14,8 @@
 #include <caml/unixsupport.h>
 #include <caml/bigarray.h>
 
-#define DIRENT_BUF_SIZE 1024
+// Make sure we have enough space for at least one entry.
+#define DIRENT_BUF_SIZE (PATH_MAX + sizeof(struct dirent64))
 
 CAMLprim value caml_eio_eventfd(value v_initval) {
   int ret;
