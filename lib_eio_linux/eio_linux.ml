@@ -779,12 +779,12 @@ module Low_level = struct
       client, client_addr
     )
 
-    let open_dir ?dir ~sw path =
+    let open_dir ?dir ~sw ~resolve path =
       openat2 ~sw ~seekable:false ?dir path
           ~access:`R
           ~flags:Uring.Open_flags.(cloexec + directory)
           ~perm:0
-          ~resolve:Uring.Resolve.beneath
+          ~resolve
 
     let getdents dir =
       Eio_unix.run_in_systhread (fun () -> eio_getdents (FD.get "getdents" dir))
@@ -1096,7 +1096,7 @@ class dir fd = object
       | files -> read_all (acc @ files) fd
     in
     Switch.run (fun sw ->
-      let dir = Low_level.open_dir ~sw path in
+      let dir = Low_level.open_dir ?dir:fd ~resolve:resolve_flags ~sw path in
       read_all [] dir
     )
 

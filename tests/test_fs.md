@@ -232,23 +232,18 @@ Reading directory entries under `cwd` and outside of `cwd`.
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir cwd "readdir";
-  chdir "readdir";
-  Fun.protect ~finally:(fun () -> chdir "..") (fun () ->
-    try_mkdir cwd "test-1";
-    try_mkdir cwd "test-2";
-    let _entries = try_read_dir cwd "." in
-    let _perm_denied = try_read_dir cwd ".." in
-    let _non_existent = try_read_dir cwd "test-3" in
-    ()
-  );;
+  Eio.Dir.with_open_dir cwd "readdir" @@ fun tmpdir ->
+  try_mkdir tmpdir "test-1";
+  try_mkdir tmpdir "test-2";
+  try_read_dir tmpdir ".";
+  try_read_dir tmpdir "..";
+  try_read_dir tmpdir "test-3";;
 +mkdir "readdir" -> ok
-+chdir "readdir"
 +mkdir "test-1" -> ok
 +mkdir "test-2" -> ok
 +read_dir "." -> ["test-1"; "test-2"]
 +read_dir ".." -> Eio.Dir.Permission_denied ("..", _)
 +read_dir "test-3" -> Eio.Dir.Not_found ("test-3", _)
-+chdir ".."
 - : unit = ()
 ```
 
