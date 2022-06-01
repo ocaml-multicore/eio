@@ -16,6 +16,16 @@ let await_writable fd = Effect.perform (Private.Await_writable fd)
 let sleep d =
   Eio.Time.sleep (Effect.perform Private.Get_system_clock) d
 
+let run_in_systhread fn =
+  let f fiber enqueue =
+    match Eio.Private.Fiber_context.get_error fiber with
+    | Some err -> enqueue (Error err)
+    | None ->
+      let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
+      ()
+  in
+  Effect.perform (Eio.Private.Effects.Suspend f)
+
 module FD = struct
   let peek x = Eio.Generic.probe x (Private.Unix_file_descr `Peek)
   let take x = Eio.Generic.probe x (Private.Unix_file_descr `Take)

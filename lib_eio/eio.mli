@@ -1118,6 +1118,7 @@ module Dir : sig
       path -> <rw; Flow.close>
     method virtual mkdir : perm:Unix_perm.t -> path -> unit
     method virtual open_dir : sw:Switch.t -> path -> t_with_close
+    method virtual read_dir : path -> path list
   end
   and virtual t_with_close : object
     inherit t
@@ -1183,6 +1184,9 @@ module Dir : sig
   val with_open_dir : #t -> path -> (<t; Flow.close> -> 'a) -> 'a
   (** [with_open_dir] is like [open_dir], but calls [fn dir] with the new directory and closes
       it automatically when [fn] returns (if it hasn't already been closed by then). *)
+
+  val read_dir : #t -> path -> string list
+  (** [read_dir t path] reads directory entries for [t/path]. The entries are sorted using {! String.compare}.*)
 end
 
 (** The standard environment of a process. *)

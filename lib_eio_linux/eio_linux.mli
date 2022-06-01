@@ -205,6 +205,11 @@ module Low_level : sig
   val fstat : FD.t -> Unix.stats
   (** Like {!Unix.fstat}. *)
 
+  val getdents : FD.t -> string list
+  (** [getdents dir] gets directory entries from [dir], but not necessarily all of them.
+      The function can be called multiple times on the open directory and will return the
+      empty list when there are no more entries to be returned. *)
+
   (** {1 Sockets} *)
 
   val accept : sw:Switch.t -> FD.t -> (FD.t * Unix.sockaddr)

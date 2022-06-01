@@ -734,6 +734,8 @@ module Low_level = struct
 
   external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
 
+  external eio_getdents : Unix.file_descr -> string list = "caml_eio_getdents"
+
   let getrandom { Cstruct.buffer; off; len } =
     eio_getrandom buffer off len
 
@@ -776,6 +778,16 @@ module Low_level = struct
       let client_addr = Uring.Sockaddr.get client_addr in
       client, client_addr
     )
+
+    let open_dir ?dir ~sw path =
+      openat2 ~sw ~seekable:false ?dir path
+          ~access:`R
+          ~flags:Uring.Open_flags.(cloexec + directory)
+          ~perm:0
+          ~resolve:Uring.Resolve.beneath
+
+    let getdents dir =
+      Eio_unix.run_in_systhread (fun () -> eio_getdents (FD.get "getdents" dir))
 end
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
@@ -1076,6 +1088,17 @@ class dir fd = object
 
   method mkdir ~perm path =
     Low_level.mkdir_beneath ~perm ?dir:fd path
+
+  method read_dir path =
+    let rec read_all acc fd =
+      match Low_level.getdents fd with
+      | [] -> List.filter (function ".." | "." -> false | _ -> true) acc
+      | files -> read_all (acc @ files) fd
+    in
+    Switch.run (fun sw ->
+      let dir = Low_level.open_dir ~sw path in
+      read_all [] dir
+    )
 
   method close =
     FD.close (Option.get fd)
