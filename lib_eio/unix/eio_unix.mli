@@ -53,12 +53,21 @@ module Private : sig
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
   (** See {!FD}. *)
 
+  (** For Async_eio integration, we need to give Eio access to Async's lock. *)
+  module Async : sig
+    type t = {
+      lock : unit -> unit;
+      unlock : unit -> unit;
+    }
+  end
+
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
     | Get_system_clock : Eio.Time.clock Effect.t             (** See {!sleep} *)
     | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr ->
         < Eio.Flow.two_way; Eio.Flow.close > Effect.t        (** See {!FD.as_socket} *)
+    | Set_async_integration : Async.t option -> unit Effect.t
 end
 
 module Ctf = Ctf_unix
