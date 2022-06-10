@@ -469,3 +469,18 @@ The child outlives the forking context. The error handler runs in `bg_switch`, s
 +Main fiber result
 - : unit = ()
 ```
+
+# Forking while cancelled
+
+```ocaml
+# run @@ fun () ->
+  Fiber.first
+    (fun () -> failwith "Simulated error")
+    (fun () ->
+       Fiber.both
+         (fun () -> traceln "Not reached")
+         (fun () -> traceln "Not reached");
+       assert false
+    );;
+Exception: Failure "Simulated error".
+```

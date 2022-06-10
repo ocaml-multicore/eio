@@ -108,6 +108,7 @@ let activate t ~parent =
 
 (* Runs [fn] with a fresh cancellation context. *)
 let with_cc ~ctx:fiber ~parent ~protected fn =
+  if not protected then check parent;
   let t = create ~protected in
   let deactivate = activate t ~parent in
   move_fiber_to t fiber;
