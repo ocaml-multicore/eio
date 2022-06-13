@@ -324,33 +324,41 @@ module Semaphore : sig
   (** [get_value t] returns the current value of semaphore [t]. *)
 end
 
-(** A mutex *)
+(** Mutual exclusion. *)
 module Mutex : sig 
+  (** A mutex can be used to ensure that only one piece of code can access a shared resource at one time.
+      Unlike {!Stdlib.Mutex}, which blocks the whole domain while waiting to take the mutex,
+      this module allows other Eio fibers to run while waiting.
+      You should use this module if your critical section may perform blocking operations,
+      while [Stdlib.Mutex] may be more efficient if the lock is held only briefly and
+      the critial section does not switch fibers. *)
   
   type t
-  (** The type for a concurrency-friendly Mutex. 
-      Do not mix it up with the Domain-wise Stdlib.Mutex. *)
+  (** The type for a concurrency-friendly Mutex. *)
   
   val create : unit -> t
   (** [create ()] creates an initially unlocked mutex. *)
   
   val lock : t -> unit
-  (** [lock t] tries to lock the mutex:
-      - if it's already locked, the fiber is paused until it's unlocked.
-      - if it's unlocked, the mutex is locked and the fiber continues. *)
+  (** Lock the given mutex. Only one fiber can have the mutex locked at any time.
+      A fiber that attempts to lock a mutex already locked by another fiber
+      will suspend until the other fiber unlocks the mutex.
+      If no other fiber has the lock, this returns immediately without switching fibers. *)
   
-  exception Already_unlocked
-
   val unlock : t -> unit
-  (** [unlock t] unlocks the mutex. If the mutex was already unlocked, 
-      this function raises `Already_unlocked`. *)
-  
-  val is_locked : t -> bool
-  (** [is_locked t] returns true if the mutex is currently locked *)
+  (** [unlock t] unlocks the mutex.
+      @raises Sys_error if the mutex is unlocked. *)
 
-  val with_lock : t -> (unit -> 'a) -> 'a
-  (** [with_lock t fn] holds the mutex locked while executing [fn] *)
-  
+  val try_lock : t -> bool
+  (** Same as {!lock}, but does not suspend the calling thread if the mutex is already locked:
+      just return [false] immediately in that case. If the mutex is unlocked, lock it and return [true]. *)
+
+  val with_lock : ?on_exn:[`Unlock | `Poison] -> t -> (unit -> 'a) -> 'a
+  (** [with_lock ~on_exn t fn] holds the mutex locked while executing [fn].
+      @param on_exn Determines what to do if [fn] raises an exception.
+                    If [`Unlock] then the mutex is unlocked (useful for read-only operations).
+                    If [`Poison] (the default) then the mutex is marked as unusable.
+                    In either case, [with_lock] re-raises the exception. *)
 end
 
 (** A stream/queue. *)
