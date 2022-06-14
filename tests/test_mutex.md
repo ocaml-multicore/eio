@@ -85,11 +85,21 @@ Double unlock raises an exception
   let t = M.create () in
   M.lock t;
   M.unlock t;
-  M.unlock t;;
-Exception: Sys_error "Eio.Mutex.unlock: already unlocked!".
+  begin
+    try M.unlock t
+    with Sys_error msg -> traceln "Caught: %s" msg
+  end;
+  traceln "Trying to use lock after error...";
+  M.lock t;;
++Caught: Eio.Mutex.unlock: already unlocked!
++Trying to use lock after error...
+Exception:
+Eio__Eio_mutex.Poisoned (Sys_error "Eio.Mutex.unlock: already unlocked!").
 ```
 
-## With_lock
+## Read-write access
+
+Successful use; only one critical section is active at once:
 
 ```ocaml
 # run @@ fun () ->
@@ -100,8 +110,8 @@ Exception: Sys_error "Eio.Mutex.unlock: already unlocked!".
     traceln "Leaving critical section"
   in
   Fiber.both
-    (fun () -> M.with_lock t ~on_exn:`Poison fn)
-    (fun () -> M.with_lock t ~on_exn:`Poison fn);;
+    (fun () -> M.use_rw ~protect:true t fn)
+    (fun () -> M.use_rw ~protect:true t fn);;
 +Entered critical section
 +Leaving critical section
 +Entered critical section
@@ -109,13 +119,13 @@ Exception: Sys_error "Eio.Mutex.unlock: already unlocked!".
 - : unit = ()
 ```
 
-A failed critical section can poison the mutex:
+A failed critical section will poison the mutex:
 
 ```ocaml
 # run @@ fun () ->
   let t = M.create () in
   try
-    M.with_lock t (fun () -> failwith "Simulated error");
+    M.use_rw ~protect:true t (fun () -> failwith "Simulated error");
   with Failure _ ->
     traceln "Trying to use the failed lock again fails:";
     M.lock t;;
@@ -123,16 +133,99 @@ A failed critical section can poison the mutex:
 Exception: Eio__Eio_mutex.Poisoned (Failure "Simulated error").
 ```
 
-Alternatively, you can just unlock on error:
+## Protection
+
+We can prevent cancellation during a critical section:
+
+```ocaml
+# run @@ fun () ->
+  let t = M.create () in
+  Fiber.both
+    (fun () ->
+       M.use_rw ~protect:true t (fun () -> Fiber.yield (); traceln "Restored invariant");
+       Fiber.check ();
+       traceln "Error: not cancelled!";
+    )
+    (fun () -> traceln "Cancelling..."; failwith "Simulated error");;
++Cancelling...
++Restored invariant
+Exception: Failure "Simulated error".
+```
+
+Or allow interruption and disable the mutex:
 
 ```ocaml
 # run @@ fun () ->
   let t = M.create () in
   try
-    M.with_lock t ~on_exn:`Unlock (fun () -> failwith "Simulated error");
+    Fiber.both
+      (fun () ->
+         M.use_rw ~protect:false t (fun () -> Fiber.yield (); traceln "Restored invariant")
+      )
+      (fun () -> traceln "Cancelling..."; failwith "Simulated error");
+   with ex ->
+     traceln "Trying to reuse the failed mutex...";
+     M.use_ro t (fun () -> assert false);;
++Cancelling...
++Trying to reuse the failed mutex...
+Exception:
+Eio__Eio_mutex.Poisoned (Eio__Exn.Cancelled (Failure "Simulated error")).
+```
+
+Protection doesn't prevent cancellation while we're still waiting for the lock, though:
+
+```ocaml
+# run @@ fun () ->
+  let t = M.create () in
+  M.lock t;
+  try
+    Fiber.both
+      (fun () -> M.use_rw ~protect:true t (fun () -> assert false))
+      (fun () -> traceln "Cancelling..."; failwith "Simulated error")
   with Failure _ ->
+    M.unlock t;
+    M.use_ro t (fun () -> traceln "Can reuse the mutex");;
++Cancelling...
++Can reuse the mutex
+- : unit = ()
+```
+
+Poisoning wakes any wakers:
+
+```ocaml
+# run @@ fun () ->
+  let t = M.create () in
+  Fiber.both
+    (fun () ->
+       try
+         M.use_rw ~protect:false t (fun () ->
+            Fiber.yield ();
+            traceln "Poisoning mutex";
+            failwith "Simulated error"
+         )
+       with Failure _ -> ()
+    )
+    (fun () -> traceln "Waiting for lock..."; M.use_ro t (fun () -> assert false));;
++Waiting for lock...
++Poisoning mutex
+Exception: Eio__Eio_mutex.Poisoned (Failure "Simulated error").
+```
+
+
+## Read-only access
+
+If the resource isn't being mutated, we can just unlock on error:
+
+```ocaml
+# run @@ fun () ->
+  let t = M.create () in
+  try
+    M.use_ro t (fun () -> failwith "Simulated error");
+  with Failure msg ->
+    traceln "Caught: %s" msg;
     traceln "Trying to use the lock again is OK:";
     M.lock t;;
++Caught: Simulated error
 +Trying to use the lock again is OK:
 - : unit = ()
 ```
@@ -153,7 +246,7 @@ Alternatively, you can just unlock on error:
       traceln "Failed to get lock"
   in
   Fiber.both fn fn;
-  M.with_lock t (fun () -> traceln "Lock still works");;
+  M.use_ro t (fun () -> traceln "Lock still works");;
 +Entered critical section
 +Failed to get lock
 +Leaving critical section
