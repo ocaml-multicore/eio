@@ -11,6 +11,8 @@ type t = {
 
 type 'a parser = t -> 'a
 
+let return = Fun.const
+
 let map f x r = f (x r)
 
 let pair x y r =
@@ -46,6 +48,16 @@ let of_flow ?initial_size ~max_size flow =
   let initial_size = Option.value initial_size ~default:(min 4096 max_size) in
   let buf = Bigarray.(Array1.create char c_layout initial_size) in
   { buf; pos = 0; len = 0; flow = Some flow; max_size; consumed = 0 }
+
+let of_buffer buf =
+  let len = Bigarray.Array1.dim buf in
+  { buf; pos = 0; len; flow = None; max_size = max_int; consumed = 0 }
+
+let of_string s =
+  let len = String.length s in
+  let buf = Bigarray.(Array1.create char c_layout) len in
+  Cstruct.blit_from_string s 0 (Cstruct.of_bigarray buf) 0 len;
+  of_buffer buf
 
 let peek t =
   Cstruct.of_bigarray ~off:t.pos ~len:t.len t.buf
@@ -280,6 +292,14 @@ let parse ?initial_size ~max_size p flow =
 
 let parse_exn ?initial_size ~max_size p flow =
   match parse ?initial_size ~max_size p flow with
+  | Ok x -> x
+  | Error (`Msg m) -> failwith m
+
+let parse_string p s =
+  format_errors (p <* end_of_input) (of_string s)
+
+let parse_string_exn p s =
+  match parse_string p s with
   | Ok x -> x
   | Error (`Msg m) -> failwith m
 

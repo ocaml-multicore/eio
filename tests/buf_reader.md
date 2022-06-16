@@ -564,3 +564,33 @@ Error (`Msg "Unexpected end-of-file at offset 1")
 +Failure: Unexpected end-of-file at offset 1
 - : unit = ()
 ```
+
+## Parsing strings
+
+There are some convenience functions for parsing strings:
+
+```ocaml
+# let r = R.of_string "hello\nworld\n";;
+val r : R.t = <abstr>
+# R.line r;;
+- : string = "hello"
+# R.line r;;
+- : string = "world"
+# R.line r;;
+Exception: End_of_file.
+```
+
+```ocaml
+# R.parse_string R.line "foo\n";;
+- : (string, [> `Msg of string ]) result = Ok "foo"
+
+# R.parse_string R.line "foo\nbar\n";;
+- : (string, [> `Msg of string ]) result =
+Error (`Msg "Unexpected data after parsing (at offset 4)")
+
+# R.parse_string_exn R.line "foo\n";;
+- : string = "foo"
+
+# R.parse_string_exn R.line "foo\nbar\n";;
+Exception: Failure "Unexpected data after parsing (at offset 4)".
+```

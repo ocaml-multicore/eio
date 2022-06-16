@@ -721,6 +721,13 @@ module Buf_read : sig
       but this has the effect of turning e.g. an [End_of_file] exception into a [Failure]
       with a more user-friendly message. *)
 
+  val parse_string : 'a parser -> string -> ('a, [> `Msg of string]) result
+  (** [parse_string p s] uses [p] to parse everything in [s].
+      It is defined as [format_errors (p <* end_of_input) (of_string s)] *)
+
+  val parse_string_exn : 'a parser -> string -> 'a
+  (** [parse_string_exn] is like {!parse_string}, but handles errors like {!parse_exn}. *)
+
   val of_flow : ?initial_size:int -> max_size:int -> #Flow.source -> t
   (** [of_flow ~max_size flow] is a buffered reader backed by [flow].
 
@@ -733,6 +740,15 @@ module Buf_read : sig
                       prevent a run-away input from consuming all memory, and
                       you can usually just set it much larger than you expect
                       to need. *)
+
+  val of_buffer : Cstruct.buffer -> t
+  (** [of_buffer buf] is a reader that reads from [buf].
+      [buf] is used directly, without being copied.
+      [eof_seen (of_buffer buf) = true].
+      This module will not modify [buf] itself, but it will expose it via {!peek}. *)
+
+  val of_string : string -> t
+  (** [of_string s] is a reader that reads from [s]. *)
 
   val as_flow : t -> Flow.source
   (** [as_flow t] is a buffered flow.
@@ -839,6 +855,10 @@ module Buf_read : sig
 
       Note that this module does not support backtracking, so if [b] fails
       then the bytes consumed by [a] are lost. *)
+
+  val return : 'a -> 'a parser
+  (** [return x] is a parser that consumes nothing and always returns [x].
+      [return] is just [Fun.const]. *)
 
   val map : ('a -> 'b) -> ('a parser -> 'b parser)
   (** [map f a] is a parser that parses the stream with [a] to get [v],
