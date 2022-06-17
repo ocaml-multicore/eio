@@ -61,7 +61,7 @@ module Eio_null = struct
                 Effect.Deep.continue k fiber
               )
             | Eio.Private.Effects.Trace -> Some (fun k ->
-                Effect.Deep.continue k Eio_utils.Trace.default_traceln
+                Effect.Deep.continue k Eio.Private.default_traceln
               )
             | _ -> None
         }
