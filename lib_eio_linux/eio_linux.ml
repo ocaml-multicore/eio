@@ -1260,7 +1260,7 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
               enqueue_at_head st k ();
               fork ~new_fiber f
             )
-          | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eio_utils.Trace.default_traceln)
+          | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eio.Private.default_traceln)
           | Eio_unix.Private.Await_readable fd -> Some (fun k ->
               match Fiber_context.get_error fiber with
               | Some e -> discontinue k e
