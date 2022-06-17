@@ -1,5 +1,6 @@
 ```ocaml
 # #require "eio";;
+# #require "eio.mock";;
 ```
 ```ocaml
 module R = Eio.Buf_read;;
@@ -593,4 +594,20 @@ Error (`Msg "Unexpected data after parsing (at offset 4)")
 
 # R.parse_string_exn R.line "foo\nbar\n";;
 Exception: Failure "Unexpected data after parsing (at offset 4)".
+```
+
+## Test using mock flow
+
+```ocaml
+# let flow = Eio_mock.Flow.make "flow" in
+  Eio_mock.Flow.on_read flow [
+    `Return "foo\nba";
+    `Return "r\n";
+    `Raise End_of_file;
+  ];
+  R.parse_exn ~max_size:100 R.(line <*> line) flow;;
++flow: read "foo\n"
++           "ba"
++flow: read "r\n"
+- : string * string = ("foo", "bar")
 ```
