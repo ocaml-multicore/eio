@@ -28,6 +28,8 @@ module Syntax = struct
   let ( and* ) = pair
   let ( and+ ) = pair
 
+  let ( <*> ) = pair
+
   let ( <* ) a b t =
     let x = a t in
     ignore (b t);
