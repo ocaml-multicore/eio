@@ -2,6 +2,7 @@
 
 ```ocaml
 # #require "eio_main";;
+# #require "eio.mock";;
 ```
 
 ```ocaml
@@ -50,4 +51,45 @@ let mock_source items =
 +Got "fooba"
 +Got "foobar"
 Exception: End_of_file.
+```
+
+# copy
+
+```ocaml
+# run @@ fun () ->
+  let src = Eio_mock.Flow.make "src" in
+  let dst = Eio_mock.Flow.make "dst" in
+  Eio_mock.Flow.on_read src [`Return "foo"; `Return "bar"];
+  Eio.Flow.copy src dst;;
++src: read "foo"
++dst: wrote "foo"
++src: read "bar"
++dst: wrote "bar"
+- : unit = ()
+```
+
+Copying from src using a plain buffer (the default):
+
+```ocaml
+# run @@ fun () ->
+  let src = Eio.Flow.string_source "foobar" in
+  let dst = Eio_mock.Flow.make "dst" in
+  Eio_mock.Flow.on_copy_bytes dst [`Return 3; `Return 5];
+  Eio.Flow.copy src dst;;
++dst: wrote "foo"
++dst: wrote "bar"
+- : unit = ()
+```
+Copying from src using `Read_source_buffer`:
+
+```ocaml
+# run @@ fun () ->
+  let src = Eio.Flow.string_source "foobar" in
+  let dst = Eio_mock.Flow.make "dst" in
+  Eio_mock.Flow.set_copy_method dst `Read_source_buffer;
+  Eio_mock.Flow.on_copy_bytes dst [`Return 3; `Return 5];
+  Eio.Flow.copy src dst;;
++dst: wrote (rsb) "foo"
++dst: wrote (rsb) "bar"
+- : unit = ()
 ```

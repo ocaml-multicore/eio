@@ -877,6 +877,8 @@ let fallback_copy src dst =
 let udp_socket sock = object
   inherit Eio.Net.datagram_socket
 
+  method close = FD.close sock
+
   method send sockaddr buf = 
     let addr = match sockaddr with 
       | `Udp (host, port) -> 

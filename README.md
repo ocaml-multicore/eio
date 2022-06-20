@@ -186,6 +186,17 @@ For example, instead of giving `main` the real standard output, we can have it w
 [Eio.traceln][] provides convenient printf-style debugging, without requiring you to plumb `stderr` through your code.
 It uses the `Format` module, so you can use the extended formatting directives here too.
 
+The [Eio_mock][] library provides some convenient pre-built mocks:
+
+```ocaml
+# #require "eio.mock";;
+# Eio_main.run @@ fun _env ->
+  let mock_stdout = Eio_mock.Flow.make "mock-stdout" in
+  main ~stdout:mock_stdout;;
++mock-stdout: wrote "Hello, world!\n"
+- : unit = ()
+```
+
 ## Fibers
 
 Here's an example running two threads of execution concurrently using [Eio.Fiber][]:
@@ -418,7 +429,7 @@ Note that not all cases are well-optimised yet, but the idea is for each backend
 
 ## Networking
 
-Eio provides a simple high-level API for [networking][Eio.Net].
+Eio provides an API for [networking][Eio.Net].
 Here is a client that connects to address `addr` using network `net` and sends a message:
 
 ```ocaml
@@ -430,6 +441,21 @@ let run_client ~net ~addr =
 ```
 
 Note: the `flow` is attached to `sw` and will be closed automatically when it finishes.
+
+We can test it using a mock network:
+
+```ocaml
+# Eio_main.run @@ fun _env ->
+  let net = Eio_mock.Net.make "mocknet" in
+  let socket = Eio_mock.Flow.make "socket" in
+  Eio_mock.Net.on_connect net [`Return socket];
+  run_client ~net ~addr:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 8080));; 
++Connecting to server...
++mocknet: connect to tcp:127.0.0.1:8080
++socket: wrote "Hello from client"
++socket: closed
+- : unit = ()
+```
 
 Here is a server that listens on `socket` and handles a single connection by reading a message:
 
@@ -451,7 +477,31 @@ Notes:
 - Normally, a server would call `accept_sub` in a loop to handle multiple connections.
 - When the child switch created by `accept_sub` finishes, `flow` is closed automatically.
 
-We can test them in a single process using `Fiber.both`:
+This can also be tested on its own using a mock network:
+
+```ocaml
+# Eio_main.run @@ fun _env ->
+  let listening_socket = Eio_mock.Net.listening_socket "tcp/80" in
+  let mock_addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 37568) in
+  let connection = Eio_mock.Flow.make "connection" in
+  Eio_mock.Net.on_accept listening_socket [`Return (connection, mock_addr)];
+  Eio_mock.Flow.on_read connection [
+    `Return "(packet 1)";
+    `Yield_then (`Return "(packet 2)");
+    `Raise End_of_file;
+  ];
+  run_server listening_socket;;
++tcp/80: accepted connection from tcp:127.0.0.1:37568
++Server accepted connection from client
++connection: read "(packet 1)"
++(normally we'd loop and accept more connections here)
++connection: read "(packet 2)"
++Server received: "(packet 1)(packet 2)"
++connection: closed
+- : unit = ()
+```
+
+We can now run them together using the real network (in a single process) using `Fiber.both`:
 
 ```ocaml
 let main ~net ~addr =
@@ -1158,3 +1208,4 @@ Some background about the effects system can be found in:
 [Eio_main]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html
 [Eio.traceln]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html#val-traceln
 [Eio_main.run]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html#val-run
+[Eio_mock]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio/mock/eio_mock.mli

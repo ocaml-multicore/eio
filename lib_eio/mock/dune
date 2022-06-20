@@ -1,0 +1,4 @@
+(library
+  (name eio_mock)
+  (public_name eio.mock)
+  (libraries eio))

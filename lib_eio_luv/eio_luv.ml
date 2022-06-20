@@ -550,6 +550,8 @@ end
 let udp_socket endp = object
   inherit Eio.Net.datagram_socket
 
+  method close = Handle.close endp
+
   method send sockaddr bufs = Udp.send endp bufs sockaddr 
   method recv buf = 
     let buf = Cstruct.to_bigarray buf in

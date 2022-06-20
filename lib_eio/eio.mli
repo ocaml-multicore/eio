@@ -1028,26 +1028,36 @@ module Net : sig
 
   (** {2 Provider Interfaces} *)
 
-  class virtual listening_socket : object
+  class virtual socket : object
     inherit Generic.t
     method virtual close : unit
-    method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.stream
+  end
+
+  class virtual stream_socket : object
+    inherit socket
+    inherit Flow.two_way
   end
 
   class virtual datagram_socket : object
+    inherit socket
     method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
     method virtual recv : Cstruct.t -> Sockaddr.datagram * int
   end
 
+  class virtual listening_socket : object
+    inherit socket
+    method virtual accept : sw:Switch.t -> stream_socket * Sockaddr.stream
+  end
+
   class virtual t : object
     method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
-    method virtual connect : sw:Switch.t -> Sockaddr.stream -> <Flow.two_way; Flow.close>
+    method virtual connect : sw:Switch.t -> Sockaddr.stream -> stream_socket
     method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> datagram_socket
   end
 
   (** {2 Out-bound Connections} *)
 
-  val connect : sw:Switch.t -> #t -> Sockaddr.stream -> <Flow.two_way; Flow.close>
+  val connect : sw:Switch.t -> #t -> Sockaddr.stream -> stream_socket
   (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
       The new socket will be closed when [sw] finishes, unless closed manually first. *)
@@ -1069,7 +1079,7 @@ module Net : sig
   val accept :
     sw:Switch.t ->
     #listening_socket ->
-    <Flow.two_way; Flow.close> * Sockaddr.stream
+    stream_socket * Sockaddr.stream
   (** [accept ~sw socket] waits until a new connection is ready on [socket] and returns it.
 
       The new socket will be closed automatically when [sw] finishes, if not closed earlier.
@@ -1079,7 +1089,7 @@ module Net : sig
     sw:Switch.t ->
     #listening_socket ->
     on_error:(exn -> unit) ->
-    (sw:Switch.t -> <Flow.two_way; Flow.close> -> Sockaddr.stream -> unit) ->
+    (sw:Switch.t -> stream_socket -> Sockaddr.stream -> unit) ->
     unit
   (** [accept socket fn] accepts a connection and handles it in a new fiber.
 
@@ -1102,6 +1112,10 @@ module Net : sig
   (** [recv sock buf] receives data from the socket [sock] putting it in [buf]. The number of bytes received is 
       returned along with the sender address and port. If the [buf] is too small then excess bytes may be discarded
       depending on the type of the socket the message is received from. *)
+
+  (** {2 Closing} *)
+  val close : #socket -> unit
+  (** [close t] marks the socket as closed. It can no longer be used after this. *)
 end
 
 (** Parallel computation across multiple CPU cores. *)
