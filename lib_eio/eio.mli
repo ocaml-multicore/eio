@@ -886,6 +886,9 @@ module Buf_read : sig
     val ( and* ) : 'a parser -> 'b parser -> ('a * 'b) parser
     (** Syntax for {!pair} (same as [and+]). *)
 
+    val ( <*> ) : 'a parser -> 'b parser -> ('a * 'b) parser
+    (** [a <*> b] is [pair a b]. *)
+
     val ( <* ) : 'a parser -> 'b parser -> 'a parser
     (** [a <* b] is [map fst (pair a b)].
         It parses two things and keeps only the first. *)
