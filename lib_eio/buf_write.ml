@@ -34,11 +34,6 @@
 
 type bigstring = Bigstringaf.t
 
-type 'a iovec =
-  { buffer : 'a
-  ; off    : int
-  ; len    : int }
-
 exception Dequeue_empty
 
 module Deque(T:sig type t val sentinel : t end) : sig
@@ -120,34 +115,14 @@ end = struct
     !result
 end
 
-module IOVec = struct
-  let create buffer ~off ~len =
-    { buffer; off; len }
-
-  let length t =
-    t.len
-
-  let shift { buffer; off; len } n =
-    assert (n < len);
-    { buffer; off = off + n; len = len - n }
-
-  let lengthv ts =
-    let rec loop ts acc =
-      match ts with
-      | []        -> acc
-      | iovec::ts -> loop ts (length iovec + acc)
-    in
-    loop ts 0
-end
-
 module Buffers = Deque(struct
-  type t = bigstring iovec
+  type t = Cstruct.t
   let sentinel =
     let deadbeef = "\222\173\190\239" in
     let len      = String.length deadbeef in
     let buffer   = Bigstringaf.create len in
     String.iteri (Bigstringaf.unsafe_set buffer) deadbeef;
-    { buffer; off = 0; len }
+    Cstruct.of_bigarray buffer ~len
 end)
 module Flushes = Deque(struct
   type t = int * (unit -> unit)
@@ -167,7 +142,7 @@ type t =
   }
 
 type operation = [
-  | `Writev of bigstring iovec list
+  | `Writev of Cstruct.t list
   | `Yield
   | `Close
   ]
@@ -192,7 +167,7 @@ let writable_exn t =
 
 let schedule_iovec t ?(off=0) ~len buffer =
   t.bytes_received <- t.bytes_received + len;
-  Buffers.enqueue (IOVec.create buffer ~off ~len) t.scheduled
+  Buffers.enqueue (Cstruct.of_bigarray buffer ~off ~len) t.scheduled
 
 let flush_buffer t =
   let len = t.write_pos - t.scheduled_pos in
@@ -368,11 +343,11 @@ let yield t =
 
 let rec shift_buffers t written =
   try
-    let { len; _ } as iovec = Buffers.dequeue_exn t.scheduled in
+    let { Cstruct.len; _ } as iovec = Buffers.dequeue_exn t.scheduled in
     if len <= written then begin
       shift_buffers t (written - len)
     end else
-      Buffers.enqueue_front (IOVec.shift iovec written) t.scheduled
+      Buffers.enqueue_front (Cstruct.shift iovec written) t.scheduled
   with Dequeue_empty ->
     assert (written = 0);
     if t.scheduled_pos = t.write_pos then begin
@@ -439,11 +414,11 @@ let serialize_to_string t =
   close t;
   match operation t with
   | `Writev iovecs ->
-    let len = IOVec.lengthv iovecs in
+    let len = Cstruct.lenv iovecs in
     let bytes = Bytes.create len in
     let pos = ref 0 in
     List.iter (function
-      | { buffer; off; len } ->
+      | { Cstruct.buffer; off; len } ->
         Bigstringaf.unsafe_blit_to_bytes buffer ~src_off:off bytes ~dst_off:!pos ~len;
         pos := !pos + len)
     iovecs;
@@ -457,11 +432,11 @@ let serialize_to_bigstring t =
   close t;
   match operation t with
   | `Writev iovecs ->
-    let len = IOVec.lengthv iovecs in
+    let len = Cstruct.lenv iovecs in
     let bs = Bigstringaf.create len in
     let pos = ref 0 in
     List.iter (function
-      | { buffer; off; len } ->
+      | { Cstruct.buffer; off; len } ->
         Bigstringaf.unsafe_blit buffer ~src_off:off bs ~dst_off:!pos ~len;
         pos := !pos + len)
     iovecs;
@@ -475,7 +450,7 @@ let drain =
   let rec loop t acc =
     match operation t with
     | `Writev iovecs ->
-      let len = IOVec.lengthv iovecs in
+      let len = Cstruct.lenv iovecs in
       shift t len;
       loop t (len + acc)
     | `Close         -> acc

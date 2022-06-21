@@ -247,15 +247,8 @@ val drain : t -> int
     consider the Async and Lwt support that this library includes before
     attempting to use this these operations directly.  *)
 
-type 'a iovec =
-  { buffer : 'a
-  ; off    : int
-  ; len    : int }
-(** A view into {!iovec.buffer} starting at {!iovec.off} and with length
-    {!iovec.len}. *)
-
 type operation = [
-  | `Writev of bigstring iovec list
+  | `Writev of Cstruct.t list
   | `Yield
   | `Close ]
 (** The type of operations that the serialier may wish to perform.
@@ -282,7 +275,7 @@ val operation : t -> operation
     function. See the documentation for the {!type:operation} type for details
     on how callers should handle these operations. *)
 
-val serialize : t -> (bigstring iovec list -> [`Ok of int | `Closed]) -> [`Yield | `Close]
+val serialize : t -> (Cstruct.t list -> [`Ok of int | `Closed]) -> [`Yield | `Close]
 (** [serialize t writev] sufaces the next operation of [t] to the caller,
     handling a [`Writev] operation with [writev] function and performing an
     additional bookkeeping on the caller's behalf. In the event that [writev]
