@@ -109,10 +109,10 @@ You can get it like this:
 opam switch create 4.12.0+domains --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
 ```
 
-To use 5.0.0+trunk (which is needed on ARM), use this command instead:
+To use 5.0.0~alpha0 (which is needed on ARM), use this command instead:
 
 ```
-opam switch create 5.0.0+trunk --repo=default,alpha=git+https://github.com/kit-ty-kate/opam-alpha-repository.git
+opam switch create 5.0.0~alpha0 --repo=default,alpha=git+https://github.com/kit-ty-kate/opam-alpha-repository.git
 ```
 
 If you want to run the latest development version from Git, run these commands
