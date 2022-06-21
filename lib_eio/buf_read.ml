@@ -80,49 +80,51 @@ let consumed_bytes t = t.consumed
 
 let eof_seen t = t.flow = None
 
-let ensure t n =
+[@@inline never] [@@local never] [@@specialise never]
+let ensure_slow_path t n =
   assert (n >= 0);
-  if t.len < n then (
-    if n > t.max_size then raise Buffer_limit_exceeded;
-    (* We don't have enough data yet, so we'll need to do a read. *)
-    match t.flow with
-    | None -> raise End_of_file
-    | Some flow ->
-      (* If the buffer is empty, we might as well use all of it: *)
-      if t.len = 0 then t.pos <- 0;
-      let () =
-        let cap = capacity t in
-        if n > cap then (
-          (* [n] bytes won't fit. We need to resize the buffer. *)
-          let new_size = max n (min t.max_size (cap * 2)) in
-          let new_buf = Bigarray.(Array1.create char c_layout new_size) in
-          Cstruct.blit
-            (peek t) 0
-            (Cstruct.of_bigarray new_buf) 0
-            t.len;
-          t.pos <- 0;
-          t.buf <- new_buf
-        ) else if t.pos + n > cap then (
-          (* [n] bytes will fit in the existing buffer, but we need to compact it first. *)
-          Cstruct.blit
-            (peek t) 0
-            (Cstruct.of_bigarray t.buf) 0
-            t.len;
-          t.pos <- 0
-        )
-      in
-      try
-        while t.len < n do
-          let free_space = Cstruct.of_bigarray t.buf ~off:(t.pos + t.len) in
-          assert (t.len + Cstruct.length free_space >= n);
-          let got = Flow.read flow free_space in
-          t.len <- t.len + got
-        done
-      with End_of_file ->
-        t.flow <- None;
-        raise End_of_file
-  );
-  assert (buffered_bytes t >= n)
+  if n > t.max_size then raise Buffer_limit_exceeded;
+  (* We don't have enough data yet, so we'll need to do a read. *)
+  match t.flow with
+  | None -> raise End_of_file
+  | Some flow ->
+    (* If the buffer is empty, we might as well use all of it: *)
+    if t.len = 0 then t.pos <- 0;
+    let () =
+      let cap = capacity t in
+      if n > cap then (
+        (* [n] bytes won't fit. We need to resize the buffer. *)
+        let new_size = max n (min t.max_size (cap * 2)) in
+        let new_buf = Bigarray.(Array1.create char c_layout new_size) in
+        Cstruct.blit
+          (peek t) 0
+          (Cstruct.of_bigarray new_buf) 0
+          t.len;
+        t.pos <- 0;
+        t.buf <- new_buf
+      ) else if t.pos + n > cap then (
+        (* [n] bytes will fit in the existing buffer, but we need to compact it first. *)
+        Cstruct.blit
+          (peek t) 0
+          (Cstruct.of_bigarray t.buf) 0
+          t.len;
+        t.pos <- 0
+      )
+    in
+    try
+      while t.len < n do
+        let free_space = Cstruct.of_bigarray t.buf ~off:(t.pos + t.len) in
+        assert (t.len + Cstruct.length free_space >= n);
+        let got = Flow.read flow free_space in
+        t.len <- t.len + got
+      done;
+      assert (buffered_bytes t >= n)
+    with End_of_file ->
+      t.flow <- None;
+      raise End_of_file
+
+let ensure t n =
+  if t.len < n then ensure_slow_path t n
 
 let as_flow t =
   object
