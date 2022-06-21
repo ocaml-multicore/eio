@@ -1272,7 +1272,7 @@ module Dir : sig
 
   (** {1 Directories} *)
 
-  val mkdir : #t -> perm:Unix.file_perm -> path -> unit
+  val mkdir : #t -> perm:Unix_perm.t -> path -> unit
   (** [mkdir t ~perm path] creates a new directory [t/path] with permissions [perm]. *)
 
   val open_dir : sw:Switch.t -> #t -> path -> <t; Flow.close>
