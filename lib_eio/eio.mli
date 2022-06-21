@@ -75,6 +75,9 @@ module Flow = Flow
 (** Buffered input and parsing *)
 module Buf_read = Buf_read
 
+(** Buffered output *)
+module Buf_write = Buf_write
+
 (** Networking. *)
 module Net = Net
 

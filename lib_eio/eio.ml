@@ -23,6 +23,7 @@ module Exn = Exn
 module Generic = Generic
 module Flow = Flow
 module Buf_read = Buf_read
+module Buf_write = Buf_write
 module Net = Net
 module Domain_manager = Domain_manager
 module Time = Time
