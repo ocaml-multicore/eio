@@ -1,4 +1,7 @@
-(*----------------------------------------------------------------------------
+(* This module is based on code from Faraday (0.7.2), which had the following
+   license:
+
+  ----------------------------------------------------------------------------
     Copyright (c) 2016 Inhabited Type LLC.
 
     All rights reserved.
@@ -31,44 +34,68 @@
     POSSIBILITY OF SUCH DAMAGE.
   ----------------------------------------------------------------------------*)
 
-(** Serialization primitives built for speed an memory-efficiency.
+(** Serialization primitives built for speed and memory-efficiency.
 
 
-    Faraday is a library for writing fast and memory-efficient serializers. Its
-    core type and related operation gives the user fine-grained control over
-    copying and allocation behavior while serializing user-defined types, and
-    presents the output in a form that makes it possible to use vectorized
+    Buf_write is designed for writing fast and memory-efficient serializers.
+    It is based on the Faraday library, but adapted for Eio.
+    Its core type and related operation gives the user fine-grained control
+    over copying and allocation behavior while serializing user-defined types,
+    and presents the output in a form that makes it possible to use vectorized
     write operations, such as the [writev][] system call, or any other platform
     or application-specific output APIs.
 
-    A Faraday serializer manages an internal buffer and a queue of output
+    A Buf_write serializer manages an internal buffer and a queue of output
     buffers. The output bufferes may be a sub range of the serializer's
     internal buffer or one that is user-provided. Buffered writes such as
-    {!write_string}, {!write_char}, {!write_bigstring}, etc., copy the source
-    bytes into the serializer's internal buffer. Unbuffered writes such as
-    {!schedule_string}, {!schedule_bigstring}, etc., on the other hand perform
-    no copying. Instead, they enqueue the source bytes into the serializer's
-    write queue directly. *)
+    {!string}, {!char}, {!cstruct}, etc., copy the source bytes into the
+    serializer's internal buffer. Unbuffered writes are done with
+    {!schedule_cstruct}, which performs no copying. Instead, it enqueues the
+    source bytes into the serializer's write queue directly.
 
+    Example:
 
-type bigstring =
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+    {[
+      module Write = Eio.Buf_write
+
+      let () =
+          Eio_mock.Backend.run @@ fun () ->
+          let stdout = Eio_mock.Flow.make "stdout" in
+          Write.with_flow stdout (fun w ->
+              Write.string w "foo";
+              Write.string w "bar";
+              Eio.Fiber.yield ();
+              Write.string w "baz";
+          )
+    ]}
+
+    This combines the first two writes, giving:
+
+    {[
+      +stdout: wrote "foobar"
+      +stdout: wrote "baz"
+    ]}
+ *)
 
 type t
 (** The type of a serializer. *)
 
+(** {2 Running} *)
 
-(** {2 Constructors} *)
+val with_flow : ?initial_size:int -> #Flow.sink -> (t -> 'a) -> 'a
+(** [with_flow flow fn] runs [fn writer], where [writer] is a buffer that flushes to [flow].
 
-val create : int -> t
-(** [create len] creates a serializer with a fixed-length internal buffer of
-    length [len]. See the Buffered writes section for details about what happens
-    when [len] is not large enough to support a write. *)
+    Concurrently with [fn], it also runs a fiber that copies from [writer] to [flow].
+    If this fiber runs out of data to copy then it will suspend itself.
+    Writing to [writer] will automatically schedule it to be resumed.
+    This means that pending data is flushed automatically before the process sleeps.
 
-val of_bigstring : bigstring -> t
-(** [of_bigstring buf] creates a serializer, using [buf] as its internal
-    buffer. The serializer takes ownership of [buf] until the serializer has
-    been closed and flushed of all output. *)
+    When [fn] returns, [writer] is automatically closed and any remaining data is flushed
+    before [with_flow] itself returns.
+
+    @param initial_size The initial size of the buffer used to collect writes.
+                        New buffers will be allocated as needed, with the same size.
+                        If the buffer is too small to contain a write, the size is increased. *)
 
 
 (** {2 Buffered Writes}
@@ -80,111 +107,109 @@ val of_bigstring : bigstring -> t
     use it for the current and subsequent writes. The old buffer will be
     garbage collected once all of its contents have been {!flush}ed. *)
 
-val write_string : t -> ?off:int -> ?len:int -> string -> unit
-(** [write_string t ?off ?len str] copies [str] into the serializer's
+val string : t -> ?off:int -> ?len:int -> string -> unit
+(** [string t ?off ?len str] copies [str] into the serializer's
     internal buffer. *)
 
-val write_bytes : t -> ?off:int -> ?len:int -> Bytes.t -> unit
-(** [write_bytes t ?off ?len bytes] copies [bytes] into the serializer's
+val bytes : t -> ?off:int -> ?len:int -> Bytes.t -> unit
+(** [bytes t ?off ?len bytes] copies [bytes] into the serializer's
     internal buffer. It is safe to modify [bytes] after this call returns. *)
 
-val write_bigstring : t -> ?off:int -> ?len:int -> bigstring -> unit
-(** [write_bigstring t ?off ?len bigstring] copies [bigstring] into the
-    serializer's internal buffer. It is safe to modify [bigstring] after this
-    call returns.  *)
+val cstruct : t -> Cstruct.t -> unit
+(** [cstruct t cs] copies [cs] into the serializer's internal buffer.
+    It is safe to modify [cs] after this call returns.
+    For large cstructs, it may be more efficient to use {!schedule_cstruct}. *)
 
 val write_gen
   :  t
-  -> length:('a -> int)
-  -> blit:('a -> src_off:int -> bigstring -> dst_off:int -> len:int -> unit)
-  -> ?off:int
-  -> ?len:int
+  -> blit:('a -> src_off:int -> Cstruct.buffer -> dst_off:int -> len:int -> unit)
+  -> off:int
+  -> len:int
   -> 'a -> unit
-(** [write_gen t ~length ~blit ?off ?len x] copies [x] into the serializer's
-    internal buffer using the provided [length] and [blit] operations.
+(** [write_gen t ~blit ~off ~len x] copies [x] into the serializer's
+    internal buffer using the provided [blit] operation.
     See {!Bigstring.blit} for documentation of the arguments. *)
 
-val write_char : t -> char -> unit
-(** [write_char t char] copies [char] into the serializer's internal buffer. *)
+val char : t -> char -> unit
+(** [char t c] copies [c] into the serializer's internal buffer. *)
 
-val write_uint8 : t -> int -> unit
-(** [write_uint8 t n] copies the lower 8 bits of [n] into the serializer's
+val uint8 : t -> int -> unit
+(** [uint8 t n] copies the lower 8 bits of [n] into the serializer's
     internal buffer. *)
 
 
 (** Big endian serializers *)
 module BE : sig
-  val write_uint16 : t -> int -> unit
-  (** [write_uint16 t n] copies the lower 16 bits of [n] into the serializer's
+  val uint16 : t -> int -> unit
+  (** [uint16 t n] copies the lower 16 bits of [n] into the serializer's
       internal buffer in big-endian byte order. *)
 
-  val write_uint32 : t -> int32 -> unit
-  (** [write_uint32 t n] copies [n] into the serializer's internal buffer in
+  val uint32 : t -> int32 -> unit
+  (** [uint32 t n] copies [n] into the serializer's internal buffer in
       big-endian byte order. *)
 
-  val write_uint48 : t -> int64 -> unit
-  (** [write_uint48 t n] copies the lower 48 bits of [n] into the serializer's
+  val uint48 : t -> int64 -> unit
+  (** [uint48 t n] copies the lower 48 bits of [n] into the serializer's
       internal buffer in big-endian byte order. *)
 
-  val write_uint64 : t -> int64 -> unit
-  (** [write_uint64 t n] copies [n] into the serializer's internal buffer in
+  val uint64 : t -> int64 -> unit
+  (** [uint64 t n] copies [n] into the serializer's internal buffer in
       big-endian byte order. *)
 
-  val write_float : t -> float -> unit
-  (** [write_float t n] copies the lower 32 bits of [n] into the serializer's
+  val float : t -> float -> unit
+  (** [float t n] copies the lower 32 bits of [n] into the serializer's
       internal buffer in big-endian byte order. *)
 
-  val write_double : t -> float -> unit
-  (** [write_double t n] copies [n] into the serializer's internal buffer in
+  val double : t -> float -> unit
+  (** [double t n] copies [n] into the serializer's internal buffer in
       big-endian byte order. *)
 end
 
 
 (** Little endian serializers *)
 module LE : sig
-  val write_uint16 : t -> int -> unit
-  (** [write_uint16 t n] copies the lower 16 bits of [n] into the
+  val uint16 : t -> int -> unit
+  (** [uint16 t n] copies the lower 16 bits of [n] into the
       serializer's internal buffer in little-endian byte order. *)
 
-  val write_uint32 : t -> int32 -> unit
-  (** [write_uint32 t n] copies [n] into the serializer's internal buffer in
+  val uint32 : t -> int32 -> unit
+  (** [uint32 t n] copies [n] into the serializer's internal buffer in
       little-endian byte order. *)
 
-  val write_uint48 : t -> int64 -> unit
-  (** [write_uint48 t n] copies the lower 48 bits of [n] into the serializer's
+  val uint48 : t -> int64 -> unit
+  (** [uint48 t n] copies the lower 48 bits of [n] into the serializer's
       internal buffer in little-endian byte order. *)
 
-  val write_uint64 : t -> int64 -> unit
-  (** [write_uint64 t n] copies [n] into the serializer's internal buffer in
+  val uint64 : t -> int64 -> unit
+  (** [uint64 t n] copies [n] into the serializer's internal buffer in
       little-endian byte order. *)
 
-  val write_float : t -> float -> unit
-  (** [write_float t n] copies the lower 32 bits of [n] into the serializer's
+  val float : t -> float -> unit
+  (** [float t n] copies the lower 32 bits of [n] into the serializer's
       internal buffer in little-endian byte order. *)
 
-  val write_double : t -> float -> unit
-  (** [write_double t n] copies [n] into the serializer's internal buffer in
+  val double : t -> float -> unit
+  (** [double t n] copies [n] into the serializer's internal buffer in
       little-endian byte order. *)
 end
 
 
 (** {2 Unbuffered Writes}
 
-    Unbuffered writes do not involve copying bytes to the serializers internal
+    Unbuffered writes do not involve copying bytes to the serializer's internal
     buffer. *)
 
-val schedule_bigstring : t -> ?off:int -> ?len:int -> bigstring -> unit
-(** [schedule_bigstring t ?off ?len bigstring] schedules [bigstring] to
-    be written the next time the serializer surfaces writes to the user.
-    [bigstring] is not copied in this process, so [bigstring] should only be
-    modified after [t] has been {!flush}ed. *)
+val schedule_cstruct : t -> Cstruct.t -> unit
+(** [schedule_cstruct t cs] schedules [cs] to be written.
+    [cs] is not copied in this process,
+    so [cs] should only be modified after [t] has been {!flush}ed. *)
 
 
 (** {2 Querying A Serializer's State} *)
 
 val free_bytes_in_buffer : t -> int
 (** [free_bytes_in_buffer t] returns the free space, in bytes, of the
-    serializer's write buffer. If a {write_*} call has a length that exceeds
+    serializer's write buffer. If a write call has a length that exceeds
     this value, the serializer will allocate a new buffer that will replace the
     serializer's internal buffer for that and subsequent calls. *)
 
@@ -195,92 +220,70 @@ val has_pending_output : t -> bool
 
 val pending_bytes : t -> int
 (** [pending_bytes t] is the size of the next write, in bytes, that [t] will
-    surface to the caller as a [`Writev]. *)
+    surface to the caller via {!await_batch}. *)
 
 
 (** {2 Control Operations} *)
 
-val yield : t -> unit
-(** [yield t] causes [t] to delay surfacing writes to the user, instead
-    returning a [`Yield]. This gives the serializer an opportunity to collect
-    additional writes before sending them to the underlying device, which will
-    increase the write batch size.
+val pause : t -> unit
+(** [pause t] causes [t] to stop surfacing writes to the user.
+    This gives the serializer an opportunity to collect additional writes
+    before sending them to the underlying device, which will increase the write
+    batch size.
 
     As one example, code may want to call this function if it's about to
     release the OCaml lock and perform a blocking system call, but would like
-    to batch output across that system call. To hint to the thread of control
-    that is performing the writes on behalf of the serializer, the code might
-    call [yield t] before releasing the lock. *)
+    to batch output across that system call.
 
-val flush : t -> (unit -> unit) -> unit
-(** [flush t f] registers [f] to be called when all prior writes have been
-    successfully completed. If [t] has no pending writes, then [f] will be
-    called immediately. If {!yield} was recently called on [t], then the effect
-    of the [yield] will be ignored so that client code has an opportunity to
-    write pending output, regardless of how it handles [`Yield] operations.  *)
+    Call {!unpause} to resume writing later.
+    Note that calling {!flush} or {!close} will automatically call {!unpause} too. *)
+
+val unpause : t -> unit
+(** [unpause t] resumes writing data after a previous call to {!pause}. *)
+
+val flush : t -> unit
+(** [flush t] waits until all prior writes have been successfully completed.
+    If [t] has no pending writes, [flush] returns immediately.
+    If [t] is paused then it is unpaused first. *)
 
 val close : t -> unit
 (** [close t] closes [t]. All subsequent write calls will raise, and any
-    pending or subsequent {!yield} calls will be ignored. If the serializer has
+    subsequent {!pause} calls will be ignored. If the serializer has
     any pending writes, user code will have an opportunity to service them
-    before it receives the [Close] operation. Flush callbacks will continue to
+    before receiving [End_of_file]. Flush callbacks will continue to
     be invoked while output is {!shift}ed out of [t] as needed. *)
 
 val is_closed : t -> bool
 (** [is_closed t] is [true] if [close] has been called on [t] and [false]
     otherwise. A closed [t] may still have pending output. *)
 
+
+(** {2 Low-level API}
+
+    Low-level operations for running a serializer. *)
+
+val create : int -> t
+(** [create len] creates a serializer with a fixed-length internal buffer of
+    length [len]. See the Buffered writes section for details about what happens
+    when [len] is not large enough to support a write. *)
+
+val of_buffer : Cstruct.buffer -> t
+(** [of_buffer buf] creates a serializer, using [buf] as its internal
+    buffer. The serializer takes ownership of [buf] until the serializer has
+    been closed and flushed of all output. *)
+
+val await_batch : t -> Cstruct.t list
+(** [await_batch t] returns a list of buffers that should be written.
+    If no data is currently available, it waits until some is.
+    After performing a write, call {!shift} with the number of bytes written.
+    You must accurately report the number of bytes written. Failure to do so
+    will result in the same bytes being surfaced multiple times.
+    @raises End_of_file [t] is closed and there is nothing left to write. *)
+
 val shift : t -> int -> unit
 (** [shift t n] removes the first [n] bytes in [t]'s write queue. Any flush
-    callbacks registered with [t] within this span of the write queue will be
-    called. *)
-
-val drain : t -> int
-(** [drain t] removes all pending writes from [t], returning the number of
-    bytes that were enqueued to be written and freeing any scheduled
-    buffers in the process. *)
-
-
-(** {2 Running}
-
-    Low-level operations for runing a serializer. For production use-cases,
-    consider the Async and Lwt support that this library includes before
-    attempting to use this these operations directly.  *)
-
-type operation = [
-  | `Writev of Cstruct.t list
-  | `Yield
-  | `Close ]
-(** The type of operations that the serialier may wish to perform.
-  {ul
-
-  {li [`Writev iovecs]: Write the bytes in {!iovecs}s reporting the actual
-  number of bytes written by calling {!shift}. You must accurately report the
-  number of bytes written. Failure to do so will result in the same bytes being
-  surfaced in a [`Writev] operation multiple times.}
-
-  {li [`Yield]: Yield to other threads of control, waiting for additional
-  output before procedding. The method for achieving this is
-  application-specific, but once complete, the caller can proceed with
-  serialization by simply making another call to {!val:operation} or
-  {!serialize}.}
-
-  {li [`Close]: Serialization is complete. No further output will generated.
-  The action to take as a result, if any, is application-specific.}} *)
-
-
-val operation : t -> operation
-(** [operation t] is the next operation that the caller must perform on behalf
-    of the serializer [t]. Users should consider using {!serialize} before this
-    function. See the documentation for the {!type:operation} type for details
-    on how callers should handle these operations. *)
-
-val serialize : t -> (Cstruct.t list -> [`Ok of int | `Closed]) -> [`Yield | `Close]
-(** [serialize t writev] sufaces the next operation of [t] to the caller,
-    handling a [`Writev] operation with [writev] function and performing an
-    additional bookkeeping on the caller's behalf. In the event that [writev]
-    indicates a partial write, {!serialize} will call {!yield} on the
-    serializer rather than attempting successive [writev] calls. *)
+    operations called within this span of the write queue will be scheduled
+    to resume. *)
 
 
 (** {2 Convenience Functions}
@@ -289,12 +292,21 @@ val serialize : t -> (Cstruct.t list -> [`Ok of int | `Closed]) -> [`Yield | `Cl
     development. They are not the suggested way of driving a serializer in a
     production setting. *)
 
+val serialize : t -> (Cstruct.t list -> (int, [`Closed]) result) -> (unit, [> `Closed]) result
+(** [serialize t writev] calls [writev bufs] each time [t] is ready to write.
+    In the event that [writev] indicates a partial write, {!serialize} will
+    call {!Fiber.yield} before continuing. *)
+
 val serialize_to_string : t -> string
 (** [serialize_to_string t] runs [t], collecting the output into a string and
-    returning it. [serialzie_to_string t] immediately closes [t] and ignores
-    any calls to {!yield} on [t]. *)
+    returning it. [serializie_to_string t] immediately closes [t]. *)
 
-val serialize_to_bigstring : t -> bigstring
-(** [serialize_to_string t] runs [t], collecting the output into a bigstring
-    and returning it. [serialzie_to_bigstring t] immediately closes [t] and
-    ignores any calls to {!yield} on [t]. *)
+val serialize_to_cstruct : t -> Cstruct.t
+(** [serialize_to_cstruct t] runs [t], collecting the output into a cstruct
+    and returning it. [serialize_to_cstruct t] immediately closes [t]. *)
+
+val drain : t -> int
+(** [drain t] removes all pending writes from [t], returning the number of
+    bytes that were enqueued to be written and freeing any scheduled
+    buffers in the process. Note that this does not close [t] itself,
+    and does not return until [t] has been closed. *)

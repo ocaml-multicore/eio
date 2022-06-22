@@ -1,4 +1,7 @@
-(*----------------------------------------------------------------------------
+(* This module is based on code from Faraday (0.7.2), which had the following
+   license:
+
+  ----------------------------------------------------------------------------
     Copyright (c) 2016 Inhabited Type LLC.
 
     All rights reserved.
@@ -42,14 +45,29 @@ module Deque(T:sig type t val sentinel : t end) : sig
   type t
 
   val create : int -> t
+  (* [t = create n] creates a new deque with initial capacity [n].
+
+     [to_list t = []] *)
 
   val is_empty : t -> bool
+  (* [is_empty t = (to_list t = []) *)
 
   val enqueue : elem -> t -> unit
-  val dequeue_exn : t -> elem
-  val enqueue_front : elem -> t -> unit
+  (* [enqueue elem t]
 
-  val map_to_list : t -> f:(elem -> 'b) -> 'b list
+     [to_list t'] = to_list t @ [elem] *)
+
+  val dequeue_exn : t -> elem
+  (* [dequeue_exn t = List.hd (to_list t)]
+
+     [to_list t' = List.tl (to_list t)] *)
+
+  val enqueue_front : elem -> t -> unit
+  (* [enqueue_front elem t]
+
+     to_list t' = elem :: to_list t *)
+
+  val to_list : t -> elem list
 end = struct
   type elem = T.t
 
@@ -107,10 +125,10 @@ end = struct
     t.front <- t.front - 1;
     t.elements.(t.front) <- e
 
-  let map_to_list t ~f =
+  let to_list t =
     let result = ref [] in
     for i = t.back - 1 downto t.front do
-      result := f t.elements.(i) :: !result
+      result := t.elements.(i) :: !result
     done;
     !result
 end
@@ -119,35 +137,34 @@ module Buffers = Deque(struct
   type t = Cstruct.t
   let sentinel =
     let deadbeef = "\222\173\190\239" in
-    let len      = String.length deadbeef in
-    let buffer   = Bigstringaf.create len in
-    String.iteri (Bigstringaf.unsafe_set buffer) deadbeef;
-    Cstruct.of_bigarray buffer ~len
+    Cstruct.of_string deadbeef
 end)
+
 module Flushes = Deque(struct
   type t = int * (unit -> unit)
   let sentinel = 0, fun () -> ()
 end)
 
+type state =
+  | Active
+  | Paused
+  | Closed
+
 type t =
   { mutable buffer         : bigstring
-  ; mutable scheduled_pos  : int
-  ; mutable write_pos      : int
+  ; mutable scheduled_pos  : int        (* How much of [buffer] is in [scheduled] *)
+  ; mutable write_pos      : int        (* How much of [buffer] has been written to *)
   ; scheduled              : Buffers.t
   ; flushed                : Flushes.t
-  ; mutable bytes_received : int
-  ; mutable bytes_written  : int
-  ; mutable closed         : bool
-  ; mutable yield          : bool
+  ; mutable bytes_received : int        (* Total scheduled bytes. Wraps. *)
+  ; mutable bytes_written  : int        (* Total written bytes. Wraps. *)
+  ; mutable state          : state
+  ; mutable wake_writer    : unit -> unit
+  ; id                     : Ctf.id
   }
+(* Invariant: [write_pos >= scheduled_pos] *)
 
-type operation = [
-  | `Writev of Cstruct.t list
-  | `Yield
-  | `Close
-  ]
-
-let of_bigstring buffer =
+let of_buffer buffer =
   { buffer
   ; write_pos       = 0
   ; scheduled_pos   = 0
@@ -155,47 +172,55 @@ let of_bigstring buffer =
   ; flushed         = Flushes.create 1
   ; bytes_received  = 0
   ; bytes_written   = 0
-  ; closed          = false
-  ; yield           = false }
+  ; state           = Active
+  ; wake_writer     = ignore
+  ; id              = Ctf.mint_id ()
+  }
 
 let create size =
-  of_bigstring (Bigstringaf.create size)
+  of_buffer (Bigstringaf.create size)
 
 let writable_exn t =
-  if t.closed then
+  match t.state with
+  | Active | Paused -> ()
+  | Closed ->
     failwith "cannot write to closed writer"
 
-let schedule_iovec t ?(off=0) ~len buffer =
-  t.bytes_received <- t.bytes_received + len;
-  Buffers.enqueue (Cstruct.of_bigarray buffer ~off ~len) t.scheduled
+let wake_writer t =
+  match t.state with
+  | Paused -> ()
+  | Active | Closed ->
+    let wake = t.wake_writer in
+    if wake != ignore then (
+      t.wake_writer <- ignore;
+      wake ()
+    )
 
+(* Schedule [cs] now, without any checks. Users use {!schedule_cstruct} instead. *)
+let schedule_iovec t cs =
+  t.bytes_received <- t.bytes_received + Cstruct.length cs;
+  Buffers.enqueue cs t.scheduled
+
+(* Schedule all pending data in [buffer]. *)
 let flush_buffer t =
   let len = t.write_pos - t.scheduled_pos in
   if len > 0 then begin
     let off = t.scheduled_pos in
-    schedule_iovec t ~off ~len t.buffer;
+    schedule_iovec t (Cstruct.of_bigarray ~off ~len t.buffer);
     t.scheduled_pos <- t.write_pos
   end
-
-let flush t f =
-  t.yield <- false;
-  flush_buffer t;
-  if Buffers.is_empty t.scheduled then f ()
-  else Flushes.enqueue (t.bytes_received, f) t.flushed
 
 let free_bytes_in_buffer t =
   let buf_len = Bigstringaf.length t.buffer in
   buf_len - t.write_pos
 
-let schedule_bigstring t ?(off=0) ?len a =
+let schedule_cstruct t cs =
   writable_exn t;
   flush_buffer t;
-  let len =
-    match len with
-    | None     -> Bigstringaf.length a - off
-    | Some len -> len
-  in
-  if len > 0 then schedule_iovec t ~off ~len a
+  if Cstruct.length cs > 0 then (
+    schedule_iovec t cs;
+    wake_writer t;
+  )
 
 let ensure_space t len =
   if free_bytes_in_buffer t < len then begin
@@ -205,132 +230,143 @@ let ensure_space t len =
     t.scheduled_pos <- 0
   end
 
-let write_gen t ~length ~blit ?(off=0) ?len a =
+let advance_pos t n =
+  t.write_pos <- t.write_pos + n;
+  wake_writer t
+
+let write_gen t ~blit ~off ~len a =
   writable_exn t;
-  let len =
-    match len with
-    | None     -> length a - off
-    | Some len -> len
-  in
   ensure_space t len;
   blit a ~src_off:off t.buffer ~dst_off:t.write_pos ~len;
-  t.write_pos <- t.write_pos + len
+  advance_pos t len
 
-let write_string =
-  let length   = String.length in
-  let blit     = Bigstringaf.unsafe_blit_from_string in
-  fun t ?off ?len a -> write_gen t ~length ~blit ?off ?len a
+let string =
+  let blit = Bigstringaf.blit_from_string in
+  fun t ?(off=0) ?len a ->
+    let len =
+      match len with
+      | None     -> String.length a - off
+      | Some len -> len
+    in
+    write_gen t ~blit ~off ~len a
 
-let write_bytes =
-  let length = Bytes.length in
-  let blit   = Bigstringaf.unsafe_blit_from_bytes in
-  fun t ?off ?len a -> write_gen t ~length ~blit ?off ?len a
+let bytes =
+  let blit = Bigstringaf.blit_from_bytes in
+  fun t ?(off=0) ?len a ->
+    let len =
+      match len with
+      | None     -> Bytes.length a - off
+      | Some len -> len
+    in
+    write_gen t ~blit ~off ~len a
 
-let write_bigstring =
-  let length = Bigstringaf.length in
-  let blit   = Bigstringaf.unsafe_blit in
-  fun t ?off ?len a -> write_gen t ~length ~blit ?off ?len a
+let cstruct t { Cstruct.buffer; off; len } =
+  write_gen t ~off ~len buffer
+    ~blit:Bigstringaf.unsafe_blit
 
-let write_char t c =
+let char t c =
   writable_exn t;
   ensure_space t 1;
   Bigstringaf.unsafe_set t.buffer t.write_pos c;
-  t.write_pos <- t.write_pos + 1
+  advance_pos t 1
 
-let write_uint8 t b =
+let uint8 t b =
   writable_exn t;
   ensure_space t 1;
   Bigstringaf.unsafe_set t.buffer t.write_pos (Char.unsafe_chr b);
-  t.write_pos <- t.write_pos + 1
+  advance_pos t 1
 
 module BE = struct
-  let write_uint16 t i =
+  let uint16 t i =
     writable_exn t;
     ensure_space t 2;
     Bigstringaf.unsafe_set_int16_be t.buffer t.write_pos i;
-    t.write_pos <- t.write_pos + 2
+    advance_pos t 2
 
-  let write_uint32 t i =
+  let uint32 t i =
     writable_exn t;
     ensure_space t 4;
     Bigstringaf.unsafe_set_int32_be t.buffer t.write_pos i;
-    t.write_pos <- t.write_pos + 4
+    advance_pos t 4
 
-  let write_uint48 t i =
+  let uint48 t i =
     writable_exn t;
     ensure_space t 6;
     Bigstringaf.unsafe_set_int32_be t.buffer t.write_pos
       Int64.(to_int32 (shift_right_logical i 4));
     Bigstringaf.unsafe_set_int16_be t.buffer (t.write_pos + 2)
       Int64.(to_int i);
-    t.write_pos <- t.write_pos + 6
+    advance_pos t 6
 
-  let write_uint64 t i =
+  let uint64 t i =
     writable_exn t;
     ensure_space t 8;
     Bigstringaf.unsafe_set_int64_be t.buffer t.write_pos i;
-    t.write_pos <- t.write_pos + 8
+    advance_pos t 8
 
-  let write_float t f =
+  let float t f =
     writable_exn t;
     ensure_space t 4;
     Bigstringaf.unsafe_set_int32_be t.buffer t.write_pos (Int32.bits_of_float f);
-    t.write_pos <- t.write_pos + 4
+    advance_pos t 4
 
-  let write_double t d =
+  let double t d =
     writable_exn t;
     ensure_space t 8;
     Bigstringaf.unsafe_set_int64_be t.buffer t.write_pos (Int64.bits_of_float d);
-    t.write_pos <- t.write_pos + 8
+    advance_pos t 8
 end
 
 module LE = struct
-  let write_uint16 t i =
+  let uint16 t i =
     writable_exn t;
     ensure_space t 2;
     Bigstringaf.unsafe_set_int16_le t.buffer t.write_pos i;
-    t.write_pos <- t.write_pos + 2
+    advance_pos t 2
 
-  let write_uint32 t i =
+  let uint32 t i =
     writable_exn t;
     ensure_space t 4;
     Bigstringaf.unsafe_set_int32_le t.buffer t.write_pos i;
-    t.write_pos <- t.write_pos + 4
+    advance_pos t 4
 
-  let write_uint48 t i =
+  let uint48 t i =
     writable_exn t;
     ensure_space t 6;
     Bigstringaf.unsafe_set_int16_le t.buffer t.write_pos
       Int64.(to_int i);
     Bigstringaf.unsafe_set_int32_le t.buffer (t.write_pos + 2)
       Int64.(to_int32 (shift_right_logical i 2));
-    t.write_pos <- t.write_pos + 6
+    advance_pos t 6
 
-  let write_uint64 t i =
+  let uint64 t i =
     writable_exn t;
     ensure_space t 8;
     Bigstringaf.unsafe_set_int64_le t.buffer t.write_pos i;
-    t.write_pos <- t.write_pos + 8
+    advance_pos t 8
 
-  let write_float t f =
+  let float t f =
     writable_exn t;
     ensure_space t 4;
     Bigstringaf.unsafe_set_int32_le t.buffer t.write_pos (Int32.bits_of_float f);
-    t.write_pos <- t.write_pos + 4
+    advance_pos t 4
 
-  let write_double t d =
+  let double t d =
     writable_exn t;
     ensure_space t 8;
     Bigstringaf.unsafe_set_int64_le t.buffer t.write_pos (Int64.bits_of_float d);
-    t.write_pos <- t.write_pos + 8
+    advance_pos t 8
 end
 
 let close t =
-  t.closed <- true;
-  flush_buffer t
+  t.state <- Closed;
+  flush_buffer t;
+  wake_writer t
 
 let is_closed t =
-  t.closed
+  match t.state with
+  | Closed -> true
+  | Active | Paused -> false
 
 let pending_bytes t =
   (t.write_pos - t.scheduled_pos) + (t.bytes_received - t.bytes_written)
@@ -338,122 +374,149 @@ let pending_bytes t =
 let has_pending_output t =
   pending_bytes t <> 0
 
-let yield t =
-  t.yield <- true
+let pause t =
+  match t.state with
+  | Active -> t.state <- Paused
+  | Paused | Closed -> ()
+
+let unpause t =
+  match t.state with
+  | Active | Closed -> ()
+  | Paused ->
+    t.state <- Active;
+    if has_pending_output t then
+      wake_writer t
+
+let flush t =
+  flush_buffer t;
+  unpause t;
+  if not (Buffers.is_empty t.scheduled) then (
+    let p, r = Promise.create () in
+    Flushes.enqueue (t.bytes_received, Promise.resolve r) t.flushed;
+    Promise.await p
+  )
 
 let rec shift_buffers t written =
-  try
-    let { Cstruct.len; _ } as iovec = Buffers.dequeue_exn t.scheduled in
-    if len <= written then begin
+  match Buffers.dequeue_exn t.scheduled with
+  | { Cstruct.len; _ } as iovec ->
+    if len <= written then
       shift_buffers t (written - len)
-    end else
+    else
       Buffers.enqueue_front (Cstruct.shift iovec written) t.scheduled
-  with Dequeue_empty ->
+  | exception Dequeue_empty ->
     assert (written = 0);
     if t.scheduled_pos = t.write_pos then begin
       t.scheduled_pos <- 0;
       t.write_pos <- 0
     end
 
+(* Resolve any flushes that are now due. *)
 let rec shift_flushes t =
-  try
-    let (threshold, f) as flush = Flushes.dequeue_exn t.flushed in
-    (* Edited notes from @dinosaure:
-     *
-     * The quantities [t.bytes_written] and [threshold] are always going to be
-     * positive integers. Therefore, we can treat them as unsinged integers for
-     * the purposes of comparision. Doing so allows us to handle overflows in
-     * either quantity as long as they're both within one overflow of each other.
-     * We can accomplish this by subracting [min_int] from both quantities before
-     * comparision. This shift a quantity that has not overflowed into the
-     * negative integer range while shifting a quantity that has overflow into
-     * the positive integer range.
-     *
-     * This effectively restablishes the relative difference when an overflow
-     * has occurred, and otherwise just compares numbers that haven't
-     * overflowed as similarly, just shifted down a bit.
-     *)
-    if t.bytes_written - min_int >= threshold - min_int
-    then begin f (); shift_flushes t end
-    else Flushes.enqueue_front flush t.flushed
-  with Dequeue_empty ->
-    ()
+  match Flushes.dequeue_exn t.flushed with
+  | exception Dequeue_empty -> ()
+  | (threshold, f) as flush ->
+    (* Be careful: [bytes_written] and [threshold] both wrap, so subtract first. *)
+    if t.bytes_written - threshold >= 0 then (
+      (* We have written at least up to [threshold]
+         (or we're more than [max_int] behind, which we assume won't happen). *)
+      f ();
+      shift_flushes t
+    ) else (
+      Flushes.enqueue_front flush t.flushed
+    )
 
 let shift t written =
   shift_buffers t written;
   t.bytes_written <- t.bytes_written + written;
   shift_flushes t
 
-let operation t =
-  if t.closed then begin
-    t.yield <- false
-  end;
+let rec await_batch t =
   flush_buffer t;
-  let nothing_to_do = not (has_pending_output t) in
-  if t.closed && nothing_to_do then
-    `Close
-  else if t.yield || nothing_to_do then begin
-    t.yield <- false;
-    `Yield
-  end else begin
-    let iovecs = Buffers.map_to_list t.scheduled ~f:(fun x -> x) in
-    `Writev iovecs
+  match t.state, has_pending_output t with
+  | Closed, false -> raise End_of_file
+  | (Active | Closed), true -> Buffers.to_list t.scheduled
+  | Paused, _ | Active, false ->
+    Suspend.enter (fun ctx enqueue ->
+        Fiber_context.set_cancel_fn ctx (fun ex ->
+            t.wake_writer <- ignore;
+            enqueue (Error ex)
+          );
+        t.wake_writer <- (fun () ->
+            (* Our caller has already set [wake_writer <- ignore]. *)
+            ignore (Fiber_context.clear_cancel_fn ctx : bool);
+            enqueue (Ok ())
+          );
+      );
+    await_batch t
+
+let read_into t buf =
+  let iovecs = await_batch t in
+  let n, _iovecs = Cstruct.fillv ~src:iovecs ~dst:buf in
+  shift t n;
+  n
+
+let read_source_buffer t fn =
+  let iovecs = await_batch t in
+  shift t (fn iovecs)
+
+let as_flow t =
+  object
+    inherit Flow.source
+    method! read_methods = [Flow.Read_source_buffer (read_source_buffer t)]
+    method read_into = read_into t
   end
 
+let with_flow ?(initial_size=0x1000) flow fn =
+  let t = create initial_size in
+  Switch.run @@ fun sw ->
+  Fiber.fork ~sw (fun () -> Flow.copy (as_flow t) flow);
+  Fun.protect ~finally:(fun () -> close t) (fun () -> fn t)
+
 let rec serialize t writev =
-  match operation t with
-  | `Writev iovecs ->
-    begin match writev iovecs with
-    | `Ok   n -> shift t n; if not (Buffers.is_empty t.scheduled) then yield t
-    | `Closed -> close t
-    end;
-    serialize t writev
-  | (`Close|`Yield) as next -> next
+  match await_batch t with
+  | exception End_of_file -> Ok ()
+  | iovecs ->
+    match writev iovecs with
+    | Error `Closed as e -> close t; e
+    | Ok n ->
+      shift t n;
+      if not (Buffers.is_empty t.scheduled) then Fiber.yield ();
+      serialize t writev
 
 let serialize_to_string t =
   close t;
-  match operation t with
-  | `Writev iovecs ->
+  match await_batch t with
+  | exception End_of_file -> ""
+  | iovecs ->
     let len = Cstruct.lenv iovecs in
     let bytes = Bytes.create len in
     let pos = ref 0 in
     List.iter (function
-      | { Cstruct.buffer; off; len } ->
-        Bigstringaf.unsafe_blit_to_bytes buffer ~src_off:off bytes ~dst_off:!pos ~len;
-        pos := !pos + len)
-    iovecs;
+        | { Cstruct.buffer; off; len } ->
+          Bigstringaf.unsafe_blit_to_bytes buffer ~src_off:off bytes ~dst_off:!pos ~len;
+          pos := !pos + len)
+      iovecs;
     shift t len;
-    assert (operation t = `Close);
+    assert (not (has_pending_output t));
     Bytes.unsafe_to_string bytes
-  | `Close -> ""
-  | `Yield -> assert false
 
-let serialize_to_bigstring t =
+let serialize_to_cstruct t =
   close t;
-  match operation t with
-  | `Writev iovecs ->
-    let len = Cstruct.lenv iovecs in
-    let bs = Bigstringaf.create len in
-    let pos = ref 0 in
-    List.iter (function
-      | { Cstruct.buffer; off; len } ->
-        Bigstringaf.unsafe_blit buffer ~src_off:off bs ~dst_off:!pos ~len;
-        pos := !pos + len)
-    iovecs;
-    shift t len;
-    assert (operation t = `Close);
-    bs
-  | `Close -> Bigstringaf.create 0
-  | `Yield -> assert false
+  match await_batch t with
+  | exception End_of_file -> Cstruct.empty
+  | iovecs ->
+    let data = Cstruct.concat iovecs in
+    shift t (Cstruct.length data);
+    assert (not (has_pending_output t));
+    data
 
 let drain =
   let rec loop t acc =
-    match operation t with
-    | `Writev iovecs ->
+    match await_batch t with
+    | exception End_of_file -> acc
+    | iovecs ->
       let len = Cstruct.lenv iovecs in
       shift t len;
       loop t (len + acc)
-    | `Close         -> acc
-    | `Yield         -> loop t acc
   in
   fun t -> loop t 0
