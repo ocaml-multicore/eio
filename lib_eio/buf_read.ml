@@ -64,8 +64,11 @@ let of_string s =
 let peek t =
   Cstruct.of_bigarray ~off:t.pos ~len:t.len t.buf
 
-let consume t n =
-  if n < 0 || n > t.len then Fmt.invalid_arg "Can't consume %d bytes of a %d byte buffer!" n t.len;
+let consume_err t n =
+  Fmt.invalid_arg "Can't consume %d bytes of a %d byte buffer!" n t.len
+
+let [@inline] consume t n =
+  if n < 0 || n > t.len then consume_err t n;
   t.pos <- t.pos + n;
   t.len <- t.len - n;
   t.consumed <- t.consumed + n
@@ -80,7 +83,6 @@ let consumed_bytes t = t.consumed
 
 let eof_seen t = t.flow = None
 
-[@@inline never] [@@local never] [@@specialise never]
 let ensure_slow_path t n =
   assert (n >= 0);
   if n > t.max_size then raise Buffer_limit_exceeded;
