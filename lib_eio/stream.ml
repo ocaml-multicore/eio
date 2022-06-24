@@ -20,7 +20,7 @@ let with_mutex t f =
   | exception ex -> Mutex.unlock t.mutex; raise ex
 
 (* Invariants *)
-let validate t =
+let _validate t =
   with_mutex t @@ fun () ->
   assert (Queue.length t.items <= t.capacity);
   assert (Waiters.is_empty t.readers || Queue.is_empty t.items);
