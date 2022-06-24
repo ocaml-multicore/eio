@@ -1,17 +1,5 @@
 (library
   (name eio)
   (public_name eio)
-  (libraries cstruct lwt-dllist fmt)
-  (flags (:standard -w -50)))
-
-(rule
-  (target effect.ml)
-  (enabled_if (>= %{ocaml_version} "5.0"))
-  (action
-    (copy effect.new.ml effect.ml)))
-
-(rule
-  (target effect.ml)
-  (enabled_if (< %{ocaml_version} "5.0"))
-  (action
-    (copy effect.compat.ml effect.ml)))
+  (flags (:standard -open Eio__core -open Eio__core.Private))
+  (libraries eio__core cstruct lwt-dllist fmt))
