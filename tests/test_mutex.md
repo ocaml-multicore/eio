@@ -169,7 +169,8 @@ Or allow interruption and disable the mutex:
 +Cancelling...
 +Trying to reuse the failed mutex...
 Exception:
-Eio__Eio_mutex.Poisoned (Eio__Exn.Cancelled (Failure "Simulated error")).
+Eio__Eio_mutex.Poisoned
+ (Eio__core__Exn.Cancelled (Failure "Simulated error")).
 ```
 
 Protection doesn't prevent cancellation while we're still waiting for the lock, though:
