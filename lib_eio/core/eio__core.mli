@@ -383,10 +383,6 @@ end
 
 (** @canonical Eio.Private *)
 module Private : sig
-  module Suspend = Suspend
-
-  module Waiters = Waiters
-
   module Ctf = Ctf
 
   (** Every fiber has an associated context. *)
@@ -503,6 +499,67 @@ module Private : sig
 
       | Get_context : Fiber_context.t Effect.t
       (** [perform Get_context] immediately returns the current fiber's context (without switching fibers). *)
+  end
+
+  (** Suspend a fiber and enter the scheduler. *)
+  module Suspend : sig
+    val enter : (Fiber_context.t -> 'a Effects.enqueue -> unit) -> 'a
+    (** [enter fn] suspends the calling fiber and calls [fn ctx enqueue] in the scheduler's context.
+        This should arrange for [enqueue] to be called when the fiber should be resumed.
+        [enqueue] is thread-safe and so can be called from another domain or systhread.
+
+        [ctx] should be used to set a cancellation function. Otherwise, the operation is non-interruptable.
+        If the caller's cancellation context is already cancelled, [enter] immediately aborts. *)
+
+    val enter_unchecked : (Fiber_context.t -> 'a Effects.enqueue -> unit) -> 'a
+    (** [enter_unchecked] is like [enter] except that it does not perform the initial check
+        that the fiber isn't cancelled (this is useful if you want to do the check yourself, e.g.
+        because you need to unlock a mutex if cancelled). *)
+  end
+
+  (** A queue of fibers waiting for an event. *)
+  module Waiters : sig
+    type 'a t
+    (* A queue of fibers waiting for something.
+       Note: an [_ t] is not thread-safe itself.
+       To use share it between domains, the user is responsible for wrapping it in a mutex. *)
+
+    val create : unit -> 'a t
+
+    val wake_all : 'a t -> 'a -> unit
+    (** [wake_all t] calls (and removes) all the functions waiting on [t].
+        If [t] is shared between domains, the caller must hold the mutex while calling this. *)
+
+    val wake_one : 'a t -> 'a -> [`Ok | `Queue_empty]
+    (** [wake_one t] is like {!wake_all}, but only calls (and removes) the first waiter in the queue.
+        If [t] is shared between domains, the caller must hold the mutex while calling this. *)
+
+    val is_empty : 'a t -> bool
+    (** [is_empty t] checks whether there are any functions waiting on [t].
+        If [t] is shared between domains, the caller must hold the mutex while calling this,
+        and the result is valid until the mutex is released. *)
+
+    val await :
+      mutex:Mutex.t option ->
+      'a t -> Ctf.id -> 'a
+    (** [await ~mutex t id] suspends the current fiber and adds its continuation to [t].
+        When the waiter is woken, the fiber is resumed and returns the result.
+        If [t] can be used from multiple domains:
+        - [mutex] must be set to the mutex to use to unlock it.
+        - [mutex] must be already held when calling this function, which will unlock it before blocking.
+        When [await] returns, [mutex] will have been unlocked.
+        @raise Cancel.Cancelled if the fiber's context is cancelled *)
+
+    val await_internal :
+      mutex:Mutex.t option ->
+      'a t -> Ctf.id -> Fiber_context.t ->
+      (('a, exn) result -> unit) -> unit
+    (** [await_internal ~mutex t id ctx enqueue] is like [await], but the caller has to suspend the fiber.
+        This also allows wrapping the [enqueue] function.
+        Calls [enqueue (Error (Cancelled _))] if cancelled.
+        Note: [enqueue] is called from the triggering domain,
+              which is currently calling {!wake_one} or {!wake_all}
+              and must therefore be holding [mutex]. *)
   end
 
   val traceln_mutex : Stdlib.Mutex.t
