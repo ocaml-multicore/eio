@@ -80,7 +80,7 @@ module Handler : sig
   (** [run_default_action t] runs the default handler passed to {!make}. *)
 end
 
-(** {2 Pre-defined mocks *)
+(** {2 Pre-defined mocks} *)
 
 (** Mock {!Eio.Flow} sources and sinks. *)
 module Flow : sig
@@ -148,3 +148,10 @@ module Net : sig
     unit
   (** [on_accept socket actions] configures how to respond when the server calls "accept". *)
 end
+
+(** {2 Backend for mocks}
+
+    The mocks can be used with any backend, but if you don't need any IO then you can use this one
+    to avoid a dependency on eio_main. *)
+
+module Backend = Backend

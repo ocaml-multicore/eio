@@ -1170,7 +1170,7 @@ This may be useful during the process of porting existing code to Eio.
 
 - [lib_eio/eio.mli](lib_eio/eio.mli) documents Eio's public API.
 - [doc/rationale.md](doc/rationale.md) describes some of Eio's design tradeoffs in more detail.
-- [doc/eio_null.md](doc/eio_null.md) is a skeleton Eio backend with no actual IO.
+- [lib_eio/mock/backend.ml](lib_eio/mock/backend.ml) is a skeleton Eio backend with no actual IO.
 
 Some background about the effects system can be found in:
 

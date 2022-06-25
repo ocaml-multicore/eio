@@ -1,7 +1,6 @@
 ## Setup
 
 ```ocaml
-# #require "eio_main";;
 # #require "eio.mock";;
 ```
 
@@ -14,7 +13,7 @@ let stdout = Eio_mock.Flow.make "stdout"
 ## Flows
 
 ```ocaml
-# Eio_main.run @@ fun _ ->
+# Eio_mock.Backend.run @@ fun _ ->
   Eio_mock.Flow.on_read stdin [
     `Return "chunk1";
     `Return "chunk2";
@@ -47,7 +46,7 @@ let echo_server ~net addr =
 The server handles a connection:
 
 ```ocaml
-# Eio_main.run @@ fun _ ->
+# Eio_mock.Backend.run @@ fun _ ->
   let net = Eio_mock.Net.make "mocknet" in
   let listening_socket = Eio_mock.Net.listening_socket "tcp/80" in
   Eio_mock.Net.on_listen net [`Return listening_socket];
@@ -66,3 +65,37 @@ The server handles a connection:
 +tcp/80: closed
 - : unit = ()
 ```
+
+## Backend
+
+`Eio_mock.Backend` supports forking, tracing, suspending and cancellation:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let s = Eio.Stream.create 1 in
+  try
+    Fiber.both
+      (fun () ->
+         for x = 1 to 3 do
+           traceln "Sending %d" x;
+           Eio.Stream.add s x
+         done;
+         raise Exit
+      )
+      (fun () ->
+         while true do
+           traceln "Got %d" (Eio.Stream.take s)
+         done
+      )
+  with Exit ->
+    traceln "Finished!";;
++Sending 1
++Sending 2
++Got 1
++Got 2
++Sending 3
++Got 3
++Finished!
+- : unit = ()
+```
+
