@@ -99,3 +99,11 @@ The server handles a connection:
 - : unit = ()
 ```
 
+Because it doesn't support multiple threads or domains, it can detect deadlocks:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let p, _r = Promise.create () in
+  Promise.await p;;
+Exception: Eio_mock__Backend.Deadlock_detected.
+```

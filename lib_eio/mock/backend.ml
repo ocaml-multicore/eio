@@ -2,6 +2,8 @@ module Fiber_context = Eio.Private.Fiber_context
 module Effect = Eio.Private.Effect    (* For compatibility with 4.12+domains *)
 module Lf_queue = Eio_utils.Lf_queue
 
+exception Deadlock_detected
+
 (* The scheduler could just return [unit], but this is clearer. *)
 type exit = Exit_scheduler
 
@@ -57,4 +59,6 @@ let run main =
   let new_fiber = Fiber_context.make_root () in
   let result = ref None in
   let Exit_scheduler = fork ~new_fiber (fun () -> result := Some (main ())) in
-  Option.get !result
+  match !result with
+  | None -> raise Deadlock_detected
+  | Some x -> x
