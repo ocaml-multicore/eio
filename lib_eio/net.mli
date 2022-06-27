@@ -134,7 +134,19 @@ val accept :
 (** [accept ~sw socket] waits until a new connection is ready on [socket] and returns it.
 
     The new socket will be closed automatically when [sw] finishes, if not closed earlier.
-    If you want to handle multiple connections, consider using {!accept_sub} instead. *)
+    If you want to handle multiple connections, consider using {!accept_fork} instead. *)
+
+val accept_fork :
+  sw:Switch.t ->
+  #listening_socket ->
+  on_error:(exn -> unit) ->
+  (stream_socket -> Sockaddr.stream -> unit) ->
+  unit
+(** [accept_fork socket fn] accepts a connection and handles it in a new fiber.
+
+    After accepting a connection to [socket], it runs [fn flow client_addr] in a new fiber.
+
+    [flow] will be closed automatically when [fn] returns, if not already closed by then. *)
 
 val accept_sub :
   sw:Switch.t ->
@@ -142,12 +154,7 @@ val accept_sub :
   on_error:(exn -> unit) ->
   (sw:Switch.t -> stream_socket -> Sockaddr.stream -> unit) ->
   unit
-(** [accept socket fn] accepts a connection and handles it in a new fiber.
-
-    After accepting a connection to [socket], it runs [fn ~sw flow client_addr] in a new fiber,
-    using {!Fiber.fork_on_accept}.
-
-    [flow] will be closed automatically when the sub-switch is finished, if not already closed by then. *)
+[@@deprecated "Use accept_fork instead"]
 
 (** {2 Datagram Sockets} *)
 

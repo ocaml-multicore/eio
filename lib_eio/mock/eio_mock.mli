@@ -95,6 +95,7 @@ module Flow : sig
     on_read : string Handler.t;
     on_copy_bytes : int Handler.t;
     set_copy_method : copy_method -> unit;
+    attach_to_switch : Eio.Switch.t -> unit;
   >
 
   val make : ?pp:string Fmt.t -> string -> t
@@ -124,7 +125,7 @@ module Net : sig
 
   type listening_socket = <
     Eio.Net.listening_socket;
-    on_accept : (Eio.Net.stream_socket * Eio.Net.Sockaddr.stream) Handler.t;
+    on_accept : (Flow.t * Eio.Net.Sockaddr.stream) Handler.t;
   >
 
   val make : string -> t
@@ -144,7 +145,7 @@ module Net : sig
 
   val on_accept :
     listening_socket ->
-    (#Eio.Net.stream_socket * Eio.Net.Sockaddr.stream) Handler.actions ->
+    (Flow.t * Eio.Net.Sockaddr.stream) Handler.actions ->
     unit
   (** [on_accept socket actions] configures how to respond when the server calls "accept". *)
 end

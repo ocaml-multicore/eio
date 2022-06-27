@@ -51,7 +51,7 @@ let on_datagram_socket (t:t) actions =
 
 type listening_socket = <
   Eio.Net.listening_socket;
-  on_accept : (Eio.Net.stream_socket * Eio.Net.Sockaddr.stream) Handler.t;
+  on_accept : (Flow.t * Eio.Net.Sockaddr.stream) Handler.t;
 >
 
 let listening_socket label =
@@ -63,14 +63,14 @@ let listening_socket label =
 
     method accept ~sw =
       let socket, addr = Handler.run on_accept in
-      Switch.on_release sw (fun () -> Eio.Flow.close socket);
+      Flow.attach_to_switch socket sw;
       traceln "%s: accepted connection from %a" label Eio.Net.Sockaddr.pp addr;
-      socket, addr
+      (socket :> Eio.Net.stream_socket), addr
 
     method close =
       traceln "%s: closed" label
   end
 
 let on_accept (l:listening_socket) actions =
-  let as_accept_pair x = (x :> Eio.Net.stream_socket * Eio.Net.Sockaddr.stream) in
+  let as_accept_pair x = (x :> Flow.t * Eio.Net.Sockaddr.stream) in
   Handler.seq l#on_accept (List.map (Action.map as_accept_pair) actions)

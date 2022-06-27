@@ -240,23 +240,6 @@ module Fiber : sig
                       If it raises in turn, the parent switch is failed.
                       It is not called if the parent [sw] itself is cancelled. *)
 
-  val fork_on_accept :
-    on_handler_error:(exn -> unit) ->
-    sw:Switch.t ->
-    (Switch.t -> 'a) ->
-    (Switch.t -> 'a -> unit) ->
-    unit
-  (** [fork_on_accept ~sw accept handle ~on_handler_error] creates a new sub-switch [t].
-      It runs [accept t] in the current fiber and, on success, runs [handle t result] in a new fiber.
-      It is useful for e.g. accepting network connections,
-      where we need to provide a switch for the new client socket before we have forked,
-      but then move it to a child fiber later.
-
-      If [accept] raises an exception then the effect is the same as [Switch.run accept].
-      If [handle] raises an exception, it is passed to [on_handler_error].
-      If that raises in turn, the parent switch is failed.
-      [on_handler_error] is not called if the parent [sw] is itself cancelled. *)
-
   val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.or_exn
   (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fiber and returns a promise for its result.
 

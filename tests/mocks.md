@@ -39,7 +39,7 @@ A simple test server:
 let echo_server ~net addr =
   Switch.run @@ fun sw ->
   let socket = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
-  Eio.Net.accept_sub socket ~sw (fun ~sw flow _addr -> Eio.Flow.copy flow flow)
+  Eio.Net.accept_fork socket ~sw (fun flow _addr -> Eio.Flow.copy flow flow)
     ~on_error:(traceln "Error handling connection: %a" Fmt.exn);;
 ```
 
