@@ -24,7 +24,8 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Performance](#performance)
 * [Networking](#networking)
 * [Design Note: Capabilities](#design-note-capabilities)
-* [Buffering and Parsing](#buffering-and-parsing)
+* [Buffered Reading and Parsing](#buffered-reading-and-parsing)
+* [Buffered Writing](#buffered-writing)
 * [Filesystem Access](#filesystem-access)
 * [Time](#time)
 * [Multicore Support](#multicore-support)
@@ -580,7 +581,7 @@ However, it still makes non-malicious code easier to understand and test
 and may allow for an extension to the language in the future.
 See [Emily][] for a previous attempt at this.
 
-## Buffering and Parsing
+## Buffered Reading and Parsing
 
 Reading from an Eio flow directly may give you more or less data than you wanted.
 For example, if you want to read a line of text from a TCP stream,
@@ -657,6 +658,53 @@ let message =
 +Alice sent "Hello!\n"
 - : unit = ()
 ```
+
+## Buffered Writing
+
+For performance, it's often useful to batch up writes and send them all in one go.
+For example, consider sending an HTTP response without buffering:
+
+```ocaml
+let send_response socket =
+  Eio.Flow.copy_string "200 OK\r\n" socket;
+  Eio.Flow.copy_string "\r\n" socket;
+  Fiber.yield ();       (* Simulate waiting for the body *)
+  Eio.Flow.copy_string "Body data" socket
+```
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  send_response (Eio_mock.Flow.make "socket");;
++socket: wrote "200 OK\r\n"
++socket: wrote "\r\n"
++socket: wrote "Body data"
+- : unit = ()
+```
+
+The socket received three writes, perhaps sending three separate packets over the network.
+We can wrap a flow with [Eio.Buf_write][] to avoid this:
+
+```ocaml
+module Write = Eio.Buf_write
+let send_response socket =
+  Write.with_flow socket @@ fun w ->
+  Write.string w "200 OK\r\n";
+  Write.string w "\r\n";
+  Fiber.yield ();       (* Simulate waiting for the body *)
+  Write.string w "Body data"
+```
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  send_response (Eio_mock.Flow.make "socket");;
++socket: wrote "200 OK\r\n"
++              "\r\n"
++socket: wrote "Body data"
+- : unit = ()
+```
+
+Now the first two writes were combined and sent together.
+
 
 ## Filesystem Access
 
@@ -1198,6 +1246,7 @@ Some background about the effects system can be found in:
 [Eio.Switch]: https://ocaml-multicore.github.io/eio/eio/Eio/Switch/index.html
 [Eio.Net]: https://ocaml-multicore.github.io/eio/eio/Eio/Net/index.html
 [Eio.Buf_read]: https://ocaml-multicore.github.io/eio/eio/Eio/Buf_read/index.html
+[Eio.Buf_write]: https://ocaml-multicore.github.io/eio/eio/Eio/Buf_write/index.html
 [Eio.Dir]: https://ocaml-multicore.github.io/eio/eio/Eio/Dir/index.html
 [Eio.Time]: https://ocaml-multicore.github.io/eio/eio/Eio/Time/index.html
 [Eio.Domain_manager]: https://ocaml-multicore.github.io/eio/eio/Eio/Domain_manager/index.html

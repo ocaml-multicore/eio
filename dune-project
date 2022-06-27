@@ -14,6 +14,7 @@
  (depends
   (ocaml (>= 4.12.0))
   base-domains
+  (bigstringaf (>= 0.9.0))
   (cstruct (>= 6.0.1))
   lwt-dllist
   (optint (>= 0.1.0))
