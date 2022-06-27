@@ -89,7 +89,7 @@ Copying from src using `Read_source_buffer`:
   Eio_mock.Flow.set_copy_method dst `Read_source_buffer;
   Eio_mock.Flow.on_copy_bytes dst [`Return 3; `Return 5];
   Eio.Flow.copy src dst;;
-+dst: wrote (rsb) "foo"
-+dst: wrote (rsb) "bar"
++dst: wrote (rsb) ["foo"]
++dst: wrote (rsb) ["bar"]
 - : unit = ()
 ```
