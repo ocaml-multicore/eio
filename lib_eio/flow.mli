@@ -47,9 +47,9 @@ val string_source : string -> source
 val cstruct_source : Cstruct.t list -> source
 (** [cstruct_source cs] is a source that gives the bytes of [cs]. *)
 
-type read_method += Read_source_buffer of ((Cstruct.t list -> unit) -> unit)
+type read_method += Read_source_buffer of ((Cstruct.t list -> int) -> unit)
 (** If a source offers [Read_source_buffer rsb] then the user can call [rsb fn]
-    to borrow a view of the source's buffers.
+    to borrow a view of the source's buffers. [fn] returns the number of bytes it consumed.
 
     [rsb] will raise [End_of_file] if no more data will be produced.
     If no data is currently available, [rsb] will wait for some to become available before calling [fn].

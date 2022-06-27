@@ -28,21 +28,22 @@ let pp_default f s =
   in
   aux 0
 
+let rec takev len = function
+  | [] -> []
+  | x :: _ when Cstruct.length x >= len -> [Cstruct.sub x 0 len]
+  | x :: xs -> x :: takev (len - Cstruct.length x) xs
+
 let make ?(pp=pp_default) label =
   let on_read = Handler.make (`Raise End_of_file) in
   let on_copy_bytes = Handler.make (`Return 4096) in
   let copy_method = ref `Read_into in
   (* Test optimised copying using Read_source_buffer *)
-  let rec copy_rsb_iovec = function
-    | [] -> ()
-    | src ->
-      let size = Handler.run on_copy_bytes in
-      let len = min (Cstruct.lenv src) size in
-      let dst = Cstruct.create len in
-      let n, src = Cstruct.fillv ~src ~dst in
-      assert (n = len);
-      traceln "%s: wrote (rsb) @[<v>%a@]" label pp (Cstruct.to_string dst);
-      copy_rsb_iovec src
+  let copy_rsb_iovec src =
+    let size = Handler.run on_copy_bytes in
+    let len = min (Cstruct.lenv src) size in
+    let bufs = takev len src in
+    traceln "%s: wrote (rsb) @[<v>%a@]" label (Fmt.Dump.list (Fmt.using Cstruct.to_string pp)) bufs;
+    len
   in
   let copy_rsb rsb =
     try while true do rsb copy_rsb_iovec done
