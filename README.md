@@ -463,7 +463,7 @@ Here is a server that listens on `socket` and handles a single connection by rea
 ```ocaml
 let run_server socket =
   Switch.run @@ fun sw ->
-  Eio.Net.accept_sub socket ~sw (fun ~sw flow _addr ->
+  Eio.Net.accept_fork socket ~sw (fun flow _addr ->
     traceln "Server accepted connection from client";
     let b = Buffer.create 100 in
     Eio.Flow.copy flow (Eio.Flow.buffer_sink b);
@@ -474,9 +474,9 @@ let run_server socket =
 
 Notes:
 
-- `accept_sub` handles the connection in a new fiber, with its own subswitch.
-- Normally, a server would call `accept_sub` in a loop to handle multiple connections.
-- When the child switch created by `accept_sub` finishes, `flow` is closed automatically.
+- `accept_fork` handles the connection in a new fiber.
+- Normally, a server would call `accept_fork` in a loop to handle multiple connections.
+- When the handler passed to `accept_fork` finishes, `flow` is closed automatically.
 
 This can also be tested on its own using a mock network:
 

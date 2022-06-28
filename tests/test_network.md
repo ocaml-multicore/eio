@@ -2,6 +2,7 @@
 
 ```ocaml
 # #require "eio_main";;
+# #require "eio.mock";;
 ```
 
 ```ocaml
@@ -41,7 +42,7 @@ A simple server:
 ```ocaml
 let run_server ~sw socket =
   while true do
-    Eio.Net.accept_sub socket ~sw (fun ~sw flow _addr ->
+    Eio.Net.accept_fork socket ~sw (fun flow _addr ->
       traceln "Server accepted connection from client";
       Fun.protect (fun () ->
         let msg = read_all flow in
@@ -110,7 +111,7 @@ Cancelling the read:
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   Fiber.both
     (fun () ->
-        Eio.Net.accept_sub server ~sw (fun ~sw flow _addr ->
+        Eio.Net.accept_fork server ~sw (fun flow _addr ->
           try
             Fiber.both
               (fun () -> raise (Promise.await shutdown))
@@ -143,7 +144,7 @@ Calling accept when the switch is already off:
 # run @@ fun ~net sw ->
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   Switch.fail sw (Failure "Simulated error");
-  Eio.Net.accept_sub server ~sw (fun ~sw:_ _flow _addr -> assert false)
+  Eio.Net.accept_fork server ~sw (fun _flow _addr -> assert false)
     ~on_error:raise;;
 Exception: Failure "Simulated error".
 ```
@@ -271,4 +272,59 @@ Wrapping a Unix FD as an Eio socket:
     );;
 +Got: "Hello"
 - : unit = ()
+```
+
+# Accept_fork error handling
+
+On success, we close the connection immediately:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let socket = Eio_mock.Net.listening_socket "tcp/80" in
+  let flow = Eio_mock.Flow.make "connection" in
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 1234) in
+  Eio_mock.Net.on_accept socket [`Return (flow, addr)];
+  Switch.run @@ fun sw ->
+  Eio.Net.accept_fork ~sw ~on_error:raise socket
+    (fun _flow _addr -> ());
+  traceln "Mock connection should have been closed by now";;
++tcp/80: accepted connection from tcp:127.0.0.1:1234
++connection: closed
++Mock connection should have been closed by now
+- : unit = ()
+```
+If the forked fiber fails, we close immediately:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let socket = Eio_mock.Net.listening_socket "tcp/80" in
+  let flow = Eio_mock.Flow.make "connection" in
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 1234) in
+  Eio_mock.Net.on_accept socket [`Return (flow, addr)];
+  Switch.run @@ fun sw ->
+  Eio.Net.accept_fork ~sw ~on_error:raise socket
+    (fun _flow _addr -> failwith "Simulated error");
+  traceln "Mock connection should have been closed by now";;
++tcp/80: accepted connection from tcp:127.0.0.1:1234
++connection: closed
++Mock connection should have been closed by now
+Exception: Failure "Simulated error".
+```
+If the fork itself fails, we still close the connection:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let socket = Eio_mock.Net.listening_socket "tcp/80" in
+  let flow = Eio_mock.Flow.make "connection" in
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 1234) in
+  Eio_mock.Net.on_accept socket [`Return (flow, addr)];
+  Switch.run @@ fun sw ->
+  Switch.fail sw (Failure "Simulated error");
+  Eio.Net.accept_fork ~sw ~on_error:raise socket
+    (fun _flow _addr -> assert false);
+  traceln "Mock connection should have been closed by now";;
++tcp/80: accepted connection from tcp:127.0.0.1:1234
++connection: closed
++Mock connection should have been closed by now
+Exception: Failure "Simulated error".
 ```

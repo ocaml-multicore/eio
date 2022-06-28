@@ -148,10 +148,22 @@ end
 
 let accept ~sw (t : #listening_socket) = t#accept ~sw
 
+let accept_fork ~sw (t : #listening_socket) ~on_error handle =
+  let child_started = ref false in
+  let flow, addr = accept ~sw t in
+  Fun.protect ~finally:(fun () -> if !child_started = false then Flow.close flow)
+    (fun () ->
+       Fiber.fork ~sw (fun () ->
+           match child_started := true; handle flow addr with
+           | x -> Flow.close flow; x
+           | exception ex ->
+             Flow.close flow;
+             on_error ex
+         )
+    )
+
 let accept_sub ~sw (t : #listening_socket) ~on_error handle =
-  let accept sw = t#accept ~sw in
-  let handle sw (flow, addr) = handle ~sw flow addr in
-  Fiber.fork_on_accept ~sw accept handle ~on_handler_error:on_error
+  accept_fork ~sw t ~on_error (fun flow addr -> Switch.run (fun sw -> handle ~sw flow addr))
 
 class virtual datagram_socket = object
   inherit socket
