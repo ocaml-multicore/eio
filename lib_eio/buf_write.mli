@@ -268,8 +268,8 @@ val create : sw:Switch.t -> int -> t
     when [len] is not large enough to support a write.
     When [sw] is finished, any pending flush operations immediately fail. *)
 
-val of_buffer : Cstruct.buffer -> t
-(** [of_buffer buf] creates a serializer, using [buf] as its internal
+val of_buffer : sw:Switch.t -> Cstruct.buffer -> t
+(** [of_buffer ~sw buf] creates a serializer, using [buf] as its internal
     buffer. The serializer takes ownership of [buf] until the serializer has
     been closed and flushed of all output. *)
 

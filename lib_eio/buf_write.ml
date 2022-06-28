@@ -167,19 +167,6 @@ type t =
   }
 (* Invariant: [write_pos >= scheduled_pos] *)
 
-let of_buffer buffer =
-  { buffer
-  ; write_pos       = 0
-  ; scheduled_pos   = 0
-  ; scheduled       = Buffers.create 4
-  ; flushed         = Flushes.create 1
-  ; bytes_received  = 0
-  ; bytes_written   = 0
-  ; state           = Active
-  ; wake_writer     = ignore
-  ; id              = Ctf.mint_id ()
-  }
-
 exception Released
 
 let writable_exn t =
@@ -381,10 +368,24 @@ let abort t =
   in
   aux ()
 
-let create ~sw size =
-  let t = of_buffer (Bigstringaf.create size) in
+let of_buffer ~sw buffer =
+  let t = { buffer
+          ; write_pos       = 0
+          ; scheduled_pos   = 0
+          ; scheduled       = Buffers.create 4
+          ; flushed         = Flushes.create 1
+          ; bytes_received  = 0
+          ; bytes_written   = 0
+          ; state           = Active
+          ; wake_writer     = ignore
+          ; id              = Ctf.mint_id ()
+          }
+  in
   Switch.on_release sw (fun () -> abort t);
   t
+
+let create ~sw size =
+  of_buffer ~sw (Bigstringaf.create size)
 
 let pending_bytes t =
   (t.write_pos - t.scheduled_pos) + (t.bytes_received - t.bytes_written)
