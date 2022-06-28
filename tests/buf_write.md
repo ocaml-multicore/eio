@@ -251,7 +251,8 @@ Cancelled while waiting for some data:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  let t = Write.create 100 in
+  Switch.run @@ fun sw ->
+  let t = Write.create ~sw 100 in
   Fiber.both
     (fun () -> ignore (Write.await_batch t); assert false)
     (fun () -> failwith "Simulated error");;
@@ -271,8 +272,8 @@ Exception: Failure "Simulated error".
 ## Serialize
 
 ```ocaml
-let foobar () =
-  let t = Write.create 100 in
+let foobar ~sw =
+  let t = Write.create ~sw 100 in
   Write.string t "foo";
   Write.cstruct t (Cstruct.of_string "bar");
   Write.close t;
@@ -281,7 +282,8 @@ let foobar () =
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  Write.serialize (foobar ()) @@ fun bufs ->
+  Switch.run @@ fun sw ->
+  Write.serialize (foobar ~sw) @@ fun bufs ->
   traceln "Write %a" Fmt.(Dump.list (using Cstruct.to_string Dump.string)) bufs;
   Ok (Cstruct.lenv bufs);;
 +Write ["foobar"]
@@ -290,7 +292,8 @@ let foobar () =
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  Write.serialize (foobar ()) @@ fun bufs ->
+  Switch.run @@ fun sw ->
+  Write.serialize (foobar ~sw) @@ fun bufs ->
   assert (bufs <> []);
   traceln "Write %a" Fmt.(Dump.list (using Cstruct.to_string Dump.string)) bufs;
   Error `Closed;;
@@ -299,12 +302,16 @@ let foobar () =
 ```
 
 ```ocaml
-# Write.serialize_to_string (foobar ());;
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Write.serialize_to_string (foobar ~sw);;
 - : string = "foobar"
 ```
 
 ```ocaml
-# Write.serialize_to_cstruct (foobar ()) |> Cstruct.to_string;;
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Write.serialize_to_cstruct (foobar ~sw) |> Cstruct.to_string;;
 - : string = "foobar"
 ```
 
@@ -335,4 +342,67 @@ But we don't flush if cancelled:
     )
     (fun () -> failwith "Simulated error");;
 Exception: Failure "Simulated error".
+```
+
+## Cleanup
+
+Ensure that we don't lose flushing fibers if the writer is aborted:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun main_sw ->
+  Switch.run (fun sw ->
+     let t = Write.create ~sw 100 in
+     Fiber.fork ~sw:main_sw
+       (fun () ->
+          Write.string t "foo";
+          try Write.flush t; assert false
+          with ex -> traceln "Flush failed: %a" Fmt.exn ex
+       );
+     traceln "Finishing writer switch"
+  );
+  Fiber.yield ();
+  traceln "Finishing main switch";;
++Finishing writer switch
++Flush failed: Eio__Buf_write.Released
++Finishing main switch
+- : unit = ()
+```
+
+And with `with_flow`:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Eio_mock.Flow.on_copy_bytes flow [`Raise (Failure "Simulated IO error")];
+  Switch.run @@ fun sw ->
+  Write.with_flow flow @@ fun t ->
+  Fiber.fork ~sw (fun () ->
+     Write.string t "foo";
+     try Write.flush t; assert false
+     with ex -> traceln "Flush failed: %a" Fmt.exn ex
+  );
+  traceln "with_flow returning; t will be closed";;
++with_flow returning; t will be closed
++Flush failed: Eio__Buf_write.Released
+Exception: Failure "Simulated IO error".
+```
+
+But the flush does succeed in the normal case:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Eio_mock.Flow.on_copy_bytes flow [`Yield_then (`Return 2); `Return 1];
+  Switch.run @@ fun sw ->
+  Write.with_flow flow @@ fun t ->
+  Fiber.fork ~sw (fun () ->
+     Write.string t "foo";
+     Write.flush t;
+     traceln "Flush succeeded"
+  );
+  traceln "with_flow returning; t should be closed but not aborted";;
++with_flow returning; t should be closed but not aborted
++flow: wrote "fo"
++flow: wrote "o"
++Flush succeeded
+- : unit = ()
 ```

@@ -141,9 +141,12 @@ module Buffers = Deque(struct
 end)
 
 module Flushes = Deque(struct
-  type t = int * (unit -> unit)
-  let sentinel = 0, fun () -> ()
-end)
+    type t = int * ((unit, exn) result Promise.u)
+    let sentinel =
+      let _, r = Promise.create () in
+      Promise.resolve_ok r ();
+      0, r
+  end)
 
 type state =
   | Active
@@ -177,8 +180,7 @@ let of_buffer buffer =
   ; id              = Ctf.mint_id ()
   }
 
-let create size =
-  of_buffer (Bigstringaf.create size)
+exception Released
 
 let writable_exn t =
   match t.state with
@@ -368,6 +370,22 @@ let is_closed t =
   | Closed -> true
   | Active | Paused -> false
 
+let abort t =
+  close t;
+  let rec aux () =
+    match Flushes.dequeue_exn t.flushed with
+    | exception Dequeue_empty -> ()
+    | (_threshold, r) ->
+      Promise.resolve_error r Released;
+      aux ()
+  in
+  aux ()
+
+let create ~sw size =
+  let t = of_buffer (Bigstringaf.create size) in
+  Switch.on_release sw (fun () -> abort t);
+  t
+
 let pending_bytes t =
   (t.write_pos - t.scheduled_pos) + (t.bytes_received - t.bytes_written)
 
@@ -392,8 +410,8 @@ let flush t =
   unpause t;
   if not (Buffers.is_empty t.scheduled) then (
     let p, r = Promise.create () in
-    Flushes.enqueue (t.bytes_received, Promise.resolve r) t.flushed;
-    Promise.await p
+    Flushes.enqueue (t.bytes_received, r) t.flushed;
+    Promise.await_exn p
   )
 
 let rec shift_buffers t written =
@@ -414,12 +432,12 @@ let rec shift_buffers t written =
 let rec shift_flushes t =
   match Flushes.dequeue_exn t.flushed with
   | exception Dequeue_empty -> ()
-  | (threshold, f) as flush ->
+  | (threshold, r) as flush ->
     (* Be careful: [bytes_written] and [threshold] both wrap, so subtract first. *)
     if t.bytes_written - threshold >= 0 then (
       (* We have written at least up to [threshold]
          (or we're more than [max_int] behind, which we assume won't happen). *)
-      f ();
+      Promise.resolve_ok r ();
       shift_flushes t
     ) else (
       Flushes.enqueue_front flush t.flushed
@@ -467,8 +485,8 @@ let as_flow t =
   end
 
 let with_flow ?(initial_size=0x1000) flow fn =
-  let t = create initial_size in
   Switch.run @@ fun sw ->
+  let t = create ~sw initial_size in
   Fiber.fork ~sw (fun () -> Flow.copy (as_flow t) flow);
   Fun.protect ~finally:(fun () -> close t) (fun () -> fn t)
 

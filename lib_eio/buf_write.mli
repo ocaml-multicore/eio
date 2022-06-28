@@ -262,10 +262,11 @@ val is_closed : t -> bool
 
     Low-level operations for running a serializer. *)
 
-val create : int -> t
-(** [create len] creates a serializer with a fixed-length internal buffer of
+val create : sw:Switch.t -> int -> t
+(** [create ~sw len] creates a serializer with a fixed-length internal buffer of
     length [len]. See the Buffered writes section for details about what happens
-    when [len] is not large enough to support a write. *)
+    when [len] is not large enough to support a write.
+    When [sw] is finished, any pending flush operations immediately fail. *)
 
 val of_buffer : Cstruct.buffer -> t
 (** [of_buffer buf] creates a serializer, using [buf] as its internal
