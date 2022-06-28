@@ -18,7 +18,6 @@ let src = Logs.Src.create "eio_linux" ~doc:"Effect-based IO system for Linux/io-
 module Log = (val Logs.src_log src : Logs.LOG)
 
 open Eio.Std
-module Effect = Eio.Private.Effect
 
 module Fiber_context = Eio.Private.Fiber_context
 module Ctf = Eio.Private.Ctf

@@ -18,8 +18,6 @@ module Private = struct
       | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) Effect.t
   end
 
-  module Effect = Effect
-
   let traceln_mutex = Mutex.create ()
 
   let default_traceln ?__POS__:pos fmt =

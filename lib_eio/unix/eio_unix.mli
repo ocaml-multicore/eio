@@ -48,8 +48,6 @@ val run_in_systhread : (unit -> 'a) -> 'a
 
 (** API for Eio backends only. *)
 module Private : sig
-  open Eio.Private
-
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
   (** See {!FD}. *)
 

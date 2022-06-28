@@ -10,7 +10,6 @@ doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "2.9"}
-  "base-domains"
   "eio" {= version}
   "luv" {>= "0.5.11"}
   "luv_unix" {>= "0.5.0"}

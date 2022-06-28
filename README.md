@@ -13,7 +13,9 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Motivation](#motivation)
 * [Current Status](#current-status)
 * [Structure of the Code](#structure-of-the-code)
-* [Getting Started](#getting-started)
+* [Getting OCaml 5.0](#getting-ocaml-50)
+* [Getting Eio](#getting-eio)
+* [Running Eio](#running-eio)
 * [Testing with Mocks](#testing-with-mocks)
 * [Fibers](#fibers)
 * [Tracing](#tracing)
@@ -66,8 +68,6 @@ and we hope that Eio will be that API.
 
 ## Current Status
 
-Eio can be used with OCaml 5.0.0+trunk or with 4.12.0+domains.
-
 Eio is able to run a web-server with [good performance][http-bench],
 but you are likely to encounter missing features while using it.
 If you'd like to help out, please try porting your program to use Eio and submit PRs or open issues when you find problems.
@@ -99,22 +99,22 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
   plus a low-level API that can be used directly (in non-portable code).
 - [Eio_main][] selects an appropriate backend (e.g. `eio_linux` or `eio_luv`), depending on your platform.
 
-## Getting Started
+## Getting OCaml 5.0
 
-You'll need a version of the OCaml compiler with effects.
-`5.0.0+trunk` often works but is a moving target, so we suggest using `4.12.0+domains` for now
-(however, this only supports x86_64 systems).
-You can get it like this:
+You'll need OCaml 5.0.0~alpha0 or later.
+You can either install it yourself or build the included [Dockerfile](./Dockerfile).
 
-```
-opam switch create 4.12.0+domains --repositories=multicore=git+https://github.com/ocaml-multicore/multicore-opam.git,default
-```
+To install it yourself:
 
-To use 5.0.0~alpha0 (which is needed on ARM), use this command instead:
+1. Make sure you have opam 2.1 or later (run `opam --version` to check).
 
-```
-opam switch create 5.0.0~alpha0 --repo=default,alpha=git+https://github.com/kit-ty-kate/opam-alpha-repository.git
-```
+2. Use opam to install OCaml 5.0.0~alpha0 or later:
+
+   ```
+   opam switch create 5.0.0~alpha0 --repo=default,alpha=git+https://github.com/kit-ty-kate/opam-alpha-repository.git
+   ```
+
+## Getting Eio
 
 If you want to run the latest development version from Git, run these commands
 (otherwise, skip them and you'll get the latest release from opam):
@@ -125,13 +125,13 @@ cd eio
 opam pin -yn .
 ```
 
-Finally, install this library (and `utop` if you want to try it interactively):
+Either way, install `eio_main` (and `utop` if you want to try it interactively):
 
 ```
-opam depext -i eio_main utop		# (for opam 2.0)
-opam install eio_main utop		# (for opam 2.1)
+opam install eio_main utop
 ```
-(Run `opam --version` if you're not sure which one you have installed.)
+
+## Running Eio
 
 Try out the examples interactively by running `utop` in the shell.
 

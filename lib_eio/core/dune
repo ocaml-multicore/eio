@@ -2,15 +2,3 @@
   (name eio__core)
   (public_name eio.core)
   (libraries cstruct lwt-dllist fmt))
-
-(rule
-  (target effect.ml)
-  (enabled_if (>= %{ocaml_version} "5.0"))
-  (action
-    (copy effect.new.ml effect.ml)))
-
-(rule
-  (target effect.ml)
-  (enabled_if (< %{ocaml_version} "5.0"))
-  (action
-    (copy effect.compat.ml effect.ml)))

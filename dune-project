@@ -12,8 +12,7 @@
  (synopsis "Effect-based direct-style IO API for OCaml")
  (description "An effect-based IO API for multicore OCaml with fibers.")
  (depends
-  (ocaml (>= 4.12.0))
-  base-domains
+  (ocaml (>= 5.0.0~alpha0))
   (bigstringaf (>= 0.9.0))
   (cstruct (>= 6.0.1))
   lwt-dllist
@@ -30,7 +29,6 @@
  (description "An eio implementation for Linux using io-uring.")
  (depends
   (alcotest (and (>= 1.4.0) :with-test))
-  base-domains
   (eio (= :version))
   (mdx (and (>= 1.10.0) :with-test))
   (logs (>= 0.7.0))
@@ -42,7 +40,6 @@
  (synopsis "Eio implementation using luv (libuv)")
  (description "An eio implementation for most platforms, using luv.")
  (depends
-  base-domains
   (eio (= :version))
   (luv (>= 0.5.11))
   (luv_unix (>= 0.5.0))

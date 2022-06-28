@@ -1,5 +1,4 @@
 module Fiber_context = Eio.Private.Fiber_context
-module Effect = Eio.Private.Effect    (* For compatibility with 4.12+domains *)
 module Lf_queue = Eio_utils.Lf_queue
 
 exception Deadlock_detected

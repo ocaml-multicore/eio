@@ -18,7 +18,6 @@ let src = Logs.Src.create "eio_luv" ~doc:"Eio backend using luv"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 open Eio.Std
-module Effect = Eio.Private.Effect
 
 module Ctf = Eio.Private.Ctf
 

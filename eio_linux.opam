@@ -11,7 +11,6 @@ bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "2.9"}
   "alcotest" {>= "1.4.0" & with-test}
-  "base-domains"
   "eio" {= version}
   "mdx" {>= "1.10.0" & with-test}
   "logs" {>= "0.7.0"}
