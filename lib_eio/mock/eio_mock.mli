@@ -119,8 +119,8 @@ module Net : sig
   type t = <
     Eio.Net.t;
     on_listen : Eio.Net.listening_socket Handler.t;
-    on_connect : Eio.Net.stream_socket Handler.t;
-    on_datagram_socket : Eio.Net.datagram_socket Handler.t;
+    on_connect : <Eio.Net.stream_socket; Eio.Flow.close> Handler.t;
+    on_datagram_socket : <Eio.Net.datagram_socket; Eio.Flow.close> Handler.t;
   >
 
   type listening_socket = <
@@ -131,13 +131,13 @@ module Net : sig
   val make : string -> t
   (** [make label] is a new mock network. *)
 
-  val on_connect : t -> #Eio.Net.stream_socket Handler.actions -> unit
+  val on_connect : t -> <Eio.Net.stream_socket; Eio.Flow.close; ..> Handler.actions -> unit
   (** [on_connect t actions] configures what to do when a client tries to connect somewhere. *)
 
   val on_listen : t -> #Eio.Net.listening_socket Handler.actions -> unit
   (** [on_listen t actions] configures what to do when a server starts listening for incoming connections. *)
 
-  val on_datagram_socket : t -> #Eio.Net.datagram_socket Handler.actions -> unit
+  val on_datagram_socket : t -> <Eio.Net.datagram_socket; Eio.Flow.close; ..> Handler.actions -> unit
   (** [on_datagram_socket t actions] configures how to create datagram sockets. *)
 
   val listening_socket : string -> listening_socket
