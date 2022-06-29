@@ -59,6 +59,7 @@ type event =
   | Semaphore
   | Switch
   | Stream
+  | Mutex
 
 type log_buffer = (char, int8_unsigned_elt, c_layout) Array1.t
 
@@ -85,6 +86,7 @@ let int_of_thread_type t =
   | Semaphore -> 16
   | Switch -> 17
   | Stream -> 18
+  | Mutex -> 19
 
 module Packet = struct
   let magic = 0xc1fc1fc1l

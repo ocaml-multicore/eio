@@ -614,24 +614,28 @@ module Low_level = struct
       res
     )
 
-  let rec writev ?file_offset fd bufs =
+  let writev_single ?file_offset fd bufs =
     let res = enter (enqueue_writev (file_offset, fd, bufs)) in
     Log.debug (fun l -> l "writev: woken up after write");
     if res < 0 then (
       raise (Unix.Unix_error (Uring.error_of_errno res, "writev", ""))
     ) else (
-      match Cstruct.shiftv bufs res with
-      | [] -> ()
-      | bufs ->
-        let file_offset =
-          let module I63 = Optint.Int63 in
-          match file_offset with
-          | None -> None
-          | Some ofs when ofs = I63.minus_one -> Some I63.minus_one
-          | Some ofs -> Some (I63.add ofs (I63.of_int res))
-        in
-        writev ?file_offset fd bufs
+      res
     )
+
+  let rec writev ?file_offset fd bufs =
+    let bytes_written = writev_single ?file_offset fd bufs in
+    match Cstruct.shiftv bufs bytes_written with
+    | [] -> ()
+    | bufs ->
+      let file_offset =
+        let module I63 = Optint.Int63 in
+        match file_offset with
+        | None -> None
+        | Some ofs when ofs = I63.minus_one -> Some I63.minus_one
+        | Some ofs -> Some (I63.add ofs (I63.of_int bytes_written))
+      in
+      writev ?file_offset fd bufs
 
   let await_readable fd =
     let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollin + pollerr))) in
@@ -858,7 +862,7 @@ let fast_copy_try_splice src dst =
 let copy_with_rsb rsb dst =
   try
     while true do
-      rsb (Low_level.writev dst)
+      rsb (Low_level.writev_single dst)
     done
   with End_of_file -> ()
 
@@ -887,6 +891,8 @@ let fallback_copy src dst =
 
 let udp_socket sock = object
   inherit Eio.Net.datagram_socket
+
+  method close = FD.close sock
 
   method send sockaddr buf = 
     let addr = match sockaddr with 
@@ -1283,7 +1289,7 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
               enqueue_at_head st k ();
               fork ~new_fiber f
             )
-          | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eio_utils.Trace.default_traceln)
+          | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eio.Private.default_traceln)
           | Eio_unix.Private.Await_readable fd -> Some (fun k ->
               match Fiber_context.get_error fiber with
               | Some e -> discontinue k e

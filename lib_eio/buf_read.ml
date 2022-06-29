@@ -11,6 +11,8 @@ type t = {
 
 type 'a parser = t -> 'a
 
+let return = Fun.const
+
 let map f x r = f (x r)
 
 let pair x y r =
@@ -25,6 +27,8 @@ module Syntax = struct
   let ( let* ) = bind
   let ( and* ) = pair
   let ( and+ ) = pair
+
+  let ( <*> ) = pair
 
   let ( <* ) a b t =
     let x = a t in
@@ -47,11 +51,24 @@ let of_flow ?initial_size ~max_size flow =
   let buf = Bigarray.(Array1.create char c_layout initial_size) in
   { buf; pos = 0; len = 0; flow = Some flow; max_size; consumed = 0 }
 
+let of_buffer buf =
+  let len = Bigarray.Array1.dim buf in
+  { buf; pos = 0; len; flow = None; max_size = max_int; consumed = 0 }
+
+let of_string s =
+  let len = String.length s in
+  let buf = Bigarray.(Array1.create char c_layout) len in
+  Cstruct.blit_from_string s 0 (Cstruct.of_bigarray buf) 0 len;
+  of_buffer buf
+
 let peek t =
   Cstruct.of_bigarray ~off:t.pos ~len:t.len t.buf
 
-let consume t n =
-  if n < 0 || n > t.len then Fmt.invalid_arg "Can't consume %d bytes of a %d byte buffer!" n t.len;
+let consume_err t n =
+  Fmt.invalid_arg "Can't consume %d bytes of a %d byte buffer!" n t.len
+
+let [@inline] consume t n =
+  if n < 0 || n > t.len then consume_err t n;
   t.pos <- t.pos + n;
   t.len <- t.len - n;
   t.consumed <- t.consumed + n
@@ -66,49 +83,50 @@ let consumed_bytes t = t.consumed
 
 let eof_seen t = t.flow = None
 
-let ensure t n =
+let ensure_slow_path t n =
   assert (n >= 0);
-  if t.len < n then (
-    if n > t.max_size then raise Buffer_limit_exceeded;
-    (* We don't have enough data yet, so we'll need to do a read. *)
-    match t.flow with
-    | None -> raise End_of_file
-    | Some flow ->
-      (* If the buffer is empty, we might as well use all of it: *)
-      if t.len = 0 then t.pos <- 0;
-      let () =
-        let cap = capacity t in
-        if n > cap then (
-          (* [n] bytes won't fit. We need to resize the buffer. *)
-          let new_size = max n (min t.max_size (cap * 2)) in
-          let new_buf = Bigarray.(Array1.create char c_layout new_size) in
-          Cstruct.blit
-            (peek t) 0
-            (Cstruct.of_bigarray new_buf) 0
-            t.len;
-          t.pos <- 0;
-          t.buf <- new_buf
-        ) else if t.pos + n > cap then (
-          (* [n] bytes will fit in the existing buffer, but we need to compact it first. *)
-          Cstruct.blit
-            (peek t) 0
-            (Cstruct.of_bigarray t.buf) 0
-            t.len;
-          t.pos <- 0
-        )
-      in
-      try
-        while t.len < n do
-          let free_space = Cstruct.of_bigarray t.buf ~off:(t.pos + t.len) in
-          assert (t.len + Cstruct.length free_space >= n);
-          let got = Flow.read flow free_space in
-          t.len <- t.len + got
-        done
-      with End_of_file ->
-        t.flow <- None;
-        raise End_of_file
-  );
-  assert (buffered_bytes t >= n)
+  if n > t.max_size then raise Buffer_limit_exceeded;
+  (* We don't have enough data yet, so we'll need to do a read. *)
+  match t.flow with
+  | None -> raise End_of_file
+  | Some flow ->
+    (* If the buffer is empty, we might as well use all of it: *)
+    if t.len = 0 then t.pos <- 0;
+    let () =
+      let cap = capacity t in
+      if n > cap then (
+        (* [n] bytes won't fit. We need to resize the buffer. *)
+        let new_size = max n (min t.max_size (cap * 2)) in
+        let new_buf = Bigarray.(Array1.create char c_layout new_size) in
+        Cstruct.blit
+          (peek t) 0
+          (Cstruct.of_bigarray new_buf) 0
+          t.len;
+        t.pos <- 0;
+        t.buf <- new_buf
+      ) else if t.pos + n > cap then (
+        (* [n] bytes will fit in the existing buffer, but we need to compact it first. *)
+        Cstruct.blit
+          (peek t) 0
+          (Cstruct.of_bigarray t.buf) 0
+          t.len;
+        t.pos <- 0
+      )
+    in
+    try
+      while t.len < n do
+        let free_space = Cstruct.of_bigarray t.buf ~off:(t.pos + t.len) in
+        assert (t.len + Cstruct.length free_space >= n);
+        let got = Flow.read flow free_space in
+        t.len <- t.len + got
+      done;
+      assert (buffered_bytes t >= n)
+    with End_of_file ->
+      t.flow <- None;
+      raise End_of_file
+
+let ensure t n =
+  if t.len < n then ensure_slow_path t n
 
 let as_flow t =
   object
@@ -280,6 +298,14 @@ let parse ?initial_size ~max_size p flow =
 
 let parse_exn ?initial_size ~max_size p flow =
   match parse ?initial_size ~max_size p flow with
+  | Ok x -> x
+  | Error (`Msg m) -> failwith m
+
+let parse_string p s =
+  format_errors (p <* end_of_input) (of_string s)
+
+let parse_string_exn p s =
+  match parse_string p s with
   | Ok x -> x
   | Error (`Msg m) -> failwith m
 

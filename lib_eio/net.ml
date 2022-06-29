@@ -131,20 +131,42 @@ module Sockaddr = struct
       Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
-class virtual listening_socket = object (_ : #Generic.t)
+class virtual socket = object (_ : #Generic.t)
   method probe _ = None
   method virtual close : unit
-  method virtual accept : sw:Switch.t -> <Flow.two_way; Flow.close> * Sockaddr.stream
+end
+
+class virtual stream_socket = object
+  inherit Flow.two_way
+  method virtual close : unit
+end
+
+class virtual listening_socket = object
+  inherit socket
+  method virtual accept : sw:Switch.t -> stream_socket * Sockaddr.stream
 end
 
 let accept ~sw (t : #listening_socket) = t#accept ~sw
 
+let accept_fork ~sw (t : #listening_socket) ~on_error handle =
+  let child_started = ref false in
+  let flow, addr = accept ~sw t in
+  Fun.protect ~finally:(fun () -> if !child_started = false then Flow.close flow)
+    (fun () ->
+       Fiber.fork ~sw (fun () ->
+           match child_started := true; handle flow addr with
+           | x -> Flow.close flow; x
+           | exception ex ->
+             Flow.close flow;
+             on_error ex
+         )
+    )
+
 let accept_sub ~sw (t : #listening_socket) ~on_error handle =
-  let accept sw = t#accept ~sw in
-  let handle sw (flow, addr) = handle ~sw flow addr in
-  Fiber.fork_on_accept ~sw accept handle ~on_handler_error:on_error
+  accept_fork ~sw t ~on_error (fun flow addr -> Switch.run (fun sw -> handle ~sw flow addr))
 
 class virtual datagram_socket = object
+  inherit socket
   method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
   method virtual recv : Cstruct.t -> Sockaddr.datagram * int
 end
@@ -154,7 +176,7 @@ let recv (t:#datagram_socket) = t#recv
 
 class virtual t = object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
-  method virtual connect : sw:Switch.t -> Sockaddr.stream -> <Flow.two_way; Flow.close>
+  method virtual connect : sw:Switch.t -> Sockaddr.stream -> stream_socket
   method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> datagram_socket
 end
 
@@ -162,3 +184,5 @@ let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#liste
 let connect ~sw (t:#t) = t#connect ~sw
 
 let datagram_socket ~sw (t:#t) = t#datagram_socket ~sw
+
+let close = Flow.close

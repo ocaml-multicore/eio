@@ -550,6 +550,8 @@ end
 let udp_socket endp = object
   inherit Eio.Net.datagram_socket
 
+  method close = Handle.close endp
+
   method send sockaddr bufs = Udp.send endp bufs sockaddr 
   method recv buf = 
     let buf = Cstruct.to_bigarray buf in
@@ -814,7 +816,7 @@ let rec run main =
             let k = { Suspended.k; fiber } in
             fn loop fiber (enqueue_thread st k))
         | Eio.Private.Effects.Trace ->
-          Some (fun k -> continue k Eio_utils.Trace.default_traceln)
+          Some (fun k -> continue k Eio.Private.default_traceln)
         | Eio.Private.Effects.Fork (new_fiber, f) ->
           Some (fun k -> 
               let k = { Suspended.k; fiber } in
