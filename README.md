@@ -1257,4 +1257,4 @@ Some background about the effects system can be found in:
 [Eio_main]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html
 [Eio.traceln]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html#val-traceln
 [Eio_main.run]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html#val-run
-[Eio_mock]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio/mock/eio_mock.mli
+[Eio_mock]: https://ocaml-multicore.github.io/eio/eio/Eio_mock/index.html
