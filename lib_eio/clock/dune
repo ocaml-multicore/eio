@@ -1,0 +1,17 @@
+(executable 
+ (name discover)
+ (modules discover)
+ (libraries dune-configurator))
+
+(rule
+ (targets config.h)
+ (action (run ./discover.exe)))
+
+(library
+ (name clock)
+ (package eio)
+ (modules clock)
+ (foreign_stubs 
+  (language c)
+  (names clock_stubs))
+  (libraries eio))

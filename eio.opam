@@ -9,8 +9,9 @@ homepage: "https://github.com/ocaml-multicore/eio"
 doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
-  "dune" {>= "2.9"}
+  "dune" {>= "3.3"}
   "ocaml" {>= "5.0.0~alpha0"}
+  "base-domains"
   "bigstringaf" {>= "0.9.0"}
   "cstruct" {>= "6.0.1"}
   "lwt-dllist"
@@ -32,12 +33,10 @@ build: [
     name
     "-j"
     jobs
-    "--promote-install-files=false"
     "@install"
     "@runtest" {with-test}
     "@doc" {with-doc}
   ]
-  ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
 pin-depends: [
