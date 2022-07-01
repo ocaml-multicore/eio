@@ -133,17 +133,16 @@ end
 
 class virtual socket = object (_ : #Generic.t)
   method probe _ = None
-  method virtual close : unit
 end
 
 class virtual stream_socket = object
   inherit Flow.two_way
-  method virtual close : unit
 end
 
 class virtual listening_socket = object
   inherit socket
-  method virtual accept : sw:Switch.t -> stream_socket * Sockaddr.stream
+  method virtual accept : sw:Switch.t -> <stream_socket; Flow.close> * Sockaddr.stream
+  method virtual close : unit
 end
 
 let accept ~sw (t : #listening_socket) = t#accept ~sw
@@ -154,7 +153,7 @@ let accept_fork ~sw (t : #listening_socket) ~on_error handle =
   Fun.protect ~finally:(fun () -> if !child_started = false then Flow.close flow)
     (fun () ->
        Fiber.fork ~sw (fun () ->
-           match child_started := true; handle flow addr with
+           match child_started := true; handle (flow :> stream_socket) addr with
            | x -> Flow.close flow; x
            | exception ex ->
              Flow.close flow;
@@ -176,8 +175,8 @@ let recv (t:#datagram_socket) = t#recv
 
 class virtual t = object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
-  method virtual connect : sw:Switch.t -> Sockaddr.stream -> stream_socket
-  method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> datagram_socket
+  method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
+  method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
 end
 
 let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw

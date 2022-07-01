@@ -81,7 +81,6 @@ end
 
 class virtual socket : object
   inherit Generic.t
-  method virtual close : unit
 end
 
 class virtual stream_socket : object
@@ -97,18 +96,19 @@ end
 
 class virtual listening_socket : object
   inherit socket
-  method virtual accept : sw:Switch.t -> stream_socket * Sockaddr.stream
+  method virtual accept : sw:Switch.t -> <stream_socket; Flow.close> * Sockaddr.stream
+  method virtual close : unit
 end
 
 class virtual t : object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
-  method virtual connect : sw:Switch.t -> Sockaddr.stream -> stream_socket
-  method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> datagram_socket
+  method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
+  method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
 end
 
 (** {2 Out-bound Connections} *)
 
-val connect : sw:Switch.t -> #t -> Sockaddr.stream -> stream_socket
+val connect : sw:Switch.t -> #t -> Sockaddr.stream -> <stream_socket; Flow.close>
 (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
     The new socket will be closed when [sw] finishes, unless closed manually first. *)
@@ -130,7 +130,7 @@ val listen : ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t 
 val accept :
   sw:Switch.t ->
   #listening_socket ->
-  stream_socket * Sockaddr.stream
+  <stream_socket; Flow.close> * Sockaddr.stream
 (** [accept ~sw socket] waits until a new connection is ready on [socket] and returns it.
 
     The new socket will be closed automatically when [sw] finishes, if not closed earlier.
@@ -146,7 +146,7 @@ val accept_fork :
 
     After accepting a connection to [socket], it runs [fn flow client_addr] in a new fiber.
 
-    [flow] will be closed automatically when [fn] returns, if not already closed by then. *)
+    [flow] will be closed when [fn] returns. *)
 
 val accept_sub :
   sw:Switch.t ->
@@ -158,19 +158,19 @@ val accept_sub :
 
 (** {2 Datagram Sockets} *)
 
-val datagram_socket : sw:Switch.t -> #t -> Sockaddr.datagram -> datagram_socket
+val datagram_socket : sw:Switch.t -> #t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
 (** [datagram_socket ~sw t addr] creates a new datagram socket that data can be sent to
     and received from. The new socket will be closed when [sw] finishes. *)
 
-val send : datagram_socket -> Sockaddr.datagram -> Cstruct.t -> unit
+val send : #datagram_socket -> Sockaddr.datagram -> Cstruct.t -> unit
 (** [send sock addr buf] sends the data in [buf] to the address [addr] using the 
     the datagram socket [sock]. *)
 
-val recv : datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
+val recv : #datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
 (** [recv sock buf] receives data from the socket [sock] putting it in [buf]. The number of bytes received is 
     returned along with the sender address and port. If the [buf] is too small then excess bytes may be discarded
     depending on the type of the socket the message is received from. *)
 
 (** {2 Closing} *)
-val close : #socket -> unit
+val close : <close: unit; ..> -> unit
 (** [close t] marks the socket as closed. It can no longer be used after this. *)

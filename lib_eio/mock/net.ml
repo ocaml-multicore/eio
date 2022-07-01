@@ -3,8 +3,8 @@ open Eio.Std
 type t = <
   Eio.Net.t;
   on_listen : Eio.Net.listening_socket Handler.t;
-  on_connect : Eio.Net.stream_socket Handler.t;
-  on_datagram_socket : Eio.Net.datagram_socket Handler.t;
+  on_connect : <Eio.Net.stream_socket; Eio.Flow.close> Handler.t;
+  on_datagram_socket : <Eio.Net.datagram_socket; Eio.Flow.close> Handler.t;
 >
 
 let make label =
@@ -38,15 +38,15 @@ let make label =
   end
 
 let on_connect (t:t) actions =
-  let as_socket x = (x :> Eio.Net.stream_socket) in
+  let as_socket x = (x :> <Eio.Net.stream_socket; Eio.Flow.close>) in
   Handler.seq t#on_connect (List.map (Action.map as_socket) actions)
 
 let on_listen (t:t) actions =
-  let as_socket x = (x :> Eio.Net.listening_socket) in
+  let as_socket x = (x :> <Eio.Net.listening_socket; Eio.Flow.close>) in
   Handler.seq t#on_listen (List.map (Action.map as_socket) actions)
 
 let on_datagram_socket (t:t) actions =
-  let as_socket x = (x :> Eio.Net.datagram_socket) in
+  let as_socket x = (x :> <Eio.Net.datagram_socket; Eio.Flow.close>) in
   Handler.seq t#on_datagram_socket (List.map (Action.map as_socket) actions)
 
 type listening_socket = <
@@ -65,7 +65,7 @@ let listening_socket label =
       let socket, addr = Handler.run on_accept in
       Flow.attach_to_switch socket sw;
       traceln "%s: accepted connection from %a" label Eio.Net.Sockaddr.pp addr;
-      (socket :> Eio.Net.stream_socket), addr
+      (socket :> <Eio.Net.stream_socket; Eio.Flow.close>), addr
 
     method close =
       traceln "%s: closed" label
