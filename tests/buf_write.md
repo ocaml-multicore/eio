@@ -239,9 +239,11 @@ Cancelled while waiting for the underlying flow to perform the write:
 # Eio_mock.Backend.run @@ fun () ->
   let flow = Eio_mock.Flow.make "flow" in
   Eio_mock.Flow.on_copy_bytes flow [`Run Fiber.await_cancel];
-  Write.with_flow flow @@ fun t ->
   Fiber.both
-    (fun () -> Write.string t "Hello"; traceln "Did write")
+    (fun () ->
+       Write.with_flow flow @@ fun t ->
+       Write.string t "Hello"; traceln "Did write"
+    )
     (fun () -> Fiber.yield (); failwith "Simulated error");;
 +Did write
 Exception: Failure "Simulated error".
@@ -321,10 +323,13 @@ We still flush the output on error:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
+  Eio_mock.Flow.on_copy_bytes flow [`Return 1; `Yield_then (`Return 1)];
   Write.with_flow flow @@ fun t ->
   Write.string t "foo";
   failwith "Simulated error";;
-+flow: wrote "foo"
++flow: wrote "f"
++flow: wrote "o"
++flow: wrote "o"
 Exception: Failure "Simulated error".
 ```
 
