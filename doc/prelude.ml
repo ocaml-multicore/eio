@@ -7,6 +7,7 @@ module Eio_main = struct
 
   let fake_clock real_clock = object (_ : #Eio.Time.clock)
     method now = !now
+    method now_ns = 1L (* Not using this so dummy val*)
     method sleep_until time =
       (* The fake times are all in the past, so we just ask to wait until the
          fake time is due and it will happen immediately. If we wait for

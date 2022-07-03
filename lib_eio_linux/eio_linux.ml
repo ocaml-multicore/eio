@@ -1054,7 +1054,8 @@ end
 let clock = object
   inherit Eio.Time.clock
 
-  method now = Unix.gettimeofday ()
+  method now = Clock.system_clock () |> Clock.ns_to_seconds
+  method now_ns = Clock.system_clock ()
   method sleep_until = Low_level.sleep_until
 end
 

@@ -141,8 +141,8 @@ CAMLprim value caml_eio_mono_clock(value unit)
 
 double caml_eio_ns_to_seconds_unboxed(value ns)
 {
-    double d = (double)Double_val(ns);
-    return (ns / NANOS_PER_SECOND);
+    double d = (double)Int64_val(ns);
+    return (d / NANOS_PER_SECOND);
 }
 
 CAMLprim value caml_eio_ns_to_seconds(value ns)
