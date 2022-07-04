@@ -30,12 +30,26 @@ Check sleep works:
   let t1 = clock#now in
   assert (t1 -. t0 >= 0.01);;
 - : unit = ()
+
+# run ~clock_type:`Mono @@ fun ~clock ->
+  let t0 = clock#now in
+  Eio.Time.sleep clock 0.01;
+  let t1 = clock#now in
+  assert (t1 -. t0 >= 0.01);;
+- : unit = ()
 ```
 
 Check sleep works with a switch:
 
 ```ocaml
 # run @@ fun ~clock ->
+  let t0 = clock#now in
+  Eio.Time.sleep clock 0.01;
+  let t1 = clock#now in
+  assert (t1 -. t0 >= 0.01);;
+- : unit = ()
+
+# run ~clock_type:`Mono @@ fun ~clock ->
   let t0 = clock#now in
   Eio.Time.sleep clock 0.01;
   let t1 = clock#now in
@@ -51,12 +65,25 @@ Cancelling sleep:
     (fun () -> Eio.Time.sleep clock 1200.; assert false)
     (fun () -> failwith "Simulated cancel");;
 Exception: Failure "Simulated cancel".
+
+# run ~clock_type:`Mono @@ fun ~clock ->
+  Fiber.both
+    (fun () -> Eio.Time.sleep clock 1200.; assert false)
+    (fun () -> failwith "Simulated cancel");;
+Exception: Failure "Simulated cancel".
 ```
 
 Switch is already off:
 
 ```ocaml
 # run @@ fun ~clock ->
+  Switch.run @@ fun sw ->
+  Switch.fail sw (Failure "Simulated failure");
+  Eio.Time.sleep clock 1200.0;
+  assert false;;
+Exception: Failure "Simulated failure".
+
+# run ~clock_type:`Mono @@ fun ~clock ->
   Switch.run @@ fun sw ->
   Switch.fail sw (Failure "Simulated failure");
   Eio.Time.sleep clock 1200.0;
@@ -76,12 +103,37 @@ Scheduling a timer that's already due:
 +Second fiber runs
 +Sleep done
 - : unit = ()
+
+# run ~clock_type:`Mono @@ fun ~clock ->
+  Switch.run @@ fun sw ->
+  Fiber.both
+    (fun () -> traceln "First fiber runs"; Eio.Time.sleep clock (-1.0); traceln "Sleep done")
+    (fun () -> traceln "Second fiber runs");;
++First fiber runs
++Second fiber runs
++Sleep done
+- : unit = ()
 ```
 
 Check ordering works:
 
 ```ocaml
 # run @@ fun ~clock ->
+  Switch.run @@ fun sw ->
+  Fiber.both
+    (fun () ->
+      Eio.Time.sleep clock 1200.0;
+      assert false
+    )
+    (fun () ->
+      Eio.Time.sleep clock 0.1;
+      traceln "Short timer finished";
+      failwith "Simulated cancel"
+    );;
++Short timer finished
+Exception: Failure "Simulated cancel".
+
+# run ~clock_type:`Mono @@ fun ~clock ->
   Switch.run @@ fun sw ->
   Fiber.both
     (fun () ->
@@ -118,6 +170,12 @@ let rec loop () =
 
 ```ocaml
 # run @@ fun ~clock ->
+  Fiber.first
+    loop
+    (fun () -> Eio.Time.sleep clock 0.1);;
+- : unit = ()
+
+# run ~clock_type:`Mono @@ fun ~clock ->
   Fiber.first
     loop
     (fun () -> Eio.Time.sleep clock 0.1);;
