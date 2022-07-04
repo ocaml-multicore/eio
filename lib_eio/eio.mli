@@ -214,7 +214,7 @@ module Stdenv : sig
 
   val mono_clock : <mono_clock : #Time.clock as 'a; ..> -> 'a
   (** [mono_clock t] is a monotonic clock. The clock begins at an undefined positive point 
-      and advances continuously - even during system sleep and hibernate. *)
+      and advances continuously - including during system sleep and hibernate. *)
   
   (** {1 Randomness} *)
 

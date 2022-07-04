@@ -1,10 +1,6 @@
 exception Timeout
 
-class virtual clock = object
-  method virtual now : float
-  method virtual now_ns : int64
-  method virtual sleep_until : float -> unit
-end
+class clock = Eio_clock.t
 
 let now (t : #clock) = t#now
 
