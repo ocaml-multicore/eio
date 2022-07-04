@@ -7,9 +7,15 @@
 ```ocaml
 open Eio.Std
 
-let run (fn : clock:Eio.Time.clock -> unit) =
+type clock_type = [`System | `Mono]
+
+let clock env = function
+  | `System -> Eio.Stdenv.sys_clock env
+  | `Mono -> Eio.Stdenv.mono_clock env 
+
+let run ?(clock_type = `System) (fn : clock:Eio.Time.clock -> unit) =
   Eio_main.run @@ fun env ->
-  let clock = Eio.Stdenv.sys_clock env in
+  let clock = clock env clock_type in
   fn ~clock
 ```
 
@@ -19,9 +25,9 @@ Check sleep works:
 
 ```ocaml
 # run @@ fun ~clock ->
-  let t0 = Unix.gettimeofday () in
+  let t0 = clock#now in
   Eio.Time.sleep clock 0.01;
-  let t1 = Unix.gettimeofday () in
+  let t1 = clock#now in
   assert (t1 -. t0 >= 0.01);;
 - : unit = ()
 ```
@@ -30,9 +36,9 @@ Check sleep works with a switch:
 
 ```ocaml
 # run @@ fun ~clock ->
-  let t0 = Unix.gettimeofday () in
+  let t0 = clock#now in
   Eio.Time.sleep clock 0.01;
-  let t1 = Unix.gettimeofday () in
+  let t1 = clock#now in
   assert (t1 -. t0 >= 0.01);;
 - : unit = ()
 ```

@@ -157,6 +157,7 @@ module Stdenv : sig
     net : Net.t;
     domain_mgr : Domain_manager.t;
     sys_clock : Time.clock; (** System clock *)
+    mono_clock : Time.clock; (** Monotonic clock *)
     fs : Dir.t;
     cwd : Dir.t;
     secure_random : Flow.source;
@@ -211,6 +212,10 @@ module Stdenv : sig
   val sys_clock : <sys_clock : #Time.clock as 'a; ..> -> 'a
   (** [sys_clock t] is the system clock. *)
 
+  val mono_clock : <mono_clock : #Time.clock as 'a; ..> -> 'a
+  (** [mono_clock t] is a monotonic clock. The clock begins at an undefined positive point 
+      and advances continuously - even during system sleep and hibernate. *)
+  
   (** {1 Randomness} *)
 
   val secure_random : <secure_random : #Flow.source as 'a; ..> -> 'a

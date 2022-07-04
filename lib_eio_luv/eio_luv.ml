@@ -639,6 +639,7 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   sys_clock : Eio.Time.clock;
+  mono_clock: Eio.Time.clock;
   fs : Eio.Dir.t;
   cwd : Eio.Dir.t;
   secure_random : Eio.Flow.source;
@@ -688,6 +689,14 @@ let sys_clock = object
   method now_ns = Clock.system_clock ()
   method sleep_until = sleep_until
 end
+
+let mono_clock = object
+  inherit Eio.Time.clock
+
+  method now = Clock.mono_clock () |> Clock.ns_to_seconds
+  method now_ns = Clock.mono_clock ()
+  method sleep_until = sleep_until
+end 
 
 (* Warning: libuv doesn't provide [openat], etc, and so there is probably no way to make this safe.
    We make a best-efforts attempt to enforce the sandboxing using realpath and [`NOFOLLOW].
@@ -781,6 +790,7 @@ let stdenv ~run_event_loop =
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
     method sys_clock = sys_clock
+    method mono_clock = mono_clock
     method fs = (fs :> Eio.Dir.t)
     method cwd = (cwd :> Eio.Dir.t)
     method secure_random = secure_random

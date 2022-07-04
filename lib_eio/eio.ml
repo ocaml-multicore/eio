@@ -38,6 +38,7 @@ module Stdenv = struct
     net : Net.t;
     domain_mgr : Domain_manager.t;
     sys_clock : Time.clock;
+    mono_clock : Time.clock;
     fs : Dir.t;
     cwd : Dir.t;
     secure_random : Flow.source;
@@ -49,6 +50,7 @@ module Stdenv = struct
   let net (t : <net : #Net.t; ..>) = t#net
   let domain_mgr (t : <domain_mgr : #Domain_manager.t; ..>) = t#domain_mgr
   let sys_clock (t : <sys_clock : #Time.clock; ..>) = t#sys_clock
+  let mono_clock (t : <mono_clock: #Time.clock; ..>) = t#mono_clock
   let secure_random (t: <secure_random : #Flow.source; ..>) = t#secure_random
   let fs (t : <fs : #Dir.t; ..>) = t#fs
   let cwd (t : <cwd : #Dir.t; ..>) = t#cwd
