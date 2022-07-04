@@ -24,16 +24,13 @@ module Eio_main = struct
     method run_raw fn = fn ()
   end
 
-  (* https://github.com/ocaml/ocaml/issues/10324 *)
-  let dontcrash = Sys.opaque_identity
-
   let run fn =
     Eio_main.run @@ fun env ->
     fn @@ object
-      method net        = dontcrash env#net
-      method stdin      = dontcrash env#stdin
-      method stdout     = dontcrash env#stdout
-      method cwd        = dontcrash env#cwd
+      method net        = env#net
+      method stdin      = env#stdin
+      method stdout     = env#stdout
+      method cwd        = env#cwd
       method domain_mgr = fake_domain_mgr
       method clock      = fake_clock env#clock
     end

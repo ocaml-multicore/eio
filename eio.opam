@@ -10,8 +10,7 @@ doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "2.9"}
-  "ocaml" {>= "4.12.0"}
-  "base-domains"
+  "ocaml" {>= "5.0.0~alpha0"}
   "bigstringaf" {>= "0.9.0"}
   "cstruct" {>= "6.0.1"}
   "lwt-dllist"
@@ -41,3 +40,6 @@ build: [
   ["dune" "install" "-p" name "--create-install-files" name]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
+pin-depends: [
+  ["odoc-parser.1.0.0.1~alpha-repo" "git+https://github.com/ocaml-doc/odoc-parser.git#d573aadbdefcfc1830676ed3ccd91c84774331c4"]
+]

@@ -16,3 +16,6 @@ bench:
 test_luv:
 	rm -rf _build
 	EIO_BACKEND=luv dune runtest
+
+docker:
+	docker build -t eio .

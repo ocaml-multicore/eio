@@ -1,0 +1,4 @@
+Dockerfile
+_build
+.git
+**/*.swp

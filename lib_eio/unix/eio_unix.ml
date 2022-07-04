@@ -1,5 +1,3 @@
-module Effect = Eio.Private.Effect
-
 module Private = struct
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
 

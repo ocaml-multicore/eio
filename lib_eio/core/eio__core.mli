@@ -455,9 +455,6 @@ module Private : sig
     (** [get_error t] is [Cancel.get_error (cancellation_context t)] *)
   end
 
-  (** Temporary hack for compatibility with ocaml.4.12+domains *)
-  module Effect = Effect
-
   module Effects : sig
     type 'a enqueue = ('a, exn) result -> unit
     (** A function provided by the scheduler to reschedule a previously-suspended thread. *)

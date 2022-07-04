@@ -1,6 +1,6 @@
 (** A suspended fiber with its context. *)
 
-open Eio.Private.Effect.Deep
+open Effect.Deep
 module Ctf = Eio.Private.Ctf
 
 type 'a t = {
