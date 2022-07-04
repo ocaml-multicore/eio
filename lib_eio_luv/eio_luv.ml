@@ -638,7 +638,7 @@ type stdenv = <
   stderr : sink;
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
-  clock : Eio.Time.clock;
+  sys_clock : Eio.Time.clock;
   fs : Eio.Dir.t;
   cwd : Eio.Dir.t;
   secure_random : Eio.Flow.source;
@@ -681,7 +681,7 @@ let domain_mgr ~run_event_loop = object (self)
       )
 end
 
-let clock = object
+let sys_clock = object
   inherit Eio.Time.clock
 
   method now = Clock.system_clock () |> Clock.ns_to_seconds
@@ -780,7 +780,7 @@ let stdenv ~run_event_loop =
     method stderr = Lazy.force stderr
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
-    method clock = clock
+    method sys_clock = sys_clock
     method fs = (fs :> Eio.Dir.t)
     method cwd = (cwd :> Eio.Dir.t)
     method secure_random = secure_random
@@ -851,7 +851,7 @@ let rec run main =
               let k = { Suspended.k; fiber } in
               Poll.await_writable st k fd
           )
-        | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
+        | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k sys_clock)
         | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
             try
               let fd = Low_level.Stream.of_unix fd in

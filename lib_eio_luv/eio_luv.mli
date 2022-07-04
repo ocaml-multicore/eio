@@ -111,7 +111,7 @@ type stdenv = <
   stderr : sink;
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
-  clock : Eio.Time.clock;
+  sys_clock : Eio.Time.clock;
   fs : Eio.Dir.t;
   cwd : Eio.Dir.t;
   secure_random : Eio.Flow.source;

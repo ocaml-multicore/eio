@@ -86,4 +86,4 @@ let () =
   Eio_main.run @@ fun env ->
   main
     ~domain_mgr:(Eio.Stdenv.domain_mgr env)
-    ~clock:(Eio.Stdenv.clock env)
+    ~clock:(Eio.Stdenv.sys_clock env)

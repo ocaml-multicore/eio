@@ -156,7 +156,7 @@ module Stdenv : sig
     stderr : Flow.sink;
     net : Net.t;
     domain_mgr : Domain_manager.t;
-    clock : Time.clock;
+    sys_clock : Time.clock; (** System clock *)
     fs : Dir.t;
     cwd : Dir.t;
     secure_random : Flow.source;
@@ -208,8 +208,8 @@ module Stdenv : sig
       To use this, see {!Time}.
   *)
 
-  val clock : <clock : #Time.clock as 'a; ..> -> 'a
-  (** [clock t] is the system clock. *)
+  val sys_clock : <sys_clock : #Time.clock as 'a; ..> -> 'a
+  (** [sys_clock t] is the system clock. *)
 
   (** {1 Randomness} *)
 

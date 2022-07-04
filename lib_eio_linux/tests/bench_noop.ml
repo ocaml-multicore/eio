@@ -29,4 +29,4 @@ let main ~clock =
 
 let () =
   Eio_linux.run @@ fun env ->
-  main ~clock:(Eio.Stdenv.clock env)
+  main ~clock:(Eio.Stdenv.sys_clock env)

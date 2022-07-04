@@ -813,7 +813,7 @@ The standard environment provides a [clock][Eio.Time] with the usual POSIX time:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
+  let clock = Eio.Stdenv.sys_clock env in
   traceln "The time is now %f" (Eio.Time.now clock);
   Eio.Time.sleep clock 1.0;
   traceln "The time is now %f" (Eio.Time.now clock);;

@@ -33,6 +33,6 @@ module Eio_main = struct
       method stdout     = env#stdout
       method cwd        = env#cwd
       method domain_mgr = fake_domain_mgr
-      method clock      = fake_clock env#clock
+      method sys_clock  = fake_clock env#sys_clock
     end
 end
