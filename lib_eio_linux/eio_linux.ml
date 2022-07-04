@@ -437,8 +437,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
   | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
     (* This is not a fair scheduler: timers always run before all other IO *)
-    let now = Unix.gettimeofday () in
-    match Zzz.pop ~now sleep_q with
+    match Zzz.pop sleep_q with
     | `Due k ->
       Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
       Suspended.continue k ()                   (* A sleeping task is now due *)
@@ -453,7 +452,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
         st.io_jobs <- st.io_jobs + num_jobs;
         let timeout =
           match next_due with
-          | `Wait_until time -> Some (time -. now)
+          | `Wait_until time -> Some time
           | `Nothing -> None
         in
         Log.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
@@ -566,9 +565,9 @@ module Low_level = struct
     Log.debug (fun l -> l "noop returned");
     if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
-  type _ Effect.t += Sleep_until : float -> unit Effect.t
-  let sleep_until d =
-    Effect.perform (Sleep_until d)
+  type _ Effect.t += Sleep_until : Eio_clock.t * float -> unit Effect.t
+  let sleep_until clock d =
+    Effect.perform (Sleep_until (clock,d))
 
   type _ Effect.t += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
 
@@ -1052,20 +1051,20 @@ let domain_mgr ~run_event_loop = object (self)
       )
 end
 
-let sys_clock = object
+let sys_clock = object(self)
   inherit Eio.Time.clock
 
   method now = Eio_clock.system_clock () |> Eio_clock.ns_to_seconds
   method now_ns = Eio_clock.system_clock ()
-  method sleep_until = Low_level.sleep_until
+  method sleep_until = Low_level.sleep_until self
 end
 
-let mono_clock = object
+let mono_clock = object(self)
   inherit Eio.Time.clock
 
   method now = Eio_clock.(mono_clock () |> ns_to_seconds)
   method now_ns = Eio_clock.mono_clock ()
-  method sleep_until = Low_level.sleep_until
+  method sleep_until = Low_level.sleep_until self
 end 
 
 class dir fd = object
@@ -1250,12 +1249,12 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
               enqueue_write st k args;
               schedule st
             )
-          | Low_level.Sleep_until time -> Some (fun k ->
+          | Low_level.Sleep_until (clock,time) -> Some (fun k ->
               let k = { Suspended.k; fiber } in
               match Fiber_context.get_error fiber with
               | Some ex -> Suspended.discontinue k ex
               | None ->
-                let job = Zzz.add sleep_q time k in
+                let job = Zzz.add sleep_q clock time k in
                 Fiber_context.set_cancel_fn fiber (fun ex ->
                     Zzz.remove sleep_q job;
                     enqueue_failed_thread st k ex

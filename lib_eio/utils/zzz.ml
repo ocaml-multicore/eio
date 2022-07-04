@@ -6,6 +6,7 @@ end
 module Job = struct
   type t = {
     time : float;
+    clock : Eio_clock.t;
     thread : unit Suspended.t;
   }
 
@@ -21,25 +22,28 @@ type t = {
 
 let create () = { sleep_queue = Q.empty; next_id = Optint.Int63.zero }
 
-let add t time thread =
+let add t clock time thread =
   let id = t.next_id in
   t.next_id <- Optint.Int63.succ t.next_id;
-  let sleeper = { Job.time; thread } in
+  let sleeper = { Job.time; clock; thread } in
   t.sleep_queue <- Q.add id sleeper t.sleep_queue;
   id
 
 let remove t id =
   t.sleep_queue <- Q.remove id t.sleep_queue
 
-let pop t ~now =
+let pop t =
   match Q.min t.sleep_queue with
-  | Some (_, { Job.time; thread }) when time <= now ->
-    if Eio.Private.Fiber_context.clear_cancel_fn thread.fiber then (
-      t.sleep_queue <- Option.get (Q.rest t.sleep_queue);
-      `Due thread
-    ) else (
-      (* This shouldn't happen, since any cancellation will happen in the same domain as the [pop]. *)
-      assert false
-    )
-  | Some (_, { Job.time; _ }) -> `Wait_until time
+  | Some (_, { Job.time; clock; thread }) ->
+    let now = clock#now in
+    if time <= now then 
+      if Eio.Private.Fiber_context.clear_cancel_fn thread.fiber then (
+        t.sleep_queue <- Option.get (Q.rest t.sleep_queue);
+        `Due thread
+      ) else (
+        (* This shouldn't happen, since any cancellation will happen in the same domain as the [pop]. *)
+        assert false
+      )
+    else 
+      `Wait_until (time -. now)
   | None -> `Nothing
