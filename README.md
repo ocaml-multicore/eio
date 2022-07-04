@@ -1,3 +1,5 @@
+[API reference](https://ocaml-multicore.github.io/eio/)
+
 # Eio -- Effects-Based Parallel IO for OCaml
 
 Eio provides an effects-based direct-style IO stack for OCaml 5.0.
@@ -39,7 +41,10 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Design Note: Determinism](#design-note-determinism)
 * [Provider Interfaces](#provider-interfaces)
 * [Example Applications](#example-applications)
-* [Porting from Lwt](#porting-from-lwt)
+* [Integrations](#integrations)
+  * [Async](#async)
+  * [Lwt](#lwt)
+  * [Unix and System Threads](#unix-and-system-threads)
 * [Further Reading](#further-reading)
 
 <!-- vim-markdown-toc -->
@@ -68,11 +73,6 @@ and we hope that Eio will be that API.
 
 ## Current Status
 
-Eio is able to run a web-server with [good performance][http-bench],
-but you are likely to encounter missing features while using it.
-If you'd like to help out, please try porting your program to use Eio and submit PRs or open issues when you find problems.
-Remember that you can always fall back to using Lwt libraries to provide missing features if necessary.
-
 Platform support:
 
 - Unix and macos: should be fully working using the libuv backend.
@@ -85,11 +85,14 @@ Feature status:
 
 - Concurrency primitives: Fibers, cancellation, promises, streams and semaphores are all working.
 - Multicore support: Working.
-- Networking: Clients and servers using TCP and Unix domain sockets work. UDP also works.
+- Networking: Clients and servers using TCP, UDP and Unix domain sockets work.
 - File-systems: Can create files and directories, load, save, parse, etc. Most other operations missing.
 - Spawning sub-processes: Not implemented yet.
 
 See [Awesome Multicore OCaml][] for links to work migrating other projects to Eio.
+
+If you'd like to help out, please try porting your program to use Eio and submit PRs or open issues when you find problems.
+Remember that you can always fall back to using Lwt libraries to provide missing features if necessary.
 
 ## Structure of the Code
 
@@ -686,6 +689,7 @@ We can wrap a flow with [Eio.Buf_write][] to avoid this:
 
 ```ocaml
 module Write = Eio.Buf_write
+
 let send_response socket =
   Write.with_flow socket @@ fun w ->
   Write.string w "200 OK\r\n";
@@ -1208,11 +1212,25 @@ See [Dynamic Dispatch](doc/rationale.md#dynamic-dispatch) for more discussion ab
 - [ocaml-multicore/retro-httpaf-bench](https://github.com/ocaml-multicore/retro-httpaf-bench) includes a simple HTTP server using Eio. It shows how to use Eio with `httpaf`, and how to use multiple domains for increased performance.
 - [Awesome Multicore OCaml][] lists many other projects.
 
-## Porting from Lwt
+## Integrations
+
+Eio can be used with several other IO libraries.
+
+### Async
+
+[Async_eio][] has experimental support for running Async and Eio code together in a single domain.
+
+### Lwt
 
 You can use [Lwt_eio][] to run Lwt threads and Eio fibers together in a single domain,
 and to convert between Lwt and Eio promises.
 This may be useful during the process of porting existing code to Eio.
+
+### Unix and System Threads
+
+The [Eio_unix][] module provides features for using Eio with OCaml's Unix module.
+In particular, `Eio_unix.run_in_systhread` can be used to run a blocking operation in a separate systhread,
+allowing it to be used within Eio without blocking the whole domain.
 
 ## Further Reading
 
@@ -1235,7 +1253,6 @@ Some background about the effects system can be found in:
 [typed effects]: https://www.janestreet.com/tech-talks/effective-programming/
 [capability-based security]: https://en.wikipedia.org/wiki/Object-capability_model
 [Emily]: https://www.hpl.hp.com/techreports/2006/HPL-2006-116.pdf
-[http-bench]: https://github.com/ocaml-multicore/retro-httpaf-bench
 [gemini-eio]: https://gitlab.com/talex5/gemini-eio
 [Awesome Multicore OCaml]: https://github.com/patricoferris/awesome-multicore-ocaml
 [Eio]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html
@@ -1258,3 +1275,5 @@ Some background about the effects system can be found in:
 [Eio.traceln]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html#val-traceln
 [Eio_main.run]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html#val-run
 [Eio_mock]: https://ocaml-multicore.github.io/eio/eio/Eio_mock/index.html
+[Eio_unix]: https://ocaml-multicore.github.io/eio/eio/Eio_unix/index.html
+[Async_eio]: https://github.com/talex5/async_eio
