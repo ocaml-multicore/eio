@@ -372,8 +372,8 @@ module Low_level = struct
         )
   end
 
-  let sleep_until due =
-    let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
+  let sleep_until clock due =
+    let delay = 1000. *. (due -. clock#now) |> ceil |> truncate |> max 0 in
     enter @@ fun st k ->
     let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in
     Fiber_context.set_cancel_fn k.fiber (fun ex ->
@@ -682,20 +682,20 @@ let domain_mgr ~run_event_loop = object (self)
       )
 end
 
-let sys_clock = object
+let sys_clock = object(self)
   inherit Eio.Time.clock
 
   method now = Eio_clock.system_clock () |> Eio_clock.ns_to_seconds
   method now_ns = Eio_clock.system_clock ()
-  method sleep_until = sleep_until
+  method sleep_until = sleep_until self
 end
 
-let mono_clock = object
+let mono_clock = object(self)
   inherit Eio.Time.clock
 
   method now = Eio_clock.mono_clock () |> Eio_clock.ns_to_seconds
   method now_ns = Eio_clock.mono_clock ()
-  method sleep_until = sleep_until
+  method sleep_until = sleep_until self
 end 
 
 (* Warning: libuv doesn't provide [openat], etc, and so there is probably no way to make this safe.
