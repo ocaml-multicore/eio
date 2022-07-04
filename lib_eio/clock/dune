@@ -8,10 +8,9 @@
  (action (run ./discover.exe)))
 
 (library
- (name clock)
+ (name eio_clock)
  (package eio)
- (modules clock)
+ (modules eio_clock)
  (foreign_stubs 
   (language c)
-  (names clock_stubs))
-  (libraries eio))
+  (names clock_stubs)))

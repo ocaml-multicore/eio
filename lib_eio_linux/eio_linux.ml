@@ -1055,16 +1055,16 @@ end
 let sys_clock = object
   inherit Eio.Time.clock
 
-  method now = Clock.system_clock () |> Clock.ns_to_seconds
-  method now_ns = Clock.system_clock ()
+  method now = Eio_clock.system_clock () |> Eio_clock.ns_to_seconds
+  method now_ns = Eio_clock.system_clock ()
   method sleep_until = Low_level.sleep_until
 end
 
 let mono_clock = object
   inherit Eio.Time.clock
 
-  method now = Clock.(mono_clock () |> ns_to_seconds)
-  method now_ns = Clock.mono_clock ()
+  method now = Eio_clock.(mono_clock () |> ns_to_seconds)
+  method now_ns = Eio_clock.mono_clock ()
   method sleep_until = Low_level.sleep_until
 end 
 
