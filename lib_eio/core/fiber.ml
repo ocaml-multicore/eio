@@ -33,6 +33,20 @@ let fork_promise ~sw f =
     );
   p
 
+(* This is not exposed. On failure it turns of [sw], but you need to make sure that
+   any fibers waiting on the promise will be cancelled. *)
+let fork_promise_exn ~sw f =
+  Switch.check_our_domain sw;
+  let new_fiber = Cancel.Fiber_context.make ~cc:sw.Switch.cancel in
+  let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
+  fork_raw new_fiber (fun () ->
+      match Switch.with_op sw f with
+      | x -> Promise.resolve r x
+      | exception ex ->
+        Switch.fail sw ex  (* The [with_op] ensures this will succeed *)
+    );
+  p
+
 let all xs =
   Switch.run @@ fun sw ->
   List.iter (fork ~sw) xs
@@ -124,3 +138,27 @@ let first f g = any [f; g]
 let check () =
   let ctx = Effect.perform Cancel.Get_context in
   Cancel.check ctx.cancel_context
+
+(* Some concurrent list operations *)
+
+let opt_cons x xs =
+  match x with
+  | None -> xs
+  | Some x -> x :: xs
+
+let filter_map fn = function
+  | [] -> []    (* Avoid creating a switch in the simple case *)
+  | items ->
+    Switch.run @@ fun sw ->
+    let rec aux = function
+      | [] -> []
+      | [x] -> Option.to_list (fn x)
+      | x :: xs ->
+        let x = fork_promise_exn ~sw (fun () -> fn x) in
+        let xs = aux xs in
+        opt_cons (Promise.await x) xs
+    in
+    aux items
+
+let map fn = filter_map (fun x -> Some (fn x))
+let filter fn = filter_map (fun x -> if fn x then Some x else None)
