@@ -33,7 +33,7 @@ let fork_promise ~sw f =
     );
   p
 
-(* This is not exposed. On failure it turns of [sw], but you need to make sure that
+(* This is not exposed. On failure it fails [sw], but you need to make sure that
    any fibers waiting on the promise will be cancelled. *)
 let fork_promise_exn ~sw f =
   Switch.check_our_domain sw;
@@ -146,19 +146,40 @@ let opt_cons x xs =
   | None -> xs
   | Some x -> x :: xs
 
-let filter_map fn = function
+let max_fibers_err n =
+  Fmt.failwith "max_fibers must be positive (got %d)" n
+
+let filter_map ?(max_fibers=max_int) fn items =
+  if max_fibers <= 0 then max_fibers_err max_fibers;
+  match items with
   | [] -> []    (* Avoid creating a switch in the simple case *)
   | items ->
     Switch.run @@ fun sw ->
+    let free_fibers = ref max_fibers in
+    let cond = Single_waiter.create () in
+    let await_free () =
+      if !free_fibers = 0 then Single_waiter.await cond sw.id;
+      assert (!free_fibers > 0);
+      decr free_fibers
+    in
+    let release () =
+      incr free_fibers;
+      if !free_fibers = 1 then Single_waiter.wake cond (Ok ())
+    in
     let rec aux = function
       | [] -> []
-      | [x] -> Option.to_list (fn x)
+      | [x] ->
+        await_free ();
+        let r = fn x in
+        release ();
+        Option.to_list r
       | x :: xs ->
-        let x = fork_promise_exn ~sw (fun () -> fn x) in
+        await_free ();
+        let x = fork_promise_exn ~sw (fun () -> let r = fn x in release (); r) in
         let xs = aux xs in
         opt_cons (Promise.await x) xs
     in
     aux items
 
-let map fn = filter_map (fun x -> Some (fn x))
-let filter fn = filter_map (fun x -> if fn x then Some x else None)
+let map ?max_fibers fn = filter_map ?max_fibers (fun x -> Some (fn x))
+let filter ?max_fibers fn = filter_map ?max_fibers (fun x -> if fn x then Some x else None)

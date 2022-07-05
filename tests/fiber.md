@@ -400,3 +400,56 @@ If any fiber raises, everything is cancelled:
 +Finished 2
 Exception: Failure "Simulated error".
 ```
+
+The number of concurrent fibers can be limited:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let ps = Array.init 4 (fun _ -> Promise.create ()) in
+  let await i = Promise.await (fst ps.(i)) in
+  let finish i = Promise.resolve (snd (ps.(i))) in
+  Fiber.both
+    (fun () ->
+       Fiber.map ~max_fibers:2 (process await) (List.init 4 Fun.id)
+       |> traceln "%a" Fmt.(Dump.list string)
+    )
+    (fun () ->
+       finish 1 "one";
+       Fiber.yield ();
+       finish 2 "two";
+       Fiber.yield (); Fiber.yield ();
+       finish 0 "zero";
+       Fiber.yield (); Fiber.yield ();
+       finish 3 "three";
+    );;
++Start 0
++Start 1
++Finished 1
++Start 2
++Finished 2
++Start 3
++Finished 0
++Finished 3
++[zero; one; two; three]
+- : unit = ()
+```
+
+Handling exceptions while waiting for a free fiber:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let ps = Array.init 2 (fun _ -> Promise.create ()) in
+  let await i = Promise.await_exn (fst ps.(i)) in
+  let finish i = Promise.resolve (snd (ps.(i))) in
+  Fiber.both
+    (fun () ->
+       Fiber.map ~max_fibers:1 (process await) (List.init 2 Fun.id)
+       |> traceln "%a" Fmt.(Dump.list string)
+    )
+    (fun () ->
+       Fiber.yield ();
+       finish 0 (Error (Failure "Simulated error"))
+    );;
++Start 0
+Exception: Failure "Simulated error".
+```

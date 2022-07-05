@@ -258,17 +258,20 @@ module Fiber : sig
 
   (** {2 Concurrent list operations} *)
 
-  val filter : ('a -> bool) -> 'a list -> 'a list
+  val filter : ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
   (** [filter f x] is like [List.filter f x] except that the invocations of [f] are
-      run concurrently in separate fibers. *)
+      run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
 
-  val map : ('a -> 'b) -> 'a list -> 'b list
+  val map : ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
   (** [map f x] is like [List.map f x] except that the invocations of [f] are
-      run concurrently in separate fibers. *)
+      run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
 
-  val filter_map : ('a -> 'b option) -> 'a list -> 'b list
+  val filter_map : ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
   (** [filter_map f x] is like [List.filter_map f x] except that the
-      invocations of [f] are run concurrently in separate fibers. *)
+      invocations of [f] are run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
 end
 
 (** @canonical Eio.Exn *)
