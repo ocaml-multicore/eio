@@ -69,7 +69,7 @@ module Switch : sig
   (** {2 Cleaning up resources}
 
       It is possible to attach clean-up hooks to a switch.
-      Once all fibres within the switch have finished, these hooks are called.
+      Once all fibers within the switch have finished, these hooks are called.
       For example, when a file is opened it will register a release hook to close it.
 
       Functions that create such resources will take a switch argument
@@ -255,6 +255,23 @@ module Fiber : sig
   (** [yield ()] asks the scheduler to switch to the next runnable task.
       The current task remains runnable, but goes to the back of the queue.
       Automatically calls {!check} just before resuming. *)
+
+  (** {2 Concurrent list operations} *)
+
+  val filter : ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
+  (** [filter f x] is like [List.filter f x] except that the invocations of [f] are
+      run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
+
+  val map : ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
+  (** [map f x] is like [List.map f x] except that the invocations of [f] are
+      run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
+
+  val filter_map : ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
+  (** [filter_map f x] is like [List.filter_map f x] except that the
+      invocations of [f] are run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
 end
 
 (** @canonical Eio.Exn *)
