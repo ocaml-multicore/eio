@@ -114,7 +114,10 @@ module Time : sig
   end
 
   val now : #clock -> float
-  (** [now t] is the current time according to [t]. *)
+  (** [now t] is the current time in fractional seconds according to [t]. *)
+
+  val now_ns : #clock -> int64
+  (** [now_ns t] is the current time in nano seconds according to [t]. *)
 
   val sleep_until : #clock -> float -> unit
   (** [sleep_until t time] waits until the given time is reached. *)

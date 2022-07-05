@@ -3,6 +3,7 @@ exception Timeout
 class clock = Eio_clock.t
 
 let now (t : #clock) = t#now
+let now_ns (t: #clock) = t#now_ns
 
 let sleep_until (t : #clock) time = t#sleep_until time
 
