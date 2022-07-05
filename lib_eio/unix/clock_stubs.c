@@ -6,10 +6,6 @@
 
 #include "config.h"
 
-#define OCAML_EIO_RAISE_SYS_ERROR(ERR)                               \
-  do { caml_raise_sys_error (caml_copy_string("eio.clock: " ERR)); } \
-  while (0)
-
 #define NANOS_PER_SECOND 1000000000
 
 /* Detect platform. */
@@ -45,10 +41,7 @@ int64_t caml_eio_mono_clock_unboxed(value unit) {
 int64_t caml_eio_system_clock_unboxed(value unit)
 {
     struct timeval tv; 
-
-    if(gettimeofday(&tv,(struct timezone *)NULL)) {
-        OCAML_EIO_RAISE_SYS_ERROR("gettimeofday() failed");
-    }
+    gettimeofday(&tv,(struct timezone *)NULL);
     return tv.tv_sec * NANOS_PER_SECOND + tv.tv_usec * 1000;
 }
 
@@ -63,10 +56,7 @@ int64_t caml_eio_mono_clock_unboxed(value unit)
 int64_t caml_eio_gettime(clockid_t id)
 {
     struct timespec ts;
-
-    if(clock_gettime(id, &ts)) {
-        OCAML_EIO_RAISE_SYS_ERROR("clock_gettime() failed");
-    }
+    clock_gettime(id, &ts);    
     return ts.tv_sec * NANOS_PER_SECOND + ts.tv_nsec;
 }
 
@@ -116,16 +106,6 @@ int64_t caml_eio_mono_clock_unboxed(value unit)
     }
     QueryPerformanceCounter(&time);
     return (int64_t)(time.QuadPart * perf_freq);
-}
-#else
-int64_t caml_eio_system_clock_unboxed(value unit)
-{
-    return caml_raise_sys_error (caml_copy_string("eio.clock: system_clock() not available"));
-}
-
-int64_t caml_eio_mono_clock_unboxed(value unit)
-{
-    return caml_raise_sys_error (caml_copy_string("eio.clock: mono_clock() not available"));
 }
 #endif
 
