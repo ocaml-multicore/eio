@@ -146,36 +146,55 @@ let opt_cons x xs =
   | None -> xs
   | Some x -> x :: xs
 
-let max_fibers_err n =
-  Fmt.failwith "max_fibers must be positive (got %d)" n
+module Limiter = struct
+  type t = {
+    mutable free_fibers : int;
+    cond : unit Single_waiter.t;
+    sw : Switch.t;
+  }
+
+  let max_fibers_err n =
+    Fmt.failwith "max_fibers must be positive (got %d)" n
+
+  let create ~sw max_fibers =
+    if max_fibers <= 0 then max_fibers_err max_fibers;
+    {
+      free_fibers = max_fibers;
+      cond = Single_waiter.create ();
+      sw;
+    }
+
+  let await_free t =
+    if t.free_fibers = 0 then Single_waiter.await t.cond t.sw.id;
+    assert (t.free_fibers > 0);
+    t.free_fibers <- t.free_fibers - 1
+
+  let release t =
+    t.free_fibers <- t.free_fibers + 1;
+    if t.free_fibers = 1 then Single_waiter.wake t.cond (Ok ())
+
+  let use t fn x =
+    await_free t;
+    let r = fn x in
+    release t;
+    r
+
+  let fork t fn x =
+    await_free t;
+    fork_promise_exn ~sw:t.sw (fun () -> let r = fn x in release t; r)
+end
 
 let filter_map ?(max_fibers=max_int) fn items =
-  if max_fibers <= 0 then max_fibers_err max_fibers;
   match items with
   | [] -> []    (* Avoid creating a switch in the simple case *)
   | items ->
     Switch.run @@ fun sw ->
-    let free_fibers = ref max_fibers in
-    let cond = Single_waiter.create () in
-    let await_free () =
-      if !free_fibers = 0 then Single_waiter.await cond sw.id;
-      assert (!free_fibers > 0);
-      decr free_fibers
-    in
-    let release () =
-      incr free_fibers;
-      if !free_fibers = 1 then Single_waiter.wake cond (Ok ())
-    in
+    let limiter = Limiter.create ~sw max_fibers in
     let rec aux = function
       | [] -> []
-      | [x] ->
-        await_free ();
-        let r = fn x in
-        release ();
-        Option.to_list r
+      | [x] -> Option.to_list (Limiter.use limiter fn x)
       | x :: xs ->
-        await_free ();
-        let x = fork_promise_exn ~sw (fun () -> let r = fn x in release (); r) in
+        let x = Limiter.fork limiter fn x in
         let xs = aux xs in
         opt_cons (Promise.await x) xs
     in

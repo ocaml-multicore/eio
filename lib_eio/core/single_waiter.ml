@@ -1,7 +1,7 @@
 (* A simplified version of [Waiters] that can only handle one waiter and is not thread-safe. *)
 
 type 'a t = {
-  mutable wake : 'a -> unit;
+  mutable wake : ('a, exn) result -> unit;
 }
 
 let create () = { wake = ignore }
