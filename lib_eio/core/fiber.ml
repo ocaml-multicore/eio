@@ -146,7 +146,26 @@ let opt_cons x xs =
   | None -> xs
   | Some x -> x :: xs
 
-module Limiter = struct
+module Limiter : sig
+  (** This is a bit like using a semaphore, but it assumes that there is only a
+      single fiber using it. e.g. you must not call {!use}, {!fork}, etc from
+      two different fibers. *)
+
+  type t
+
+  val create : sw:Switch.t -> int -> t
+  (** [create ~sw n] is a limiter that allows running up to [n] jobs at once. *)
+
+  val use : t -> ('a -> 'b) -> 'a -> 'b
+  (** [use t fn x] runs [fn x] in this fiber, counting it as one use of [t]. *)
+
+  val fork : t -> ('a -> unit) -> 'a -> unit
+  (** [fork t fn x] runs [fn x] in a new fibre, once a fiber is free. *)
+
+  val fork_promise_exn : t -> ('a -> 'b) -> 'a -> 'b Promise.t
+  (** [fork_promise_exn t fn x] runs [fn x] in a new fibre, once a fiber is free,
+      and returns a promise for the result. *)
+end = struct
   type t = {
     mutable free_fibers : int;
     cond : unit Single_waiter.t;
@@ -166,6 +185,8 @@ module Limiter = struct
 
   let await_free t =
     if t.free_fibers = 0 then Single_waiter.await t.cond t.sw.id;
+    (* If we got woken up then there was a free fiber then. And since we're the
+       only fiber that uses [t], and we were sleeping, it must still be free. *)
     assert (t.free_fibers > 0);
     t.free_fibers <- t.free_fibers - 1
 
@@ -179,9 +200,13 @@ module Limiter = struct
     release t;
     r
 
-  let fork t fn x =
+  let fork_promise_exn t fn x =
     await_free t;
     fork_promise_exn ~sw:t.sw (fun () -> let r = fn x in release t; r)
+
+  let fork t fn x =
+    await_free t;
+    fork ~sw:t.sw (fun () -> fn x; release t)
 end
 
 let filter_map ?(max_fibers=max_int) fn items =
@@ -194,7 +219,7 @@ let filter_map ?(max_fibers=max_int) fn items =
       | [] -> []
       | [x] -> Option.to_list (Limiter.use limiter fn x)
       | x :: xs ->
-        let x = Limiter.fork limiter fn x in
+        let x = Limiter.fork_promise_exn limiter fn x in
         let xs = aux xs in
         opt_cons (Promise.await x) xs
     in
@@ -202,3 +227,18 @@ let filter_map ?(max_fibers=max_int) fn items =
 
 let map ?max_fibers fn = filter_map ?max_fibers (fun x -> Some (fn x))
 let filter ?max_fibers fn = filter_map ?max_fibers (fun x -> if fn x then Some x else None)
+
+let iter ?(max_fibers=max_int) fn items =
+  match items with
+  | [] -> ()    (* Avoid creating a switch in the simple case *)
+  | items ->
+    Switch.run @@ fun sw ->
+    let limiter = Limiter.create ~sw max_fibers in
+    let rec aux = function
+      | [] -> ()
+      | [x] -> Limiter.use limiter fn x
+      | x :: xs ->
+        Limiter.fork limiter fn x;
+        aux xs
+    in
+    aux items
