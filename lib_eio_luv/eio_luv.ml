@@ -860,7 +860,7 @@ let rec run main =
               let k = { Suspended.k; fiber } in
               Poll.await_writable st k fd
           )
-        | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k sys_clock)
+        | Eio_unix.Private.Get_mono_clock -> Some (fun k -> continue k stdenv#mono_clock)
         | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
             try
               let fd = Low_level.Stream.of_unix fd in

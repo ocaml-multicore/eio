@@ -54,7 +54,7 @@ module Private : sig
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
-    | Get_system_clock : Eio.Time.clock Effect.t             (** See {!sleep} *)
+    | Get_mono_clock : Eio.Time.clock Effect.t             (** See {!sleep} *)
     | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr ->
         < Eio.Flow.two_way; Eio.Flow.close > Effect.t        (** See {!FD.as_socket} *)
 end
