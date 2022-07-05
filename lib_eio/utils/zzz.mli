@@ -11,7 +11,7 @@ type t
 val create : unit -> t
 (** [create ()] is a fresh empty queue. *)
 
-val add : t -> Eio_clock.t -> float -> unit Suspended.t -> Key.t
+val add : t -> float -> unit Suspended.t -> Key.t
 (** [add t clock time thread] adds a new event, due at [time], and returns its ID.
     You must use {!Eio.Private.Fiber_context.set_cancel_fn} on [thread] before
     calling {!pop}.

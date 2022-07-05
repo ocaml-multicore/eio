@@ -25,7 +25,7 @@ let () =
   let _ = read_exactly fd buf 5 in
   Logs.debug (fun l -> l "sleeping at %f" (Unix.gettimeofday ()));
   let now = Eio.Time.now stdenv#sys_clock in
-  sleep_until stdenv#sys_clock (now +. 1.0);
+  sleep_until (now +. 1.0);
   print_endline (Uring.Region.to_string ~len:5 buf);
   let _ = read_exactly fd ~file_offset:(Int63.of_int 3) buf 3 in
   print_endline (Uring.Region.to_string ~len:3 buf);

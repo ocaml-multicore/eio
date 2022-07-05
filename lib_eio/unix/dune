@@ -1,4 +1,17 @@
 (library
  (name eio_unix)
  (public_name eio.unix)
- (libraries eio unix threads mtime.clock.os))
+ (modules ctf_unix eio_unix)
+ (libraries eio unix threads mtime.clock.os)
+ (foreign_stubs 
+  (language c)
+  (names clock_stubs)))
+
+(executable 
+ (name discover)
+ (modules discover)
+ (libraries dune-configurator))
+
+(rule
+ (targets config.h)
+ (action (run ./discover.exe)))

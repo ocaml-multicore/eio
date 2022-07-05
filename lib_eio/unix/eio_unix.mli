@@ -60,3 +60,11 @@ module Private : sig
 end
 
 module Ctf = Ctf_unix
+
+(** Clock functions *)
+
+val system_clock: unit -> int64
+(** [system_clock ()] is the current system clock time in nanoseconds. *)
+
+val mono_clock: unit -> int64
+(** [mono_clock ()] is the current monotonic clock time in nanoseconds. *)

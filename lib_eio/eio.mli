@@ -108,7 +108,6 @@ end
 (** Clocks, time, sleeping and timeouts. *)
 module Time : sig
   class virtual clock : object
-    method virtual now : float
     method virtual now_ns : int64
     method virtual sleep_until : float -> unit
   end

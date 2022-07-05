@@ -111,7 +111,7 @@ module Low_level : sig
 
   (** {1 Time functions} *)
 
-  val sleep_until : Eio_clock.t -> float -> unit
+  val sleep_until : float -> unit
   (** [sleep_until time] blocks until the current time is [time]. *)
 
   (** {1 Fixed-buffer memory allocation functions}

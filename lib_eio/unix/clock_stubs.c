@@ -138,14 +138,3 @@ CAMLprim value caml_eio_mono_clock(value unit)
 {
     return caml_copy_int64(caml_eio_mono_clock_unboxed(unit));
 }
-
-double caml_eio_ns_to_seconds_unboxed(value ns)
-{
-    double d = (double)Int64_val(ns);
-    return (d / NANOS_PER_SECOND);
-}
-
-CAMLprim value caml_eio_ns_to_seconds(value ns)
-{
-    return caml_copy_double(caml_eio_ns_to_seconds_unboxed(ns));
-}

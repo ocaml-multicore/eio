@@ -565,9 +565,9 @@ module Low_level = struct
     Log.debug (fun l -> l "noop returned");
     if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
-  type _ Effect.t += Sleep_until : Eio_clock.t * float -> unit Effect.t
-  let sleep_until clock d =
-    Effect.perform (Sleep_until (clock,d))
+  type _ Effect.t += Sleep_until : float -> unit Effect.t
+  let sleep_until d =
+    Effect.perform (Sleep_until d)
 
   type _ Effect.t += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
 
@@ -1051,20 +1051,18 @@ let domain_mgr ~run_event_loop = object (self)
       )
 end
 
-let sys_clock = object(self)
+let sys_clock = object
   inherit Eio.Time.clock
 
-  method now = Eio_clock.system_clock () |> Eio_clock.ns_to_seconds
-  method now_ns = Eio_clock.system_clock ()
-  method sleep_until = Low_level.sleep_until self
+  method now_ns = Eio_unix.system_clock ()
+  method sleep_until = Low_level.sleep_until
 end
 
-let mono_clock = object(self)
+let mono_clock = object
   inherit Eio.Time.clock
 
-  method now = Eio_clock.(mono_clock () |> ns_to_seconds)
-  method now_ns = Eio_clock.mono_clock ()
-  method sleep_until = Low_level.sleep_until self
+  method now_ns = Eio_unix.mono_clock ()
+  method sleep_until = Low_level.sleep_until 
 end 
 
 class dir fd = object
@@ -1249,12 +1247,12 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
               enqueue_write st k args;
               schedule st
             )
-          | Low_level.Sleep_until (clock,time) -> Some (fun k ->
+          | Low_level.Sleep_until time -> Some (fun k ->
               let k = { Suspended.k; fiber } in
               match Fiber_context.get_error fiber with
               | Some ex -> Suspended.discontinue k ex
               | None ->
-                let job = Zzz.add sleep_q clock time k in
+                let job = Zzz.add sleep_q time k in
                 Fiber_context.set_cancel_fn fiber (fun ex ->
                     Zzz.remove sleep_q job;
                     enqueue_failed_thread st k ex
