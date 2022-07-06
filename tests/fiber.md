@@ -453,3 +453,34 @@ Handling exceptions while waiting for a free fiber:
 +Start 0
 Exception: Failure "Simulated error".
 ```
+
+Simple iteration:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let ps = Array.init 4 (fun _ -> Promise.create ()) in
+  let await i = Promise.await (fst ps.(i)) in
+  let finish i = Promise.resolve (snd (ps.(i))) () in
+  Fiber.both
+    (fun () ->
+       Fiber.iter ~max_fibers:2 (process await) (List.init 4 Fun.id)
+    )
+    (fun () ->
+       finish 1;
+       Fiber.yield ();
+       finish 2;
+       Fiber.yield (); Fiber.yield ();
+       finish 0;
+       Fiber.yield (); Fiber.yield ();
+       finish 3;
+    );;
++Start 0
++Start 1
++Finished 1
++Start 2
++Finished 2
++Start 3
++Finished 0
++Finished 3
+- : unit = ()
+```

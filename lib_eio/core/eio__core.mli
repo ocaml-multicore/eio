@@ -272,6 +272,11 @@ module Fiber : sig
   (** [filter_map f x] is like [List.filter_map f x] except that the
       invocations of [f] are run concurrently in separate fibers.
       @param max_fibers Maximum number of fibers to run concurrently *)
+
+  val iter : ?max_fibers:int -> ('a -> unit) -> 'a list -> unit
+  (** [iter f x] is like [List.iter f x] except that the invocations of [f] are
+      run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
 end
 
 (** @canonical Eio.Exn *)
