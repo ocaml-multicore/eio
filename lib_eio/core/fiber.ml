@@ -22,6 +22,24 @@ let fork ~sw f =
       Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
   ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
 
+let fork_daemon ~sw f =
+  Switch.check_our_domain sw;
+  if Cancel.is_on sw.cancel then (
+    let new_fiber = Cancel.Fiber_context.make ~cc:sw.cancel in
+    fork_raw new_fiber @@ fun () ->
+    Switch.with_daemon sw @@ fun () ->
+    match f () with
+    | `Stop_daemon ->
+      (* The daemon asked to stop. *)
+      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
+    | exception Cancel.Cancelled Exit when not (Cancel.is_on sw.cancel) ->
+      (* The daemon was cancelled because all non-daemon fibers are finished. *)
+      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
+    | exception ex ->
+      Switch.fail sw ex;  (* The [with_daemon] ensures this will succeed *)
+      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
+  ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
+
 let fork_promise ~sw f =
   Switch.check_our_domain sw;
   let new_fiber = Cancel.Fiber_context.make ~cc:sw.Switch.cancel in

@@ -1,6 +1,7 @@
 type t = {
   id : Ctf.id;
-  mutable fibers : int;
+  mutable fibers : int;         (* Total, including daemon_fibers and the main function *)
+  mutable daemon_fibers : int;
   mutable exs : (exn * Printexc.raw_backtrace) option;
   on_release : (unit -> unit) Lwt_dllist.t;
   waiter : unit Waiters.t;              (* The main [top]/[sub] function may wait here for fibers to finish. *)
@@ -62,6 +63,8 @@ let inc_fibers t =
 
 let dec_fibers t =
   t.fibers <- t.fibers - 1;
+  if t.daemon_fibers > 0 && t.fibers = t.daemon_fibers then
+    Cancel.cancel t.cancel Exit;
   if t.fibers = 0 then
     Waiters.wake_all t.waiter ()
 
@@ -69,6 +72,15 @@ let with_op t fn =
   inc_fibers t;
   Fun.protect fn
     ~finally:(fun () -> dec_fibers t)
+
+let with_daemon t fn =
+  inc_fibers t;
+  t.daemon_fibers <- t.daemon_fibers + 1;
+  Fun.protect fn
+    ~finally:(fun () ->
+        t.daemon_fibers <- t.daemon_fibers - 1;
+        dec_fibers t
+      )
 
 let or_raise = function
   | Ok x -> x
@@ -108,7 +120,8 @@ let create cancel =
   Ctf.note_created id Ctf.Switch;
   {
     id;
-    fibers = 0;
+    fibers = 1;         (* The main function counts as a fiber *)
+    daemon_fibers = 0;
     exs = None;
     waiter = Waiters.create ();
     on_release = Lwt_dllist.create ();
@@ -118,6 +131,7 @@ let create cancel =
 let run_internal t fn =
   match fn t with
   | v ->
+    dec_fibers t;
     await_idle t;
     Ctf.note_read t.id;
     maybe_raise_exs t;        (* Check for failure while finishing *)
@@ -126,6 +140,7 @@ let run_internal t fn =
   | exception ex ->
     (* Main function failed.
        Turn the switch off to cancel any running fibers, if it's not off already. *)
+    dec_fibers t;
     fail t ex;
     await_idle t;
     Ctf.note_read t.id;

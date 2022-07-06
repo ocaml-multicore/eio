@@ -246,6 +246,15 @@ module Fiber : sig
       This is just a convenience wrapper around {!fork}.
       If [fn] raises an exception then the promise is resolved to the error, but [sw] is not failed. *)
 
+  val fork_daemon : sw:Switch.t -> (unit -> [`Stop_daemon]) -> unit
+  (** [fork_daemon] is like {!fork} except that instead of waiting for the fiber to finish,
+      the switch will cancel it once all non-daemon fibers are done.
+
+      The switch will still wait for the daemon fiber to finish cancelling.
+
+      The return type of [[`Stop_daemon]] instead of [unit] is just to catch mistakes,
+      as daemons normally aren't expected to return. *)
+
   val check : unit -> unit
   (** [check ()] checks that the fiber's context hasn't been cancelled.
       Many operations automatically check this before starting.

@@ -484,3 +484,94 @@ Simple iteration:
 +Finished 3
 - : unit = ()
 ```
+
+# Daemon fibers
+
+A daemon fiber runs until the non-daemon threads finish:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fiber.fork_daemon ~sw (fun () ->
+    for i = 1 to 10 do
+      traceln "Daemon running";
+      Fiber.yield ()
+    done;
+    failwith "Test failed"
+  );
+  traceln "Main running 1";
+  Fiber.yield ();
+  traceln "Main running 2";;
++Daemon running
++Main running 1
++Daemon running
++Main running 2
+- : unit = ()
+```
+
+A more complex example with multiple daemon and non-daemon fibers:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fiber.fork ~sw (fun () ->
+    traceln "Worker 1 starting";
+    Fiber.yield ();
+    traceln "Worker 1 running";
+    Fiber.yield ();
+    traceln "Worker 1 finished"
+  );
+  Fiber.fork ~sw (fun () ->
+    traceln "Worker 2 starting";
+    Fiber.yield ();
+    traceln "Worker 2 finished"
+  );
+  Fiber.fork_daemon ~sw (fun () ->
+    try
+      for i = 1 to 10 do
+        traceln "Daemon 1 running";
+        Fiber.yield ()
+      done;
+      failwith "Test failed"
+    with Eio.Cancel.Cancelled _ as ex ->
+      traceln "Daemon cancelled; trying to spawn more fibers";
+      Fiber.fork_daemon ~sw (fun () -> failwith "Shouldn't start");
+      Fiber.fork ~sw (fun () -> failwith "Shouldn't start");
+      raise ex
+  );
+  Fiber.fork_daemon ~sw (fun () ->
+    traceln "Daemon 2 running";
+    Fiber.yield ();
+    traceln "Daemon 2 finished";
+    `Stop_daemon
+  );
+  traceln "Main running";
+  Fiber.yield ();
+  traceln "Main finished";;
++Worker 1 starting
++Worker 2 starting
++Daemon 1 running
++Daemon 2 running
++Main running
++Worker 1 running
++Worker 2 finished
++Daemon 1 running
++Daemon 2 finished
++Main finished
++Worker 1 finished
++Daemon cancelled; trying to spawn more fibers
+- : unit = ()
+```
+
+Failing daemon fibers still get their errors reported:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fiber.fork_daemon ~sw (fun () ->
+     Fiber.yield ();
+     failwith "Simulated error"
+  );
+  Fiber.yield ();;
+Exception: Failure "Simulated error".
+```
