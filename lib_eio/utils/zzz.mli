@@ -8,7 +8,7 @@ end
 type t
 (** A set of timers (implemented as a priority queue). *)
 
-val create : unit -> t
+val create : Eio.Time.clock -> t
 (** [create ()] is a fresh empty queue. *)
 
 val add : t -> float -> unit Suspended.t -> Key.t

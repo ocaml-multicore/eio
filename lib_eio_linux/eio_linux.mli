@@ -106,13 +106,15 @@ val run :
 
 (** Low-level API for using uring directly. *)
 module Low_level : sig
+  type clock_type = [`Sys |`Mono]
+
   val noop : unit -> unit
   (** [noop ()] performs a uring noop. This is only useful for benchmarking. *)
 
   (** {1 Time functions} *)
 
-  val sleep_until : float -> unit
-  (** [sleep_until time] blocks until the current time is [time]. *)
+  val sleep_until : clock_type -> float -> unit
+  (** [sleep_until clock_type time] blocks until the current time is [time]. *)
 
   (** {1 Fixed-buffer memory allocation functions}
 

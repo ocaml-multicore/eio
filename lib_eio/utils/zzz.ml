@@ -15,11 +15,12 @@ end
 module Q = Psq.Make(Key)(Job)
 
 type t = {
+  clock : Eio.Time.clock; 
   mutable sleep_queue: Q.t;
   mutable next_id : Optint.Int63.t;
 }
 
-let create () = { sleep_queue = Q.empty; next_id = Optint.Int63.zero }
+let create clock = { clock; sleep_queue = Q.empty; next_id = Optint.Int63.zero }
 
 let add t time thread =
   let id = t.next_id in
@@ -32,17 +33,15 @@ let remove t id =
   t.sleep_queue <- Q.remove id t.sleep_queue
 
 let pop t =
+  let now = Eio.Time.now t.clock in
   match Q.min t.sleep_queue with
-  | Some (_, { Job.time; thread }) ->
-    let now = 0. in
-    if time <= now then 
-      if Eio.Private.Fiber_context.clear_cancel_fn thread.fiber then (
-        t.sleep_queue <- Option.get (Q.rest t.sleep_queue);
-        `Due thread
-      ) else (
-        (* This shouldn't happen, since any cancellation will happen in the same domain as the [pop]. *)
-        assert false
-      )
-    else 
-      `Wait_until (time -. now)
+  | Some (_, { Job.time; thread }) when time <= now ->
+    if Eio.Private.Fiber_context.clear_cancel_fn thread.fiber then (
+      t.sleep_queue <- Option.get (Q.rest t.sleep_queue);
+      `Due thread
+    ) else (
+      (* This shouldn't happen, since any cancellation will happen in the same domain as the [pop]. *)
+      assert false
+    )
+  | Some (_, {Job.time; _}) -> `Wait_until (time -. now)
   | None -> `Nothing

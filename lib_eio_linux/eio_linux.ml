@@ -153,7 +153,8 @@ type t = {
      - By the sending thread because it will signal the main thread later *)
   need_wakeup : bool Atomic.t;
 
-  sleep_q: Zzz.t;
+  sys_sleep_q: Zzz.t;   (* System clock based sleep q *)
+  mono_sleep_q: Zzz.t;  (* Monotonic clock based sleep q *)
   mutable io_jobs: int;
 }
 
@@ -428,7 +429,7 @@ let submit_pending_io st =
 (* Switch control to the next ready continuation.
    If none is ready, wait until we get an event to wake one and then switch.
    Returns only if there is nothing to do and no queued operations. *)
-let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
+let rec schedule ({run_q; sys_sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* This is not a fair scheduler *)
   (* Wakeup any paused fibers *)
   match Lf_queue.pop run_q with
@@ -437,7 +438,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
   | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
     (* This is not a fair scheduler: timers always run before all other IO *)
-    match Zzz.pop sleep_q with
+    match Zzz.pop sys_sleep_q with
     | `Due k ->
       Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
       Suspended.continue k ()                   (* A sleeping task is now due *)
@@ -565,9 +566,11 @@ module Low_level = struct
     Log.debug (fun l -> l "noop returned");
     if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
-  type _ Effect.t += Sleep_until : float -> unit Effect.t
-  let sleep_until d =
-    Effect.perform (Sleep_until d)
+  type clock_type = [`Mono | `Sys]
+  type _ Effect.t += Sleep_until : clock_type * float -> unit Effect.t
+
+  let sleep_until clock_type d =
+    Effect.perform (Sleep_until (clock_type, d))
 
   type _ Effect.t += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
 
@@ -1055,14 +1058,14 @@ let sys_clock = object
   inherit Eio.Time.clock
 
   method now_ns = Eio_unix.system_clock ()
-  method sleep_until = Low_level.sleep_until
+  method sleep_until = Low_level.sleep_until `Sys
 end
 
 let mono_clock = object
   inherit Eio.Time.clock
 
   method now_ns = Eio_unix.mono_clock ()
-  method sleep_until = Low_level.sleep_until 
+  method sleep_until = Low_level.sleep_until `Mono
 end 
 
 class dir fd = object
@@ -1203,11 +1206,14 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
   let run_q = Lf_queue.create () in
   Lf_queue.push run_q IO;
   let eventfd_mutex = Mutex.create () in
-  let sleep_q = Zzz.create () in
+  let sys_sleep_q = Zzz.create stdenv#sys_clock in
+  let mono_sleep_q = Zzz.create stdenv#mono_clock in
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
   let eventfd = FD.placeholder ~seekable:false ~close_unix:false in
-  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; io_jobs = 0 } in
+  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; 
+             sys_sleep_q; mono_sleep_q; io_jobs = 0 } 
+  in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
@@ -1247,11 +1253,16 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
               enqueue_write st k args;
               schedule st
             )
-          | Low_level.Sleep_until time -> Some (fun k ->
+          | Low_level.Sleep_until (clock_type, time) -> Some (fun k ->
               let k = { Suspended.k; fiber } in
               match Fiber_context.get_error fiber with
               | Some ex -> Suspended.discontinue k ex
               | None ->
+                let sleep_q = 
+                  match clock_type with 
+                  | `Mono -> mono_sleep_q
+                  | `Sys -> sys_sleep_q
+                in
                 let job = Zzz.add sleep_q time k in
                 Fiber_context.set_cancel_fn fiber (fun ex ->
                     Zzz.remove sleep_q job;
