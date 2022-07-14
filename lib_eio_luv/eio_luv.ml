@@ -372,19 +372,19 @@ module Low_level = struct
         )
   end
 
-  let sleep_until due =
-    let now = 0. in
-    let delay = 1000. *. (due -. now) |> ceil |> truncate |> max 0 in
-    enter @@ fun st k ->
-    let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in
-    Fiber_context.set_cancel_fn k.fiber (fun ex ->
-        Luv.Timer.stop timer |> or_raise;
-        Luv.Handle.close timer (fun () -> ());
-        enqueue_failed_thread st k ex
-      );
-    Luv.Timer.start timer delay (fun () ->
-        if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread st k ()
-      ) |> or_raise
+  let sleep_until _due = failwith "not implemented" 
+    (* let now = 0L in *)
+    (* (1* let delay = 1000. *. (due -. now) |> ceil |> truncate |> max 0 in *1) *)
+    (* enter @@ fun st k -> *)
+    (* let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in *)
+    (* Fiber_context.set_cancel_fn k.fiber (fun ex -> *)
+    (*     Luv.Timer.stop timer |> or_raise; *)
+    (*     Luv.Handle.close timer (fun () -> ()); *)
+    (*     enqueue_failed_thread st k ex *)
+    (*   ); *)
+    (* Luv.Timer.start timer delay (fun () -> *)
+    (*     if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread st k () *)
+    (*   ) |> or_raise *)
 end
 
 open Low_level

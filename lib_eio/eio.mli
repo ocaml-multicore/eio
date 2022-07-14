@@ -107,30 +107,42 @@ end
 
 (** Clocks, time, sleeping and timeouts. *)
 module Time : sig
+  type t = int64 
+  (** [t] is time in nanoseconds representation. *)
+
+  type secs = float
+  (** [secs] is time in fractional seconds representation. *)
+
   class virtual clock : object
-    method virtual now_ns : int64
-    method virtual sleep_until : float -> unit
+    method virtual now_ns : t
+    method virtual sleep_until : t -> unit
   end
 
-  val now : #clock -> float
+  val to_seconds : t -> secs 
+  (** [to_seconds t] is [t] converted to fractional seconds. *)
+
+  val of_seconds : secs -> t
+  (** [of_seconds s] is [s] converted to nanoseconds. *)
+
+  val now : #clock -> secs
   (** [now t] is the current time in fractional seconds according to [t]. *)
 
-  val now_ns : #clock -> int64
+  val now_ns : #clock -> t
   (** [now_ns t] is the current time in nano seconds according to [t]. *)
 
-  val sleep_until : #clock -> float -> unit
+  val sleep_until : #clock -> t -> unit
   (** [sleep_until t time] waits until the given time is reached. *)
 
-  val sleep : #clock -> float -> unit
-  (** [sleep t d] waits for [d] seconds. *)
+  val sleep : #clock -> t -> unit
+  (** [sleep t d] waits for [d] nanoseconds. *)
 
-  val with_timeout : #clock -> float -> (unit -> ('a, 'e) result) -> ('a, [> `Timeout] as 'e) result
-  (** [with_timeout clock d fn] runs [fn ()] but cancels it after [d] seconds. *)
+  val with_timeout : #clock -> t -> (unit -> ('a, 'e) result) -> ('a, [> `Timeout] as 'e) result
+  (** [with_timeout clock d fn] runs [fn ()] but cancels it after [d] nanoseconds. *)
 
   exception Timeout
 
-  val with_timeout_exn : #clock -> float -> (unit -> 'a) -> 'a
-  (** [with_timeout_exn clock d fn] runs [fn ()] but cancels it after [d] seconds,
+  val with_timeout_exn : #clock -> t -> (unit -> 'a) -> 'a
+  (** [with_timeout_exn clock d fn] runs [fn ()] but cancels it after [d] nanoseconds,
       raising exception [Timeout]. *)
 end
 

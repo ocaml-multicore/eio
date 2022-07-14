@@ -815,10 +815,10 @@ The standard environment provides a [clock][Eio.Time] with the usual POSIX time:
 # Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.sys_clock env in
   traceln "The time is now %f" (Eio.Time.now clock);
-  Eio.Time.sleep clock 1.0;
+  Eio.Time.(sleep clock (of_seconds 1.0));
   traceln "The time is now %f" (Eio.Time.now clock);;
-+The time is now 1623940778.270336
-+The time is now 1623940779.270336
++The time is now 16571892.057188
++The time is now 16571893.057188
 - : unit = ()
 ```
 

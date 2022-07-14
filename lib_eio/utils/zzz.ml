@@ -5,11 +5,11 @@ end
 
 module Job = struct
   type t = {
-    time : float;
+    time : int64;
     thread : unit Suspended.t;
   }
 
-  let compare a b = Float.compare a.time b.time
+  let compare a b = Int64.compare a.time b.time
 end
 
 module Q = Psq.Make(Key)(Job)
@@ -33,7 +33,7 @@ let remove t id =
   t.sleep_queue <- Q.remove id t.sleep_queue
 
 let pop t =
-  let now = Eio.Time.now t.clock in
+  let now = Eio.Time.now_ns t.clock in
   match Q.min t.sleep_queue with
   | Some (_, { Job.time; thread }) when time <= now ->
     if Eio.Private.Fiber_context.clear_cancel_fn thread.fiber then (
@@ -43,5 +43,5 @@ let pop t =
       (* This shouldn't happen, since any cancellation will happen in the same domain as the [pop]. *)
       assert false
     )
-  | Some (_, {Job.time; _}) -> `Wait_until (time -. now)
+  | Some (_, {Job.time; _}) -> `Wait_until (Int64.sub time now)
   | None -> `Nothing

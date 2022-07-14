@@ -36,8 +36,8 @@ module Ipaddr : sig
   val of_unix : Unix.inet_addr -> Eio.Net.Ipaddr.v4v6
 end
 
-val sleep : float -> unit
-(** [sleep d] sleeps for [d] seconds, allowing other fibers to run.
+val sleep : int64 -> unit
+(** [sleep d] sleeps for [d] nanoseconds, allowing other fibers to run.
     This is can be useful for debugging (e.g. to introduce delays to trigger a race condition)
     without having to plumb {!Eio.Stdenv.clock} through your code.
     It can also be used in programs that don't care about tracking determinism. *)
