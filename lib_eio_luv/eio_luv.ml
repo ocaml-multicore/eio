@@ -56,6 +56,7 @@ module Suspended = struct
   }
 
   let tid t = Eio.Private.Fiber_context.tid t.fiber
+  let fiber t = t.fiber
 
   let continue t v =
     Ctf.note_switch (tid t);
@@ -74,10 +75,14 @@ type runnable =
   | IO
   | Thread of (unit -> unit)
 
+module Zzz = Eio_utils.Zzz.Make(Suspended)
+
 type t = {
   loop : Luv.Loop.t;
   async : Luv.Async.t;                          (* Will process [run_q] when prodded. *)
   run_q : runnable Lf_queue.t;
+  sys_sleep_q : Zzz.t;                (* Wall/system clock sleep q. *)
+  mono_sleep_q : Zzz.t;               (* Monotonic clock sleep q. *)
 }
 
 type _ Effect.t += Await : (Luv.Loop.t -> Eio.Private.Fiber_context.t -> ('a -> unit) -> unit) -> 'a Effect.t
@@ -262,7 +267,7 @@ module Low_level = struct
     let with_dir_to_read path fn =
       match opendir path with
       | Ok dir ->
-        Fun.protect ~finally:(fun () -> closedir dir |> or_raise) @@ fun () -> fn dir 
+        Fun.protect ~finally:(fun () -> closedir dir |> or_raise) @@ fun () -> fn dir
       | Error _ as e -> e
 
     let readdir path =
@@ -271,7 +276,7 @@ module Low_level = struct
         match await_with_cancel ~request (fun loop -> Luv.File.readdir ~loop ~request dir) with
         | Ok dirents ->
           let dirs = Array.map (fun v -> v.Luv.File.Dirent.name) dirents |> Array.to_list in
-          Ok dirs 
+          Ok dirs
         | Error _ as e -> e
       in
         with_dir_to_read path fn
@@ -291,7 +296,7 @@ module Low_level = struct
     let rec fill buf =
       let request = Luv.Random.Request.make () in
       match await_with_cancel ~request (fun loop -> Luv.Random.random ~loop ~request buf) with
-      | Ok x -> x 
+      | Ok x -> x
       | Error `EINTR -> fill buf
       | Error x -> raise (Luv_error x)
   end
@@ -324,7 +329,7 @@ module Low_level = struct
       | xs -> xs
 
     let rec write t bufs =
-      let err, n = 
+      let err, n =
         (* note: libuv doesn't seem to allow cancelling stream writes *)
         enter (fun st k ->
             Luv.Stream.write (Handle.get "write_stream" t) bufs @@ fun err n ->
@@ -372,19 +377,11 @@ module Low_level = struct
         )
   end
 
-  let sleep_until _due = failwith "not implemented" 
-    (* let now = 0L in *)
-    (* (1* let delay = 1000. *. (due -. now) |> ceil |> truncate |> max 0 in *1) *)
-    (* enter @@ fun st k -> *)
-    (* let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in *)
-    (* Fiber_context.set_cancel_fn k.fiber (fun ex -> *)
-    (*     Luv.Timer.stop timer |> or_raise; *)
-    (*     Luv.Handle.close timer (fun () -> ()); *)
-    (*     enqueue_failed_thread st k ex *)
-    (*   ); *)
-    (* Luv.Timer.start timer delay (fun () -> *)
-    (*     if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread st k () *)
-    (*   ) |> or_raise *)
+  type clock_type = [`Mono | `Sys]
+  type _ Effect.t += Sleep_until : clock_type * int64 -> unit Effect.t
+
+  let sleep_until clock_type d =
+    Effect.perform (Sleep_until (clock_type, d))
 end
 
 open Low_level
@@ -517,7 +514,7 @@ module Udp = struct
   type 'a t = [`UDP] Handle.t
 
   (* When the sender address in the callback of [recv_start] is [None], this usually indicates
-     EAGAIN according to the luv documentation which can be ignored. Libuv calls the callback 
+     EAGAIN according to the luv documentation which can be ignored. Libuv calls the callback
      in case C programs wish to handle the allocated buffer in some way. *)
   let recv (sock:'a t) buf =
     let r = enter (fun t k ->
@@ -541,7 +538,7 @@ module Udp = struct
     | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
     | Error x -> raise (Luv_error x)
 
-  let send t buf = function 
+  let send t buf = function
   | `Udp (host, port) ->
     let bufs = [ Cstruct.to_bigarray buf ] in
     await_exn (fun _loop _fiber -> Luv.UDP.send (Handle.get "send" t) bufs (luv_addr_of_eio host port))
@@ -552,8 +549,8 @@ let udp_socket endp = object
 
   method close = Handle.close endp
 
-  method send sockaddr bufs = Udp.send endp bufs sockaddr 
-  method recv buf = 
+  method send sockaddr bufs = Udp.send endp bufs sockaddr
+  method recv buf =
     let buf = Cstruct.to_bigarray buf in
     Udp.recv endp buf
 end
@@ -614,7 +611,7 @@ let net = object
       socket sock
 
   method datagram_socket ~sw = function
-    | `Udp (host, port) -> 
+    | `Udp (host, port) ->
       let domain = Eio.Net.Ipaddr.fold ~v4:(fun _ -> `INET) ~v6:(fun _ -> `INET6) host in
       let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise in
       let dg_sock = Handle.of_luv ~sw sock in
@@ -687,15 +684,15 @@ let sys_clock = object
   inherit Eio.Time.clock
 
   method now_ns = Eio_unix.system_clock ()
-  method sleep_until = sleep_until
+  method sleep_until = Low_level.sleep_until `Sys
 end
 
 let mono_clock = object
   inherit Eio.Time.clock
 
   method now_ns = Eio_unix.mono_clock ()
-  method sleep_until = sleep_until
-end 
+  method sleep_until = Low_level.sleep_until `Mono
+end
 
 (* Warning: libuv doesn't provide [openat], etc, and so there is probably no way to make this safe.
    We make a best-efforts attempt to enforce the sandboxing using realpath and [`NOFOLLOW].
@@ -810,8 +807,10 @@ let rec run main =
   let run_q = Lf_queue.create () in
   Lf_queue.push run_q IO;
   let async = Luv.Async.init ~loop (fun async -> wakeup ~async run_q) |> or_raise in
-  let st = { loop; async; run_q } in
   let stdenv = stdenv ~run_event_loop:run in
+  let sys_sleep_q = Zzz.create stdenv#sys_clock in
+  let mono_sleep_q = Zzz.create stdenv#mono_clock in
+  let st = { loop; async; run_q; sys_sleep_q; mono_sleep_q } in
   let rec fork ~new_fiber:fiber fn =
     Ctf.note_switch (Fiber_context.tid fiber);
     let open Effect.Deep in
@@ -821,13 +820,13 @@ let rec run main =
       effc = fun (type a) (e : a Effect.t) ->
         match e with
         | Await fn ->
-          Some (fun k -> 
+          Some (fun k ->
             let k = { Suspended.k; fiber } in
             fn loop fiber (enqueue_thread st k))
         | Eio.Private.Effects.Trace ->
           Some (fun k -> continue k Eio.Private.default_traceln)
         | Eio.Private.Effects.Fork (new_fiber, f) ->
-          Some (fun k -> 
+          Some (fun k ->
               let k = { Suspended.k; fiber } in
               enqueue_at_head st k ();
               fork ~new_fiber f
@@ -842,7 +841,7 @@ let rec run main =
             | None -> fn st { Suspended.k; fiber }
           )
         | Eio.Private.Effects.Suspend fn ->
-          Some (fun k -> 
+          Some (fun k ->
               let k = { Suspended.k; fiber } in
               fn fiber (enqueue_result_thread st k)
             )
@@ -861,6 +860,22 @@ let rec run main =
               Poll.await_writable st k fd
           )
         | Eio_unix.Private.Get_mono_clock -> Some (fun k -> continue k stdenv#mono_clock)
+        | Low_level.Sleep_until (clock_type, time) -> Some (fun k ->
+            let k = {Suspended.k; fiber} in
+            match Fiber_context.get_error fiber with
+            | Some ex -> Suspended.discontinue k ex
+            | None ->
+              let sleep_q =
+                match clock_type with
+                | `Mono -> mono_sleep_q
+                | `Sys -> sys_sleep_q
+              in
+              let job = Zzz.add sleep_q time k in
+              Fiber_context.set_cancel_fn fiber (fun ex ->
+                  Zzz.remove sleep_q job;
+                  enqueue_failed_thread st k ex
+                );
+          )
         | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
             try
               let fd = Low_level.Stream.of_unix fd in

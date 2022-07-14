@@ -22,8 +22,6 @@ open Eio.Std
 module Fiber_context = Eio.Private.Fiber_context
 module Ctf = Eio.Private.Ctf
 
-module Suspended = Eio_utils.Suspended
-module Zzz = Eio_utils.Zzz
 module Lf_queue = Eio_utils.Lf_queue
 
 (* SIGPIPE makes no sense in a modern application. *)
@@ -107,6 +105,29 @@ module FD = struct
     | `Closed -> Fmt.string f "(closed)"
 end
 
+(** A suspended fiber with its context. *)
+module Suspended = struct
+  open Effect.Deep
+  module Ctf = Eio.Private.Ctf
+
+  type 'a t = {
+    fiber : Eio.Private.Fiber_context.t;
+    k : ('a, [`Exit_scheduler]) continuation;
+  }
+
+  let tid t = Eio.Private.Fiber_context.tid t.fiber
+  let fiber t = t.fiber
+
+
+  let continue t v =
+    Ctf.note_switch (tid t);
+    continue t.k v
+
+  let discontinue t ex =
+    Ctf.note_switch (tid t);
+    discontinue t.k ex
+end
+
 type rw_req = {
   op : [`R|`W];
   file_offset : Optint.Int63.t;
@@ -130,6 +151,8 @@ type runnable =
   | IO : runnable
   | Thread : 'a Suspended.t * 'a -> runnable
   | Failed_thread : 'a Suspended.t * exn -> runnable
+
+module Zzz = Eio_utils.Zzz.Make(Suspended)
 
 type t = {
   uring: io_job Uring.t;
@@ -397,7 +420,7 @@ let rec enqueue_recv_msg fd msghdr st action =
     )
   in
   if retry then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_recv_msg fd msghdr st action) st.io_q 
+    Queue.push (fun st -> enqueue_recv_msg fd msghdr st action) st.io_q
 
 let rec enqueue_accept fd client_addr st action =
   Log.debug (fun l -> l "accept: submitting call");
@@ -476,7 +499,7 @@ let rec schedule ({run_q; sys_sleep_q; mem_q; uring; _} as st) : [`Exit_schedule
                If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
             Ctf.(note_hiatus Wait_for_work);
             (* TODO should uring use nanoseconds timeout? *)
-            let timeout = Option.map Eio.Time.to_seconds timeout in 
+            let timeout = Option.map Eio.Time.to_seconds timeout in
             let result = Uring.wait ?timeout uring in
             Ctf.note_resume system_thread;
             Atomic.set st.need_wakeup false;
@@ -886,20 +909,20 @@ let udp_socket sock = object
 
   method close = FD.close sock
 
-  method send sockaddr buf = 
-    let addr = match sockaddr with 
-      | `Udp (host, port) -> 
+  method send sockaddr buf =
+    let addr = match sockaddr with
+      | `Udp (host, port) ->
         let host = Eio_unix.Ipaddr.to_unix host in
         Unix.ADDR_INET (host, port)
     in
-    Low_level.send_msg sock ~dst:addr [buf] 
-  
+    Low_level.send_msg sock ~dst:addr [buf]
+
   method recv buf =
     let addr, recv = Low_level.recv_msg sock [buf] in
     match Uring.Sockaddr.get addr with
       | Unix.ADDR_INET (inet, port) ->
         `Udp (Eio_unix.Ipaddr.of_unix inet, port), recv
-      | Unix.ADDR_UNIX _ -> 
+      | Unix.ADDR_UNIX _ ->
         raise (Failure "Expected INET UDP socket address but got Unix domain socket address.")
 end
 
@@ -1060,7 +1083,7 @@ let sys_clock = object
   inherit Eio.Time.clock
 
   method now_ns = Eio_unix.system_clock ()
-  method sleep_until = Low_level.sleep_until `Sys 
+  method sleep_until = Low_level.sleep_until `Sys
 end
 
 let mono_clock = object
@@ -1068,7 +1091,7 @@ let mono_clock = object
 
   method now_ns = Eio_unix.mono_clock ()
   method sleep_until = Low_level.sleep_until `Mono
-end 
+end
 
 class dir fd = object
   inherit Eio.Dir.t
@@ -1213,8 +1236,8 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
   let eventfd = FD.placeholder ~seekable:false ~close_unix:false in
-  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; 
-             sys_sleep_q; mono_sleep_q; io_jobs = 0 } 
+  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false;
+             sys_sleep_q; mono_sleep_q; io_jobs = 0 }
   in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~new_fiber:fiber fn =
@@ -1260,8 +1283,8 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
               match Fiber_context.get_error fiber with
               | Some ex -> Suspended.discontinue k ex
               | None ->
-                let sleep_q = 
-                  match clock_type with 
+                let sleep_q =
+                  match clock_type with
                   | `Mono -> mono_sleep_q
                   | `Sys -> sys_sleep_q
                 in

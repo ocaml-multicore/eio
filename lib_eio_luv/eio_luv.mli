@@ -9,6 +9,7 @@ open Eio.Std
 
 module Low_level : sig
   type 'a or_error = ('a, Luv.Error.t) result
+  type clock_type = [`Sys |`Mono]
 
   exception Luv_error of Luv.Error.t
 
@@ -23,7 +24,7 @@ module Low_level : sig
 
   (** {1 Time functions} *)
 
-  val sleep_until : float -> unit
+  val sleep_until : clock_type -> int64 -> unit
   (** [sleep_until time] blocks until the current time is [time]. *)
 
   (** {1 Low-level wrappers for Luv functions} *)

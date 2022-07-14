@@ -5,22 +5,30 @@ module Key : sig
   type t
 end
 
-type t
-(** A set of timers (implemented as a priority queue). *)
+module type SUSPENDED = sig
+  type 'a t
 
-val create : Eio.Time.clock -> t
-(** [create ()] is a fresh empty queue. *)
+  val fiber : 'a t -> Eio.Private.Fiber_context.t
+end
 
-val add : t -> int64 -> unit Suspended.t -> Key.t
-(** [add t clock time thread] adds a new event, due at [time], and returns its ID.
-    You must use {!Eio.Private.Fiber_context.set_cancel_fn} on [thread] before
-    calling {!pop}.
-    Your cancel function should call {!remove} (in addition to resuming [thread]). *)
+module Make (Suspended: SUSPENDED) : sig
+  type t
+  (** A set of timers (implemented as a priority queue). *)
 
-val remove : t -> Key.t -> unit
-(** [remove t key] removes an event previously added with [add]. *)
+  val create : Eio.Time.clock -> t
+  (** [create ()] is a fresh empty queue. *)
 
-val pop : t -> [`Due of unit Suspended.t | `Wait_until of int64 | `Nothing]
-(** [pop t] removes and returns the earliest thread due by [now].
-    It also clears the thread's cancel function.
-    If no thread is due yet, it returns the time the earliest thread becomes due. *)
+  val add : t -> int64 -> unit Suspended.t -> Key.t
+  (** [add t clock time thread] adds a new event, due at [time], and returns its ID.
+      You must use {!Eio.Private.Fiber_context.set_cancel_fn} on [thread] before
+      calling {!pop}.
+      Your cancel function should call {!remove} (in addition to resuming [thread]). *)
+
+  val remove : t -> Key.t -> unit
+  (** [remove t key] removes an event previously added with [add]. *)
+
+  val pop : t -> [`Due of unit Suspended.t | `Wait_until of int64 | `Nothing]
+  (** [pop t] removes and returns the earliest thread due by [now].
+      It also clears the thread's cancel function.
+      If no thread is due yet, it returns the time the earliest thread becomes due. *)
+end
