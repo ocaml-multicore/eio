@@ -107,43 +107,60 @@ end
 
 (** Clocks, time, sleeping and timeouts. *)
 module Time : sig
-  type t = int64 
-  (** [t] is time in nanoseconds representation. *)
-
-  type secs = float
-  (** [secs] is time in fractional seconds representation. *)
+  type t 
+  (** [t] represents time measurement. *)
 
   class virtual clock : object
-    method virtual now_ns : t
+    method virtual now : t
     method virtual sleep_until : t -> unit
   end
 
-  val to_seconds : t -> secs 
-  (** [to_seconds t] is [t] converted to fractional seconds. *)
+  val to_nanoseconds : t -> int64
+  (** [to_nanoseconds t] is [t] in nanoseconds. *)
 
-  val of_seconds : secs -> t
-  (** [of_seconds s] is [s] converted to nanoseconds. *)
+  val to_seconds : t -> float
+  (** [to_seconds t] is [t] in fractional seconds. *)
 
-  val now : #clock -> secs
-  (** [now t] is the current time in fractional seconds according to [t]. *)
+  val of_nanoseconds : int64 -> t
+  (** [of_nanoseconds ns] is [t] from nanoseconds [ns]. *)
 
-  val now_ns : #clock -> t
-  (** [now_ns t] is the current time in nano seconds according to [t]. *)
+  val of_seconds : float -> t
+  (** [of_seconds s] is time [t] from fractional seconds [s]. *)
+
+  val add : t -> t -> t
+  (** [add t1 t2] is time after adding [t1] and [t2]. *)
+
+  val sub : t -> t -> t
+  (** [sub t1 t2] is time after subtracting [t2] from [t1]. *)
+
+  val now : #clock -> t
+  (** [now c] is current time in nanoseconds according to clock [c]. *)
 
   val sleep_until : #clock -> t -> unit
-  (** [sleep_until t time] waits until the given time is reached. *)
+  (** [sleep_until c t] waits until the given time [t] is reached relative to clock [c]. *)
 
-  val sleep : #clock -> t -> unit
-  (** [sleep t d] waits for [d] nanoseconds. *)
+  val sleep : #clock -> int64 -> unit
+  (** [sleep c duration] waits for [duration] nanoseconds from current time relative to clock [c]. *)
 
-  val with_timeout : #clock -> t -> (unit -> ('a, 'e) result) -> ('a, [> `Timeout] as 'e) result
-  (** [with_timeout clock d fn] runs [fn ()] but cancels it after [d] nanoseconds. *)
+  val with_timeout : #clock -> int64 -> (unit -> ('a, 'e) result) -> ('a, [> `Timeout] as 'e) result
+  (** [with_timeout c duration fn] runs [fn ()] but cancels it after [duration] nanoseconds has elapsed
+       relative to clock [c]. *)
 
   exception Timeout
 
-  val with_timeout_exn : #clock -> t -> (unit -> 'a) -> 'a
-  (** [with_timeout_exn clock d fn] runs [fn ()] but cancels it after [d] nanoseconds,
-      raising exception [Timeout]. *)
+  val with_timeout_exn : #clock -> int64 -> (unit -> 'a) -> 'a
+  (** [with_timeout_exn c duration fn] runs [fn ()] but cancels it after [duration] nanoseconds has elapsed
+      relative to clock [c]. It raises exception [Timeout]. *)
+
+  val to_string : t -> string 
+  (** [to_string t] is string representation of [t]. *)
+
+  val pp : Format.formatter -> t -> unit
+  (** [pp fmt t] prints [t] on formatter [fmt]. *)
+
+  val compare : t -> t -> int
+  (** [compare t1 t2] returns [-1] if [t1] is less than [t2], [1] if [t1] is greater than [t2] and 
+      [0] if [t1] and [t2] is equal. *)
 end
 
 (** File-system access. *)

@@ -3,10 +3,10 @@
 module Eio_main = struct
   open Eio.Std
 
-  let now_ns = ref 16571892057187722L
+  let now = ref 16571892057187722L
 
   let fake_clock real_clock = object (_ : #Eio.Time.clock)
-    method now_ns = !now_ns
+    method now = Eio.Time.of_nanoseconds !now
     method sleep_until time =
       (* The fake times are all in the past, so we just ask to wait until the
          fake time is due and it will happen immediately. If we wait for
@@ -15,7 +15,7 @@ module Eio_main = struct
          empty, so this is a convenient way to wait for the system to be idle.
          TODO: This is no longer true (since #213). *)
       Eio.Time.sleep_until real_clock time;
-      now_ns := Int64.max !now_ns time
+      now := Int64.max !now (Eio.Time.to_nanoseconds time)
   end
 
   (* To avoid non-deterministic output, we run the examples a single domain. *)

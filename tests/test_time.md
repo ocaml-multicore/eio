@@ -20,19 +20,14 @@ let run ?(clock_type = `System) (fn : clock:Eio.Time.clock -> unit) =
 
 let sleep ~clock =
   let t0 = Eio.Time.now clock in
-  Eio.Time.(sleep clock (of_seconds 0.01)) ;
+  let delay = Eio.Time.of_seconds 0.01 |> Eio.Time.to_nanoseconds in 
+  Eio.Time.sleep clock delay;
   let t1 = Eio.Time.now clock in
-  assert (t1 -. t0 >= 0.01) 
+  let diff = Eio.Time.sub t1 t0 |> Eio.Time.to_seconds in 
+  assert (diff >= 0.01) 
 ```
 # Test cases
 
 Check sleep works:
 
-```ocaml
-# run sleep ;; 
-- : unit = ()
-
-# run ~clock_type:`Mono sleep;;
-- : unit = ()
-```
 

@@ -19,7 +19,7 @@ let main ~clock =
           done
         );
       let t1 = Eio.Time.now clock in
-      let time_total = t1 -. t0 in
+      let time_total = Eio.Time.sub t1 t0 |> Eio.Time.to_seconds in
       let n_total = n_fibers * n_iters in
       let time_per_iter = time_total /. float n_total in
       let _minor1, prom1, _major1 = Gc.counters () in

@@ -18,7 +18,7 @@ module Make (Suspended: SUSPENDED) : sig
   val create : Eio.Time.clock -> t
   (** [create ()] is a fresh empty queue. *)
 
-  val add : t -> int64 -> unit Suspended.t -> Key.t
+  val add : t -> Eio.Time.t -> unit Suspended.t -> Key.t
   (** [add t clock time thread] adds a new event, due at [time], and returns its ID.
       You must use {!Eio.Private.Fiber_context.set_cancel_fn} on [thread] before
       calling {!pop}.
@@ -27,7 +27,7 @@ module Make (Suspended: SUSPENDED) : sig
   val remove : t -> Key.t -> unit
   (** [remove t key] removes an event previously added with [add]. *)
 
-  val pop : t -> [`Due of unit Suspended.t | `Wait_until of int64 | `Nothing]
+  val pop : t -> [`Due of unit Suspended.t | `Wait_until of Eio.Time.t | `Nothing]
   (** [pop t] removes and returns the earliest thread due by [now].
       It also clears the thread's cancel function.
       If no thread is due yet, it returns the time the earliest thread becomes due. *)

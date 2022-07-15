@@ -41,7 +41,7 @@ val q : int Q.t = <abstr>
 # Q.close q;;
 - : unit = ()
 # Q.push q 2;;
-Exception: Eio_utils__Lf_queue.Closed.
+Exception: Eio_utils.Lf_queue.Closed.
 # Q.push_head q 3;;
 - : unit = ()
 # Q.pop q;;
@@ -49,16 +49,16 @@ Exception: Eio_utils__Lf_queue.Closed.
 # Q.pop q;;
 - : int option = Some 1
 # Q.pop q;;
-Exception: Eio_utils__Lf_queue.Closed.
+Exception: Eio_utils.Lf_queue.Closed.
 # Q.push_head q 4;;
-Exception: Eio_utils__Lf_queue.Closed.
+Exception: Eio_utils.Lf_queue.Closed.
 ```
 
 ## Closing an empty queue
 
 ```ocaml
 # let q = Q.create () in Q.close q; Q.push q 1;;
-Exception: Eio_utils__Lf_queue.Closed.
+Exception: Eio_utils.Lf_queue.Closed.
 ```
 
 ## Empty?
@@ -75,7 +75,7 @@ val q : int Q.t = <abstr>
 # Q.is_empty q;;
 - : bool = true
 # Q.close q; Q.is_empty q;;
-Exception: Eio_utils__Lf_queue.Closed.
+Exception: Eio_utils.Lf_queue.Closed.
 ```
 
 ## Pushing to the head

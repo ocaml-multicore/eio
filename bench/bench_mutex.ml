@@ -32,7 +32,7 @@ let run_bench ~domain_mgr ~clock ~use_domains ~iters_per_thread ~threads =
     );
   assert (!v = 0);
   let t1 = Eio.Time.now clock in
-  let time_total = t1 -. t0 in
+  let time_total = Eio.Time.sub t1 t0 |> Eio.Time.to_seconds in
   let n_iters = iters_per_thread * threads in
   let time_per_iter = time_total /. float n_iters in
   let _minor1, prom1, _major1 = Gc.counters () in

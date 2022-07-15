@@ -1,7 +1,7 @@
 module Private = struct
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
 
-  type _ Effect.t += 
+  type _ Effect.t +=
     | Await_readable : Unix.file_descr -> unit Effect.t
     | Await_writable : Unix.file_descr -> unit Effect.t
     | Get_mono_clock : Eio.Time.clock Effect.t
@@ -11,8 +11,8 @@ end
 let await_readable fd = Effect.perform (Private.Await_readable fd)
 let await_writable fd = Effect.perform (Private.Await_writable fd)
 
-let sleep d =
-  Eio.Time.sleep (Effect.perform Private.Get_mono_clock) d
+let sleep duration =
+  Eio.Time.sleep (Effect.perform Private.Get_mono_clock) duration
 
 let run_in_systhread fn =
   let f fiber enqueue =
@@ -39,8 +39,8 @@ end
 module Ctf = Ctf_unix
 
 (* Clock *)
-external system_clock : unit -> (int64 [@unboxed]) = 
+external system_clock : unit -> (int64 [@unboxed]) =
   "caml_eio_system_clock" "caml_eio_system_clock_unboxed" [@@noalloc]
 
-external mono_clock: unit -> (int64 [@unboxed]) = 
+external mono_clock: unit -> (int64 [@unboxed]) =
   "caml_eio_mono_clock" "caml_eio_mono_clock_unboxed" [@@noalloc]

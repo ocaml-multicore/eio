@@ -378,7 +378,7 @@ module Low_level = struct
   end
 
   type clock_type = [`Mono | `Sys]
-  type _ Effect.t += Sleep_until : clock_type * int64 -> unit Effect.t
+  type _ Effect.t += Sleep_until : clock_type * Eio.Time.t -> unit Effect.t
 
   let sleep_until clock_type d =
     Effect.perform (Sleep_until (clock_type, d))
@@ -683,14 +683,14 @@ end
 let sys_clock = object
   inherit Eio.Time.clock
 
-  method now_ns = Eio_unix.system_clock ()
+  method now = Eio_unix.system_clock () |> Eio.Time.of_nanoseconds
   method sleep_until = Low_level.sleep_until `Sys
 end
 
 let mono_clock = object
   inherit Eio.Time.clock
 
-  method now_ns = Eio_unix.mono_clock ()
+  method now = Eio_unix.mono_clock () |> Eio.Time.of_nanoseconds
   method sleep_until = Low_level.sleep_until `Mono
 end
 

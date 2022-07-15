@@ -24,7 +24,7 @@ module Low_level : sig
 
   (** {1 Time functions} *)
 
-  val sleep_until : clock_type -> int64 -> unit
+  val sleep_until : clock_type -> Eio.Time.t -> unit
   (** [sleep_until time] blocks until the current time is [time]. *)
 
   (** {1 Low-level wrappers for Luv functions} *)

@@ -480,7 +480,7 @@ let rec schedule ({run_q; sys_sleep_q; mem_q; uring; _} as st) : [`Exit_schedule
           | `Nothing -> None
         in
         Log.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
-                      (match timeout with None -> "inf" | Some v -> Int64.to_string v));
+                      (match timeout with None -> "inf" | Some v -> Eio.Time.to_string v));
         if not (Lf_queue.is_empty st.run_q) then (
           Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
           schedule st
@@ -592,7 +592,7 @@ module Low_level = struct
     if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
   type clock_type = [`Mono | `Sys]
-  type _ Effect.t += Sleep_until : clock_type * int64 -> unit Effect.t
+  type _ Effect.t += Sleep_until : clock_type * Eio.Time.t -> unit Effect.t
 
   let sleep_until clock_type d =
     Effect.perform (Sleep_until (clock_type, d))
@@ -1082,14 +1082,14 @@ end
 let sys_clock = object
   inherit Eio.Time.clock
 
-  method now_ns = Eio_unix.system_clock ()
+  method now = Eio_unix.system_clock () |> Eio.Time.of_nanoseconds
   method sleep_until = Low_level.sleep_until `Sys
 end
 
 let mono_clock = object
   inherit Eio.Time.clock
 
-  method now_ns = Eio_unix.mono_clock ()
+  method now = Eio_unix.mono_clock () |> Eio.Time.of_nanoseconds
   method sleep_until = Low_level.sleep_until `Mono
 end
 
