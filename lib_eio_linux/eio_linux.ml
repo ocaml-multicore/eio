@@ -155,6 +155,9 @@ type t = {
 
   sleep_q: Zzz.t;
   mutable io_jobs: int;
+  
+  (* Optional integration with the Async library. *)
+  mutable async : Eio_unix.Private.Async.t option;
 }
 
 let wake_buffer =
@@ -475,7 +478,15 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
                If [need_wakeup] is still [true], this is fine because we don't promise to do that.
                If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
             Ctf.(note_hiatus Wait_for_work);
-            let result = Uring.wait ?timeout uring in
+            let result =
+              match st.async with
+              | None -> Uring.wait ?timeout uring
+              | Some async ->
+                async.unlock ();
+                let r = Uring.wait ?timeout uring in
+                async.lock ();
+                r
+            in
             Ctf.note_resume system_thread;
             Atomic.set st.need_wakeup false;
             Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
@@ -1199,7 +1210,19 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
   let eventfd = FD.placeholder ~seekable:false ~close_unix:false in
-  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; io_jobs = 0 } in
+  let st = {
+    mem;
+    uring;
+    run_q;
+    eventfd_mutex;
+    io_q;
+    mem_q;
+    eventfd;
+    need_wakeup = Atomic.make false;
+    sleep_q;
+    io_jobs = 0;
+    async = None;
+  } in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
@@ -1292,6 +1315,10 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
           | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
               let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
               continue k (flow fd :> < Eio.Flow.two_way; Eio.Flow.close >)
+            )
+          | Eio_unix.Private.Set_async_integration async -> Some (fun k ->
+              st.async <- async;
+              continue k ()
             )
           | Low_level.Alloc -> Some (fun k ->
               match st.mem with

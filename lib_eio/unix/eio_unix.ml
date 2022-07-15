@@ -1,11 +1,19 @@
 module Private = struct
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
 
+  module Async = struct
+    type t = {
+      lock : unit -> unit;
+      unlock : unit -> unit;
+    }
+  end
+
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t
     | Await_writable : Unix.file_descr -> unit Effect.t
     | Get_system_clock : Eio.Time.clock Effect.t
     | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> < Eio.Flow.two_way; Eio.Flow.close > Effect.t
+    | Set_async_integration : Async.t option -> unit Effect.t
 end
 
 let await_readable fd = Effect.perform (Private.Await_readable fd)
