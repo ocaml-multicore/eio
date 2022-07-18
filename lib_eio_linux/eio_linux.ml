@@ -121,7 +121,7 @@ type rw_req = {
 type io_job =
   | Read : rw_req -> io_job
   | Job_no_cancel : int Suspended.t -> io_job
-  | Job : int Suspended.t -> io_job
+  | Job : int Suspended.t -> io_job     (* A negative result indicates error, and may report cancellation *)
   | Write : rw_req -> io_job
   | Job_fn : 'a Suspended.t * (int -> [`Exit_scheduler]) -> io_job
   (* When done, remove the cancel_fn from [Suspended.t] and call the callback (unless cancelled). *)
@@ -196,6 +196,11 @@ let rec enqueue_cancel job st action =
   match Uring.cancel st.uring job (Job_no_cancel action) with
   | None -> Queue.push (fun st -> enqueue_cancel job st action) st.io_q
   | Some _ -> ()
+  | exception Invalid_argument _ ->
+    (* The job is invalid, meaning that it completed after we removed the fiber's cancel function
+       but before calling it. *)
+    Log.debug (fun l -> l "cancel: job was already complete");
+    enqueue_thread st action 0
 
 let cancel job =
   let res = Effect.perform (Enter_unchecked (enqueue_cancel job)) in
@@ -507,18 +512,20 @@ and handle_complete st ~runnable result =
     complete_rw_req st req result
   | Job k ->
     clear_cancel k;
-    begin match Fiber_context.get_error k.fiber with
-      | None -> Suspended.continue k result
-      | Some e ->
-        (* If cancelled, report that instead.
-           Should we only do this on error, to avoid losing the return value?
-           We already do that with rw jobs. *)
-        Suspended.discontinue k e
-    end
+    if result >= 0 then Suspended.continue k result
+    else (
+      match Fiber_context.get_error k.fiber with
+        | None -> Suspended.continue k result
+        | Some e ->
+          (* If cancelled, report that instead. *)
+          Suspended.discontinue k e
+    )
   | Job_no_cancel k ->
     Suspended.continue k result
   | Job_fn (k, f) ->
     clear_cancel k;
+    (* Should we only do this on error, to avoid losing the return value?
+       We already do that with rw jobs. *)
     begin match Fiber_context.get_error k.fiber with
       | None -> f result
       | Some e -> Suspended.discontinue k e
