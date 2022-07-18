@@ -694,9 +694,12 @@ end
 class dir dir_path = object (self)
   inherit Eio.Dir.t
 
+  val mutable closed = false
+
   (* Resolve a relative path to an absolute one, with no symlinks.
      @raise Eio.Dir.Permission_denied if it's outside of [dir_path]. *)
   method private resolve path =
+    if closed then Fmt.invalid_arg "Attempt to use closed directory %S" dir_path;
     if Filename.is_relative path then (
       let dir_path = File.realpath dir_path |> or_raise_path dir_path in
       let full = File.realpath (Filename.concat dir_path path) |> or_raise_path path in
@@ -743,7 +746,9 @@ class dir dir_path = object (self)
 
   method open_dir ~sw path =
     Switch.check sw;
-    new dir (self#resolve path)
+    let d = new dir (self#resolve path) in
+    Switch.on_release sw (fun () -> d#close);
+    d
 
   (* libuv doesn't seem to provide a race-free way to do this. *)
   method mkdir ~perm path =
@@ -754,7 +759,7 @@ class dir dir_path = object (self)
     let path = self#resolve path in
     File.readdir path |> or_raise_path path
 
-  method close = ()
+  method close = closed <- true
 end
 
 (* Full access to the filesystem. *)

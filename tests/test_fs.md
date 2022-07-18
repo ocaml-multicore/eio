@@ -309,3 +309,15 @@ In that case, `with_open_in` will no longer close it on exit:
 +Read 0 bytes from null device
 - : unit = ()
 ```
+
+# Use after close
+
+```ocaml
+# run @@ fun env ->
+  let closed = Switch.run (fun sw -> Eio.Dir.open_dir ~sw env#cwd ".") in
+  try
+    failwith (Eio.Dir.read_dir closed "." |> String.concat ",")
+  with Invalid_argument _ -> traceln "Got Invalid_argument for closed FD";;
++Got Invalid_argument for closed FD
+- : unit = ()
+```
