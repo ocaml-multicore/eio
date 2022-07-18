@@ -328,3 +328,67 @@ If the fork itself fails, we still close the connection:
 +Mock connection should have been closed by now
 Exception: Failure "Simulated error".
 ```
+
+# Cancelling multiple jobs
+
+We start two jobs and cancel both. Cancellation happens in series. By the time the second job's cancel function is called, it has already finished.
+
+```ocaml
+(* Accepts a connection when cancelled.
+   The cancellation doesn't finish until the client operation has succeeded. *)
+let mock_cancellable ~sw ~server ~set_client_ready =
+  Eio.Private.Suspend.enter (fun ctx enqueue ->
+    Eio.Private.Fiber_context.set_cancel_fn ctx (fun ex ->
+      try
+        traceln "Cancelled. Accepting connection...";
+        let _flow, _addr = Eio.Net.accept ~sw server in
+        (* Can't trace here because client might resume first *)
+        (* traceln "Accepted connection."; *)
+        let p, r = Promise.create () in
+        Promise.resolve set_client_ready (Promise.resolve r);
+        Promise.await p;
+        (* The client successfully connected. We now allow this cancel
+           function to complete, which will cause the connect operation's
+           cancel function to be called next. *)
+        enqueue (Error ex)
+      with ex ->
+        traceln "Cancel function failed!";
+        enqueue (Error ex)
+    )
+  )
+```
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  (* Logs.set_reporter (Logs_fmt.reporter ()); *)
+  (* Logs.set_level (Some Logs.Debug); *)
+  let net = env#net in
+  Switch.run @@ fun sw ->
+  let client_ready, set_client_ready = Promise.create () in
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
+  Fiber.all [
+    (fun () ->
+       (* Start an operation that will be cancelled first, to add a delay. *)
+       mock_cancellable ~sw ~server ~set_client_ready
+     );
+    (fun () ->
+       (* Start a connect operation. It won't be accepted until the previous
+          fiber is cancelled. *)
+       match Eio.Net.connect ~sw net addr with
+       | _flow ->
+         traceln "Client connected";
+         Eio.Cancel.protect (fun () -> Promise.await client_ready ())
+       | exception ex ->
+         traceln "Failed: %a" Fmt.exn ex;
+         Eio.Cancel.protect (fun () -> Promise.await client_ready ())
+    );
+    (fun () ->
+       (* Cancel both fibers. Cancelling the first allows the second to complete,
+          even though it's also cancelled. *)
+       failwith "Simulated error"
+    );
+  ];;
++Cancelled. Accepting connection...
++Client connected
+Exception: Failure "Simulated error".
+```
