@@ -792,13 +792,27 @@ let stdenv ~run_event_loop =
     method secure_random = secure_random
   end
 
-let rec wakeup ~async run_q =
+let rec sleep_timer last_timer = function
+  | [] -> last_timer
+  | q :: l ->
+    match Zzz.pop q with
+    | `Due k -> `Due k
+    | `Wait_until _ | `Nothing as last_timer -> sleep_timer last_timer l
+
+let rec wakeup ~async run_q clocks =
   match Lf_queue.pop run_q with
-  | Some (Thread f) -> f (); wakeup ~async run_q
+  | Some (Thread f) -> f (); wakeup ~async run_q clocks
   | Some IO when Lf_queue.is_empty run_q -> ()
-  | Some IO ->
-    Lf_queue.push run_q IO;
-    Luv.Async.send async |> or_raise
+  | Some IO -> begin
+    match sleep_timer `Nothing clocks with
+    | `Due k ->
+      Lf_queue.push run_q IO;
+      Suspended.continue k ();
+      Luv.Async.send async |> or_raise
+    | `Wait_until _ | `Nothing  ->
+      Lf_queue.push run_q IO;
+      Luv.Async.send async |> or_raise
+    end
   | None -> ()
 
 let rec run main =
@@ -806,10 +820,15 @@ let rec run main =
   let loop = Luv.Loop.init () |> or_raise in
   let run_q = Lf_queue.create () in
   Lf_queue.push run_q IO;
-  let async = Luv.Async.init ~loop (fun async -> wakeup ~async run_q) |> or_raise in
   let stdenv = stdenv ~run_event_loop:run in
   let sys_sleep_q = Zzz.create stdenv#sys_clock in
   let mono_sleep_q = Zzz.create stdenv#mono_clock in
+  let async =
+    Luv.Async.init
+      ~loop
+      (fun async -> wakeup ~async run_q [sys_sleep_q; mono_sleep_q])
+    |> or_raise
+  in
   let st = { loop; async; run_q; sys_sleep_q; mono_sleep_q } in
   let rec fork ~new_fiber:fiber fn =
     Ctf.note_switch (Fiber_context.tid fiber);

@@ -505,7 +505,12 @@ let rec schedule ({run_q; sys_sleep_q; mono_sleep_q; mem_q; uring; _} as st) : [
                If [need_wakeup] is still [true], this is fine because we don't promise to do that.
                If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
             Ctf.(note_hiatus Wait_for_work);
-            (* TODO should uring use nanoseconds timeout? *)
+            (* TODO should uring use nanoseconds timeout?
+                    Also consider using io_uring_enter which allows us to configure the clock
+                    used for timeout calculation.
+
+                    Uring.wait uses monotonic clock timeout.
+            *)
             let timeout = Option.map Eio.Time.to_seconds timeout in
             let result = Uring.wait ?timeout uring in
             Ctf.note_resume system_thread;
