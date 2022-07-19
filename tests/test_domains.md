@@ -189,3 +189,76 @@ Can't fork into another domain:
     );;
 Exception: Invalid_argument "Switch accessed from wrong domain!".
 ```
+
+# Fiber-local storage
+
+Creating a context key:
+
+```ocaml
+# let key : int Eio.Context.key = Eio.Context.create_key ();;
+val key : int Eio.Context.key = <abstr>
+# let trace_key () =
+  let value = Eio.Context.get key in
+  traceln "Key => %a" Fmt.(option ~none:(const string "<unset>") int) value;;
+val trace_key : unit -> unit = <fun>
+```
+
+Keys default to being unset
+
+```ocaml
+# run @@ fun _ ->
+  trace_key ();;
++Key => <unset>
+- : unit = ()
+```
+
+`with_value` can be used to define a key.
+
+```ocaml
+# run @@ fun _ ->
+  Eio.Context.with_value key 123 @@ fun () -> trace_key ();;
++Key => 123
+- : unit = ()
+```
+
+`with_value` will shadow variables defined in outer scopes.
+
+```ocaml
+# run @@ fun _ ->
+  Eio.Context.with_value key 123 @@ fun () ->
+  trace_key ();
+  Eio.Context.with_value key 456 (fun () -> trace_key ());
+  trace_key ();;
++Key => 123
++Key => 456
++Key => 123
+- : unit = ()
+```
+
+Values are propagated when forking, or sending fibers to other domains.
+
+```ocaml
+# run @@ fun _ ->
+  Eio.Context.with_value key 123 @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fiber.fork ~sw trace_key;;
++Key => 123
+- : unit = ()
+# run @@ fun mgr->
+  Eio.Context.with_value key 123 @@ fun () ->
+  Eio.Domain_manager.run mgr @@ fun () ->
+  trace_key ();;
++Key => 123
+- : unit = ()
+```
+
+Values are inherited from the currently running fiber, rather than the switch.
+
+```ocaml
+# run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  Eio.Context.with_value key 123 @@ fun () ->
+  Fiber.fork ~sw trace_key;;
++Key => 123
+- : unit = ()
+```

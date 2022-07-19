@@ -40,6 +40,9 @@ module Stream = Stream
 (** Cancelling fibers. *)
 module Cancel = Eio__core.Cancel
 
+(** Fiber-local storage. *)
+module Context = Eio__core.Context
+
 (** Commonly used standard features. This module is intended to be [open]ed. *)
 module Std : sig
   module Promise = Promise

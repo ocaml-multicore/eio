@@ -395,6 +395,30 @@ module Cancel : sig
   (** Show the cancellation sub-tree rooted at [t], for debugging. *)
 end
 
+(** @canonical Eio.Context *)
+module Context : sig
+  type 'a key
+  (** ['a key] is a key for a value of type ['a] stored within the fiber's context. *)
+
+  (** [create_key ()] creates a new context key. *)
+  val create_key : unit -> 'a key
+
+  val get : 'a key -> 'a option
+  (** [get key] reads [key] from the current context, returning its value or {!None} if it has not
+     been defined. *)
+
+  val with_value : 'a key -> 'a -> (unit -> 'b) -> 'b
+  (** [with_value key value fn] runs [fn] with the given key set to the assigned value. *)
+
+  type context
+
+  val get_context : unit -> context
+  (** Get the current context for this fiber. *)
+
+  val with_context : context -> (unit -> 'a) -> 'a
+  (** [with_context fn] runs [fn] with the given context available. *)
+end
+
 (** @canonical Eio.Private *)
 module Private : sig
   module Ctf = Ctf
@@ -484,6 +508,8 @@ module Private : sig
 
     val get_error : t -> exn option
     (** [get_error t] is [Cancel.get_error (cancellation_context t)] *)
+
+    val context_store : t -> Context.context
   end
 
   module Effects : sig

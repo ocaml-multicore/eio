@@ -27,6 +27,7 @@ and fiber_context = {
   mutable cancel_context : t;
   mutable cancel_node : fiber_context Lwt_dllist.node option; (* Our entry in [cancel_context.fibers] *)
   cancel_fn : (exn -> unit) option Atomic.t;
+  mutable context : Hmap.t;
 }
 
 type _ Effect.t += Get_context : fiber_context Effect.t
@@ -178,6 +179,36 @@ let sub_unchecked fn =
   fn t;
   parent
 
+module Context = struct
+  type context = Hmap.t
+
+  let get_context () =
+    let fiber = Effect.perform Get_context in
+    fiber.context
+
+  let with_context_in ~fiber context fn =
+    let old_context = fiber.context in
+    fiber.context <- context;
+    let cleanup () = fiber.context <- old_context in
+    match fn () with
+    | x            -> cleanup (); x
+    | exception ex -> cleanup (); raise ex
+
+  let with_context context fn =
+    let fiber = Effect.perform Get_context in
+    with_context_in ~fiber context fn
+
+  type 'a key = 'a Hmap.key
+
+  let create_key () = Hmap.Key.create ()
+
+  let get key = Hmap.find key (get_context ())
+
+  let with_value var value fn =
+    let fiber = Effect.perform Get_context in
+    with_context_in ~fiber (Hmap.add var value fiber.context) fn
+end
+
 module Fiber_context = struct
   type t = fiber_context
 
@@ -193,18 +224,24 @@ module Fiber_context = struct
   let clear_cancel_fn t =
     Atomic.exchange t.cancel_fn None <> None
 
-  let make ~cc =
+  let make_raw ~cc ~context =
     let tid = Ctf.mint_id () in
     Ctf.note_created tid Ctf.Task;
-    let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = Atomic.make None } in
+    let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = Atomic.make None; context } in
     t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibers);
     t
+
+  let make ~cc =
+    let ctx = Effect.perform Get_context in
+    make_raw ~cc ~context:ctx.context
 
   let make_root () =
     let cc = create ~protected:false in
     cc.state <- On;
-    make ~cc
+    make_raw ~cc ~context:Hmap.empty
 
   let destroy t =
     Option.iter Lwt_dllist.remove t.cancel_node
+
+  let context_store t = t.context
 end

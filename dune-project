@@ -19,6 +19,7 @@
   (optint (>= 0.1.0))
   (psq (>= 0.2.0))
   (fmt (>= 0.8.9))
+  (hmap (>= 0.8.1))
   (astring (and (>= 0.8.5) :with-test))
   (crowbar (and (>= 0.2) :with-test))
   (mtime (>= 1.2.0))
