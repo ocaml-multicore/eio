@@ -454,7 +454,8 @@ let rec sleep_timer last_timer = function
   | q :: l ->
     match Zzz.pop q with
     | `Due k -> `Due k
-    | `Wait_until _ | `Nothing as last_timer -> sleep_timer last_timer l
+    | `Wait_until _ as last_timer -> sleep_timer last_timer l
+    | `Nothing -> sleep_timer last_timer l
 
 (* Switch control to the next ready continuation.
    If none is ready, wait until we get an event to wake one and then switch.
@@ -606,8 +607,7 @@ module Low_level = struct
   type clock_type = [`Mono | `Sys]
   type _ Effect.t += Sleep_until : clock_type * Eio.Time.t -> unit Effect.t
 
-  let sleep_until clock_type d =
-    Effect.perform (Sleep_until (clock_type, d))
+  let sleep_until clock_type time = Effect.perform (Sleep_until (clock_type, time))
 
   type _ Effect.t += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
 
@@ -1095,7 +1095,7 @@ let sys_clock = object
   inherit Eio.Time.clock
 
   method now = Eio_unix.system_clock () |> Eio.Time.of_nanoseconds
-  method sleep_until = Low_level.sleep_until `Sys
+  method sleep_until time = Low_level.sleep_until `Sys time
 end
 
 let mono_clock = object

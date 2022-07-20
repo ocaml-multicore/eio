@@ -33,4 +33,7 @@ Check sleep works:
 ```ocaml
 # run sleep ;; 
 - : unit = ()
+
+# run ~clock_type:`Mono sleep;;
+- : unit = ()
 ```
