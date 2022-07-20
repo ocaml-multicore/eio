@@ -153,6 +153,7 @@ type runnable =
   | Failed_thread : 'a Suspended.t * exn -> runnable
 
 module Zzz = Eio_utils.Zzz.Make(Suspended)
+module Expired_zzz = Eio_utils.Zzz.Make_expired(Zzz)
 
 type t = {
   uring: io_job Uring.t;
@@ -449,14 +450,6 @@ let submit_pending_io st =
     Ctf.label "submit_pending_io";
     fn st
 
-let rec sleep_timer last_timer = function
-  | [] -> last_timer
-  | q :: l ->
-    match Zzz.pop q with
-    | `Due k -> `Due k
-    | `Wait_until _ as last_timer -> sleep_timer last_timer l
-    | `Nothing -> sleep_timer last_timer l
-
 (* Switch control to the next ready continuation.
    If none is ready, wait until we get an event to wake one and then switch.
    Returns only if there is nothing to do and no queued operations. *)
@@ -469,7 +462,7 @@ let rec schedule ({run_q; sys_sleep_q; mono_sleep_q; mem_q; uring; _} as st) : [
   | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
   | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
     (* This is not a fair scheduler: timers always run before all other IO *)
-    match sleep_timer `Nothing [sys_sleep_q; mono_sleep_q] with
+    match Expired_zzz.expired_timer [sys_sleep_q; mono_sleep_q] with
     | `Due k ->
       Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
       Suspended.continue k ()                   (* A sleeping task is now due *)

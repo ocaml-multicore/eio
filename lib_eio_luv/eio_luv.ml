@@ -76,6 +76,7 @@ type runnable =
   | Thread of (unit -> unit)
 
 module Zzz = Eio_utils.Zzz.Make(Suspended)
+module Expired_zzz = Eio_utils.Zzz.Make_expired(Zzz)
 
 type t = {
   loop : Luv.Loop.t;
@@ -792,19 +793,12 @@ let stdenv ~run_event_loop =
     method secure_random = secure_random
   end
 
-let rec sleep_timer last_timer = function
-  | [] -> last_timer
-  | q :: l ->
-    match Zzz.pop q with
-    | `Due k -> `Due k
-    | `Wait_until _ | `Nothing as last_timer -> sleep_timer last_timer l
-
 let rec wakeup ~async run_q clocks =
   match Lf_queue.pop run_q with
   | Some (Thread f) -> f (); wakeup ~async run_q clocks
   | Some IO when Lf_queue.is_empty run_q -> ()
   | Some IO -> begin
-    match sleep_timer `Nothing clocks with
+    match Expired_zzz.expired_timer clocks with
     | `Due k ->
       Lf_queue.push run_q IO;
       Suspended.continue k ();

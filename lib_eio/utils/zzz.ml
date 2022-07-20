@@ -9,6 +9,17 @@ module type SUSPENDED = sig
   val fiber : 'a t -> Eio.Private.Fiber_context.t
 end
 
+module type S = sig
+  type t
+  type suspended
+  type timer_state = [`Due of suspended | `Wait_until of Eio.Time.t | `Nothing]
+
+  val create : Eio.Time.clock -> t
+  val add : t -> Eio.Time.t -> suspended -> Key.t
+  val remove : t -> Key.t -> unit
+  val pop : t -> timer_state
+end
+
 module Time = Eio.Time
 
 module Make (Suspended : SUSPENDED) = struct
@@ -29,6 +40,9 @@ module Make (Suspended : SUSPENDED) = struct
     mutable sleep_queue: Q.t;
     mutable next_id : Optint.Int63.t;
   }
+
+  type suspended = unit Suspended.t
+  type timer_state = [`Due of suspended | `Wait_until of Eio.Time.t | `Nothing]
 
   let create clock = { clock; sleep_queue = Q.empty; next_id = Optint.Int63.zero }
 
@@ -58,3 +72,16 @@ module Make (Suspended : SUSPENDED) = struct
       `Wait_until time
     | None -> `Nothing
 end
+
+module Make_expired (Zzz : S) = struct
+
+  let rec loop last_timer = function
+  | [] -> last_timer
+  | q :: l ->
+    match Zzz.pop q with
+    | `Due k -> `Due k
+    | `Wait_until _ as last_timer -> loop last_timer l
+    | `Nothing -> loop last_timer l
+
+  and expired_timer l = loop `Nothing l
+end 
