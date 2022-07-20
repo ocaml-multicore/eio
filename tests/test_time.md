@@ -30,4 +30,7 @@ let sleep ~clock =
 
 Check sleep works:
 
-
+```ocaml
+# run sleep ;; 
+- : unit = ()
+```

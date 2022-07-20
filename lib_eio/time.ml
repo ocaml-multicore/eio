@@ -1,7 +1,7 @@
 exception Timeout
 
-(* TODO make sure the args are correct, i.e. can't have negative value as time. 
-   when creating t. of_seconds, of_nanoseconds sleep must guard against negative 
+(* TODO make sure the args are correct, i.e. can't have negative value as time.
+   when creating t. of_seconds, of_nanoseconds sleep must guard against negative
    values.
 *)
 
@@ -18,7 +18,7 @@ external of_nanoseconds : int64 -> t = "%identity"
 let add t t2 = Int64.add t t2
 let sub t t2 = Int64.sub t t2
 let to_seconds t = (Int64.to_float t) /. 1e9
-let of_seconds s = (s *. 1e9) |> Float.round |> Int64.of_float
+let of_seconds s = Int64.of_float (s *. 1e9)
 let to_string = Int64.to_string
 let pp fmt t = Format.fprintf fmt "%Ld" t
 let compare = Int64.compare
