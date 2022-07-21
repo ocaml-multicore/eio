@@ -195,10 +195,11 @@ Exception: Invalid_argument "Switch accessed from wrong domain!".
 Creating a context key:
 
 ```ocaml
-# let key : int Eio.Context.key = Eio.Context.create_key ();;
-val key : int Eio.Context.key = <abstr>
+# let key : int Fiber.key = Fiber.create_key ();;
+val key : int Fiber.key = <abstr>
+
 # let trace_key () =
-  let value = Eio.Context.get key in
+  let value = Fiber.get key in
   traceln "Key => %a" Fmt.(option ~none:(const string "<unset>") int) value;;
 val trace_key : unit -> unit = <fun>
 ```
@@ -212,22 +213,22 @@ Keys default to being unset
 - : unit = ()
 ```
 
-`with_value` can be used to define a key.
+`with_binding` can be used to define a key.
 
 ```ocaml
 # run @@ fun _ ->
-  Eio.Context.with_value key 123 @@ fun () -> trace_key ();;
+  Fiber.with_binding key 123 @@ fun () -> trace_key ();;
 +Key => 123
 - : unit = ()
 ```
 
-`with_value` will shadow variables defined in outer scopes.
+`with_binding` will shadow variables defined in outer scopes.
 
 ```ocaml
 # run @@ fun _ ->
-  Eio.Context.with_value key 123 @@ fun () ->
+  Fiber.with_binding key 123 @@ fun () ->
   trace_key ();
-  Eio.Context.with_value key 456 (fun () -> trace_key ());
+  Fiber.with_binding key 456 (fun () -> trace_key ());
   trace_key ();;
 +Key => 123
 +Key => 456
@@ -239,16 +240,17 @@ Values are propagated when forking, or sending fibers to other domains.
 
 ```ocaml
 # run @@ fun _ ->
-  Eio.Context.with_value key 123 @@ fun () ->
+  Fiber.with_binding key 123 @@ fun () ->
   Switch.run @@ fun sw ->
   Fiber.fork ~sw trace_key;;
 +Key => 123
 - : unit = ()
+
 # run @@ fun mgr->
-  Eio.Context.with_value key 123 @@ fun () ->
+  Fiber.with_binding key 123 @@ fun () ->
   Eio.Domain_manager.run mgr @@ fun () ->
   trace_key ();;
-+Key => 123
++Key => <unset>
 - : unit = ()
 ```
 
@@ -257,7 +259,7 @@ Values are inherited from the currently running fiber, rather than the switch.
 ```ocaml
 # run @@ fun _ ->
   Switch.run @@ fun sw ->
-  Eio.Context.with_value key 123 @@ fun () ->
+  Fiber.with_binding key 123 @@ fun () ->
   Fiber.fork ~sw trace_key;;
 +Key => 123
 - : unit = ()

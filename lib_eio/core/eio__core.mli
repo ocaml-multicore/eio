@@ -286,6 +286,21 @@ module Fiber : sig
   (** [iter f x] is like [List.iter f x] except that the invocations of [f] are
       run concurrently in separate fibers.
       @param max_fibers Maximum number of fibers to run concurrently *)
+
+  (** {2 Fiber-local variables} *)
+
+  type 'a key
+  (** ['a key] is a key for a value of type ['a] stored within the fiber's context. *)
+
+  val create_key : unit -> 'a key
+  (** [create_key ()] creates a new context key. *)
+
+  val get : 'a key -> 'a option
+  (** [get key] reads [key] from the current context, returning its value or {!None} if it has not
+     been defined. *)
+
+  val with_binding : 'a key -> 'a -> (unit -> 'b) -> 'b
+  (** [with_binding key value fn] runs [fn] with the given key set to the assigned value. *)
 end
 
 (** @canonical Eio.Exn *)
@@ -395,30 +410,6 @@ module Cancel : sig
   (** Show the cancellation sub-tree rooted at [t], for debugging. *)
 end
 
-(** @canonical Eio.Context *)
-module Context : sig
-  type 'a key
-  (** ['a key] is a key for a value of type ['a] stored within the fiber's context. *)
-
-  (** [create_key ()] creates a new context key. *)
-  val create_key : unit -> 'a key
-
-  val get : 'a key -> 'a option
-  (** [get key] reads [key] from the current context, returning its value or {!None} if it has not
-     been defined. *)
-
-  val with_value : 'a key -> 'a -> (unit -> 'b) -> 'b
-  (** [with_value key value fn] runs [fn] with the given key set to the assigned value. *)
-
-  type context
-
-  val get_context : unit -> context
-  (** Get the current context for this fiber. *)
-
-  val with_context : context -> (unit -> 'a) -> 'a
-  (** [with_context fn] runs [fn] with the given context available. *)
-end
-
 (** @canonical Eio.Private *)
 module Private : sig
   module Ctf = Ctf
@@ -427,11 +418,13 @@ module Private : sig
   module Fiber_context : sig
     type t
 
+    type vars
+
     val make_root : unit -> t
     (** Make a new root context for a new domain. *)
 
-    val make : cc:Cancel.t -> t
-    (** [make ~cc] is a new fiber context, initially attached to the given cancellation context. *)
+    val make : cc:Cancel.t -> vars:vars -> t
+    (** [make ~cc ~vars] is a new fiber context, initially attached to the given cancellation context. *)
 
     val destroy : t -> unit
     (** [destroy t] removes [t] from its cancellation context. *)
@@ -508,8 +501,6 @@ module Private : sig
 
     val get_error : t -> exn option
     (** [get_error t] is [Cancel.get_error (cancellation_context t)] *)
-
-    val context_store : t -> Context.context
   end
 
   module Effects : sig

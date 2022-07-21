@@ -11,7 +11,8 @@ let fork_raw new_fiber f =
 let fork ~sw f =
   Switch.check_our_domain sw;
   if Cancel.is_on sw.cancel then (
-    let new_fiber = Cancel.Fiber_context.make ~cc:sw.cancel in
+    let vars = Cancel.Fiber_context.get_vars () in
+    let new_fiber = Cancel.Fiber_context.make ~cc:sw.cancel ~vars in
     fork_raw new_fiber @@ fun () ->
     Switch.with_op sw @@ fun () ->
     match f () with
@@ -25,7 +26,8 @@ let fork ~sw f =
 let fork_daemon ~sw f =
   Switch.check_our_domain sw;
   if Cancel.is_on sw.cancel then (
-    let new_fiber = Cancel.Fiber_context.make ~cc:sw.cancel in
+    let vars = Cancel.Fiber_context.get_vars () in
+    let new_fiber = Cancel.Fiber_context.make ~cc:sw.cancel ~vars in
     fork_raw new_fiber @@ fun () ->
     Switch.with_daemon sw @@ fun () ->
     match f () with
@@ -42,7 +44,8 @@ let fork_daemon ~sw f =
 
 let fork_promise ~sw f =
   Switch.check_our_domain sw;
-  let new_fiber = Cancel.Fiber_context.make ~cc:sw.Switch.cancel in
+  let vars = Cancel.Fiber_context.get_vars () in
+  let new_fiber = Cancel.Fiber_context.make ~cc:sw.Switch.cancel ~vars in
   let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
   fork_raw new_fiber (fun () ->
       match Switch.with_op sw f with
@@ -55,7 +58,8 @@ let fork_promise ~sw f =
    any fibers waiting on the promise will be cancelled. *)
 let fork_promise_exn ~sw f =
   Switch.check_our_domain sw;
-  let new_fiber = Cancel.Fiber_context.make ~cc:sw.Switch.cancel in
+  let vars = Cancel.Fiber_context.get_vars () in
+  let new_fiber = Cancel.Fiber_context.make ~cc:sw.Switch.cancel ~vars in
   let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
   fork_raw new_fiber (fun () ->
       match Switch.with_op sw f with
@@ -128,7 +132,8 @@ let any fs =
           | [] -> await_cancel ()
           | [f] -> wrap f; []
           | f :: fs ->
-            let new_fiber = Cancel.Fiber_context.make ~cc in
+            let vars = Cancel.Fiber_context.get_vars () in
+            let new_fiber = Cancel.Fiber_context.make ~cc ~vars in
             let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
             fork_raw new_fiber (fun () ->
                 match wrap f with
@@ -260,3 +265,13 @@ let iter ?(max_fibers=max_int) fn items =
         aux xs
     in
     aux items
+
+type 'a key = 'a Hmap.key
+
+let create_key () = Hmap.Key.create ()
+
+let get key = Hmap.find key (Cancel.Fiber_context.get_vars ())
+
+let with_binding var value fn =
+  let ctx = Effect.perform Cancel.Get_context in
+  Cancel.Fiber_context.with_vars ctx (Hmap.add var value ctx.vars) fn

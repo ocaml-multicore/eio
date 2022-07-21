@@ -3,7 +3,6 @@ module Fiber = Fiber
 module Switch = Switch
 module Cancel = Cancel
 module Exn = Exn
-module Context = Cancel.Context
 module Private = struct
   module Suspend = Suspend
   module Waiters = Waiters

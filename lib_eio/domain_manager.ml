@@ -14,7 +14,6 @@ let run (t : #t) fn =
   Private.Fiber_context.set_cancel_fn ctx (Promise.resolve set_cancelled);
   (* If the spawning fiber is cancelled, [cancelled] gets set to the exception. *)
 
-  let store = Private.Fiber_context.context_store ctx in
   match
     t#run @@ fun () ->
     Fiber.first
@@ -23,7 +22,7 @@ let run (t : #t) fn =
          | Cancel.Cancelled ex -> raise ex    (* To avoid [Cancelled (Cancelled ex))] *)
          | ex -> raise ex (* Shouldn't happen *)
       )
-      (fun () -> Context.with_context store fn)
+      fn
   with
   | x ->
     ignore (Private.Fiber_context.clear_cancel_fn ctx : bool);
