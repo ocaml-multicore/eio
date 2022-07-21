@@ -392,9 +392,9 @@ Exception:
 Multiple exceptions:
 Stdlib.Exit
 and
-Failure("cancel2 failed")
-and
 Failure("cancel1 failed")
+and
+Failure("cancel2 failed")
 ```
 
 # Errors during cleanup are reported during cancellation

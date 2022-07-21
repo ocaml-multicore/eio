@@ -137,7 +137,7 @@ let rec cancel_internal t ex acc_fns =
   | On ->
     let bt = Printexc.get_raw_backtrace () in
     t.state <- Cancelling (ex, bt);
-    let acc_fns = Lwt_dllist.fold_l collect_cancel_fn t.fibers acc_fns in
+    let acc_fns = Lwt_dllist.fold_r collect_cancel_fn t.fibers acc_fns in
     Lwt_dllist.fold_r (cancel_child ex) t.children acc_fns
 and cancel_child ex t acc =
   if t.protected then acc

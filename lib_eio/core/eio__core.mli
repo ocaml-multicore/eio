@@ -69,7 +69,7 @@ module Switch : sig
   (** {2 Cleaning up resources}
 
       It is possible to attach clean-up hooks to a switch.
-      Once all fibres within the switch have finished, these hooks are called.
+      Once all fibers within the switch have finished, these hooks are called.
       For example, when a file is opened it will register a release hook to close it.
 
       Functions that create such resources will take a switch argument
@@ -246,6 +246,15 @@ module Fiber : sig
       This is just a convenience wrapper around {!fork}.
       If [fn] raises an exception then the promise is resolved to the error, but [sw] is not failed. *)
 
+  val fork_daemon : sw:Switch.t -> (unit -> [`Stop_daemon]) -> unit
+  (** [fork_daemon] is like {!fork} except that instead of waiting for the fiber to finish,
+      the switch will cancel it once all non-daemon fibers are done.
+
+      The switch will still wait for the daemon fiber to finish cancelling.
+
+      The return type of [[`Stop_daemon]] instead of [unit] is just to catch mistakes,
+      as daemons normally aren't expected to return. *)
+
   val check : unit -> unit
   (** [check ()] checks that the fiber's context hasn't been cancelled.
       Many operations automatically check this before starting.
@@ -255,6 +264,28 @@ module Fiber : sig
   (** [yield ()] asks the scheduler to switch to the next runnable task.
       The current task remains runnable, but goes to the back of the queue.
       Automatically calls {!check} just before resuming. *)
+
+  (** {2 Concurrent list operations} *)
+
+  val filter : ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
+  (** [filter f x] is like [List.filter f x] except that the invocations of [f] are
+      run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
+
+  val map : ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
+  (** [map f x] is like [List.map f x] except that the invocations of [f] are
+      run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
+
+  val filter_map : ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
+  (** [filter_map f x] is like [List.filter_map f x] except that the
+      invocations of [f] are run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
+
+  val iter : ?max_fibers:int -> ('a -> unit) -> 'a list -> unit
+  (** [iter f x] is like [List.iter f x] except that the invocations of [f] are
+      run concurrently in separate fibers.
+      @param max_fibers Maximum number of fibers to run concurrently *)
 end
 
 (** @canonical Eio.Exn *)

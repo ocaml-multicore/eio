@@ -1,14 +1,14 @@
 # Setting up the environment
 
 ```ocaml
-# #require "eio_main";;
+# #require "eio.mock";;
 ```
 
 ```ocaml
 open Eio.Std
 
 let run fn =
-  Eio_main.run @@ fun _ ->
+  Eio_mock.Backend.run @@ fun _ ->
   traceln "%s" (fn ())
 ```
 
@@ -314,5 +314,264 @@ Same with `first`:
          (fun () -> traceln "Not reached");
        assert false
     );;
+Exception: Failure "Simulated error".
+```
+
+# Concurrent list operations
+
+```ocaml
+let process fn x =
+  traceln "Start %d" x;
+  Fiber.yield ();
+  let y = fn x in
+  traceln "Finished %d" x;
+  y
+
+let is_even x = (x land 1 = 0)
+
+let string_even x =
+  if is_even x then Some (string_of_int x)
+  else None
+
+let crash_on_three x =
+  if x = 3 then failwith "Simulated error"
+  else string_even x
+```
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Fiber.filter (process is_even) [1; 2; 3; 4]
+  |> traceln "%a" Fmt.(Dump.list int);;
++Start 1
++Start 2
++Start 3
++Start 4
++Finished 1
++Finished 2
++Finished 3
++Finished 4
++[2; 4]
+- : unit = ()
+```
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Fiber.map (process string_even) [1; 2; 3; 4]
+  |> traceln "%a" Fmt.Dump.(list (option string));;
++Start 1
++Start 2
++Start 3
++Start 4
++Finished 1
++Finished 2
++Finished 3
++Finished 4
++[None; Some "2"; None; Some "4"]
+- : unit = ()
+```
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Fiber.filter_map (process string_even) [1; 2; 3; 4]
+  |> traceln "%a" Fmt.Dump.(list string);;
++Start 1
++Start 2
++Start 3
++Start 4
++Finished 1
++Finished 2
++Finished 3
++Finished 4
++["2"; "4"]
+- : unit = ()
+```
+
+If any fiber raises, everything is cancelled:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Fiber.filter_map (process crash_on_three) [1; 2; 3; 4]
+  |> traceln "%a" Fmt.Dump.(list string);;
++Start 1
++Start 2
++Start 3
++Start 4
++Finished 1
++Finished 2
+Exception: Failure "Simulated error".
+```
+
+The number of concurrent fibers can be limited:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let ps = Array.init 4 (fun _ -> Promise.create ()) in
+  let await i = Promise.await (fst ps.(i)) in
+  let finish i = Promise.resolve (snd (ps.(i))) in
+  Fiber.both
+    (fun () ->
+       Fiber.map ~max_fibers:2 (process await) (List.init 4 Fun.id)
+       |> traceln "%a" Fmt.(Dump.list string)
+    )
+    (fun () ->
+       finish 1 "one";
+       Fiber.yield ();
+       finish 2 "two";
+       Fiber.yield (); Fiber.yield ();
+       finish 0 "zero";
+       Fiber.yield (); Fiber.yield ();
+       finish 3 "three";
+    );;
++Start 0
++Start 1
++Finished 1
++Start 2
++Finished 2
++Start 3
++Finished 0
++Finished 3
++[zero; one; two; three]
+- : unit = ()
+```
+
+Handling exceptions while waiting for a free fiber:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let ps = Array.init 2 (fun _ -> Promise.create ()) in
+  let await i = Promise.await_exn (fst ps.(i)) in
+  let finish i = Promise.resolve (snd (ps.(i))) in
+  Fiber.both
+    (fun () ->
+       Fiber.map ~max_fibers:1 (process await) (List.init 2 Fun.id)
+       |> traceln "%a" Fmt.(Dump.list string)
+    )
+    (fun () ->
+       Fiber.yield ();
+       finish 0 (Error (Failure "Simulated error"))
+    );;
++Start 0
+Exception: Failure "Simulated error".
+```
+
+Simple iteration:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let ps = Array.init 4 (fun _ -> Promise.create ()) in
+  let await i = Promise.await (fst ps.(i)) in
+  let finish i = Promise.resolve (snd (ps.(i))) () in
+  Fiber.both
+    (fun () ->
+       Fiber.iter ~max_fibers:2 (process await) (List.init 4 Fun.id)
+    )
+    (fun () ->
+       finish 1;
+       Fiber.yield ();
+       finish 2;
+       Fiber.yield (); Fiber.yield ();
+       finish 0;
+       Fiber.yield (); Fiber.yield ();
+       finish 3;
+    );;
++Start 0
++Start 1
++Finished 1
++Start 2
++Finished 2
++Start 3
++Finished 0
++Finished 3
+- : unit = ()
+```
+
+# Daemon fibers
+
+A daemon fiber runs until the non-daemon threads finish:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fiber.fork_daemon ~sw (fun () ->
+    for i = 1 to 10 do
+      traceln "Daemon running";
+      Fiber.yield ()
+    done;
+    failwith "Test failed"
+  );
+  traceln "Main running 1";
+  Fiber.yield ();
+  traceln "Main running 2";;
++Daemon running
++Main running 1
++Daemon running
++Main running 2
+- : unit = ()
+```
+
+A more complex example with multiple daemon and non-daemon fibers:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fiber.fork ~sw (fun () ->
+    traceln "Worker 1 starting";
+    Fiber.yield ();
+    traceln "Worker 1 running";
+    Fiber.yield ();
+    traceln "Worker 1 finished"
+  );
+  Fiber.fork ~sw (fun () ->
+    traceln "Worker 2 starting";
+    Fiber.yield ();
+    traceln "Worker 2 finished"
+  );
+  Fiber.fork_daemon ~sw (fun () ->
+    try
+      for i = 1 to 10 do
+        traceln "Daemon 1 running";
+        Fiber.yield ()
+      done;
+      failwith "Test failed"
+    with Eio.Cancel.Cancelled _ as ex ->
+      traceln "Daemon cancelled; trying to spawn more fibers";
+      Fiber.fork_daemon ~sw (fun () -> failwith "Shouldn't start");
+      Fiber.fork ~sw (fun () -> failwith "Shouldn't start");
+      raise ex
+  );
+  Fiber.fork_daemon ~sw (fun () ->
+    traceln "Daemon 2 running";
+    Fiber.yield ();
+    traceln "Daemon 2 finished";
+    `Stop_daemon
+  );
+  traceln "Main running";
+  Fiber.yield ();
+  traceln "Main finished";;
++Worker 1 starting
++Worker 2 starting
++Daemon 1 running
++Daemon 2 running
++Main running
++Worker 1 running
++Worker 2 finished
++Daemon 1 running
++Daemon 2 finished
++Main finished
++Worker 1 finished
++Daemon cancelled; trying to spawn more fibers
+- : unit = ()
+```
+
+Failing daemon fibers still get their errors reported:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fiber.fork_daemon ~sw (fun () ->
+     Fiber.yield ();
+     failwith "Simulated error"
+  );
+  Fiber.yield ();;
 Exception: Failure "Simulated error".
 ```
