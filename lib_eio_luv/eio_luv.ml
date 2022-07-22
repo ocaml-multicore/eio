@@ -447,6 +447,8 @@ let socket sock = object
     | Eio_unix.Private.Unix_file_descr op -> Stream.to_unix_opt op sock
     | x -> super#probe x
 
+  method unix_fd op = Stream.to_unix_opt op sock |> Option.get
+
   method read_into buf =
     let buf = Cstruct.to_bigarray buf in
     Stream.read_into sock buf
@@ -618,11 +620,11 @@ let net = object
       let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
       let addr = luv_addr_of_eio host port in
       await_exn (fun _loop _fiber -> Luv.TCP.connect (Handle.get "connect" sock) addr);
-      socket sock
+      (socket sock :> < Eio.Flow.two_way; Eio.Flow.close> )
     | `Unix path ->
       let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
       await_exn (fun _loop _fiber -> Luv.Pipe.connect (Handle.get "connect" sock) path);
-      socket sock
+      (socket sock :> < Eio.Flow.two_way; Eio.Flow.close> )
 
   method datagram_socket ~sw = function
     | `Udp (host, port) -> 
@@ -874,7 +876,28 @@ let rec run main =
               let sock = Luv.TCP.init ~loop () |> or_raise in
               let handle = Handle.of_luv ~sw ~close_unix sock in
               Luv.TCP.open_ sock fd |> or_raise;
-              continue k (socket handle :> < Eio.Flow.two_way; Eio.Flow.close >)
+              continue k (socket handle :> Eio_unix.socket)
+            with Luv_error _ as ex ->
+              discontinue k ex
+          )
+        | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
+            try
+              if domain <> Unix.PF_UNIX then failwith "Only PF_UNIX sockets are supported by libuv";
+              let ty =
+                match ty with
+                | Unix.SOCK_DGRAM -> `DGRAM
+                | Unix.SOCK_STREAM -> `STREAM
+                | Unix.SOCK_RAW -> `RAW
+                | Unix.SOCK_SEQPACKET -> failwith "Type SEQPACKET not support by libuv"
+              in
+              let a, b = Luv.TCP.socketpair ty protocol |> or_raise in
+              let wrap x =
+                let sock = Luv.TCP.init ~loop () |> or_raise in
+                Luv.TCP.open_ sock x |> or_raise;
+                let h = Handle.of_luv ~sw ~close_unix:true sock in
+                (socket h :> Eio_unix.socket)
+              in
+              continue k (wrap a, wrap b)
             with Luv_error _ as ex ->
               discontinue k ex
           )
