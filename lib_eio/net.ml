@@ -1,4 +1,7 @@
 exception Connection_reset of exn
+(** This is a wrapper for EPIPE, ECONNRESET and similar errors.
+    It indicates that the flow has failed, and data may have been lost. *)
+
 
 module Ipaddr = struct
   type 'a t = string   (* = [Unix.inet_addr], but avoid a Unix dependency here *)

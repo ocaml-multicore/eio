@@ -627,21 +627,22 @@ module Low_level = struct
 
   type _ Effect.t += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
 
+  let wrap_connection_failed = function
+    | Unix.Unix_error ((ECONNRESET | EPIPE), _, _) as ex -> Eio.Net.Connection_reset ex
+    | ex -> ex
+
   let read_exactly ?file_offset fd buf len =
     let res = Effect.perform (ERead (file_offset, fd, buf, Exactly len)) in
     Log.debug (fun l -> l "read_exactly: woken up after read");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "read_exactly", ""))
+      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "read_exactly", "")))
     )
 
   let read_upto ?file_offset fd buf len =
     let res = Effect.perform (ERead (file_offset, fd, buf, Upto len)) in
     Log.debug (fun l -> l "read_upto: woken up after read");
     if res < 0 then (
-      let err = Uring.error_of_errno res in
-      let ex = Unix.Unix_error (err, "read_upto", "") in
-      if err = Unix.ECONNRESET then raise (Eio.Net.Connection_reset ex)
-      else raise ex
+      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "read_upto", "")))
     ) else (
       res
     )
@@ -650,7 +651,7 @@ module Low_level = struct
     let res = enter (enqueue_readv (file_offset, fd, bufs)) in
     Log.debug (fun l -> l "readv: woken up after read");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "readv", ""))
+      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "readv", "")))
     ) else if res = 0 then (
       raise End_of_file
     ) else (
@@ -661,7 +662,7 @@ module Low_level = struct
     let res = enter (enqueue_writev (file_offset, fd, bufs)) in
     Log.debug (fun l -> l "writev: woken up after write");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "writev", ""))
+      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "writev", "")))
     ) else (
       res
     )
@@ -700,7 +701,7 @@ module Low_level = struct
     let res = Effect.perform (EWrite (file_offset, fd, buf, Exactly len)) in
     Log.debug (fun l -> l "write: woken up after write");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "write", ""))
+      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "write", "")))
     )
 
   type _ Effect.t += Alloc : Uring.Region.chunk option Effect.t
@@ -717,7 +718,7 @@ module Low_level = struct
     Log.debug (fun l -> l "splice returned");
     if res > 0 then res
     else if res = 0 then raise End_of_file
-    else raise (Unix.Unix_error (Uring.error_of_errno res, "splice", ""))
+    else raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "splice", "")))
 
   let connect fd addr =
     let res = enter (enqueue_connect fd addr) in
@@ -730,7 +731,7 @@ module Low_level = struct
     let res = enter (enqueue_send_msg fd ~fds ~dst buf) in
     Log.debug (fun l -> l "send_msg returned");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "send_msg", ""))
+      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "send_msg", "")))
     )
 
   let recv_msg fd buf =
@@ -739,7 +740,7 @@ module Low_level = struct
     let res = enter (enqueue_recv_msg fd msghdr) in
     Log.debug (fun l -> l "recv_msg returned");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", ""))
+      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", "")))
     );
     addr, res
 
@@ -749,7 +750,7 @@ module Low_level = struct
     let res = enter (enqueue_recv_msg fd msghdr) in
     Log.debug (fun l -> l "recv_msg returned");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", ""))
+      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", "")))
     );
     let fds =
       Uring.Msghdr.get_fds msghdr

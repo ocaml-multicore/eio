@@ -41,6 +41,13 @@ let wrap_error ~path e =
   | `ENOENT -> Eio.Dir.Not_found (path, ex)
   | _ -> ex
 
+let wrap_flow_error e =
+  let ex = Luv_error e in
+  match e with
+  | `ECONNRESET
+  | `EPIPE -> Eio.Net.Connection_reset ex
+  | _ -> ex
+
 let or_raise = function
   | Ok x -> x
   | Error e -> raise (Luv_error e)
@@ -114,6 +121,9 @@ module Low_level = struct
 
   exception Luv_error = Luv_error
   let or_raise = or_raise
+
+  let await fn =
+    Effect.perform (Await fn)
 
   let await_exn fn =
     Effect.perform (Await fn) |> or_raise
@@ -316,8 +326,7 @@ module Low_level = struct
         if len > 0 then len
         else read_into sock buf       (* Luv uses a zero-length read to mean EINTR! *)
       | Error `EOF -> raise End_of_file
-      | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
-      | Error x -> raise (Luv_error x)
+      | Error x -> raise (wrap_flow_error x)
 
     let rec skip_empty = function
       | empty :: xs when Luv.Buffer.size empty = 0 -> skip_empty xs
@@ -331,10 +340,12 @@ module Low_level = struct
             enqueue_thread st k (err, n)
           )
       in
-      or_raise err;
-      match Luv.Buffer.drop bufs n |> skip_empty with
-      | [] -> ()
-      | bufs -> write t bufs
+      match err with
+      | Error e -> raise (wrap_flow_error e)
+      | Ok () ->
+        match Luv.Buffer.drop bufs n |> skip_empty with
+        | [] -> ()
+        | bufs -> write t bufs
 
     let to_unix_opt = Handle.to_unix_opt
 
@@ -537,13 +548,14 @@ module Udp = struct
     match r with
     | Ok (buf', sockaddr, _recv_flags) ->
       `Udp (luv_ip_addr_to_eio sockaddr), Luv.Buffer.size buf'
-    | Error (`ECONNRESET as e) -> raise (Eio.Net.Connection_reset (Luv_error e))
-    | Error x -> raise (Luv_error x)
+    | Error x -> raise (wrap_flow_error x)
 
   let send t buf = function 
   | `Udp (host, port) ->
     let bufs = [ Cstruct.to_bigarray buf ] in
-    await_exn (fun _loop _fiber -> Luv.UDP.send (Handle.get "send" t) bufs (luv_addr_of_eio host port))
+    match await (fun _loop _fiber -> Luv.UDP.send (Handle.get "send" t) bufs (luv_addr_of_eio host port)) with
+    | Ok () -> ()
+    | Error e -> raise (wrap_flow_error e)
 end
 
 let udp_socket endp = object
