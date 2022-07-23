@@ -295,10 +295,18 @@ module Fiber : sig
 
       While fiber-local variables can be useful, they can also make code much
       harder to reason about, as they effectively act as another form of global
-      state. When possible, prefer passing arguments around explicitly. *)
+      state. When possible, prefer passing arguments around explicitly.
+
+      Fiber-local variables are particularly useful for attaching extra
+      information for debugging, such as a request ID that the log system can
+      include in all logged messages.
+      *)
 
   type 'a key
-  (** ['a key] is a fiber-local variable of type ['a]. *)
+  (** ['a key] is a fiber-local variable of type ['a].
+
+      Since the key is required to get or set a variable, a library can keep its
+      key private to control how the variable can be accessed. *)
 
   val create_key : unit -> 'a key
   (** [create_key ()] creates a new fiber-local variable. *)
@@ -436,13 +444,8 @@ module Private : sig
   module Fiber_context : sig
     type t
 
-    type vars
-
     val make_root : unit -> t
     (** Make a new root context for a new domain. *)
-
-    val make : cc:Cancel.t -> vars:vars -> t
-    (** [make ~cc ~vars] is a new fiber context, initially attached to the given cancellation context. *)
 
     val destroy : t -> unit
     (** [destroy t] removes [t] from its cancellation context. *)

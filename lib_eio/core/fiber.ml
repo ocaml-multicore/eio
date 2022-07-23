@@ -128,11 +128,11 @@ let any fs =
                 r := `Ex (Exn.combine prev (ex, bt))
             end
         in
+        let vars = Cancel.Fiber_context.get_vars () in
         let rec aux = function
           | [] -> await_cancel ()
           | [f] -> wrap f; []
           | f :: fs ->
-            let vars = Cancel.Fiber_context.get_vars () in
             let new_fiber = Cancel.Fiber_context.make ~cc ~vars in
             let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
             fork_raw new_fiber (fun () ->

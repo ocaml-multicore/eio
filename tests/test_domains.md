@@ -236,7 +236,8 @@ Keys default to being unset
 - : unit = ()
 ```
 
-Values are propagated when forking, or sending fibers to other domains.
+Values are propagated when forking, but not when spawning fibers in other
+domains (as the values may not be thread-safe).
 
 ```ocaml
 # run @@ fun _ ->

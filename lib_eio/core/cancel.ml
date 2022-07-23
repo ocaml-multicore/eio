@@ -181,7 +181,6 @@ let sub_unchecked fn =
 
 module Fiber_context = struct
   type t = fiber_context
-  type vars = Hmap.t
 
   let tid t = t.tid
   let cancellation_context t = t.cancel_context

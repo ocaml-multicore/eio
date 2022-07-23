@@ -13,7 +13,6 @@ let run (t : #t) fn =
   let cancelled, set_cancelled = Promise.create () in
   Private.Fiber_context.set_cancel_fn ctx (Promise.resolve set_cancelled);
   (* If the spawning fiber is cancelled, [cancelled] gets set to the exception. *)
-
   match
     t#run @@ fun () ->
     Fiber.first
