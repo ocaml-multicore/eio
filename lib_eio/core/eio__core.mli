@@ -291,7 +291,11 @@ module Fiber : sig
 
       Each fiber maintains a map of additional variables associated with it,
       which can be used to store fiber-related state or context. This map is
-      propagated to any forked fibers. *)
+      propagated to any forked fibers.
+
+      While fiber-local variables can be useful, they can also make code much
+      harder to reason about, as they effectively act as another form of global
+      state. When possible, prefer passing arguments around explicitly. *)
 
   type 'a key
   (** ['a key] is a fiber-local variable of type ['a]. *)
