@@ -287,20 +287,34 @@ module Fiber : sig
       run concurrently in separate fibers.
       @param max_fibers Maximum number of fibers to run concurrently *)
 
-  (** {2 Fiber-local variables} *)
+  (** {2 Fiber-local variables}
+
+      Each fiber maintains a map of additional variables associated with it,
+      which can be used to store fiber-related state or context. This map is
+      propagated to any forked fibers. *)
 
   type 'a key
-  (** ['a key] is a key for a value of type ['a] stored within the fiber's context. *)
+  (** ['a key] is a fiber-local variable of type ['a]. *)
 
   val create_key : unit -> 'a key
-  (** [create_key ()] creates a new context key. *)
+  (** [create_key ()] creates a new fiber-local variable. *)
 
   val get : 'a key -> 'a option
-  (** [get key] reads [key] from the current context, returning its value or {!None} if it has not
-     been defined. *)
+  (** [get key] reads [key] from the map of fiber local variables, returning its
+      value or {!None} if it has not been bound. *)
 
   val with_binding : 'a key -> 'a -> (unit -> 'b) -> 'b
-  (** [with_binding key value fn] runs [fn] with the given key set to the assigned value. *)
+  (** [with_binding key value fn] runs [fn] with [key] bound to the provided
+      [value].
+
+      Whilst this binding only exists for the duration of this function {i on
+      this fiber}, it will be propagated to any forked fibers. If [fn] creates
+      fibers using an external switch, the bound value may be continue to be
+      used after this function returns. *)
+
+  val without_binding : 'a key -> (unit -> 'b) -> 'b
+  (** [with_binding key value fn] runs [fn] with any binding for [key] removed.
+      *)
 end
 
 (** @canonical Eio.Exn *)

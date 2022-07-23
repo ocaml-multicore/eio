@@ -275,3 +275,7 @@ let get key = Hmap.find key (Cancel.Fiber_context.get_vars ())
 let with_binding var value fn =
   let ctx = Effect.perform Cancel.Get_context in
   Cancel.Fiber_context.with_vars ctx (Hmap.add var value ctx.vars) fn
+
+let without_binding var fn =
+  let ctx = Effect.perform Cancel.Get_context in
+  Cancel.Fiber_context.with_vars ctx (Hmap.rem var ctx.vars) fn
