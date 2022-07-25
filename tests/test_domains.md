@@ -189,3 +189,18 @@ Can't fork into another domain:
     );;
 Exception: Invalid_argument "Switch accessed from wrong domain!".
 ```
+
+# Fiber-local storage
+
+Fiber-local bindings are not propagated when spawning fibers in other
+domains (as the values may not be thread-safe):
+
+```ocaml
+# run @@ fun mgr ->
+  let key = Fiber.create_key () in
+  Fiber.with_binding key 123 @@ fun () ->
+  Eio.Domain_manager.run mgr @@ fun () ->
+  traceln "Key => %a" Fmt.(option ~none:(const string "<unset>") int) (Fiber.get key);;
++Key => <unset>
+- : unit = ()
+```

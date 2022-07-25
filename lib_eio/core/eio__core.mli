@@ -286,6 +286,47 @@ module Fiber : sig
   (** [iter f x] is like [List.iter f x] except that the invocations of [f] are
       run concurrently in separate fibers.
       @param max_fibers Maximum number of fibers to run concurrently *)
+
+  (** {2 Fiber-local variables}
+
+      Each fiber maintains a map of additional variables associated with it,
+      which can be used to store fiber-related state or context. This map is
+      propagated to any forked fibers.
+
+      While fiber-local variables can be useful, they can also make code much
+      harder to reason about, as they effectively act as another form of global
+      state. When possible, prefer passing arguments around explicitly.
+
+      Fiber-local variables are particularly useful for attaching extra
+      information for debugging, such as a request ID that the log system can
+      include in all logged messages.
+      *)
+
+  type 'a key
+  (** ['a key] is a fiber-local variable of type ['a].
+
+      Since the key is required to get or set a variable, a library can keep its
+      key private to control how the variable can be accessed. *)
+
+  val create_key : unit -> 'a key
+  (** [create_key ()] creates a new fiber-local variable. *)
+
+  val get : 'a key -> 'a option
+  (** [get key] reads [key] from the map of fiber local variables, returning its
+      value or {!None} if it has not been bound. *)
+
+  val with_binding : 'a key -> 'a -> (unit -> 'b) -> 'b
+  (** [with_binding key value fn] runs [fn] with [key] bound to the provided
+      [value].
+
+      Whilst this binding only exists for the duration of this function {i on
+      this fiber}, it will be propagated to any forked fibers. If [fn] creates
+      fibers using an external switch, the bound value may be continue to be
+      used after this function returns. *)
+
+  val without_binding : 'a key -> (unit -> 'b) -> 'b
+  (** [with_binding key value fn] runs [fn] with any binding for [key] removed.
+      *)
 end
 
 (** @canonical Eio.Exn *)
@@ -405,9 +446,6 @@ module Private : sig
 
     val make_root : unit -> t
     (** Make a new root context for a new domain. *)
-
-    val make : cc:Cancel.t -> t
-    (** [make ~cc] is a new fiber context, initially attached to the given cancellation context. *)
 
     val destroy : t -> unit
     (** [destroy t] removes [t] from its cancellation context. *)

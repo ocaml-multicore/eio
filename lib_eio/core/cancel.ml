@@ -27,6 +27,7 @@ and fiber_context = {
   mutable cancel_context : t;
   mutable cancel_node : fiber_context Lwt_dllist.node option; (* Our entry in [cancel_context.fibers] *)
   cancel_fn : (exn -> unit) option Atomic.t;
+  mutable vars : Hmap.t;
 }
 
 type _ Effect.t += Get_context : fiber_context Effect.t
@@ -193,18 +194,31 @@ module Fiber_context = struct
   let clear_cancel_fn t =
     Atomic.exchange t.cancel_fn None <> None
 
-  let make ~cc =
+  let make ~cc ~vars =
     let tid = Ctf.mint_id () in
     Ctf.note_created tid Ctf.Task;
-    let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = Atomic.make None } in
+    let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = Atomic.make None; vars } in
     t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibers);
     t
 
   let make_root () =
     let cc = create ~protected:false in
     cc.state <- On;
-    make ~cc
+    make ~cc ~vars:Hmap.empty
 
   let destroy t =
     Option.iter Lwt_dllist.remove t.cancel_node
+
+  let vars t = t.vars
+
+  let get_vars () =
+    vars (Effect.perform Get_context)
+
+  let with_vars t vars fn =
+    let old_vars = t.vars in
+    t.vars <- vars;
+    let cleanup () = t.vars <- old_vars in
+    match fn () with
+    | x            -> cleanup (); x
+    | exception ex -> cleanup (); raise ex
 end

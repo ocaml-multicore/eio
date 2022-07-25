@@ -1,4 +1,4 @@
 (library
   (name eio__core)
   (public_name eio.core)
-  (libraries cstruct lwt-dllist fmt))
+  (libraries cstruct hmap lwt-dllist fmt))
