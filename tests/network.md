@@ -14,6 +14,7 @@ let run (fn : net:Eio.Net.t -> Switch.t -> unit) =
   Switch.run (fn ~net)
 
 let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 8081)
+let addr6 = `Tcp (Eio.Net.Ipaddr.V6.loopback, 8081)
 
 let read_all flow =
   let b = Buffer.create 100 in
@@ -95,6 +96,18 @@ Handling one connection on an abstract Unix domain socket (this only works on Li
 <!-- $MDX non-deterministic=command -->
 ```ocaml
 # run (test_address (`Unix "\x00/tmp/eio-test.sock"));;
++Connecting to server...
++Server accepted connection from client
++Server received: "Hello from client"
++Client received: "Bye"
++Client finished - cancelling server
+Exception: Graceful_shutdown.
+```
+
+Handling one connection using IPv6:
+
+```ocaml
+# run (test_address addr6);;
 +Connecting to server...
 +Server accepted connection from client
 +Server received: "Hello from client"
