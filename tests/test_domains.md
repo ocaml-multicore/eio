@@ -192,76 +192,15 @@ Exception: Invalid_argument "Switch accessed from wrong domain!".
 
 # Fiber-local storage
 
-Creating a context key:
+Fiber-local bindings are not propagated when spawning fibers in other
+domains (as the values may not be thread-safe):
 
 ```ocaml
-# let key : int Fiber.key = Fiber.create_key ();;
-val key : int Fiber.key = <abstr>
-
-# let trace_key () =
-  let value = Fiber.get key in
-  traceln "Key => %a" Fmt.(option ~none:(const string "<unset>") int) value;;
-val trace_key : unit -> unit = <fun>
-```
-
-Keys default to being unset
-
-```ocaml
-# run @@ fun _ ->
-  trace_key ();;
-+Key => <unset>
-- : unit = ()
-```
-
-`with_binding` can be used to define a key.
-
-```ocaml
-# run @@ fun _ ->
-  Fiber.with_binding key 123 @@ fun () -> trace_key ();;
-+Key => 123
-- : unit = ()
-```
-
-`with_binding` will shadow variables defined in outer scopes.
-
-```ocaml
-# run @@ fun _ ->
-  Fiber.with_binding key 123 @@ fun () ->
-  trace_key ();
-  Fiber.with_binding key 456 (fun () -> trace_key ());
-  trace_key ();;
-+Key => 123
-+Key => 456
-+Key => 123
-- : unit = ()
-```
-
-Values are propagated when forking, but not when spawning fibers in other
-domains (as the values may not be thread-safe).
-
-```ocaml
-# run @@ fun _ ->
-  Fiber.with_binding key 123 @@ fun () ->
-  Switch.run @@ fun sw ->
-  Fiber.fork ~sw trace_key;;
-+Key => 123
-- : unit = ()
-
-# run @@ fun mgr->
+# run @@ fun mgr ->
+  let key = Fiber.create_key () in
   Fiber.with_binding key 123 @@ fun () ->
   Eio.Domain_manager.run mgr @@ fun () ->
-  trace_key ();;
+  traceln "Key => %a" Fmt.(option ~none:(const string "<unset>") int) (Fiber.get key);;
 +Key => <unset>
-- : unit = ()
-```
-
-Values are inherited from the currently running fiber, rather than the switch.
-
-```ocaml
-# run @@ fun _ ->
-  Switch.run @@ fun sw ->
-  Fiber.with_binding key 123 @@ fun () ->
-  Fiber.fork ~sw trace_key;;
-+Key => 123
 - : unit = ()
 ```
