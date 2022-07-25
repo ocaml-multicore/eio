@@ -28,7 +28,7 @@ val use_rw : protect:bool -> t -> (unit -> 'a) -> 'a
                    Cancellation is not prevented while waiting to take the lock. *)
 
 val use_ro : t -> (unit -> 'a) -> 'a
-(** [use_ro t fn] is like {!use_rw ~protect:false},
+(** [use_ro t fn] is like [use_rw ~protect:false],
     but if [fn] raises an exception it unlocks the mutex instead of disabling it.
     Use this if you only need read-only access to the mutex's resource and so
     know that it will be in a consistent state even if an exception is raised. *)
