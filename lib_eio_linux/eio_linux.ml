@@ -1021,6 +1021,7 @@ end
 
 let socket_domain_of = function
   | `Unix _ -> Unix.PF_UNIX
+  | `Udp (host, _)
   | `Tcp (host, _) ->
     Eio.Net.Ipaddr.fold host
       ~v4:(fun _ -> Unix.PF_INET)
@@ -1074,11 +1075,12 @@ let net = object
     Low_level.connect sock addr;
     (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
 
-  method datagram_socket ~sw = function
+  method datagram_socket ~sw saddr =
+    match saddr with
     | `Udp (host, port) ->
       let host = Eio_unix.Ipaddr.to_unix host in
       let addr = Unix.ADDR_INET (host, port) in
-      let sock_unix = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+      let sock_unix = Unix.socket (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
       Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
       Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
       let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
