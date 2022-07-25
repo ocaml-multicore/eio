@@ -165,9 +165,9 @@ Exception: Failure "Simulated error".
 Working with UDP and endpoints:
 
 ```ocaml
-# run @@ fun ~net sw ->
-  let e1 = `Udp (Eio.Net.Ipaddr.V4.loopback, 8081) in
-  let e2 = `Udp (Eio.Net.Ipaddr.V4.loopback, 8082) in
+let run_dgram addr ~net sw =
+  let e1 = `Udp (addr, 8081) in
+  let e2 = `Udp (addr, 8082) in
   let listening_socket = Eio.Net.datagram_socket ~sw net e2 in
   Fiber.both
     (fun () ->
@@ -181,10 +181,26 @@ Working with UDP and endpoints:
     (fun () ->
       let e = Eio.Net.datagram_socket ~sw net e1 in
       traceln "Sending data from %a to %a" Eio.Net.Sockaddr.pp e1 Eio.Net.Sockaddr.pp e2;
-      Eio.Net.send e e2 (Cstruct.of_string "UDP Message"));;
+      Eio.Net.send e e2 (Cstruct.of_string "UDP Message"))
+```
+
+Handling one UDP packet using IPv4:
+
+```ocaml
+# run (run_dgram Eio.Net.Ipaddr.V4.loopback);;
 +Waiting to receive data on udp:127.0.0.1:8082
 +Sending data from udp:127.0.0.1:8081 to udp:127.0.0.1:8082
 +Received message from udp:127.0.0.1:8081: UDP Message
+- : unit = ()
+```
+
+Handling one UDP packet using IPv6:
+
+```ocaml
+# run (run_dgram Eio.Net.Ipaddr.V6.loopback);;
++Waiting to receive data on udp:[::1]:8082
++Sending data from udp:[::1]:8081 to udp:[::1]:8082
++Received message from udp:[::1]:8081: UDP Message
 - : unit = ()
 ```
 
