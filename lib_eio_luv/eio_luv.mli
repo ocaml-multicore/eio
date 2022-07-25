@@ -122,4 +122,4 @@ val get_fd_opt : #Eio.Generic.t -> Low_level.File.t option
 
 (** {1 Main Loop} *)
 
-val run : (stdenv -> unit) -> unit
+val run : (stdenv -> 'a) -> 'a

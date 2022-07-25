@@ -41,7 +41,7 @@ Before we start, we'll define a wrapper around `Eio_main.run` for the examples b
     Eio_main.run @@ fun env ->
     let domain_mgr = Eio.Stdenv.domain_mgr env in
     fn (Eio.Domain_manager.run domain_mgr);;
-val run : (((unit -> 'a) -> 'a) -> unit) -> unit = <fun>
+val run : (((unit -> 'a) -> 'a) -> 'b) -> 'b = <fun>
 ```
 
 ## Problems with Multicore Programming

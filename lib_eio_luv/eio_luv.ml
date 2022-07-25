@@ -813,7 +813,7 @@ let rec wakeup ~async run_q =
     Luv.Async.send async |> or_raise
   | None -> ()
 
-let rec run main =
+let rec run : type a. (_ -> a) -> a = fun main ->
   Log.debug (fun l -> l "starting run");
   let loop = Luv.Loop.init () |> or_raise in
   let run_q = Lf_queue.create () in
@@ -908,7 +908,7 @@ let rec run main =
   let new_fiber = Fiber_context.make_root () in
   fork ~new_fiber (fun () ->
       begin match main stdenv with
-        | () -> main_status := `Done
+        | v -> main_status := `Done v
         | exception ex -> main_status := `Ex (ex, Printexc.get_raw_backtrace ())
       end;
       Luv.Loop.stop loop
@@ -917,6 +917,6 @@ let rec run main =
   Lf_queue.close st.run_q;
   Luv.Handle.close async (fun () -> Luv.Loop.close loop |> or_raise);
   match !main_status with
-  | `Done -> ()
+  | `Done v -> v
   | `Ex (ex, bt) -> Printexc.raise_with_backtrace ex bt
   | `Running -> failwith "Deadlock detected: no events scheduled but main function hasn't returned"
