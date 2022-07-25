@@ -34,7 +34,7 @@
     ]}
 *)
 
-(** {2 Configuration *)
+(** {2 Configuration} *)
 
 (** Actions that can be performed by mock handlers. *)
 module Action : sig
