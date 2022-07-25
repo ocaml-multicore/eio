@@ -992,6 +992,8 @@ let flow fd =
       | `Receive -> Unix.SHUTDOWN_RECEIVE
       | `Send -> Unix.SHUTDOWN_SEND
       | `All -> Unix.SHUTDOWN_ALL
+
+    method unix_fd op = FD.to_unix op fd
   end
 
 let source fd = (flow fd :> source)
@@ -1347,7 +1349,13 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
           | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
           | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
               let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
-              continue k (flow fd :> < Eio.Flow.two_way; Eio.Flow.close >)
+              continue k (flow fd :> Eio_unix.socket)
+            )
+          | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
+              let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
+              let a = FD.of_unix ~sw ~seekable:false ~close_unix:true a |> flow in
+              let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
+              continue k ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
             )
           | Low_level.Alloc -> Some (fun k ->
               match st.mem with

@@ -1,4 +1,4 @@
-# Setting up the environment
+## Setting up the environment
 
 ```ocaml
 # #require "eio_main";;
@@ -23,7 +23,7 @@ let read_all flow =
 exception Graceful_shutdown
 ```
 
-# Test cases
+## Test cases
 
 A simple client:
 
@@ -175,23 +175,23 @@ Working with UDP and endpoints:
 - : unit = ()
 ```
 
-# Unix interop
+## Unix interop
 
 Extracting file descriptors from Eio objects:
 
 ```ocaml
 # run @@ fun ~net sw ->
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
-  traceln "Listening socket has Unix FD: %b" (Eio_unix.FD.peek server <> None);
+  traceln "Listening socket has Unix FD: %b" (Eio_unix.FD.peek_opt server <> None);
   let have_client, have_server =
     Fiber.pair
       (fun () -> 
          let flow = Eio.Net.connect ~sw net addr in
-         (Eio_unix.FD.peek flow <> None)
+         (Eio_unix.FD.peek_opt flow <> None)
       )
       (fun () ->
          let flow, _addr = Eio.Net.accept ~sw server in
-         (Eio_unix.FD.peek flow <> None)
+         (Eio_unix.FD.peek_opt flow <> None)
       )
   in
   traceln "Client-side socket has Unix FD: %b" have_client;
@@ -274,7 +274,7 @@ Wrapping a Unix FD as an Eio socket:
 - : unit = ()
 ```
 
-# Accept_fork error handling
+## Accept_fork error handling
 
 On success, we close the connection immediately:
 
@@ -329,7 +329,7 @@ If the fork itself fails, we still close the connection:
 Exception: Failure "Simulated error".
 ```
 
-# Cancelling multiple jobs
+## Cancelling multiple jobs
 
 We start two jobs and cancel both. Cancellation happens in series. By the time the second job's cancel function is called, it has already finished.
 
@@ -391,4 +391,52 @@ let mock_cancellable ~sw ~server ~set_client_ready =
 +Cancelled. Accepting connection...
 +Client connected
 Exception: Failure "Simulated error".
+```
+
+## Socketpair
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let a, b = Eio_unix.socketpair ~sw () in
+  ignore (Eio_unix.FD.peek a : Unix.file_descr);
+  ignore (Eio_unix.FD.peek b : Unix.file_descr);
+  Eio.Flow.copy_string "foo" a;
+  Eio.Flow.close a;
+  let msg = Eio.Buf_read.of_flow b ~max_size:10 |> Eio.Buf_read.take_all in
+  traceln "Got: %S" msg;;
++Got: "foo"
+- : unit = ()
+```
+## Errors
+
+ECONNRESET:
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let a, b = Eio_unix.socketpair ~sw () in
+  Eio.Flow.copy_string "foo" a;
+  Eio.Flow.close b;     (* Close without reading *)
+  try
+    ignore (Eio.Flow.read a (Cstruct.create 1) : int);
+    assert false
+  with Eio.Net.Connection_reset _ -> traceln "Connection failed (good)";;
++Connection failed (good)
+- : unit = ()
+```
+
+EPIPE:
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let a, b = Eio_unix.socketpair ~sw () in
+  Eio.Flow.close b;
+  try
+    Eio.Flow.copy_string "foo" a;
+    assert false
+  with Eio.Net.Connection_reset _ -> traceln "Connection failed (good)";;
++Connection failed (good)
+- : unit = ()
 ```

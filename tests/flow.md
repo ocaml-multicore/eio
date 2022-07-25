@@ -1,4 +1,4 @@
-# Setting up the environment
+## Setting up the environment
 
 ```ocaml
 # #require "eio_main";;
@@ -31,7 +31,7 @@ let mock_source items =
   end
 ```
 
-# read_exact
+## read_exact
 
 ```ocaml
 # run @@ fun () ->
@@ -53,7 +53,7 @@ let mock_source items =
 Exception: End_of_file.
 ```
 
-# copy
+## copy
 
 ```ocaml
 # run @@ fun () ->
