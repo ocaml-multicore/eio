@@ -1224,7 +1224,8 @@ let monitor_event_fd t =
     assert (got = 8);
     (* We just go back to sleep now, but this will cause the scheduler to look
        at the run queue again and notice any new items. *)
-  done
+  done;
+  assert false
 
 let no_fallback (`Msg msg) = failwith msg
 
@@ -1243,7 +1244,9 @@ let with_uring ~queue_depth ?polling_timeout ?(fallback=no_fallback) fn =
       end;
       Printexc.raise_with_backtrace ex bt
 
-let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fallback main =
+let rec run : type a.
+  ?queue_depth:int -> ?n_blocks:int -> ?block_size:int -> ?polling_timeout:int -> ?fallback:(_ -> a) -> (_ -> a) -> a =
+  fun ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fallback main ->
   Log.debug (fun l -> l "starting run");
   let n_blocks = Option.value n_blocks ~default:queue_depth in
   let stdenv = stdenv ~run_event_loop:(run ~queue_depth ~n_blocks ~block_size ?polling_timeout ?fallback:None) in
@@ -1385,6 +1388,7 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
           | _ -> None
       }
   in
+  let result = ref None in
   let `Exit_scheduler =
     let new_fiber = Fiber_context.make_root () in
     fork ~new_fiber (fun () ->
@@ -1398,10 +1402,13 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
                 Unix.close fd
               );
             Log.debug (fun f -> f "Monitoring eventfd %a" FD.pp st.eventfd);
-            Fiber.first
-              (fun () -> main stdenv)
-              (fun () -> monitor_event_fd st)
+            result := Some (
+                Fiber.first
+                  (fun () -> main stdenv)
+                  (fun () -> monitor_event_fd st)
+              )
           )
       )
   in
-  Log.debug (fun l -> l "exit")
+  Log.debug (fun l -> l "exit");
+  Option.get !result

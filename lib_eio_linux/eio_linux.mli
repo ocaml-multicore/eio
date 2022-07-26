@@ -84,8 +84,8 @@ val run :
   ?n_blocks:int ->
   ?block_size:int ->
   ?polling_timeout:int ->
-  ?fallback:([`Msg of string] -> unit) ->
-  (stdenv -> unit) -> unit
+  ?fallback:([`Msg of string] -> 'a) ->
+  (stdenv -> 'a) -> 'a
 (** Run an event loop using io_uring.
 
     Uses {!Uring.create} to create the io_uring,
