@@ -25,6 +25,8 @@ class virtual t = object
   method virtual mkdir : perm:Unix_perm.t -> path -> unit
   method virtual open_dir : sw:Switch.t -> path -> t_with_close
   method virtual read_dir : path -> string list
+  method virtual unlink : path -> unit
+  method virtual rmdir : path -> unit
 end
 and virtual t_with_close = object
   (* This dummy class avoids an "Error: The type < .. > is not an object type" error from the compiler. *)
@@ -60,3 +62,6 @@ let load (t:#t) path =
 let save ?append ~create (t:#t) path data =
   with_open_out ?append ~create t path @@ fun flow ->
   Flow.copy_string data flow
+
+let unlink (t:#t) path = t#unlink path
+let rmdir (t:#t) path = t#rmdir path

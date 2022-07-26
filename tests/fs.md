@@ -21,6 +21,11 @@ let run (fn : Eio.Stdenv.t -> unit) =
   Eio_main.run @@ fun env ->
   fn env
 
+let try_read_file dir path =
+  match Eio.Dir.load dir path with
+  | s -> traceln "read %S -> %S" path s
+  | exception ex -> traceln "read %S -> %a" path Fmt.exn ex
+
 let try_write_file ~create ?append dir path content =
   match Eio.Dir.save ~create ?append dir path content with
   | () -> traceln "write %S -> ok" path
@@ -35,6 +40,16 @@ let try_read_dir dir path =
   match Eio.Dir.read_dir dir path with
   | names -> traceln "read_dir %S -> %a" path Fmt.Dump.(list string) names
   | exception ex -> traceln "read_dir %S -> %a" path Fmt.exn ex
+
+let try_unlink dir path =
+  match Eio.Dir.unlink dir path with
+  | () -> traceln "unlink %S -> ok" path
+  | exception ex -> traceln "unlink %S -> %a" path Fmt.exn ex
+
+let try_rmdir dir path =
+  match Eio.Dir.rmdir dir path with
+  | () -> traceln "rmdir %S -> ok" path
+  | exception ex -> traceln "rmdir %S -> %a" path Fmt.exn ex
 
 let chdir path =
   traceln "chdir %S" path;
@@ -176,7 +191,105 @@ Creating directories with nesting, symlinks, etc:
 +mkdir "to-root/tmp/foo" -> Eio.Dir.Permission_denied ("to-root/tmp/foo", _)
 +mkdir "../foo" -> Eio.Dir.Permission_denied ("../foo", _)
 +mkdir "to-subdir" -> Eio.Dir.Already_exists ("to-subdir", _)
-+mkdir "dangle/foo" -> Eio.Dir.Not_found ("dangle", _)
++mkdir "dangle/foo" -> Eio.Dir.Not_found ("dangle/foo", _)
+- : unit = ()
+```
+
+# Unlink
+
+You can remove a file using unlink:
+
+```ocaml
+# run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let cwd = Eio.Stdenv.cwd env in
+  Eio.Dir.save ~create:(`Exclusive 0o600) cwd "file" "data";
+  Eio.Dir.save ~create:(`Exclusive 0o600) cwd "subdir/file2" "data2";
+  try_read_file cwd "file";
+  try_read_file cwd "subdir/file2";
+  try_unlink cwd "file";
+  try_unlink cwd "subdir/file2";
+  try_read_file cwd "file";
+  try_read_file cwd "subdir/file2";
+  try_write_file ~create:(`Exclusive 0o600) cwd "subdir/file2" "data2";
+  try_unlink cwd "to-subdir/file2";
+  try_read_file cwd "subdir/file2";;
++read "file" -> "data"
++read "subdir/file2" -> "data2"
++unlink "file" -> ok
++unlink "subdir/file2" -> ok
++read "file" -> Eio.Dir.Not_found ("file", _)
++read "subdir/file2" -> Eio.Dir.Not_found ("subdir/file2", _)
++write "subdir/file2" -> ok
++unlink "to-subdir/file2" -> ok
++read "subdir/file2" -> Eio.Dir.Not_found ("subdir/file2", _)
+- : unit = ()
+```
+
+Removing something that doesn't exist or is out of scope:
+
+```ocaml
+# run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_unlink cwd "missing";
+  try_unlink cwd "../foo";
+  try_unlink cwd "to-subdir/foo";
+  try_unlink cwd "to-root/foo";;
++unlink "missing" -> Eio.Dir.Not_found ("missing", _)
++unlink "../foo" -> Eio.Dir.Permission_denied ("../foo", _)
++unlink "to-subdir/foo" -> Eio.Dir.Not_found ("to-subdir/foo", _)
++unlink "to-root/foo" -> Eio.Dir.Permission_denied ("to-root/foo", _)
+- : unit = ()
+```
+
+# Rmdir
+
+Similar to `unlink`, but works on directories:
+
+```ocaml
+# run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_mkdir cwd "d1";
+  try_mkdir cwd "subdir/d2";
+  try_read_dir cwd "d1";
+  try_read_dir cwd "subdir/d2";
+  try_rmdir cwd "d1";
+  try_rmdir cwd "subdir/d2";
+  try_read_dir cwd "d1";
+  try_read_dir cwd "subdir/d2";
+  try_mkdir cwd "subdir/d3";
+  try_rmdir cwd "to-subdir/d3";
+  try_read_dir cwd "subdir/d3";;
++mkdir "d1" -> ok
++mkdir "subdir/d2" -> ok
++read_dir "d1" -> []
++read_dir "subdir/d2" -> []
++rmdir "d1" -> ok
++rmdir "subdir/d2" -> ok
++read_dir "d1" -> Eio.Dir.Not_found ("d1", _)
++read_dir "subdir/d2" -> Eio.Dir.Not_found ("subdir/d2", _)
++mkdir "subdir/d3" -> ok
++rmdir "to-subdir/d3" -> ok
++read_dir "subdir/d3" -> Eio.Dir.Not_found ("subdir/d3", _)
+- : unit = ()
+```
+
+Removing something that doesn't exist or is out of scope:
+
+```ocaml
+# run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_rmdir cwd "missing";
+  try_rmdir cwd "../foo";
+  try_rmdir cwd "to-subdir/foo";
+  try_rmdir cwd "to-root/foo";;
++rmdir "missing" -> Eio.Dir.Not_found ("missing", _)
++rmdir "../foo" -> Eio.Dir.Permission_denied ("../foo", _)
++rmdir "to-subdir/foo" -> Eio.Dir.Not_found ("to-subdir/foo", _)
++rmdir "to-root/foo" -> Eio.Dir.Permission_denied ("to-root/foo", _)
 - : unit = ()
 ```
 

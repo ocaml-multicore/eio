@@ -261,6 +261,14 @@ module Low_level = struct
       let request = Luv.File.Request.make () in
       await_with_cancel ~request (fun loop -> Luv.File.mkdir ~loop ~request ~mode path)
 
+    let unlink path =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.unlink ~loop ~request path)
+
+    let rmdir path =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.rmdir ~loop ~request path)
+
     let opendir path =
       let request = Luv.File.Request.make () in
       await_with_cancel ~request (fun loop -> Luv.File.opendir ~loop ~request path)
@@ -712,8 +720,9 @@ class dir dir_path = object (self)
 
   (* Resolve a relative path to an absolute one, with no symlinks.
      @raise Eio.Dir.Permission_denied if it's outside of [dir_path]. *)
-  method private resolve path =
+  method private resolve ?display_path path =
     if closed then Fmt.invalid_arg "Attempt to use closed directory %S" dir_path;
+    let display_path = Option.value display_path ~default:path in
     if Filename.is_relative path then (
       let dir_path = File.realpath dir_path |> or_raise_path dir_path in
       let full = File.realpath (Filename.concat dir_path path) |> or_raise_path path in
@@ -723,9 +732,9 @@ class dir dir_path = object (self)
       else if full = dir_path then
         full
       else
-        raise (Eio.Dir.Permission_denied (path, Failure (Fmt.str "Path %S is outside of sandbox %S" full dir_path)))
+        raise (Eio.Dir.Permission_denied (display_path, Failure (Fmt.str "Path %S is outside of sandbox %S" full dir_path)))
     ) else (
-      raise (Eio.Dir.Permission_denied (path, Failure (Fmt.str "Path %S is absolute" path)))
+      raise (Eio.Dir.Permission_denied (display_path, Failure (Fmt.str "Path %S is absolute" path)))
     )
 
   (* We want to create [path]. Check that the parent is in the sandbox. *)
@@ -734,6 +743,8 @@ class dir dir_path = object (self)
     if leaf = ".." then Fmt.failwith "New path %S ends in '..'!" path
     else match self#resolve dir with
       | dir -> Filename.concat dir leaf
+      | exception Eio.Dir.Not_found (dir, ex) ->
+        raise (Eio.Dir.Not_found (Filename.concat dir leaf, ex))
       | exception Eio.Dir.Permission_denied (dir, ex) ->
         raise (Eio.Dir.Permission_denied (Filename.concat dir leaf, ex))
 
@@ -769,6 +780,20 @@ class dir dir_path = object (self)
     let real_path = self#resolve_new path in
     File.mkdir ~mode:[`NUMERIC perm] real_path |> or_raise_path path
 
+  (* libuv doesn't seem to provide a race-free way to do this. *)
+  method unlink path =
+    let dir_path = Filename.dirname path in
+    let leaf = Filename.basename path in
+    let real_dir_path = self#resolve ~display_path:path dir_path in
+    File.unlink (Filename.concat real_dir_path leaf) |> or_raise_path path
+
+  (* libuv doesn't seem to provide a race-free way to do this. *)
+  method rmdir path =
+    let dir_path = Filename.dirname path in
+    let leaf = Filename.basename path in
+    let real_dir_path = self#resolve ~display_path:path dir_path in
+    File.rmdir (Filename.concat real_dir_path leaf) |> or_raise_path path
+
   method read_dir path =
     let path = self#resolve path in
     File.readdir path |> or_raise_path path
@@ -781,7 +806,7 @@ let fs = object
   inherit dir "/"
 
   (* No checks *)
-  method! private resolve path = path
+  method! private resolve ?display_path:_ path = path
 end
 
 let cwd = object
