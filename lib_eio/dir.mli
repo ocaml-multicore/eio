@@ -46,6 +46,8 @@ class virtual t : object
   method virtual mkdir : perm:Unix_perm.t -> path -> unit
   method virtual open_dir : sw:Switch.t -> path -> t_with_close
   method virtual read_dir : path -> path list
+  method virtual unlink : path -> unit
+  method virtual rmdir : path -> unit
 end
 and virtual t_with_close : object
   inherit t
@@ -114,3 +116,17 @@ val with_open_dir : #t -> path -> (<t; Flow.close> -> 'a) -> 'a
 
 val read_dir : #t -> path -> string list
 (** [read_dir t path] reads directory entries for [t/path]. The entries are sorted using {! String.compare}.*)
+
+(** {1 Other} *)
+
+val unlink : #t -> path -> unit
+(** [unlink t path] removes directory entry [t/path].
+
+    Note: this cannot be used to unlink directories.
+    Use {!rmdir} for directories. *)
+
+val rmdir : #t -> path -> unit
+(** [rmdir t path] removes directory entry [t/path].
+    This only works when the entry is itself a directory.
+
+    Note: this usually requires the directory to be empty. *)

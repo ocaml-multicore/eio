@@ -39,6 +39,7 @@ let wrap_errors path fn =
   | Unix.Unix_error(Unix.ENOENT, _, _) as ex -> raise @@ Eio.Dir.Not_found (path, ex)
   | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
   | Eio.Dir.Permission_denied _        as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
+  | Eio.Dir.Not_found _                as ex -> raise @@ Eio.Dir.Not_found (path, ex)
 
 type _ Effect.t += Close : Unix.file_descr -> int Effect.t
 
@@ -792,6 +793,8 @@ module Low_level = struct
 
   external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
 
+  external eio_unlinkat : Unix.file_descr -> string -> bool -> unit = "caml_eio_unlinkat"
+
   external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
 
   external eio_getdents : Unix.file_descr -> string list = "caml_eio_getdents"
@@ -799,27 +802,37 @@ module Low_level = struct
   let getrandom { Cstruct.buffer; off; len } =
     eio_getrandom buffer off len
 
-  let mkdirat ~perm dir path =
-    wrap_errors path @@ fun () ->
-    match dir with
-    | None -> Unix.mkdir path perm
-    | Some dir -> eio_mkdirat (FD.get_exn "mkdirat" dir) path perm
-
-  let mkdir_beneath ~perm ?dir path =
+  (* [with_parent_dir dir path fn] runs [fn parent (basename path)],
+     where [parent] is a path FD for [path]'s parent, resolved using [Resolve.beneath]. *)
+  let with_parent_dir ?dir path fn =
     let dir_path = Filename.dirname path in
     let leaf = Filename.basename path in
-    (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
     Switch.run (fun sw ->
         let parent =
-          wrap_errors path @@ fun () ->
-          openat2 ~sw ~seekable:false ?dir dir_path
-            ~access:`R
-            ~flags:Uring.Open_flags.(cloexec + path + directory)
-            ~perm:0
-            ~resolve:Uring.Resolve.beneath
+          match dir with
+          | Some d when dir_path = "." -> d
+          | _ ->
+            wrap_errors path @@ fun () ->
+            openat2 ~sw ~seekable:false ?dir dir_path
+              ~access:`R
+              ~flags:Uring.Open_flags.(cloexec + path + directory)
+              ~perm:0
+              ~resolve:Uring.Resolve.beneath
         in
-        mkdirat ~perm (Some parent) leaf
+        fn parent leaf
       )
+
+  let mkdir_beneath ~perm ?dir path =
+    (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
+    with_parent_dir ?dir path @@ fun parent leaf ->
+    wrap_errors path @@ fun () ->
+    eio_mkdirat (FD.get_exn "mkdirat" parent) leaf perm
+
+  let unlink ?dir ~rmdir path =
+    (* [unlink] is really an operation on [path]'s parent. Get a reference to that first: *)
+    with_parent_dir ?dir path @@ fun parent leaf ->
+    wrap_errors path @@ fun () ->
+    eio_unlinkat (FD.get_exn "unlinkat" parent) leaf rmdir
 
   let shutdown socket command =
     Unix.shutdown (FD.get_exn "shutdown" socket) command
@@ -1175,6 +1188,9 @@ class dir fd = object
 
   method close =
     FD.close (Option.get fd)
+
+  method unlink path = Low_level.unlink ~rmdir:false ?dir:fd path
+  method rmdir path = Low_level.unlink ~rmdir:true ?dir:fd path
 end
 
 (* Full access to the filesystem. *)
@@ -1183,8 +1199,9 @@ let fs = object
 
   val! resolve_flags = Uring.Resolve.empty
 
-  method! mkdir ~perm path =
-    Low_level.mkdirat ~perm None path
+  method! mkdir ~perm path = Unix.mkdir path perm
+  method! unlink path = Unix.unlink path
+  method! rmdir path = Unix.rmdir path
 end
 
 let secure_random = object
