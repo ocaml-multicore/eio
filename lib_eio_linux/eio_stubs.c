@@ -56,6 +56,25 @@ CAMLprim value caml_eio_unlinkat(value v_fd, value v_path, value v_rmdir) {
   CAMLreturn(Val_unit);
 }
 
+CAMLprim value caml_eio_renameat(value v_old_fd, value v_old_path, value v_new_fd, value v_new_path) {
+  CAMLparam2(v_old_path, v_new_path);
+  char *old_path;
+  char *new_path;
+  int ret;
+  caml_unix_check_path(v_old_path, "renameat-old");
+  caml_unix_check_path(v_new_path, "renameat-new");
+  old_path = caml_stat_strdup(String_val(v_old_path));
+  new_path = caml_stat_strdup(String_val(v_new_path));
+  caml_enter_blocking_section();
+  ret = renameat(Int_val(v_old_fd), old_path,
+  		 Int_val(v_new_fd), new_path);
+  caml_leave_blocking_section();
+  caml_stat_free(old_path);
+  caml_stat_free(new_path);
+  if (ret == -1) uerror("renameat", v_old_path);
+  CAMLreturn(Val_unit);
+}
+
 CAMLprim value caml_eio_getrandom(value v_ba, value v_off, value v_len) {
   CAMLparam1(v_ba);
   ssize_t ret;

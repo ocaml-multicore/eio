@@ -269,6 +269,10 @@ module Low_level = struct
       let request = Luv.File.Request.make () in
       await_with_cancel ~request (fun loop -> Luv.File.rmdir ~loop ~request path)
 
+    let rename old_path new_path =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.rename ~loop ~request old_path ~to_:new_path)
+
     let opendir path =
       let request = Luv.File.Request.make () in
       await_with_cancel ~request (fun loop -> Luv.File.opendir ~loop ~request path)
@@ -710,13 +714,20 @@ let clock = object
   method sleep_until = sleep_until
 end
 
+type _ Eio.Generic.ty += Dir_resolve_new : (string -> string) Eio.Generic.ty
+let dir_resolve_new x = Eio.Generic.probe x Dir_resolve_new
+
 (* Warning: libuv doesn't provide [openat], etc, and so there is probably no way to make this safe.
    We make a best-efforts attempt to enforce the sandboxing using realpath and [`NOFOLLOW].
    todo: this needs more testing *)
-class dir dir_path = object (self)
+class dir (dir_path : string) = object (self)
   inherit Eio.Dir.t
 
   val mutable closed = false
+
+  method! probe : type a. a Eio.Generic.ty -> a option = function
+    | Dir_resolve_new -> Some self#resolve_new
+    | _ -> None
 
   (* Resolve a relative path to an absolute one, with no symlinks.
      @raise Eio.Dir.Permission_denied if it's outside of [dir_path]. *)
@@ -797,6 +808,14 @@ class dir dir_path = object (self)
   method read_dir path =
     let path = self#resolve path in
     File.readdir path |> or_raise_path path
+
+  method rename old_path new_dir new_path =
+    match dir_resolve_new new_dir with
+    | None -> invalid_arg "Target is not a luv directory!"
+    | Some new_resolve_new ->
+      let old_path = self#resolve old_path in
+      let new_path = new_resolve_new new_path in
+      File.rename old_path new_path |> or_raise_path old_path
 
   method close = closed <- true
 end
