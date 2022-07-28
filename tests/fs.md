@@ -173,8 +173,8 @@ Appending to an existing file:
   try_mkdir (cwd / "subdir/nested");
   Eio.Dir.save ~create:(`Exclusive 0o600) (cwd / "subdir/nested/test-file") "data";
   ();;
-+mkdir "subdir" -> ok
-+mkdir "subdir/nested" -> ok
++mkdir <cwd:subdir> -> ok
++mkdir <cwd:subdir/nested> -> ok
 - : unit = ()
 # Unix.unlink "subdir/nested/test-file"; Unix.rmdir "subdir/nested"; Unix.rmdir "subdir";;
 - : unit = ()
@@ -197,12 +197,12 @@ Creating directories with nesting, symlinks, etc:
   try_mkdir (cwd / "to-subdir");
   try_mkdir (cwd / "dangle/foo");
   ();;
-+mkdir "subdir" -> ok
-+mkdir "to-subdir/nested" -> ok
-+mkdir "to-root/tmp/foo" -> Eio.Dir.Permission_denied ("to-root/tmp/foo", _)
-+mkdir "../foo" -> Eio.Dir.Permission_denied ("../foo", _)
-+mkdir "to-subdir" -> Eio.Dir.Already_exists ("to-subdir", _)
-+mkdir "dangle/foo" -> Eio.Dir.Not_found ("dangle/foo", _)
++mkdir <cwd:subdir> -> ok
++mkdir <cwd:to-subdir/nested> -> ok
++mkdir <cwd:to-root/tmp/foo> -> Eio.Dir.Permission_denied ("to-root/tmp/foo", _)
++mkdir <cwd:../foo> -> Eio.Dir.Permission_denied ("../foo", _)
++mkdir <cwd:to-subdir> -> Eio.Dir.Already_exists ("to-subdir", _)
++mkdir <cwd:dangle/foo> -> Eio.Dir.Not_found ("dangle/foo", _)
 - : unit = ()
 ```
 
@@ -225,15 +225,15 @@ You can remove a file using unlink:
   try_write_file ~create:(`Exclusive 0o600) (cwd / "subdir/file2") "data2";
   try_unlink (cwd / "to-subdir/file2");
   try_read_file (cwd / "subdir/file2");;
-+read "file" -> "data"
-+read "subdir/file2" -> "data2"
-+unlink "file" -> ok
-+unlink "subdir/file2" -> ok
-+read "file" -> Eio.Dir.Not_found ("file", _)
-+read "subdir/file2" -> Eio.Dir.Not_found ("subdir/file2", _)
-+write "subdir/file2" -> ok
-+unlink "to-subdir/file2" -> ok
-+read "subdir/file2" -> Eio.Dir.Not_found ("subdir/file2", _)
++read <cwd:file> -> "data"
++read <cwd:subdir/file2> -> "data2"
++unlink <cwd:file> -> ok
++unlink <cwd:subdir/file2> -> ok
++read <cwd:file> -> Eio.Dir.Not_found ("file", _)
++read <cwd:subdir/file2> -> Eio.Dir.Not_found ("subdir/file2", _)
++write <cwd:subdir/file2> -> ok
++unlink <cwd:to-subdir/file2> -> ok
++read <cwd:subdir/file2> -> Eio.Dir.Not_found ("subdir/file2", _)
 - : unit = ()
 ```
 
@@ -247,10 +247,10 @@ Removing something that doesn't exist or is out of scope:
   try_unlink (cwd / "../foo");
   try_unlink (cwd / "to-subdir/foo");
   try_unlink (cwd / "to-root/foo");;
-+unlink "missing" -> Eio.Dir.Not_found ("missing", _)
-+unlink "../foo" -> Eio.Dir.Permission_denied ("../foo", _)
-+unlink "to-subdir/foo" -> Eio.Dir.Not_found ("to-subdir/foo", _)
-+unlink "to-root/foo" -> Eio.Dir.Permission_denied ("to-root/foo", _)
++unlink <cwd:missing> -> Eio.Dir.Not_found ("missing", _)
++unlink <cwd:../foo> -> Eio.Dir.Permission_denied ("../foo", _)
++unlink <cwd:to-subdir/foo> -> Eio.Dir.Not_found ("to-subdir/foo", _)
++unlink <cwd:to-root/foo> -> Eio.Dir.Permission_denied ("to-root/foo", _)
 - : unit = ()
 ```
 
@@ -273,17 +273,17 @@ Similar to `unlink`, but works on directories:
   try_mkdir (cwd / "subdir/d3");
   try_rmdir (cwd / "to-subdir/d3");
   try_read_dir (cwd / "subdir/d3");;
-+mkdir "d1" -> ok
-+mkdir "subdir/d2" -> ok
-+read_dir "d1" -> []
-+read_dir "subdir/d2" -> []
-+rmdir "d1" -> ok
-+rmdir "subdir/d2" -> ok
-+read_dir "d1" -> Eio.Dir.Not_found ("d1", _)
-+read_dir "subdir/d2" -> Eio.Dir.Not_found ("subdir/d2", _)
-+mkdir "subdir/d3" -> ok
-+rmdir "to-subdir/d3" -> ok
-+read_dir "subdir/d3" -> Eio.Dir.Not_found ("subdir/d3", _)
++mkdir <cwd:d1> -> ok
++mkdir <cwd:subdir/d2> -> ok
++read_dir <cwd:d1> -> []
++read_dir <cwd:subdir/d2> -> []
++rmdir <cwd:d1> -> ok
++rmdir <cwd:subdir/d2> -> ok
++read_dir <cwd:d1> -> Eio.Dir.Not_found ("d1", _)
++read_dir <cwd:subdir/d2> -> Eio.Dir.Not_found ("subdir/d2", _)
++mkdir <cwd:subdir/d3> -> ok
++rmdir <cwd:to-subdir/d3> -> ok
++read_dir <cwd:subdir/d3> -> Eio.Dir.Not_found ("subdir/d3", _)
 - : unit = ()
 ```
 
@@ -297,10 +297,10 @@ Removing something that doesn't exist or is out of scope:
   try_rmdir (cwd / "../foo");
   try_rmdir (cwd / "to-subdir/foo");
   try_rmdir (cwd / "to-root/foo");;
-+rmdir "missing" -> Eio.Dir.Not_found ("missing", _)
-+rmdir "../foo" -> Eio.Dir.Permission_denied ("../foo", _)
-+rmdir "to-subdir/foo" -> Eio.Dir.Not_found ("to-subdir/foo", _)
-+rmdir "to-root/foo" -> Eio.Dir.Permission_denied ("to-root/foo", _)
++rmdir <cwd:missing> -> Eio.Dir.Not_found ("missing", _)
++rmdir <cwd:../foo> -> Eio.Dir.Permission_denied ("../foo", _)
++rmdir <cwd:to-subdir/foo> -> Eio.Dir.Not_found ("to-subdir/foo", _)
++rmdir <cwd:to-root/foo> -> Eio.Dir.Permission_denied ("to-root/foo", _)
 - : unit = ()
 ```
 
@@ -316,8 +316,8 @@ Create a sandbox, write a file with it, then read it from outside:
   Eio.Dir.save ~create:(`Exclusive 0o600) (subdir / "test-file") "data";
   try_mkdir (subdir / "../new-sandbox");
   traceln "Got %S" @@ Eio.Dir.load (cwd / "sandbox/test-file");;
-+mkdir "sandbox" -> ok
-+mkdir "../new-sandbox" -> Eio.Dir.Permission_denied ("../new-sandbox", _)
++mkdir <cwd:sandbox> -> ok
++mkdir <sandbox:../new-sandbox> -> Eio.Dir.Permission_denied ("../new-sandbox", _)
 +Got "data"
 - : unit = ()
 ```
@@ -340,12 +340,12 @@ Using `cwd` we can't access the parent, but using `fs` we can:
   );
   Unix.unlink "test-file";
   Unix.rmdir "outside-cwd";;
-+mkdir "fs-test" -> ok
++mkdir <cwd:fs-test> -> ok
 +chdir "fs-test"
-+mkdir "../outside-cwd" -> Eio.Dir.Permission_denied ("../outside-cwd", _)
-+write "../test-file" -> Eio.Dir.Permission_denied ("../test-file", _)
-+mkdir "../outside-cwd" -> ok
-+write "../test-file" -> ok
++mkdir <cwd:../outside-cwd> -> Eio.Dir.Permission_denied ("../outside-cwd", _)
++write <cwd:../test-file> -> Eio.Dir.Permission_denied ("../test-file", _)
++mkdir <fs:../outside-cwd> -> ok
++write <fs:../test-file> -> ok
 +chdir ".."
 - : unit = ()
 ```
@@ -362,12 +362,12 @@ Reading directory entries under `cwd` and outside of `cwd`.
   try_read_dir (tmpdir / ".");
   try_read_dir (tmpdir / "..");
   try_read_dir (tmpdir / "test-3");;
-+mkdir "readdir" -> ok
-+mkdir "test-1" -> ok
-+mkdir "test-2" -> ok
-+read_dir "." -> ["test-1"; "test-2"]
-+read_dir ".." -> Eio.Dir.Permission_denied ("..", _)
-+read_dir "test-3" -> Eio.Dir.Not_found ("test-3", _)
++mkdir <cwd:readdir> -> ok
++mkdir <readdir:test-1> -> ok
++mkdir <readdir:test-2> -> ok
++read_dir <readdir:.> -> ["test-1"; "test-2"]
++read_dir <readdir:..> -> Eio.Dir.Permission_denied ("..", _)
++read_dir <readdir:test-3> -> Eio.Dir.Not_found ("test-3", _)
 - : unit = ()
 ```
 
@@ -467,14 +467,14 @@ Confined:
 
 ```ocaml
 # run @@ fun env -> try_rename env#cwd;;
-+mkdir "tmp" -> ok
-+rename "tmp" to "dir" -> ok
-+write "foo" -> ok
-+rename "foo" to "dir/bar" -> ok
-+read "dir/bar" -> "FOO"
-+rename "bar" to "foo" -> ok
-+read "foo" -> "FOO"
-+rename "../foo" to "foo" -> Eio.Dir.Permission_denied ("../foo", _)
++mkdir <cwd:tmp> -> ok
++rename <cwd:tmp> to <cwd:dir> -> ok
++write <cwd:foo> -> ok
++rename <cwd:foo> to <cwd:dir/bar> -> ok
++read <cwd:dir/bar> -> "FOO"
++rename <dir:bar> to <cwd:foo> -> ok
++read <cwd:foo> -> "FOO"
++rename <cwd:../foo> to <cwd:foo> -> Eio.Dir.Permission_denied ("../foo", _)
 - : unit = ()
 ```
 
@@ -482,13 +482,13 @@ Unconfined:
 
 ```ocaml
 # run @@ fun env -> try_rename env#fs;;
-+mkdir "tmp" -> ok
-+rename "tmp" to "dir" -> ok
-+write "foo" -> Eio.Dir.Already_exists ("foo", _)
-+rename "foo" to "dir/bar" -> ok
-+read "dir/bar" -> "FOO"
-+rename "bar" to "foo" -> ok
-+read "foo" -> "FOO"
-+rename "../foo" to "foo" -> ok
++mkdir <fs:tmp> -> ok
++rename <fs:tmp> to <fs:dir> -> ok
++write <fs:foo> -> Eio.Dir.Already_exists ("foo", _)
++rename <fs:foo> to <fs:dir/bar> -> ok
++read <fs:dir/bar> -> "FOO"
++rename <dir:bar> to <fs:foo> -> ok
++read <fs:foo> -> "FOO"
++rename <fs:../foo> to <fs:foo> -> ok
 - : unit = ()
 ```

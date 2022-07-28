@@ -66,6 +66,7 @@ class virtual dirfd : object
   method virtual unlink : path -> unit
   method virtual rmdir : path -> unit
   method virtual rename : path -> dirfd -> path -> unit
+  method virtual pp : Format.formatter -> unit
 end
 and virtual dirfd_with_close : object
   inherit dirfd
@@ -83,9 +84,7 @@ val ( / ) : 'a t -> string -> 'a t
     - [(fd, "foo") / "/bar" = (fd, "/bar")] *)
 
 val pp : _ t Fmt.t
-(** [pp] formats a [_ t] as a quoted string, suitable for logging.
-
-    Currently, it only shows the path component. *)
+(** [pp] formats a [_ t] as "<label:path>", suitable for logging. *)
 
 (** {1 Reading files} *)
 

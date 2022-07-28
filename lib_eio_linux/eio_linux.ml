@@ -1159,7 +1159,7 @@ let clock = object
   method sleep_until = Low_level.sleep_until
 end
 
-class dir (fd : dir_fd) = object
+class dir ~label (fd : dir_fd) = object
   inherit Eio.Dir.dirfd
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
@@ -1196,7 +1196,8 @@ class dir (fd : dir_fd) = object
         ~flags:Uring.Open_flags.(cloexec + path + directory)
         ~perm:0
     in
-    (new dir (FD fd) :> <Eio.Dir.dirfd; Eio.Flow.close>)
+    let label = Filename.basename path in
+    (new dir ~label (FD fd) :> <Eio.Dir.dirfd; Eio.Flow.close>)
 
   method mkdir ~perm path = Low_level.mkdir_beneath ~perm fd path
 
@@ -1217,6 +1218,8 @@ class dir (fd : dir_fd) = object
     match get_dir_fd_opt t2 with
     | Some fd2 -> Low_level.rename fd old_path fd2 new_path
     | None -> raise (Unix.Unix_error (Unix.EXDEV, "rename-dst", new_path))
+
+  method pp f = Fmt.string f (String.escaped label)
 end
 
 let secure_random = object
@@ -1229,8 +1232,8 @@ let stdenv ~run_event_loop =
   let stdin = lazy (source (of_unix Unix.stdin)) in
   let stdout = lazy (sink (of_unix Unix.stdout)) in
   let stderr = lazy (sink (of_unix Unix.stderr)) in
-  let fs = (new dir Fs, ".") in
-  let cwd = (new dir Cwd, ".") in
+  let fs = (new dir ~label:"fs" Fs, ".") in
+  let cwd = (new dir ~label:"cwd" Cwd, ".") in
   object (_ : stdenv)
     method stdin  = Lazy.force stdin
     method stdout = Lazy.force stdout

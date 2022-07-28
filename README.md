@@ -767,9 +767,9 @@ let try_mkdir path =
   try_mkdir (cwd / "dir1");
   try_mkdir (cwd / "../dir2");
   try_mkdir (cwd / "/tmp/dir3");;
-+mkdir "dir1" -> ok
-+mkdir "../dir2" -> Eio__Dir.Permission_denied("../dir2", _)
-+mkdir "/tmp/dir3" -> Eio__Dir.Permission_denied("/tmp/dir3", _)
++mkdir <cwd:dir1> -> ok
++mkdir <cwd:../dir2> -> Eio__Dir.Permission_denied("../dir2", _)
++mkdir <cwd:/tmp/dir3> -> Eio__Dir.Permission_denied("/tmp/dir3", _)
 - : unit = ()
 ```
 
@@ -784,9 +784,9 @@ The checks also apply to following symlinks:
   try_save (cwd / "dir1/file1") "A";
   try_save (cwd / "link-to-dir1/file2") "B";
   try_save (cwd / "link-to-tmp/file3") "C";;
-+save "dir1/file1" -> ok
-+save "link-to-dir1/file2" -> ok
-+save "link-to-tmp/file3" -> Eio__Dir.Permission_denied("link-to-tmp/file3", _)
++save <cwd:dir1/file1> -> ok
++save <cwd:link-to-dir1/file2> -> ok
++save <cwd:link-to-tmp/file3> -> Eio__Dir.Permission_denied("link-to-tmp/file3", _)
 - : unit = ()
 ```
 
@@ -798,8 +798,8 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
   Eio.Dir.with_open_dir (cwd / "dir1") @@ fun dir1 ->
   try_save (dir1 / "file4") "D";
   try_save (dir1 / "../file5") "E";;
-+save "file4" -> ok
-+save "../file5" -> Eio__Dir.Permission_denied("../file5", _)
++save <dir1:file4> -> ok
++save <dir1:../file5> -> Eio__Dir.Permission_denied("../file5", _)
 - : unit = ()
 ```
 

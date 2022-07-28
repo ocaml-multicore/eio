@@ -29,6 +29,7 @@ class virtual dirfd = object (_ : #Generic.t)
   method virtual unlink : path -> unit
   method virtual rmdir : path -> unit
   method virtual rename : path -> dirfd -> path -> unit
+  method virtual pp : Format.formatter -> unit
 end
 and virtual dirfd_with_close = object
   (* This dummy class avoids an "Error: The type < .. > is not an object type" error from the compiler. *)
@@ -45,7 +46,8 @@ let ( / ) (dir, p1) p2 =
   | ".", p2 -> (dir, p2)
   | p1, p2 -> (dir, Filename.concat p1 p2)
 
-let pp f (_, p) = Fmt.Dump.string f p
+let pp f ((t:#dirfd), p) =
+  Fmt.pf f "<%t:%s>" t#pp (String.escaped p)
 
 let open_in ~sw ((t:#dirfd), path) = t#open_in ~sw path
 let open_out ~sw ?(append=false) ~create ((t:#dirfd), path) = t#open_out ~sw ~append ~create path

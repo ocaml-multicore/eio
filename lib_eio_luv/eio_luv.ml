@@ -720,7 +720,7 @@ let dir_resolve_new x = Eio.Generic.probe x Dir_resolve_new
 (* Warning: libuv doesn't provide [openat], etc, and so there is probably no way to make this safe.
    We make a best-efforts attempt to enforce the sandboxing using realpath and [`NOFOLLOW].
    todo: this needs more testing *)
-class dir (dir_path : string) = object (self)
+class dir ~label (dir_path : string) = object (self)
   inherit Eio.Dir.dirfd
 
   val mutable closed = false
@@ -782,7 +782,8 @@ class dir (dir_path : string) = object (self)
 
   method open_dir ~sw path =
     Switch.check sw;
-    let d = new dir (self#resolve path) in
+    let label = Filename.basename path in
+    let d = new dir ~label (self#resolve path) in
     Switch.on_release sw (fun () -> d#close);
     d
 
@@ -818,18 +819,20 @@ class dir (dir_path : string) = object (self)
       File.rename old_path new_path |> or_raise_path old_path
 
   method close = closed <- true
+
+  method pp f = Fmt.string f (String.escaped label)
 end
 
 (* Full access to the filesystem. *)
 let fs = object
-  inherit dir "/"
+  inherit dir ~label:"fs" "."
 
   (* No checks *)
   method! private resolve ?display_path:_ path = path
 end
 
 let cwd = object
-  inherit dir "."
+  inherit dir  ~label:"cwd" "."
 end
 
 let stdenv ~run_event_loop =
