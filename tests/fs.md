@@ -36,6 +36,11 @@ let try_mkdir dir path =
   | () -> traceln "mkdir %S -> ok" path
   | exception ex -> traceln "mkdir %S -> %a" path Fmt.exn ex
 
+let try_rename d1 p1 d2 p2 =
+  match Eio.Dir.rename d1 p1 d2 p2 with
+  | () -> traceln "rename %S to %S -> ok" p1 p2
+  | exception ex -> traceln "rename %S to %S -> %a" p1 p2 Fmt.exn ex
+
 let try_read_dir dir path =
   match Eio.Dir.read_dir dir path with
   | names -> traceln "read_dir %S -> %a" path Fmt.Dump.(list string) names
@@ -432,5 +437,52 @@ In that case, `with_open_in` will no longer close it on exit:
     failwith (Eio.Dir.read_dir closed "." |> String.concat ",")
   with Invalid_argument _ -> traceln "Got Invalid_argument for closed FD";;
 +Got Invalid_argument for closed FD
+- : unit = ()
+```
+
+# Rename
+
+```ocaml
+let try_rename t =
+  try_mkdir t "tmp";
+  try_rename t "tmp" t "dir";
+  try_write_file t "foo" "FOO" ~create:(`Exclusive 0o600);
+  try_rename t "foo" t "dir/bar";
+  try_read_file t "dir/bar";
+  Eio.Dir.with_open_dir t "dir" @@ fun dir ->
+  try_rename dir "bar" t "foo";
+  try_read_file t "foo";
+  Unix.chdir "dir";
+  try_rename t "../foo" t "foo";
+  Unix.chdir ".."
+```
+
+Confined:
+
+```ocaml
+# run @@ fun env -> try_rename env#cwd;;
++mkdir "tmp" -> ok
++rename "tmp" to "dir" -> ok
++write "foo" -> ok
++rename "foo" to "dir/bar" -> ok
++read "dir/bar" -> "FOO"
++rename "bar" to "foo" -> ok
++read "foo" -> "FOO"
++rename "../foo" to "foo" -> Eio.Dir.Permission_denied ("../foo", _)
+- : unit = ()
+```
+
+Unconfined:
+
+```ocaml
+# run @@ fun env -> try_rename env#fs;;
++mkdir "tmp" -> ok
++rename "tmp" to "dir" -> ok
++write "foo" -> Eio.Dir.Already_exists ("foo", _)
++rename "foo" to "dir/bar" -> ok
++read "dir/bar" -> "FOO"
++rename "bar" to "foo" -> ok
++read "foo" -> "FOO"
++rename "../foo" to "foo" -> ok
 - : unit = ()
 ```

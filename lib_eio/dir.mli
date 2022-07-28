@@ -37,6 +37,7 @@ type create = [
 (** If a new file is created, the given permissions are used for it. *)
 
 class virtual t : object
+  inherit Generic.t
   method virtual open_in : sw:Switch.t -> path -> <Flow.source; Flow.close>
   method virtual open_out :
     sw:Switch.t ->
@@ -48,6 +49,7 @@ class virtual t : object
   method virtual read_dir : path -> path list
   method virtual unlink : path -> unit
   method virtual rmdir : path -> unit
+  method virtual rename : path -> t -> path -> unit
 end
 and virtual t_with_close : object
   inherit t
@@ -130,3 +132,8 @@ val rmdir : #t -> path -> unit
     This only works when the entry is itself a directory.
 
     Note: this usually requires the directory to be empty. *)
+
+val rename : #t -> path -> #t -> path -> unit
+(** [rename t1 old_path t2 new_path] atomically unlinks [t1/old_path] and links it as [t2/new_path].
+
+    If [new_path] already exists, it is atomically replaced. *)

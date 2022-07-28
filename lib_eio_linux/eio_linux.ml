@@ -112,6 +112,17 @@ module FD = struct
     | `Closed -> Fmt.string f "(closed)"
 end
 
+type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
+let get_fd_opt t = Eio.Generic.probe t FD
+
+type dir_fd =
+  | FD of FD.t
+  | Cwd         (* Confined to "." *)
+  | Fs          (* Unconfined "."; also allows absolute paths *)
+
+type _ Eio.Generic.ty += Dir_fd : dir_fd Eio.Generic.ty
+let get_dir_fd_opt t = Eio.Generic.probe t Dir_fd
+
 type rw_req = {
   op : [`R|`W];
   file_offset : Optint.Int63.t;
@@ -787,6 +798,12 @@ module Low_level = struct
     in
     FD.of_unix ~sw ~seekable ~close_unix:true fd
 
+  let openat ~sw ?seekable ~access ~flags ~perm dir path =
+    match dir with
+    | FD dir -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.beneath ~dir path
+    | Cwd -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.beneath path
+    | Fs -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.empty path
+
   let fstat fd =
     (* todo: use uring *)
     Unix.fstat (FD.get_exn "fstat" fd)
@@ -794,6 +811,8 @@ module Low_level = struct
   external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
 
   external eio_unlinkat : Unix.file_descr -> string -> bool -> unit = "caml_eio_unlinkat"
+
+  external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit = "caml_eio_renameat"
 
   external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
 
@@ -804,35 +823,42 @@ module Low_level = struct
 
   (* [with_parent_dir dir path fn] runs [fn parent (basename path)],
      where [parent] is a path FD for [path]'s parent, resolved using [Resolve.beneath]. *)
-  let with_parent_dir ?dir path fn =
+  let with_parent_dir dir path fn =
     let dir_path = Filename.dirname path in
     let leaf = Filename.basename path in
     Switch.run (fun sw ->
         let parent =
           match dir with
-          | Some d when dir_path = "." -> d
+          | FD d when dir_path = "." -> d
           | _ ->
             wrap_errors path @@ fun () ->
-            openat2 ~sw ~seekable:false ?dir dir_path
+            openat ~sw ~seekable:false dir dir_path
               ~access:`R
               ~flags:Uring.Open_flags.(cloexec + path + directory)
               ~perm:0
-              ~resolve:Uring.Resolve.beneath
         in
         fn parent leaf
       )
 
-  let mkdir_beneath ~perm ?dir path =
+  let mkdir_beneath ~perm dir path =
     (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
-    with_parent_dir ?dir path @@ fun parent leaf ->
+    with_parent_dir dir path @@ fun parent leaf ->
     wrap_errors path @@ fun () ->
     eio_mkdirat (FD.get_exn "mkdirat" parent) leaf perm
 
-  let unlink ?dir ~rmdir path =
+  let unlink ~rmdir dir path =
     (* [unlink] is really an operation on [path]'s parent. Get a reference to that first: *)
-    with_parent_dir ?dir path @@ fun parent leaf ->
+    with_parent_dir dir path @@ fun parent leaf ->
     wrap_errors path @@ fun () ->
     eio_unlinkat (FD.get_exn "unlinkat" parent) leaf rmdir
+
+  let rename old_dir old_path new_dir new_path =
+    with_parent_dir old_dir old_path @@ fun old_parent old_leaf ->
+    with_parent_dir new_dir new_path @@ fun new_parent new_leaf ->
+    wrap_errors old_path @@ fun () ->
+    eio_renameat
+      (FD.get_exn "renameat-old" old_parent) old_leaf
+      (FD.get_exn "renameat-new" new_parent) new_leaf
 
   let shutdown socket command =
     Unix.shutdown (FD.get_exn "shutdown" socket) command
@@ -851,12 +877,11 @@ module Low_level = struct
       client, client_addr
     )
 
-  let open_dir ?dir ~sw ~resolve path =
-    openat2 ~sw ~seekable:false ?dir path
+  let open_dir ~sw dir path =
+    openat ~sw ~seekable:false dir path
       ~access:`R
       ~flags:Uring.Open_flags.(cloexec + directory)
       ~perm:0
-      ~resolve
 
   let read_dir fd =
     let rec read_all acc fd =
@@ -871,15 +896,11 @@ end
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
-type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
-
 type has_fd = < fd : FD.t >
 type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
 type sink   = < Eio.Flow.sink  ; Eio.Flow.close; has_fd >
 
 let get_fd (t : <has_fd; ..>) = t#fd
-
-let get_fd_opt t = Eio.Generic.probe t FD
 
 (* When copying between a source with an FD and a sink with an FD, we can share the chunk
    and avoid copying. *)
@@ -1138,17 +1159,18 @@ let clock = object
   method sleep_until = Low_level.sleep_until
 end
 
-class dir fd = object
+class dir (fd : dir_fd) = object
   inherit Eio.Dir.t
 
-  val resolve_flags = Uring.Resolve.beneath
+  method! probe : type a. a Eio.Generic.ty -> a option = function
+    | Dir_fd -> Some fd
+    | _ -> None
 
   method open_in ~sw path =
-    let fd = Low_level.openat2 ~sw ?dir:fd path
+    let fd = Low_level.openat ~sw fd path
         ~access:`R
         ~flags:Uring.Open_flags.cloexec
         ~perm:0
-        ~resolve:resolve_flags
     in
     (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
 
@@ -1161,47 +1183,40 @@ class dir fd = object
       | `Exclusive   perm -> perm, Uring.Open_flags.(creat + excl)
     in
     let flags = if append then Uring.Open_flags.(flags + append) else flags in
-    let fd = Low_level.openat2 ~sw ?dir:fd path
+    let fd = Low_level.openat ~sw fd path
         ~access:`RW
         ~flags:Uring.Open_flags.(cloexec + flags)
         ~perm
-        ~resolve:resolve_flags
     in
     (flow fd :> <Eio.Dir.rw; Eio.Flow.close>)
 
   method open_dir ~sw path =
-    let fd = Low_level.openat2 ~sw ~seekable:false ?dir:fd path
+    let fd = Low_level.openat ~sw ~seekable:false fd path
         ~access:`R
         ~flags:Uring.Open_flags.(cloexec + path + directory)
         ~perm:0
-        ~resolve:resolve_flags
     in
-    (new dir (Some fd) :> <Eio.Dir.t; Eio.Flow.close>)
+    (new dir (FD fd) :> <Eio.Dir.t; Eio.Flow.close>)
 
-  method mkdir ~perm path =
-    Low_level.mkdir_beneath ~perm ?dir:fd path
+  method mkdir ~perm path = Low_level.mkdir_beneath ~perm fd path
 
   method read_dir path =
     Switch.run @@ fun sw ->
-    let fd = Low_level.open_dir ?dir:fd ~resolve:resolve_flags ~sw path in
+    let fd = Low_level.open_dir ~sw fd path in
     Low_level.read_dir fd
 
   method close =
-    FD.close (Option.get fd)
+    match fd with
+    | FD x -> FD.close x
+    | Cwd | Fs -> failwith "Can't close non-FD directory!"
 
-  method unlink path = Low_level.unlink ~rmdir:false ?dir:fd path
-  method rmdir path = Low_level.unlink ~rmdir:true ?dir:fd path
-end
+  method unlink path = Low_level.unlink ~rmdir:false fd path
+  method rmdir path = Low_level.unlink ~rmdir:true fd path
 
-(* Full access to the filesystem. *)
-let fs = object
-  inherit dir None
-
-  val! resolve_flags = Uring.Resolve.empty
-
-  method! mkdir ~perm path = Unix.mkdir path perm
-  method! unlink path = Unix.unlink path
-  method! rmdir path = Unix.rmdir path
+  method rename old_path t2 new_path =
+    match get_dir_fd_opt t2 with
+    | Some fd2 -> Low_level.rename fd old_path fd2 new_path
+    | None -> raise (Unix.Unix_error (Unix.EXDEV, "rename-dst", new_path))
 end
 
 let secure_random = object
@@ -1214,7 +1229,8 @@ let stdenv ~run_event_loop =
   let stdin = lazy (source (of_unix Unix.stdin)) in
   let stdout = lazy (sink (of_unix Unix.stdout)) in
   let stderr = lazy (sink (of_unix Unix.stderr)) in
-  let cwd = new dir None in
+  let fs = new dir Fs in
+  let cwd = new dir Cwd in
   object (_ : stdenv)
     method stdin  = Lazy.force stdin
     method stdout = Lazy.force stdout

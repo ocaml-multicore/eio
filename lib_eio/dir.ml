@@ -15,7 +15,8 @@ end
 
 type create = [`Never | `If_missing of Unix_perm.t | `Or_truncate of Unix_perm.t | `Exclusive of Unix_perm.t]
 
-class virtual t = object
+class virtual t = object (_ : #Generic.t)
+  method probe _ = None
   method virtual open_in : sw:Switch.t -> path -> <Flow.source; Flow.close>
   method virtual open_out :
     sw:Switch.t ->
@@ -27,6 +28,7 @@ class virtual t = object
   method virtual read_dir : path -> string list
   method virtual unlink : path -> unit
   method virtual rmdir : path -> unit
+  method virtual rename : path -> t -> path -> unit
 end
 and virtual t_with_close = object
   (* This dummy class avoids an "Error: The type < .. > is not an object type" error from the compiler. *)
@@ -65,3 +67,4 @@ let save ?append ~create (t:#t) path data =
 
 let unlink (t:#t) path = t#unlink path
 let rmdir (t:#t) path = t#rmdir path
+let rename (t1:#t) old_path t2 new_path = t1#rename old_path (t2 :> t) new_path
