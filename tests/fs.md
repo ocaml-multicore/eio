@@ -17,44 +17,46 @@ let () =
 
 open Eio.Std
 
+let ( / ) = Eio.Dir.( / )
+
 let run (fn : Eio.Stdenv.t -> unit) =
   Eio_main.run @@ fun env ->
   fn env
 
-let try_read_file dir path =
-  match Eio.Dir.load dir path with
-  | s -> traceln "read %S -> %S" path s
-  | exception ex -> traceln "read %S -> %a" path Fmt.exn ex
+let try_read_file path =
+  match Eio.Dir.load path with
+  | s -> traceln "read %a -> %S" Eio.Dir.pp path s
+  | exception ex -> traceln "read %a -> %a" Eio.Dir.pp path Fmt.exn ex
 
-let try_write_file ~create ?append dir path content =
-  match Eio.Dir.save ~create ?append dir path content with
-  | () -> traceln "write %S -> ok" path
-  | exception ex -> traceln "write %S -> %a" path Fmt.exn ex
+let try_write_file ~create ?append path content =
+  match Eio.Dir.save ~create ?append path content with
+  | () -> traceln "write %a -> ok" Eio.Dir.pp path
+  | exception ex -> traceln "write %a -> %a" Eio.Dir.pp path Fmt.exn ex
 
-let try_mkdir dir path =
-  match Eio.Dir.mkdir dir path ~perm:0o700 with
-  | () -> traceln "mkdir %S -> ok" path
-  | exception ex -> traceln "mkdir %S -> %a" path Fmt.exn ex
+let try_mkdir path =
+  match Eio.Dir.mkdir path ~perm:0o700 with
+  | () -> traceln "mkdir %a -> ok" Eio.Dir.pp path
+  | exception ex -> traceln "mkdir %a -> %a" Eio.Dir.pp path Fmt.exn ex
 
-let try_rename d1 p1 d2 p2 =
-  match Eio.Dir.rename d1 p1 d2 p2 with
-  | () -> traceln "rename %S to %S -> ok" p1 p2
-  | exception ex -> traceln "rename %S to %S -> %a" p1 p2 Fmt.exn ex
+let try_rename p1 p2 =
+  match Eio.Dir.rename p1 p2 with
+  | () -> traceln "rename %a to %a -> ok" Eio.Dir.pp p1 Eio.Dir.pp p2
+  | exception ex -> traceln "rename %a to %a -> %a" Eio.Dir.pp p1 Eio.Dir.pp p2 Fmt.exn ex
 
-let try_read_dir dir path =
-  match Eio.Dir.read_dir dir path with
-  | names -> traceln "read_dir %S -> %a" path Fmt.Dump.(list string) names
-  | exception ex -> traceln "read_dir %S -> %a" path Fmt.exn ex
+let try_read_dir path =
+  match Eio.Dir.read_dir path with
+  | names -> traceln "read_dir %a -> %a" Eio.Dir.pp path Fmt.Dump.(list string) names
+  | exception ex -> traceln "read_dir %a -> %a" Eio.Dir.pp path Fmt.exn ex
 
-let try_unlink dir path =
-  match Eio.Dir.unlink dir path with
-  | () -> traceln "unlink %S -> ok" path
-  | exception ex -> traceln "unlink %S -> %a" path Fmt.exn ex
+let try_unlink path =
+  match Eio.Dir.unlink path with
+  | () -> traceln "unlink %a -> ok" Eio.Dir.pp path
+  | exception ex -> traceln "unlink %a -> %a" Eio.Dir.pp path Fmt.exn ex
 
-let try_rmdir dir path =
-  match Eio.Dir.rmdir dir path with
-  | () -> traceln "rmdir %S -> ok" path
-  | exception ex -> traceln "rmdir %S -> %a" path Fmt.exn ex
+let try_rmdir path =
+  match Eio.Dir.rmdir path with
+  | () -> traceln "rmdir %a -> ok" Eio.Dir.pp path
+  | exception ex -> traceln "rmdir %a -> %a" Eio.Dir.pp path Fmt.exn ex
 
 let chdir path =
   traceln "chdir %S" path;
@@ -67,8 +69,8 @@ Creating a file and reading it back:
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`Exclusive 0o666) cwd "test-file" "my-data";
-  traceln "Got %S" @@ Eio.Dir.load cwd "test-file";;
+  Eio.Dir.save ~create:(`Exclusive 0o666) (cwd / "test-file") "my-data";
+  traceln "Got %S" @@ Eio.Dir.load (cwd / "test-file");;
 +Got "my-data"
 - : unit = ()
 ```
@@ -86,7 +88,7 @@ Trying to use cwd to access a file outside of that subtree fails:
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`Exclusive 0o666) cwd "../test-file" "my-data";
+  Eio.Dir.save ~create:(`Exclusive 0o666) (cwd / "../test-file") "my-data";
   failwith "Should have failed";;
 Exception: Eio.Dir.Permission_denied ("../test-file", _)
 ```
@@ -95,7 +97,7 @@ Trying to use cwd to access an absolute path fails:
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`Exclusive 0o666) cwd "/tmp/test-file" "my-data";
+  Eio.Dir.save ~create:(`Exclusive 0o666) (cwd / "/tmp/test-file") "my-data";
   failwith "Should have failed";;
 Exception: Eio.Dir.Permission_denied ("/tmp/test-file", _)
 ```
@@ -106,8 +108,8 @@ Exclusive create fails if already exists:
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
-  Eio.Dir.save ~create:(`Exclusive 0o666) cwd "test-file" "first-write";
+  Eio.Dir.save ~create:(`Exclusive 0o666) (cwd / "test-file") "first-write";
+  Eio.Dir.save ~create:(`Exclusive 0o666) (cwd / "test-file") "first-write";
   failwith "Should have failed";;
 Exception: Eio.Dir.Already_exists ("test-file", _)
 ```
@@ -116,9 +118,10 @@ If-missing create succeeds if already exists:
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`If_missing 0o666) cwd "test-file" "1st-write-original";
-  Eio.Dir.save ~create:(`If_missing 0o666) cwd "test-file" "2nd-write";
-  traceln "Got %S" @@ Eio.Dir.load cwd "test-file";;
+  let test_file = (cwd / "test-file") in
+  Eio.Dir.save ~create:(`If_missing 0o666) test_file "1st-write-original";
+  Eio.Dir.save ~create:(`If_missing 0o666) test_file "2nd-write";
+  traceln "Got %S" @@ Eio.Dir.load test_file;;
 +Got "2nd-write-original"
 - : unit = ()
 ```
@@ -127,9 +130,10 @@ Truncate create succeeds if already exists, and truncates:
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
-  Eio.Dir.save ~create:(`Or_truncate 0o666) cwd "test-file" "2nd-write";
-  traceln "Got %S" @@ Eio.Dir.load cwd "test-file";;
+  let test_file = (cwd / "test-file") in
+  Eio.Dir.save ~create:(`Or_truncate 0o666) test_file "1st-write-original";
+  Eio.Dir.save ~create:(`Or_truncate 0o666) test_file "2nd-write";
+  traceln "Got %S" @@ Eio.Dir.load test_file;;
 +Got "2nd-write"
 - : unit = ()
 # Unix.unlink "test-file";;
@@ -140,8 +144,9 @@ Error if no create and doesn't exist:
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:`Never cwd "test-file" "1st-write-original";
-  traceln "Got %S" @@ Eio.Dir.load cwd "test-file";;
+  let test_file = (cwd / "test-file") in
+  Eio.Dir.save ~create:`Never test_file "1st-write-original";
+  traceln "Got %S" @@ Eio.Dir.load test_file;;
 Exception: Eio.Dir.Not_found ("test-file", _)
 ```
 
@@ -149,9 +154,10 @@ Appending to an existing file:
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`Or_truncate 0o666) cwd "test-file" "1st-write-original";
-  Eio.Dir.save ~create:`Never ~append:true cwd "test-file" "2nd-write";
-  traceln "Got %S" @@ Eio.Dir.load cwd "test-file";;
+  let test_file = (cwd / "test-file") in
+  Eio.Dir.save ~create:(`Or_truncate 0o666) test_file "1st-write-original";
+  Eio.Dir.save ~create:`Never ~append:true test_file "2nd-write";
+  traceln "Got %S" @@ Eio.Dir.load test_file;;
 +Got "1st-write-original2nd-write"
 - : unit = ()
 # Unix.unlink "test-file";;
@@ -163,9 +169,9 @@ Appending to an existing file:
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  try_mkdir cwd "subdir";
-  try_mkdir cwd "subdir/nested";
-  Eio.Dir.save ~create:(`Exclusive 0o600) cwd "subdir/nested/test-file" "data";
+  try_mkdir (cwd / "subdir");
+  try_mkdir (cwd / "subdir/nested");
+  Eio.Dir.save ~create:(`Exclusive 0o600) (cwd / "subdir/nested/test-file") "data";
   ();;
 +mkdir "subdir" -> ok
 +mkdir "subdir/nested" -> ok
@@ -184,12 +190,12 @@ Creating directories with nesting, symlinks, etc:
 - : unit = ()
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  try_mkdir cwd "subdir";
-  try_mkdir cwd "to-subdir/nested";
-  try_mkdir cwd "to-root/tmp/foo";
-  try_mkdir cwd "../foo";
-  try_mkdir cwd "to-subdir";
-  try_mkdir cwd "dangle/foo";
+  try_mkdir (cwd / "subdir");
+  try_mkdir (cwd / "to-subdir/nested");
+  try_mkdir (cwd / "to-root/tmp/foo");
+  try_mkdir (cwd / "../foo");
+  try_mkdir (cwd / "to-subdir");
+  try_mkdir (cwd / "dangle/foo");
   ();;
 +mkdir "subdir" -> ok
 +mkdir "to-subdir/nested" -> ok
@@ -208,17 +214,17 @@ You can remove a file using unlink:
 # run @@ fun env ->
   Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`Exclusive 0o600) cwd "file" "data";
-  Eio.Dir.save ~create:(`Exclusive 0o600) cwd "subdir/file2" "data2";
-  try_read_file cwd "file";
-  try_read_file cwd "subdir/file2";
-  try_unlink cwd "file";
-  try_unlink cwd "subdir/file2";
-  try_read_file cwd "file";
-  try_read_file cwd "subdir/file2";
-  try_write_file ~create:(`Exclusive 0o600) cwd "subdir/file2" "data2";
-  try_unlink cwd "to-subdir/file2";
-  try_read_file cwd "subdir/file2";;
+  Eio.Dir.save ~create:(`Exclusive 0o600) (cwd / "file") "data";
+  Eio.Dir.save ~create:(`Exclusive 0o600) (cwd / "subdir/file2") "data2";
+  try_read_file (cwd / "file");
+  try_read_file (cwd / "subdir/file2");
+  try_unlink (cwd / "file");
+  try_unlink (cwd / "subdir/file2");
+  try_read_file (cwd / "file");
+  try_read_file (cwd / "subdir/file2");
+  try_write_file ~create:(`Exclusive 0o600) (cwd / "subdir/file2") "data2";
+  try_unlink (cwd / "to-subdir/file2");
+  try_read_file (cwd / "subdir/file2");;
 +read "file" -> "data"
 +read "subdir/file2" -> "data2"
 +unlink "file" -> ok
@@ -237,10 +243,10 @@ Removing something that doesn't exist or is out of scope:
 # run @@ fun env ->
   Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
-  try_unlink cwd "missing";
-  try_unlink cwd "../foo";
-  try_unlink cwd "to-subdir/foo";
-  try_unlink cwd "to-root/foo";;
+  try_unlink (cwd / "missing");
+  try_unlink (cwd / "../foo");
+  try_unlink (cwd / "to-subdir/foo");
+  try_unlink (cwd / "to-root/foo");;
 +unlink "missing" -> Eio.Dir.Not_found ("missing", _)
 +unlink "../foo" -> Eio.Dir.Permission_denied ("../foo", _)
 +unlink "to-subdir/foo" -> Eio.Dir.Not_found ("to-subdir/foo", _)
@@ -256,17 +262,17 @@ Similar to `unlink`, but works on directories:
 # run @@ fun env ->
   Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
-  try_mkdir cwd "d1";
-  try_mkdir cwd "subdir/d2";
-  try_read_dir cwd "d1";
-  try_read_dir cwd "subdir/d2";
-  try_rmdir cwd "d1";
-  try_rmdir cwd "subdir/d2";
-  try_read_dir cwd "d1";
-  try_read_dir cwd "subdir/d2";
-  try_mkdir cwd "subdir/d3";
-  try_rmdir cwd "to-subdir/d3";
-  try_read_dir cwd "subdir/d3";;
+  try_mkdir (cwd / "d1");
+  try_mkdir (cwd / "subdir/d2");
+  try_read_dir (cwd / "d1");
+  try_read_dir (cwd / "subdir/d2");
+  try_rmdir (cwd / "d1");
+  try_rmdir (cwd / "subdir/d2");
+  try_read_dir (cwd / "d1");
+  try_read_dir (cwd / "subdir/d2");
+  try_mkdir (cwd / "subdir/d3");
+  try_rmdir (cwd / "to-subdir/d3");
+  try_read_dir (cwd / "subdir/d3");;
 +mkdir "d1" -> ok
 +mkdir "subdir/d2" -> ok
 +read_dir "d1" -> []
@@ -287,10 +293,10 @@ Removing something that doesn't exist or is out of scope:
 # run @@ fun env ->
   Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
-  try_rmdir cwd "missing";
-  try_rmdir cwd "../foo";
-  try_rmdir cwd "to-subdir/foo";
-  try_rmdir cwd "to-root/foo";;
+  try_rmdir (cwd / "missing");
+  try_rmdir (cwd / "../foo");
+  try_rmdir (cwd / "to-subdir/foo");
+  try_rmdir (cwd / "to-root/foo");;
 +rmdir "missing" -> Eio.Dir.Not_found ("missing", _)
 +rmdir "../foo" -> Eio.Dir.Permission_denied ("../foo", _)
 +rmdir "to-subdir/foo" -> Eio.Dir.Not_found ("to-subdir/foo", _)
@@ -305,11 +311,11 @@ Create a sandbox, write a file with it, then read it from outside:
 # run @@ fun env ->
   Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
-  try_mkdir cwd "sandbox";
-  let subdir = Eio.Dir.open_dir ~sw cwd "sandbox" in
-  Eio.Dir.save ~create:(`Exclusive 0o600) subdir "test-file" "data";
-  try_mkdir subdir "../new-sandbox";
-  traceln "Got %S" @@ Eio.Dir.load cwd "sandbox/test-file";;
+  try_mkdir (cwd / "sandbox");
+  let subdir = Eio.Dir.open_dir ~sw (cwd / "sandbox") in
+  Eio.Dir.save ~create:(`Exclusive 0o600) (subdir / "test-file") "data";
+  try_mkdir (subdir / "../new-sandbox");
+  traceln "Got %S" @@ Eio.Dir.load (cwd / "sandbox/test-file");;
 +mkdir "sandbox" -> ok
 +mkdir "../new-sandbox" -> Eio.Dir.Permission_denied ("../new-sandbox", _)
 +Got "data"
@@ -324,13 +330,13 @@ Using `cwd` we can't access the parent, but using `fs` we can:
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let fs = Eio.Stdenv.fs env in
-  try_mkdir cwd "fs-test";
+  try_mkdir (cwd / "fs-test");
   chdir "fs-test";
   Fun.protect ~finally:(fun () -> chdir "..") (fun () ->
-    try_mkdir cwd "../outside-cwd";
-    try_write_file ~create:(`Exclusive 0o600) cwd "../test-file" "data";
-    try_mkdir fs "../outside-cwd";
-    try_write_file ~create:(`Exclusive 0o600) fs "../test-file" "data";
+    try_mkdir (cwd / "../outside-cwd");
+    try_write_file ~create:(`Exclusive 0o600) (cwd / "../test-file") "data";
+    try_mkdir (fs / "../outside-cwd");
+    try_write_file ~create:(`Exclusive 0o600) (fs / "../test-file") "data";
   );
   Unix.unlink "test-file";
   Unix.rmdir "outside-cwd";;
@@ -349,13 +355,13 @@ Reading directory entries under `cwd` and outside of `cwd`.
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  try_mkdir cwd "readdir";
-  Eio.Dir.with_open_dir cwd "readdir" @@ fun tmpdir ->
-  try_mkdir tmpdir "test-1";
-  try_mkdir tmpdir "test-2";
-  try_read_dir tmpdir ".";
-  try_read_dir tmpdir "..";
-  try_read_dir tmpdir "test-3";;
+  try_mkdir (cwd / "readdir");
+  Eio.Dir.with_open_dir (cwd / "readdir") @@ fun tmpdir ->
+  try_mkdir (tmpdir / "test-1");
+  try_mkdir (tmpdir / "test-2");
+  try_read_dir (tmpdir / ".");
+  try_read_dir (tmpdir / "..");
+  try_read_dir (tmpdir / "test-3");;
 +mkdir "readdir" -> ok
 +mkdir "test-1" -> ok
 +mkdir "test-2" -> ok
@@ -372,10 +378,10 @@ Can use `fs` to access absolute paths:
   let cwd = Eio.Stdenv.cwd env in
   let fs = Eio.Stdenv.fs env in
   let b = Buffer.create 10 in
-  Eio.Dir.with_open_in fs Filename.null (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));
+  Eio.Dir.with_open_in (fs / Filename.null) (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));
   traceln "Read %S and got %S" Filename.null (Buffer.contents b);
   traceln "Trying with cwd instead fails:";
-  Eio.Dir.with_open_in cwd Filename.null (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));;;
+  Eio.Dir.with_open_in (cwd / Filename.null) (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));;;
 +Read "/dev/null" and got ""
 +Trying with cwd instead fails:
 Exception: Eio.Dir.Permission_denied ("/dev/null", _)
@@ -386,8 +392,8 @@ Exception: Eio.Dir.Permission_denied ("/dev/null", _)
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`Exclusive 0o600) cwd "test-data" "one\ntwo\nthree";
-  Eio.Dir.with_lines cwd "test-data" (fun lines ->
+  Eio.Dir.save ~create:(`Exclusive 0o600) (cwd / "test-data") "one\ntwo\nthree";
+  Eio.Dir.with_lines (cwd / "test-data") (fun lines ->
      Seq.iter (traceln "Line: %s") lines
   );;
 +Line: one
@@ -403,7 +409,7 @@ We can get the Unix FD from the flow and use it directly:
 ```ocaml
 # run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
-  Eio.Dir.with_open_in fs Filename.null (fun flow ->
+  Eio.Dir.with_open_in (fs / Filename.null) (fun flow ->
      match Eio_unix.FD.peek_opt flow with
      | None -> failwith "No Unix file descriptor!"
      | Some fd ->
@@ -420,7 +426,7 @@ In that case, `with_open_in` will no longer close it on exit:
 ```ocaml
 # run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
-  let fd = Eio.Dir.with_open_in fs Filename.null (fun flow -> Option.get (Eio_unix.FD.take_opt flow)) in
+  let fd = Eio.Dir.with_open_in (fs / Filename.null) (fun flow -> Option.get (Eio_unix.FD.take_opt flow)) in
   let got = Unix.read fd (Bytes.create 10) 0 10 in
   traceln "Read %d bytes from null device" got;
   Unix.close fd;;
@@ -432,9 +438,9 @@ In that case, `with_open_in` will no longer close it on exit:
 
 ```ocaml
 # run @@ fun env ->
-  let closed = Switch.run (fun sw -> Eio.Dir.open_dir ~sw env#cwd ".") in
+  let closed = Switch.run (fun sw -> Eio.Dir.open_dir ~sw env#cwd) in
   try
-    failwith (Eio.Dir.read_dir closed "." |> String.concat ",")
+    failwith (Eio.Dir.read_dir closed |> String.concat ",")
   with Invalid_argument _ -> traceln "Got Invalid_argument for closed FD";;
 +Got Invalid_argument for closed FD
 - : unit = ()
@@ -444,16 +450,16 @@ In that case, `with_open_in` will no longer close it on exit:
 
 ```ocaml
 let try_rename t =
-  try_mkdir t "tmp";
-  try_rename t "tmp" t "dir";
-  try_write_file t "foo" "FOO" ~create:(`Exclusive 0o600);
-  try_rename t "foo" t "dir/bar";
-  try_read_file t "dir/bar";
-  Eio.Dir.with_open_dir t "dir" @@ fun dir ->
-  try_rename dir "bar" t "foo";
-  try_read_file t "foo";
+  try_mkdir (t / "tmp");
+  try_rename (t / "tmp") (t / "dir");
+  try_write_file (t / "foo") "FOO" ~create:(`Exclusive 0o600);
+  try_rename (t / "foo") (t / "dir/bar");
+  try_read_file (t / "dir/bar");
+  Eio.Dir.with_open_dir (t / "dir") @@ fun dir ->
+  try_rename (dir / "bar") (t / "foo");
+  try_read_file (t / "foo");
   Unix.chdir "dir";
-  try_rename t "../foo" t "foo";
+  try_rename (t / "../foo") (t / "foo");
   Unix.chdir ".."
 ```
 

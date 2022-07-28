@@ -1129,8 +1129,8 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
-  fs : Eio.Dir.t;
-  cwd : Eio.Dir.t;
+  fs : Eio.Dir.dirfd Eio.Dir.t;
+  cwd : Eio.Dir.dirfd Eio.Dir.t;
   secure_random : Eio.Flow.source;
 >
 
@@ -1160,7 +1160,7 @@ let clock = object
 end
 
 class dir (fd : dir_fd) = object
-  inherit Eio.Dir.t
+  inherit Eio.Dir.dirfd
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
     | Dir_fd -> Some fd
@@ -1196,7 +1196,7 @@ class dir (fd : dir_fd) = object
         ~flags:Uring.Open_flags.(cloexec + path + directory)
         ~perm:0
     in
-    (new dir (FD fd) :> <Eio.Dir.t; Eio.Flow.close>)
+    (new dir (FD fd) :> <Eio.Dir.dirfd; Eio.Flow.close>)
 
   method mkdir ~perm path = Low_level.mkdir_beneath ~perm fd path
 
@@ -1229,8 +1229,8 @@ let stdenv ~run_event_loop =
   let stdin = lazy (source (of_unix Unix.stdin)) in
   let stdout = lazy (sink (of_unix Unix.stdout)) in
   let stderr = lazy (sink (of_unix Unix.stderr)) in
-  let fs = new dir Fs in
-  let cwd = new dir Cwd in
+  let fs = (new dir Fs, ".") in
+  let cwd = (new dir Cwd, ".") in
   object (_ : stdenv)
     method stdin  = Lazy.force stdin
     method stdout = Lazy.force stdout
@@ -1238,8 +1238,8 @@ let stdenv ~run_event_loop =
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
-    method fs = (fs :> Eio.Dir.t)
-    method cwd = (cwd :> Eio.Dir.t)
+    method fs = (fs :> Eio.Dir.dirfd Eio.Dir.t)
+    method cwd = (cwd :> Eio.Dir.dirfd Eio.Dir.t)
     method secure_random = secure_random
   end
 

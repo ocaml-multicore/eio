@@ -720,9 +720,13 @@ Access to the [filesystem][Eio.Dir] is controlled by capabilities, and `env` pro
 You can save a whole file using `Dir.save`:
 
 ```ocaml
+# let ( / ) = Eio.Dir.( / );;
+val ( / ) : (#Eio.Dir.dirfd as 'a) Eio.Dir.t -> string -> 'a Eio.Dir.t =
+  <fun>
+
 # Eio_main.run @@ fun env ->
   let dir = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`Exclusive 0o600) dir "test.txt" "line one\nline two\n";;
+  Eio.Dir.save ~create:(`Exclusive 0o600) (dir / "test.txt") "line one\nline two\n";;
 - : unit = ()
 ```
 
@@ -735,7 +739,7 @@ the lines (a convenience function that uses `Buf_read.lines`):
 ```ocaml
 # Eio_main.run @@ fun env ->
   let dir = Eio.Stdenv.cwd env in
-  Eio.Dir.with_lines dir "test.txt" (fun lines ->
+  Eio.Dir.with_lines (dir / "test.txt") (fun lines ->
      Seq.iter (traceln "Processing %S") lines
   );;
 +Processing "line one"
@@ -746,23 +750,23 @@ the lines (a convenience function that uses `Buf_read.lines`):
 Access to `cwd` only grants access to that sub-tree:
 
 ```ocaml
-let try_save dir path data =
-  match Eio.Dir.save ~create:(`Exclusive 0o600) dir path data with
-  | () -> traceln "save %S -> ok" path
-  | exception ex -> traceln "save %S -> %a" path Fmt.exn ex
+let try_save path data =
+  match Eio.Dir.save ~create:(`Exclusive 0o600) path data with
+  | () -> traceln "save %a -> ok" Eio.Dir.pp path
+  | exception ex -> traceln "save %a -> %a" Eio.Dir.pp path Fmt.exn ex
 
-let try_mkdir dir path =
-  match Eio.Dir.mkdir dir path ~perm:0o700 with
-  | () -> traceln "mkdir %S -> ok" path
-  | exception ex -> traceln "mkdir %S -> %a" path Fmt.exn ex
+let try_mkdir path =
+  match Eio.Dir.mkdir path ~perm:0o700 with
+  | () -> traceln "mkdir %a -> ok" Eio.Dir.pp path
+  | exception ex -> traceln "mkdir %a -> %a" Eio.Dir.pp path Fmt.exn ex
 ```
 
 ```ocaml
 # Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  try_mkdir cwd "dir1";
-  try_mkdir cwd "../dir2";
-  try_mkdir cwd "/tmp/dir3";;
+  try_mkdir (cwd / "dir1");
+  try_mkdir (cwd / "../dir2");
+  try_mkdir (cwd / "/tmp/dir3");;
 +mkdir "dir1" -> ok
 +mkdir "../dir2" -> Eio__Dir.Permission_denied("../dir2", _)
 +mkdir "/tmp/dir3" -> Eio__Dir.Permission_denied("/tmp/dir3", _)
@@ -777,9 +781,9 @@ The checks also apply to following symlinks:
 
 # Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  try_save cwd "dir1/file1" "A";
-  try_save cwd "link-to-dir1/file2" "B";
-  try_save cwd "link-to-tmp/file3" "C";;
+  try_save (cwd / "dir1/file1") "A";
+  try_save (cwd / "link-to-dir1/file2") "B";
+  try_save (cwd / "link-to-tmp/file3") "C";;
 +save "dir1/file1" -> ok
 +save "link-to-dir1/file2" -> ok
 +save "link-to-tmp/file3" -> Eio__Dir.Permission_denied("link-to-tmp/file3", _)
@@ -791,9 +795,9 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
 ```ocaml
 # Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.with_open_dir cwd "dir1" @@ fun dir1 ->
-  try_save dir1 "file4" "D";
-  try_save dir1 "../file5" "E";;
+  Eio.Dir.with_open_dir (cwd / "dir1") @@ fun dir1 ->
+  try_save (dir1 / "file4") "D";
+  try_save (dir1 / "../file5") "E";;
 +save "file4" -> ok
 +save "../file5" -> Eio__Dir.Permission_denied("../file5", _)
 - : unit = ()

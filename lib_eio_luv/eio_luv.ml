@@ -665,8 +665,8 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
-  fs : Eio.Dir.t;
-  cwd : Eio.Dir.t;
+  fs : Eio.Dir.dirfd Eio.Dir.t;
+  cwd : Eio.Dir.dirfd Eio.Dir.t;
   secure_random : Eio.Flow.source;
 >
 
@@ -721,7 +721,7 @@ let dir_resolve_new x = Eio.Generic.probe x Dir_resolve_new
    We make a best-efforts attempt to enforce the sandboxing using realpath and [`NOFOLLOW].
    todo: this needs more testing *)
 class dir (dir_path : string) = object (self)
-  inherit Eio.Dir.t
+  inherit Eio.Dir.dirfd
 
   val mutable closed = false
 
@@ -843,8 +843,8 @@ let stdenv ~run_event_loop =
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
-    method fs = (fs :> Eio.Dir.t)
-    method cwd = (cwd :> Eio.Dir.t)
+    method fs = (fs :> Eio.Dir.dirfd), "."
+    method cwd = (cwd :> Eio.Dir.dirfd), "."
     method secure_random = secure_random
   end
 

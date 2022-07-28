@@ -6,6 +6,8 @@
 
 ```ocaml
 open Eio.Std
+
+let ( / ) = Eio.Dir.( / )
 ```
 
 Sending a file descriptor over a Unix domain socket:
@@ -13,7 +15,7 @@ Sending a file descriptor over a Unix domain socket:
 ```ocaml
 # Eio_linux.run @@ fun env ->
   Switch.run @@ fun sw ->
-  let fd = Eio.Dir.open_out ~sw env#cwd "tmp.txt" ~create:(`Exclusive 0o600) in
+  let fd = Eio.Dir.open_out ~sw (env#cwd / "tmp.txt") ~create:(`Exclusive 0o600) in
   Eio.Flow.copy_string "Test data" fd;
   let r, w = Unix.(socketpair PF_UNIX SOCK_STREAM 0) in
   let r = Eio_linux.FD.of_unix ~sw ~seekable:false ~close_unix:true r in

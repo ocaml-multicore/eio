@@ -156,8 +156,8 @@ module Stdenv : sig
     net : Net.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
-    fs : Dir.t;
-    cwd : Dir.t;
+    fs : Dir.dirfd Dir.t;
+    cwd : Dir.dirfd Dir.t;
     secure_random : Flow.source;
   >
 
@@ -173,11 +173,11 @@ module Stdenv : sig
 
       To use these, see {!Dir}. *)
 
-  val cwd : <cwd : #Dir.t as 'a; ..> -> 'a
+  val cwd : <cwd : _ Dir.t as 'a; ..> -> 'a
   (** [cwd t] is the current working directory of the process (this may change
       over time if the process does a "chdir" operation, which is not recommended). *)
 
-  val fs : <fs : #Dir.t as 'a; ..> -> 'a
+  val fs : <fs : _ Dir.t as 'a; ..> -> 'a
   (** [fs t] is the process's full access to the filesystem.
 
       Paths can be absolute or relative (to the current working directory).
