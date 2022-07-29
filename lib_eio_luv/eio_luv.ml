@@ -37,8 +37,8 @@ let () =
 let wrap_error ~path e =
   let ex = Luv_error e in
   match e with
-  | `EEXIST -> Eio.Dir.Already_exists (path, ex)
-  | `ENOENT -> Eio.Dir.Not_found (path, ex)
+  | `EEXIST -> Eio.Fs.Already_exists (path, ex)
+  | `ENOENT -> Eio.Fs.Not_found (path, ex)
   | _ -> ex
 
 let wrap_flow_error e =
@@ -665,8 +665,8 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
-  fs : Eio.Dir.dirfd Eio.Dir.t;
-  cwd : Eio.Dir.dirfd Eio.Dir.t;
+  fs : Eio.Fs.dir Eio.Path.t;
+  cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
 >
 
@@ -721,7 +721,7 @@ let dir_resolve_new x = Eio.Generic.probe x Dir_resolve_new
    We make a best-efforts attempt to enforce the sandboxing using realpath and [`NOFOLLOW].
    todo: this needs more testing *)
 class dir ~label (dir_path : string) = object (self)
-  inherit Eio.Dir.dirfd
+  inherit Eio.Fs.dir
 
   val mutable closed = false
 
@@ -730,7 +730,7 @@ class dir ~label (dir_path : string) = object (self)
     | _ -> None
 
   (* Resolve a relative path to an absolute one, with no symlinks.
-     @raise Eio.Dir.Permission_denied if it's outside of [dir_path]. *)
+     @raise Eio.Fs.Permission_denied if it's outside of [dir_path]. *)
   method private resolve ?display_path path =
     if closed then Fmt.invalid_arg "Attempt to use closed directory %S" dir_path;
     let display_path = Option.value display_path ~default:path in
@@ -743,9 +743,9 @@ class dir ~label (dir_path : string) = object (self)
       else if full = dir_path then
         full
       else
-        raise (Eio.Dir.Permission_denied (display_path, Failure (Fmt.str "Path %S is outside of sandbox %S" full dir_path)))
+        raise (Eio.Fs.Permission_denied (display_path, Failure (Fmt.str "Path %S is outside of sandbox %S" full dir_path)))
     ) else (
-      raise (Eio.Dir.Permission_denied (display_path, Failure (Fmt.str "Path %S is absolute" path)))
+      raise (Eio.Fs.Permission_denied (display_path, Failure (Fmt.str "Path %S is absolute" path)))
     )
 
   (* We want to create [path]. Check that the parent is in the sandbox. *)
@@ -754,10 +754,10 @@ class dir ~label (dir_path : string) = object (self)
     if leaf = ".." then Fmt.failwith "New path %S ends in '..'!" path
     else match self#resolve dir with
       | dir -> Filename.concat dir leaf
-      | exception Eio.Dir.Not_found (dir, ex) ->
-        raise (Eio.Dir.Not_found (Filename.concat dir leaf, ex))
-      | exception Eio.Dir.Permission_denied (dir, ex) ->
-        raise (Eio.Dir.Permission_denied (Filename.concat dir leaf, ex))
+      | exception Eio.Fs.Not_found (dir, ex) ->
+        raise (Eio.Fs.Not_found (Filename.concat dir leaf, ex))
+      | exception Eio.Fs.Permission_denied (dir, ex) ->
+        raise (Eio.Fs.Permission_denied (Filename.concat dir leaf, ex))
 
   method open_in ~sw path =
     let fd = File.open_ ~sw (self#resolve path) [`NOFOLLOW; `RDONLY] |> or_raise_path path in
@@ -778,7 +778,7 @@ class dir ~label (dir_path : string) = object (self)
       else self#resolve_new path
     in
     let fd = File.open_ ~sw real_path flags ~mode:[`NUMERIC mode] |> or_raise_path path in
-    (flow fd :> <Eio.Dir.rw; Eio.Flow.close>)
+    (flow fd :> <Eio.Fs.rw; Eio.Flow.close>)
 
   method open_dir ~sw path =
     Switch.check sw;
@@ -846,8 +846,8 @@ let stdenv ~run_event_loop =
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
-    method fs = (fs :> Eio.Dir.dirfd), "."
-    method cwd = (cwd :> Eio.Dir.dirfd), "."
+    method fs = (fs :> Eio.Fs.dir), "."
+    method cwd = (cwd :> Eio.Fs.dir), "."
     method secure_random = secure_random
   end
 

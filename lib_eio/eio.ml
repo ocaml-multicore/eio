@@ -27,8 +27,8 @@ module Buf_write = Buf_write
 module Net = Net
 module Domain_manager = Domain_manager
 module Time = Time
-module Unix_perm = Dir.Unix_perm
-module Dir = Dir
+module Fs = Fs
+module Path = Path
 
 module Stdenv = struct
   type t = <
@@ -38,8 +38,8 @@ module Stdenv = struct
     net : Net.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
-    fs : Dir.dirfd Dir.t;
-    cwd : Dir.dirfd Dir.t;
+    fs : Fs.dir Path.t;
+    cwd : Fs.dir Path.t;
     secure_random : Flow.source;
   >
 
@@ -50,6 +50,6 @@ module Stdenv = struct
   let domain_mgr (t : <domain_mgr : #Domain_manager.t; ..>) = t#domain_mgr
   let clock (t : <clock : #Time.clock; ..>) = t#clock
   let secure_random (t: <secure_random : #Flow.source; ..>) = t#secure_random
-  let fs (t : <fs : #Dir.dirfd Dir.t; ..>) = t#fs
-  let cwd (t : <cwd : #Dir.dirfd Dir.t; ..>) = t#cwd
+  let fs (t : <fs : #Fs.dir Path.t; ..>) = t#fs
+  let cwd (t : <cwd : #Fs.dir Path.t; ..>) = t#cwd
 end

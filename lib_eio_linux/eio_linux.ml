@@ -35,11 +35,11 @@ let system_thread = Ctf.mint_id ()
 
 let wrap_errors path fn =
   try fn () with
-  | Unix.Unix_error(Unix.EEXIST, _, _) as ex -> raise @@ Eio.Dir.Already_exists (path, ex)
-  | Unix.Unix_error(Unix.ENOENT, _, _) as ex -> raise @@ Eio.Dir.Not_found (path, ex)
-  | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
-  | Eio.Dir.Permission_denied _        as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
-  | Eio.Dir.Not_found _                as ex -> raise @@ Eio.Dir.Not_found (path, ex)
+  | Unix.Unix_error(Unix.EEXIST, _, _) as ex -> raise @@ Eio.Fs.Already_exists (path, ex)
+  | Unix.Unix_error(Unix.ENOENT, _, _) as ex -> raise @@ Eio.Fs.Not_found (path, ex)
+  | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Fs.Permission_denied (path, ex)
+  | Eio.Fs.Permission_denied _         as ex -> raise @@ Eio.Fs.Permission_denied (path, ex)
+  | Eio.Fs.Not_found _                 as ex -> raise @@ Eio.Fs.Not_found (path, ex)
 
 type _ Effect.t += Close : Unix.file_descr -> int Effect.t
 
@@ -1129,8 +1129,8 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
-  fs : Eio.Dir.dirfd Eio.Dir.t;
-  cwd : Eio.Dir.dirfd Eio.Dir.t;
+  fs : Eio.Fs.dir Eio.Path.t;
+  cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
 >
 
@@ -1160,7 +1160,7 @@ let clock = object
 end
 
 class dir ~label (fd : dir_fd) = object
-  inherit Eio.Dir.dirfd
+  inherit Eio.Fs.dir
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
     | Dir_fd -> Some fd
@@ -1188,7 +1188,7 @@ class dir ~label (fd : dir_fd) = object
         ~flags:Uring.Open_flags.(cloexec + flags)
         ~perm
     in
-    (flow fd :> <Eio.Dir.rw; Eio.Flow.close>)
+    (flow fd :> <Eio.Fs.rw; Eio.Flow.close>)
 
   method open_dir ~sw path =
     let fd = Low_level.openat ~sw ~seekable:false fd path
@@ -1197,7 +1197,7 @@ class dir ~label (fd : dir_fd) = object
         ~perm:0
     in
     let label = Filename.basename path in
-    (new dir ~label (FD fd) :> <Eio.Dir.dirfd; Eio.Flow.close>)
+    (new dir ~label (FD fd) :> <Eio.Fs.dir; Eio.Flow.close>)
 
   method mkdir ~perm path = Low_level.mkdir_beneath ~perm fd path
 
@@ -1241,8 +1241,8 @@ let stdenv ~run_event_loop =
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
-    method fs = (fs :> Eio.Dir.dirfd Eio.Dir.t)
-    method cwd = (cwd :> Eio.Dir.dirfd Eio.Dir.t)
+    method fs = (fs :> Eio.Fs.dir Eio.Path.t)
+    method cwd = (cwd :> Eio.Fs.dir Eio.Path.t)
     method secure_random = secure_random
   end
 
