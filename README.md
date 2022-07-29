@@ -712,30 +712,33 @@ Now the first two writes were combined and sent together.
 
 ## Filesystem Access
 
-Access to the [filesystem][Eio.Dir] is controlled by capabilities, and `env` provides two:
+Access to the [filesystem][Eio.Path] is controlled by capabilities, and `env` provides two:
 
 - `fs` provides full access (just like OCaml's stdlib).
 - `cwd` restricts access to files beneath the current working directory.
 
-You can save a whole file using `Dir.save`:
+You can save a whole file using `Path.save`:
 
 ```ocaml
+# let ( / ) = Eio.Path.( / );;
+val ( / ) : (#Eio.Fs.dir as 'a) Eio.Path.t -> string -> 'a Eio.Path.t = <fun>
+
 # Eio_main.run @@ fun env ->
   let dir = Eio.Stdenv.cwd env in
-  Eio.Dir.save ~create:(`Exclusive 0o600) dir "test.txt" "line one\nline two\n";;
+  Eio.Path.save ~create:(`Exclusive 0o600) (dir / "test.txt") "line one\nline two\n";;
 - : unit = ()
 ```
 
-For more control, use `Dir.open_out` (or `with_open_out`) to get a flow.
+For more control, use `Path.open_out` (or `with_open_out`) to get a flow.
 
 To load a file, you can use `load` to read the whole thing into a string,
-`Dir.open_in` (or `with_open_in`) to get a flow, or `Dir.with_lines` to stream
+`Path.open_in` (or `with_open_in`) to get a flow, or `Path.with_lines` to stream
 the lines (a convenience function that uses `Buf_read.lines`):
 
 ```ocaml
 # Eio_main.run @@ fun env ->
   let dir = Eio.Stdenv.cwd env in
-  Eio.Dir.with_lines dir "test.txt" (fun lines ->
+  Eio.Path.with_lines (dir / "test.txt") (fun lines ->
      Seq.iter (traceln "Processing %S") lines
   );;
 +Processing "line one"
@@ -746,26 +749,26 @@ the lines (a convenience function that uses `Buf_read.lines`):
 Access to `cwd` only grants access to that sub-tree:
 
 ```ocaml
-let try_save dir path data =
-  match Eio.Dir.save ~create:(`Exclusive 0o600) dir path data with
-  | () -> traceln "save %S -> ok" path
-  | exception ex -> traceln "save %S -> %a" path Fmt.exn ex
+let try_save path data =
+  match Eio.Path.save ~create:(`Exclusive 0o600) path data with
+  | () -> traceln "save %a -> ok" Eio.Path.pp path
+  | exception ex -> traceln "save %a -> %a" Eio.Path.pp path Fmt.exn ex
 
-let try_mkdir dir path =
-  match Eio.Dir.mkdir dir path ~perm:0o700 with
-  | () -> traceln "mkdir %S -> ok" path
-  | exception ex -> traceln "mkdir %S -> %a" path Fmt.exn ex
+let try_mkdir path =
+  match Eio.Path.mkdir path ~perm:0o700 with
+  | () -> traceln "mkdir %a -> ok" Eio.Path.pp path
+  | exception ex -> traceln "mkdir %a -> %a" Eio.Path.pp path Fmt.exn ex
 ```
 
 ```ocaml
 # Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  try_mkdir cwd "dir1";
-  try_mkdir cwd "../dir2";
-  try_mkdir cwd "/tmp/dir3";;
-+mkdir "dir1" -> ok
-+mkdir "../dir2" -> Eio__Dir.Permission_denied("../dir2", _)
-+mkdir "/tmp/dir3" -> Eio__Dir.Permission_denied("/tmp/dir3", _)
+  try_mkdir (cwd / "dir1");
+  try_mkdir (cwd / "../dir2");
+  try_mkdir (cwd / "/tmp/dir3");;
++mkdir <cwd:dir1> -> ok
++mkdir <cwd:../dir2> -> Eio__Fs.Permission_denied("../dir2", _)
++mkdir <cwd:/tmp/dir3> -> Eio__Fs.Permission_denied("/tmp/dir3", _)
 - : unit = ()
 ```
 
@@ -777,12 +780,12 @@ The checks also apply to following symlinks:
 
 # Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  try_save cwd "dir1/file1" "A";
-  try_save cwd "link-to-dir1/file2" "B";
-  try_save cwd "link-to-tmp/file3" "C";;
-+save "dir1/file1" -> ok
-+save "link-to-dir1/file2" -> ok
-+save "link-to-tmp/file3" -> Eio__Dir.Permission_denied("link-to-tmp/file3", _)
+  try_save (cwd / "dir1/file1") "A";
+  try_save (cwd / "link-to-dir1/file2") "B";
+  try_save (cwd / "link-to-tmp/file3") "C";;
++save <cwd:dir1/file1> -> ok
++save <cwd:link-to-dir1/file2> -> ok
++save <cwd:link-to-tmp/file3> -> Eio__Fs.Permission_denied("link-to-tmp/file3", _)
 - : unit = ()
 ```
 
@@ -791,11 +794,11 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
 ```ocaml
 # Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Dir.with_open_dir cwd "dir1" @@ fun dir1 ->
-  try_save dir1 "file4" "D";
-  try_save dir1 "../file5" "E";;
-+save "file4" -> ok
-+save "../file5" -> Eio__Dir.Permission_denied("../file5", _)
+  Eio.Path.with_open_dir (cwd / "dir1") @@ fun dir1 ->
+  try_save (dir1 / "file4") "D";
+  try_save (dir1 / "../file5") "E";;
++save <dir1:file4> -> ok
++save <dir1:../file5> -> Eio__Fs.Permission_denied("../file5", _)
 - : unit = ()
 ```
 
@@ -1264,7 +1267,7 @@ Some background about the effects system can be found in:
 [Eio.Net]: https://ocaml-multicore.github.io/eio/eio/Eio/Net/index.html
 [Eio.Buf_read]: https://ocaml-multicore.github.io/eio/eio/Eio/Buf_read/index.html
 [Eio.Buf_write]: https://ocaml-multicore.github.io/eio/eio/Eio/Buf_write/index.html
-[Eio.Dir]: https://ocaml-multicore.github.io/eio/eio/Eio/Dir/index.html
+[Eio.Path]: https://ocaml-multicore.github.io/eio/eio/Eio/Path/index.html
 [Eio.Time]: https://ocaml-multicore.github.io/eio/eio/Eio/Time/index.html
 [Eio.Domain_manager]: https://ocaml-multicore.github.io/eio/eio/Eio/Domain_manager/index.html
 [Eio.Promise]: https://ocaml-multicore.github.io/eio/eio/Eio/Promise/index.html

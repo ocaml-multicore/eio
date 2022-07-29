@@ -131,8 +131,11 @@ module Time : sig
       raising exception [Timeout]. *)
 end
 
-(** File-system access. *)
-module Dir = Dir
+(** File-system types. *)
+module Fs = Fs
+
+(** Accessing paths on a file-system. *)
+module Path = Path
 
 (** The standard environment of a process. *)
 module Stdenv : sig
@@ -143,7 +146,7 @@ module Stdenv : sig
       {[
         let () =
           Eio_main.run @@ fun env ->
-          Eio.Dir.with_open_dir env#fs "/srv/www" @@ fun www ->
+          Eio.Path.with_open_dir env#fs "/srv/www" @@ fun www ->
           serve_files www
             ~net:env#net
       ]}
@@ -156,8 +159,8 @@ module Stdenv : sig
     net : Net.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
-    fs : Dir.t;
-    cwd : Dir.t;
+    fs : Fs.dir Path.t;
+    cwd : Fs.dir Path.t;
     secure_random : Flow.source;
   >
 
@@ -171,13 +174,13 @@ module Stdenv : sig
 
   (** {1 File-system access}
 
-      To use these, see {!Dir}. *)
+      To use these, see {!Path}. *)
 
-  val cwd : <cwd : #Dir.t as 'a; ..> -> 'a
+  val cwd : <cwd : _ Path.t as 'a; ..> -> 'a
   (** [cwd t] is the current working directory of the process (this may change
       over time if the process does a "chdir" operation, which is not recommended). *)
 
-  val fs : <fs : #Dir.t as 'a; ..> -> 'a
+  val fs : <fs : _ Path.t as 'a; ..> -> 'a
   (** [fs t] is the process's full access to the filesystem.
 
       Paths can be absolute or relative (to the current working directory).
