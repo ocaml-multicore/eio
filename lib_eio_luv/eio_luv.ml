@@ -480,10 +480,11 @@ let socket sock = object
 
   method shutdown = function
     | `Send -> await_exn (fun _loop _fiber -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
-    | `Receive -> failwith "shutdown receive not supported"
-    | `All ->
-      Log.warn (fun f -> f "shutdown receive not supported");
-      await_exn (fun _loop _fiber -> Luv.Stream.shutdown (Handle.get "shutdown" sock))
+    | `Receive | `All as cmd ->
+      let fd = Stream.to_unix_opt `Peek sock |> Option.get in
+      Unix.shutdown fd @@ match cmd  with
+      | `Receive -> Unix.SHUTDOWN_RECEIVE
+      | `All -> Unix.SHUTDOWN_ALL
 end
 
 class virtual ['a] listening_socket ~backlog sock = object (self)
