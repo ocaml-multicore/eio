@@ -852,21 +852,29 @@ let stdenv ~run_event_loop =
     method secure_random = secure_random
   end
 
-let rec wakeup ~async run_q =
+let rec wakeup ~async ~io_queued run_q =
   match Lf_queue.pop run_q with
-  | Some (Thread f) -> f (); wakeup ~async run_q
-  | Some IO when Lf_queue.is_empty run_q -> ()
+  | Some (Thread f) ->
+    if not !io_queued then (
+      Lf_queue.push run_q IO;
+      io_queued := true;
+    );
+    f ();
+    wakeup ~async ~io_queued run_q
   | Some IO ->
-    Lf_queue.push run_q IO;
-    Luv.Async.send async |> or_raise
+    (* If threads keep yielding they could prevent pending IO from being processed.
+       Therefore, we keep an [IO] job on the queue to force us to check from time to time. *)
+    io_queued := false;
+    if not (Lf_queue.is_empty run_q) then
+      Luv.Async.send async |> or_raise
   | None -> ()
 
 let rec run : type a. (_ -> a) -> a = fun main ->
   Log.debug (fun l -> l "starting run");
   let loop = Luv.Loop.init () |> or_raise in
   let run_q = Lf_queue.create () in
-  Lf_queue.push run_q IO;
-  let async = Luv.Async.init ~loop (fun async -> wakeup ~async run_q) |> or_raise in
+  let io_queued = ref false in
+  let async = Luv.Async.init ~loop (fun async -> wakeup ~async ~io_queued run_q) |> or_raise in
   let st = { loop; async; run_q } in
   let stdenv = stdenv ~run_event_loop:run in
   let rec fork ~new_fiber:fiber fn =
