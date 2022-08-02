@@ -469,3 +469,19 @@ EPIPE:
 +Connection failed (good)
 - : unit = ()
 ```
+
+## Shutdown
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let a, b = Eio_unix.socketpair ~sw () in
+  Fiber.both
+    (fun () ->
+       match Eio.Flow.read a (Cstruct.create 1) with
+       | (_ : int) -> failwith "Should have ended!"
+       | exception End_of_file -> ()
+    )
+    (fun () -> Eio.Flow.shutdown a `Receive);;
+- : unit = ()
+```
