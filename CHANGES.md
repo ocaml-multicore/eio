@@ -1,3 +1,56 @@
+## v0.4
+
+Note: Eio 0.4 drops compatibility with OCaml 4.12+domains. Use OCaml 5.0.0~alpha1 instead.
+
+API changes:
+
+- `Eio.Dir` has gone. Use `Eio.Path` instead (@talex5 #266 #270).
+
+- `Eio_unix.FD.{take,peek}` were renamed to `take_opt`/`peek_opt` to make way for non-optional versions.
+
+New features:
+
+- Fiber-local storage (@SquidDev #256).  
+  Attach key/value bindings to fibers. These are inherited across forks.
+
+- `Eio.Path.{unlink,rmdir,rename}` (@talex5 #264 #265).
+
+- `Eio_main.run` can now return a value (@talex5 #263).  
+  This is useful for e.g. cmdliner.
+
+- `Eio_unix.socketpair` (@talex5 #260).
+
+- `Fiber.fork_daemon` (@talex5 #252).  
+  Create a helper fiber that does not prevent the switch from exiting.
+
+- Add `Fiber.{iter,map,filter,fiter_map}` (@talex5 #248 #250).  
+  These are concurrent versions of the corresponding operations in `List`.
+
+Bug fixes:
+
+- Fix scheduling fairness in luv backend (@talex5 #269).
+
+- Implement remaining shutdown commands for luv (@talex5 #268).
+
+- Fix IPv6 support with uring backend (@haesbaert #261 #262).
+
+- Use `Eio.Net.Connection_reset` exception in more places (@talex5 #257).
+
+- Report use of closed FDs better (@talex5 #255).  
+  Using a closed FD could previously cause the whole event loop to exit.
+
+- Some fixes for cancellation (@talex5 #254).
+
+- Ensure `Buf_write` still flushes if an exception is raised (@talex5 #246).
+
+- Do not allow close on `accept_fork` socket (@talex5 #245).
+
+Documentation:
+
+- Document integrations with Unix, Lwt and Async (@talex5 #247).
+
+- Add a Dockerfile for easy testing (@talex5 #224).  
+
 ## v0.3
 
 API changes:
