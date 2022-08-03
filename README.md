@@ -712,20 +712,27 @@ Now the first two writes were combined and sent together.
 
 ## Filesystem Access
 
-Access to the [filesystem][Eio.Path] is controlled by capabilities, and `env` provides two:
+Access to the filesystem is performed using [Eio.Path][].
+An `'a Path.t` is a pair of a capability to a base directory (of type `'a`) and a string path relative to that.
+To append to the string part, it's convenient to use the `/` operator:
 
-- `fs` provides full access (just like OCaml's stdlib).
+```ocaml
+let ( / ) = Eio.Path.( / )
+```
+
+`env` provides two initial paths:
+
 - `cwd` restricts access to files beneath the current working directory.
+- `fs` provides full access (just like OCaml's stdlib).
 
 You can save a whole file using `Path.save`:
 
 ```ocaml
-# let ( / ) = Eio.Path.( / );;
-val ( / ) : (#Eio.Fs.dir as 'a) Eio.Path.t -> string -> 'a Eio.Path.t = <fun>
-
 # Eio_main.run @@ fun env ->
-  let dir = Eio.Stdenv.cwd env in
-  Eio.Path.save ~create:(`Exclusive 0o600) (dir / "test.txt") "line one\nline two\n";;
+  let path = Eio.Stdenv.cwd env / "test.txt" in
+  traceln "Saving to %a" Eio.Path.pp path;
+  Eio.Path.save ~create:(`Exclusive 0o600) path "line one\nline two\n";;
++Saving to <cwd:test.txt>
 - : unit = ()
 ```
 
@@ -737,8 +744,8 @@ the lines (a convenience function that uses `Buf_read.lines`):
 
 ```ocaml
 # Eio_main.run @@ fun env ->
-  let dir = Eio.Stdenv.cwd env in
-  Eio.Path.with_lines (dir / "test.txt") (fun lines ->
+  let path = Eio.Stdenv.cwd env / "test.txt" in
+  Eio.Path.with_lines path (fun lines ->
      Seq.iter (traceln "Processing %S") lines
   );;
 +Processing "line one"
@@ -803,7 +810,7 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
 ```
 
 You only need to use `open_dir` if you want to create a new sandboxed environment.
-You can use a single directory object to access all paths beneath it,
+You can use a single base directory object to access all paths beneath it,
 and this allows following symlinks within that subtree.
 
 A program that operates on the current directory will probably want to use `cwd`,
