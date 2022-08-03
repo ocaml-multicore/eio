@@ -112,8 +112,10 @@ let rec loop () =
 
 ```ocaml
 # run @@ fun ~clock ->
+  Fiber.yield ();
+  Eio.Time.sleep clock 0.01;
   Fiber.first
     loop
-    (fun () -> Eio.Time.sleep clock 0.1);;
+    (fun () -> Eio.Time.sleep clock 0.01);;
 - : unit = ()
 ```
