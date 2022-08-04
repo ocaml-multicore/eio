@@ -64,7 +64,7 @@ end
     and may provide extra features or sanity checks.
 
     The system resources are available from the {!Stdenv.t} provided by your event loop
-    (e.g. {!Lwt_main.run}). *)
+    (e.g. {!Eio_main.run}). *)
 
 (** A base class for objects that can be queried at runtime for extra features. *)
 module Generic = Generic
