@@ -8,4 +8,4 @@ end
 val probe : #t -> 'a ty -> 'a option
 (** [probe t feature] checks whether [t] supports [feature].
     This is mostly for internal use.
-    For example, {!Eio_unix.FD.peek} uses this to get the underlying Unix file descriptor from a flow. *)
+    For example, {!Eio_unix.FD.peek_opt} uses this to get the underlying Unix file descriptor from a flow. *)

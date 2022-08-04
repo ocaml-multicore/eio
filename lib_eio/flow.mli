@@ -71,7 +71,9 @@ val copy_string : string -> #sink -> unit
 (** [copy_string s = copy (string_source s)] *)
 
 val buffer_sink : Buffer.t -> sink
-(** [buffer_sink b] is a sink that adds anything sent to it to [b]. *)
+(** [buffer_sink b] is a sink that adds anything sent to it to [b].
+
+    To collect data as a cstruct, use {!Buf_read} instead. *)
 
 (** {2 Bidirectional streams} *)
 
@@ -98,7 +100,7 @@ val shutdown : #two_way -> shutdown_command -> unit
 (** {2 Closing}
 
     Flows are usually attached to switches and closed automatically when the switch
-    finished. However, it can be useful to close them sooner manually in some cases. *)
+    finishes. However, it can be useful to close them sooner manually in some cases. *)
 
 class type close = object
   method close : unit
