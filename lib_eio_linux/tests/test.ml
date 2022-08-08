@@ -106,7 +106,7 @@ let test_iovec () =
 
 let () =
   let open Alcotest in
-  run "eioio" [
+  run "eio_linux" [
     "io", [
       test_case "copy"          `Quick test_copy;
       test_case "direct_copy"   `Quick test_direct_copy;
