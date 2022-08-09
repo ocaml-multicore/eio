@@ -540,12 +540,6 @@ module Private : sig
       (** [perform (Fork new_context f)] creates a new fiber and runs [f] in it, with context [new_context].
           [f] must not raise an exception. See {!Fiber.fork}. *)
 
-      | Trace : (?__POS__:(string * int * int * int) -> ('a, Format.formatter, unit, unit) format4 -> 'a) Effect.t
-      (** [perform Trace fmt] writes trace logging to the configured trace output.
-          It must not switch fibers, as tracing must not affect scheduling.
-          If the system is not ready to receive the trace output,
-          the whole domain must block until it is. *)
-
       | Get_context : Fiber_context.t Effect.t
       (** [perform Get_context] immediately returns the current fiber's context (without switching fibers). *)
   end
@@ -611,18 +605,37 @@ module Private : sig
               and must therefore be holding [mutex]. *)
   end
 
-  val traceln_mutex : Stdlib.Mutex.t
-  (** The mutex used to prevent two domains writing to stderr at once.
+  module Debug : sig
+    val traceln :
+      ?__POS__:string * int * int * int ->
+      ('a, Format.formatter, unit, unit) format4 -> 'a
+    (** Writes trace logging using the current fiber's configured traceln function. *)
 
-      This might be useful if you want to write to it directly yourself,
-      e.g. for a log reporter. *)
+    val traceln_mutex : Stdlib.Mutex.t
+    (** The mutex used to prevent two domains writing to stderr at once.
 
-  val default_traceln :
-    ?__POS__:string * int * int * int ->
-    ('a, Format.formatter, unit, unit) format4 -> 'a
-    (** [default_traceln] is a suitable default implementation for {!Eio.Std.traceln}.
+        This might be useful if you want to write to it directly yourself,
+        e.g. for a log reporter. *)
 
-        It writes output to stderr, prefixing each line with a "+".
-        If [__POS__] is given, it also displays the file and line number from that.
-        It uses {!mutex} so that only one domain's output is written at a time. *)
+    val default_traceln :
+      ?__POS__:string * int * int * int ->
+      ('a, Format.formatter, unit, unit) format4 -> 'a
+      (** [default_traceln] is a suitable default implementation for {!Eio.Std.traceln}.
+
+          It writes output to stderr, prefixing each line with a "+".
+          If [__POS__] is given, it also displays the file and line number from that.
+          It uses {!traceln_mutex} so that only one domain's output is written at a time. *)
+
+    type traceln = {
+      traceln : 'a. ?__POS__:string * int * int * int -> ('a, Format.formatter, unit, unit) format4 -> 'a;
+    } [@@unboxed]
+
+    type t = <
+      traceln : traceln Fiber.key;
+    >
+
+    val v : t
+    (** Backends should use this for {!Eio.Stdenv.debug}. *)
+  end
+
 end

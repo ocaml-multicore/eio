@@ -68,6 +68,7 @@ type stdenv = <
   fs : Eio.Fs.dir Eio.Path.t;
   cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
+  debug : Eio.Debug.t;
 >
 
 val get_fd : <has_fd; ..> -> FD.t
