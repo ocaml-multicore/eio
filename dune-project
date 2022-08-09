@@ -12,7 +12,7 @@
  (synopsis "Effect-based direct-style IO API for OCaml")
  (description "An effect-based IO API for multicore OCaml with fibers.")
  (depends
-  (ocaml (>= 5.0.0~alpha0))
+  (ocaml (>= 5.0.0))
   (bigstringaf (>= 0.9.0))
   (cstruct (>= 6.0.1))
   lwt-dllist
