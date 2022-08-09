@@ -1,19 +1,16 @@
 include Eio__core
 
-let traceln ?__POS__ fmt =
-  try
-    Effect.perform Private.Effects.Trace ?__POS__ fmt
-  with Unhandled ->
-    Private.default_traceln ?__POS__ fmt
-
 module Fibre = Fiber
+
+module Debug = Private.Debug
+let traceln = Debug.traceln
 
 module Std = struct
   module Promise = Promise
   module Fiber = Fiber
   module Fibre = Fiber
   module Switch = Switch
-  let traceln = traceln
+  let traceln = Debug.traceln
 end
 
 module Semaphore = Semaphore
@@ -41,6 +38,7 @@ module Stdenv = struct
     fs : Fs.dir Path.t;
     cwd : Fs.dir Path.t;
     secure_random : Flow.source;
+    debug : Debug.t;
   >
 
   let stdin  (t : <stdin  : #Flow.source; ..>) = t#stdin
@@ -52,4 +50,5 @@ module Stdenv = struct
   let secure_random (t: <secure_random : #Flow.source; ..>) = t#secure_random
   let fs (t : <fs : #Fs.dir Path.t; ..>) = t#fs
   let cwd (t : <cwd : #Fs.dir Path.t; ..>) = t#cwd
+  let debug (t : <debug : 'a; ..>) = t#debug
 end

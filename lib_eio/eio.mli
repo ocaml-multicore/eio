@@ -137,6 +137,43 @@ module Fs = Fs
 (** Accessing paths on a file-system. *)
 module Path = Path
 
+(** Control over debugging. *)
+module Debug : sig
+  (** Example:
+      {[
+        open Eio.Std
+
+        let my_traceln = {
+          Eio.Debug.traceln = fun ?__POS__:_ fmt -> Fmt.epr ("[custom-trace] " ^^ fmt ^^ "@.")
+        }
+
+        let () =
+          Eio_main.run @@ fun env ->
+          let debug = Eio.Stdenv.debug env in
+          Fiber.with_binding debug#traceln my_traceln @@ fun () ->
+          traceln "Traced with custom function"
+      ]}
+
+      This will output:
+
+      {[ [custom-trace] Traced with custom function ]}
+  *)
+
+  type traceln = Eio__core.Private.Debug.traceln = {
+    traceln : 'a. ?__POS__:string * int * int * int -> ('a, Format.formatter, unit, unit) format4 -> 'a;
+  } [@@unboxed]
+  (** A function that writes trace logging to some trace output.
+
+      It must not switch fibers, as tracing must not affect scheduling.
+      If the system is not ready to receive the trace output,
+      the whole domain must block until it is. *)
+
+  type t = <
+    traceln : traceln Fiber.key;
+  >
+  (** Fiber keys used to control debugging. Use {!Stdenv.debug} to get this. *)
+end
+
 (** The standard environment of a process. *)
 module Stdenv : sig
   (** All access to the outside world comes from running the event loop,
@@ -162,6 +199,7 @@ module Stdenv : sig
     fs : Fs.dir Path.t;
     cwd : Fs.dir Path.t;
     secure_random : Flow.source;
+    debug : Debug.t;
   >
 
   (** {1 Standard streams}
@@ -218,6 +256,10 @@ module Stdenv : sig
   val secure_random : <secure_random : #Flow.source as 'a; ..> -> 'a
   (** [secure_random t] is a source of random bytes suitable for cryptographic purposes. *)
 
+  (** {1 Debugging} *)
+
+  val debug : <debug : <Debug.t; ..> as 'a; ..> -> 'a
+  (** [debug t] provides privileged controls for debugging. *)
 end
 
 (** {1 Errors and Debugging} *)

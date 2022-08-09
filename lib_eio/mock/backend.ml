@@ -49,9 +49,6 @@ let run main =
           | Eio.Private.Effects.Get_context -> Some (fun k ->
               Effect.Deep.continue k fiber
             )
-          | Eio.Private.Effects.Trace -> Some (fun k ->
-              Effect.Deep.continue k Eio.Private.default_traceln
-            )
           | _ -> None
       }
   in

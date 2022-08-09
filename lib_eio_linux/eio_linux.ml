@@ -1132,6 +1132,7 @@ type stdenv = <
   fs : Eio.Fs.dir Eio.Path.t;
   cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
+  debug : Eio.Debug.t;
 >
 
 let domain_mgr ~run_event_loop = object (self)
@@ -1244,6 +1245,7 @@ let stdenv ~run_event_loop =
     method fs = (fs :> Eio.Fs.dir Eio.Path.t)
     method cwd = (cwd :> Eio.Fs.dir Eio.Path.t)
     method secure_random = secure_random
+    method debug = Eio.Private.Debug.v
   end
 
 let pipe sw =
@@ -1371,7 +1373,6 @@ let rec run : type a.
               enqueue_at_head st k ();
               fork ~new_fiber f
             )
-          | Eio.Private.Effects.Trace -> Some (fun k -> continue k Eio.Private.default_traceln)
           | Eio_unix.Private.Await_readable fd -> Some (fun k ->
               match Fiber_context.get_error fiber with
               | Some e -> discontinue k e

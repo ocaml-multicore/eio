@@ -669,6 +669,7 @@ type stdenv = <
   fs : Eio.Fs.dir Eio.Path.t;
   cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
+  debug : Eio.Debug.t;
 >
 
 let domain_mgr ~run_event_loop = object (self)
@@ -850,6 +851,7 @@ let stdenv ~run_event_loop =
     method fs = (fs :> Eio.Fs.dir), "."
     method cwd = (cwd :> Eio.Fs.dir), "."
     method secure_random = secure_random
+    method debug = Eio.Private.Debug.v
   end
 
 let rec wakeup ~async ~io_queued run_q =
@@ -889,8 +891,6 @@ let rec run : type a. (_ -> a) -> a = fun main ->
           Some (fun k -> 
             let k = { Suspended.k; fiber } in
             fn loop fiber (enqueue_thread st k))
-        | Eio.Private.Effects.Trace ->
-          Some (fun k -> continue k Eio.Private.default_traceln)
         | Eio.Private.Effects.Fork (new_fiber, f) ->
           Some (fun k -> 
               let k = { Suspended.k; fiber } in
