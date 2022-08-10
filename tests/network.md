@@ -485,3 +485,45 @@ EPIPE:
     (fun () -> Eio.Flow.shutdown a `Receive);;
 - : unit = ()
 ```
+
+## Getaddrinfo
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Net.getaddrinfo env#net "127.0.0.1";;
+- : Eio.Net.Sockaddr.t list =
+[`Tcp ("\127\000\000\001", 0); `Udp ("\127\000\000\001", 0)]
+```
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Net.getaddrinfo env#net "127.0.0.1" ~service:"80";;
+- : Eio.Net.Sockaddr.t list =
+[`Tcp ("\127\000\000\001", 80); `Udp ("\127\000\000\001", 80)]
+```
+
+<!-- $MDX non-deterministic=output -->
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Net.getaddrinfo ~service:"http" env#net "127.0.0.1";;
+- : Eio.Net.Sockaddr.t list =
+[`Tcp ("\127\000\000\001", 80); `Udp ("\127\000\000\001", 80)]
+```
+
+<!-- $MDX non-deterministic=output -->
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Net.getaddrinfo ~service:"ftp" env#net "127.0.0.1";;
+- : Eio.Net.Sockaddr.t list =
+[`Tcp ("\127\000\000\001", 21); `Udp ("\127\000\000\001", 21)]
+```
+
+<!-- $MDX non-deterministic=output -->
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Net.getaddrinfo ~service:"https" env#net "google.com";;
+- : Eio.Net.Sockaddr.t list =
+[`Tcp ("ь:тн", 443); `Udp ("ь:тн", 443);
+ `Tcp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443);
+ `Udp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443)]
+```

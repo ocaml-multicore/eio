@@ -892,6 +892,23 @@ module Low_level = struct
         read_all (files @ acc) fd
     in
     Eio_unix.run_in_systhread (fun () -> read_all [] fd)
+
+  (* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
+  let getaddrinfo ~service node =
+    let to_eio_sockaddr_t {Unix.ai_family; ai_addr; ai_socktype; ai_protocol; _ } =
+      match ai_family, ai_socktype, ai_addr with
+      | (Unix.PF_INET | PF_INET6),
+        (Unix.SOCK_STREAM | SOCK_DGRAM),
+        Unix.ADDR_INET (inet_addr,port) -> (
+          match ai_protocol with
+          | 6 -> Some (`Tcp (Eio_unix.Ipaddr.of_unix inet_addr, port))
+          | 17 -> Some (`Udp (Eio_unix.Ipaddr.of_unix inet_addr, port))
+          | _ -> None)
+      | _ -> None
+    in
+    Eio_unix.run_in_systhread @@ fun () ->
+    Unix.getaddrinfo node service []
+    |> List.filter_map to_eio_sockaddr_t    
 end
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
@@ -1120,6 +1137,8 @@ let net = object
       let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
       Unix.bind sock_unix addr;
       udp_socket sock
+
+  method getaddrinfo = Low_level.getaddrinfo
 end
 
 type stdenv = <

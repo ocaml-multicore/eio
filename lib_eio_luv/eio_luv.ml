@@ -407,6 +407,28 @@ module Low_level = struct
     Luv.Timer.start timer delay (fun () ->
         if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread st k ()
       ) |> or_raise
+
+  (* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
+  let getaddrinfo ~service node =
+    let ( let* ) o f = Option.bind o f in
+    let to_eio_sockaddr_t {Luv.DNS.Addr_info.family; addr; socktype; protocol; _ } =
+      match family, socktype with
+      | (`INET | `INET6),
+        (`STREAM | `DGRAM) -> (
+          let* host = Luv.Sockaddr.to_string addr in
+          let* port = Luv.Sockaddr.port addr in
+          let ipaddr = Unix.inet_addr_of_string host |> Eio_unix.Ipaddr.of_unix in
+          match protocol with
+          | 6 -> Some (`Tcp (ipaddr, port))
+          | 17 -> Some (`Udp (ipaddr, port))
+          | _ -> None)
+      | _ -> None
+    in
+    let request = Luv.DNS.Addr_info.Request.make () in
+    await_with_cancel ~request (fun loop -> Luv.DNS.getaddrinfo ~loop ~request ~service ~node ())
+    |> or_raise
+    |> List.filter_map to_eio_sockaddr_t
+
 end
 
 open Low_level
@@ -647,6 +669,8 @@ let net = object
       let addr = luv_addr_of_eio host port in
       Luv.UDP.bind sock addr |> or_raise;
       udp_socket dg_sock
+
+  method getaddrinfo = Low_level.getaddrinfo
 end
 
 let secure_random =
