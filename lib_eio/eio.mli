@@ -34,7 +34,7 @@ module Semaphore = Semaphore
 (** Mutual exclusion. *)
 module Mutex = Eio_mutex
 
-(** Mutual exclusion. *)
+(** Waiting for a condition to become true. *)
 module Condition = Condition
 
 (** A stream/queue. *)

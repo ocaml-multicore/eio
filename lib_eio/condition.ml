@@ -1,5 +1,5 @@
 type t = {
-  waiters: unit Waiters.t; 
+  waiters: unit Waiters.t;
   mutex: Mutex.t;
   id: Ctf.id
 }
@@ -7,14 +7,19 @@ type t = {
 let create () = {
   waiters = Waiters.create ();
   id = Ctf.mint_id ();
-  mutex = Mutex.create ()
+  mutex = Mutex.create ();
 }
 
-let await ?mutex t = 
+let await t mutex =
   Mutex.lock t.mutex;
-  Option.iter Eio_mutex.unlock mutex;
-  Waiters.await ~mutex:(Some t.mutex) t.waiters t.id;
-  Option.iter Eio_mutex.lock mutex
+  Eio_mutex.unlock mutex;
+  match Waiters.await ~mutex:(Some t.mutex) t.waiters t.id with
+  | ()           -> Eio_mutex.lock mutex
+  | exception ex -> Eio_mutex.lock mutex; raise ex
+
+let await_no_mutex t =
+  Mutex.lock t.mutex;
+  Waiters.await ~mutex:(Some t.mutex) t.waiters t.id
 
 let broadcast t =
   Waiters.wake_all t.waiters ()
