@@ -8,7 +8,9 @@
 
     Note that mutexes are often unnecessary for code running in a single domain, as
     the scheduler will only switch to another fiber if you perform an operation that
-    can block. *)
+    can block.
+
+    @canonical Eio.Mutex *)
 
 type t
 (** The type for a concurrency-friendly mutex. *)
