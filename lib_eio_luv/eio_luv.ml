@@ -81,10 +81,19 @@ type runnable =
   | IO
   | Thread of (unit -> unit)
 
+type 'a fd_event_waiters = {
+  handle : Luv.Poll.t;
+  read : unit Suspended.t Lf_queue.t;
+  write : unit Suspended.t Lf_queue.t;
+}
+
+module Fd_map = Map.Make(struct type t = Unix.file_descr let compare = Stdlib.compare end)
+
 type t = {
   loop : Luv.Loop.t;
   async : Luv.Async.t;                          (* Will process [run_q] when prodded. *)
   run_q : runnable Lf_queue.t;
+  mutable fd_map : ((unit, exn) result fd_event_waiters) Fd_map.t;   (* Used for mapping readable/writable poll handles *)
 }
 
 type _ Effect.t += Await : (Luv.Loop.t -> Eio.Private.Fiber_context.t -> ('a -> unit) -> unit) -> 'a Effect.t
@@ -366,32 +375,121 @@ module Low_level = struct
   end
 
   module Poll = struct
+    open Eio.Private
+    (* According to the libuv docs:
+        - It is not okay to have multiple poll handles for the same file descriptor
+        - The user should not close the file descriptor while it is being polled
+          by an active poll handle.
+
+       As such, we keep track of the mapping between poll handle and FD in the [fd_map].
+       This contains to sets of waiters for a given handle; those waiting for readability and
+       those waiting for writability.
+
+       Whenever we receive an event we signal to the waiters, and if there are no more read or write
+       waiters then it will be safe to close the file descriptor and remove the mapping. *)
+
+    let safe_to_stop_polling events =
+      Lf_queue.is_empty events.read &&
+      Lf_queue.is_empty events.write
+
+    let apply_all q fn =
+      if Lf_queue.is_empty q then ()
+      else
+      let rec loop = function
+        | None -> ()
+        | Some v -> fn v; loop (Lf_queue.pop q)
+    in
+      loop (Lf_queue.pop q)
+
+    let enqueue_and_remove t fn (k : unit Suspended.t) v =
+      if Fiber_context.clear_cancel_fn k.fiber then
+      fn t k v
+
     let await_readable t (k:unit Suspended.t) fd =
-      let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
-      Fiber_context.set_cancel_fn k.fiber (fun ex ->
-          Luv.Poll.stop poll |> or_raise;
+      match Fd_map.find_opt fd t.fd_map with
+      | Some ({ read; handle; _ } as events) ->
+        Fiber_context.set_cancel_fn k.fiber (fun ex ->
+          if safe_to_stop_polling events then begin
+            Luv.Poll.stop handle |> or_raise;
+            t.fd_map <- Fd_map.remove fd t.fd_map
+          end;
           enqueue_failed_thread t k ex
         );
-      Luv.Poll.start poll [`READABLE;] (fun r ->
-          Luv.Poll.stop poll |> or_raise;
-          if Fiber_context.clear_cancel_fn k.fiber then
-            match r with
-            | Ok (_ : Luv.Poll.Event.t list) -> enqueue_thread t k ()
-            | Error e -> enqueue_failed_thread t k (Luv_error e)
+        Lf_queue.push read k
+      | None ->
+        let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
+        let events = {
+          handle;
+          read = Lf_queue.create ();
+          write = Lf_queue.create ();
+        }
+        in
+        t.fd_map <- Fd_map.add fd events t.fd_map;
+        Fiber_context.set_cancel_fn k.fiber (fun ex ->
+            if safe_to_stop_polling events then begin
+              Luv.Poll.stop handle |> or_raise;
+              t.fd_map <- Fd_map.remove fd t.fd_map
+            end;
+            enqueue_failed_thread t k ex
+          );
+        Lf_queue.push events.read k;
+        Luv.Poll.start handle [ `READABLE; `WRITABLE ] (fun r ->
+            (* t.fd_map <- Fd_map.remove fd t.fd_map; *)
+            begin match r with
+            | Ok (es : Luv.Poll.Event.t list) ->
+              if List.mem `READABLE es then apply_all events.read (fun k -> enqueue_and_remove t enqueue_thread k ());
+              if List.mem `WRITABLE es then apply_all events.write (fun k -> enqueue_and_remove t enqueue_thread k ());
+            | Error e ->
+              apply_all events.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e));
+              apply_all events.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e))
+            end;
+            if safe_to_stop_polling events then begin
+              Luv.Poll.stop handle |> or_raise;
+              t.fd_map <- Fd_map.remove fd t.fd_map
+            end
         )
 
     let await_writable t (k:unit Suspended.t) fd =
-      let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
-      Fiber_context.set_cancel_fn k.fiber (fun ex ->
-          Luv.Poll.stop poll |> or_raise;
+      match Fd_map.find_opt fd t.fd_map with
+      | Some ({ write; handle; _ } as events) ->
+        Fiber_context.set_cancel_fn k.fiber (fun ex ->
+          if safe_to_stop_polling events then begin
+            Luv.Poll.stop handle |> or_raise;
+            t.fd_map <- Fd_map.remove fd t.fd_map
+          end;
           enqueue_failed_thread t k ex
         );
-      Luv.Poll.start poll [`WRITABLE;] (fun r ->
-          Luv.Poll.stop poll |> or_raise;
-          if Fiber_context.clear_cancel_fn k.fiber then
-            match r with
-            | Ok (_ : Luv.Poll.Event.t list) -> enqueue_thread t k ()
-            | Error e -> enqueue_failed_thread t k (Luv_error e)
+        Lf_queue.push write k
+      | None ->
+        let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
+        let events = {
+          handle;
+          read = Lf_queue.create ();
+          write = Lf_queue.create ();
+        }
+        in
+        t.fd_map <- Fd_map.add fd events t.fd_map;
+        Fiber_context.set_cancel_fn k.fiber (fun ex ->
+            if safe_to_stop_polling events then begin
+              Luv.Poll.stop handle |> or_raise;
+              t.fd_map <- Fd_map.remove fd t.fd_map
+            end;
+            enqueue_failed_thread t k ex
+          );
+        Lf_queue.push events.write k;
+        Luv.Poll.start handle [ `READABLE; `WRITABLE ] (fun r ->
+            begin match r with
+            | Ok (es : Luv.Poll.Event.t list) ->
+              if List.mem `WRITABLE es then apply_all events.write (fun v -> enqueue_and_remove t enqueue_thread v ());
+              if List.mem `READABLE es then apply_all events.read (fun v -> enqueue_and_remove t enqueue_thread v ())
+            | Error e ->
+              apply_all events.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e));
+              apply_all events.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e))
+            end;
+            if safe_to_stop_polling events then begin
+              Luv.Poll.stop handle |> or_raise;
+              t.fd_map <- Fd_map.remove fd t.fd_map
+            end
         )
   end
 
@@ -907,7 +1005,7 @@ let rec run : type a. (_ -> a) -> a = fun main ->
         Fmt.epr "Uncaught exception in run loop:@,%a@." Fmt.exn_backtrace (ex, bt);
         Luv.Loop.stop loop
     ) |> or_raise in
-  let st = { loop; async; run_q } in
+  let st = { loop; async; run_q; fd_map = Fd_map.empty } in
   let stdenv = stdenv ~run_event_loop:run in
   let rec fork ~new_fiber:fiber fn =
     Ctf.note_switch (Fiber_context.tid fiber);
