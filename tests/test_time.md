@@ -26,17 +26,6 @@ Check sleep works:
 - : unit = ()
 ```
 
-Check sleep works with a switch:
-
-```ocaml
-# run @@ fun ~clock ->
-  let t0 = Unix.gettimeofday () in
-  Eio.Time.sleep clock 0.01;
-  let t1 = Unix.gettimeofday () in
-  assert (t1 -. t0 >= 0.01);;
-- : unit = ()
-```
-
 Cancelling sleep:
 
 ```ocaml
