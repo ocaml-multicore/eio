@@ -247,4 +247,11 @@ module Low_level : sig
      It uses Linux's [getrandom] call, which is like reading from /dev/urandom
      except that it will block (the whole domain) if used at early boot
      when the random system hasn't been initialised yet. *)
+
+  (** {1 DNS functions} *)
+
+  val getaddrinfo : service:string -> string -> Eio.Net.Sockaddr.t list
+  (** [getaddrinfo host] returns a list of IP addresses for [host]. [host] is either a domain name or
+      an ipaddress. *)
+
 end

@@ -1,4 +1,4 @@
 (library
  (name eio_luv)
  (public_name eio_luv)
- (libraries eio.unix luv luv_unix eio.utils logs fmt))
+ (libraries eio eio.unix luv luv_unix eio.utils logs fmt))

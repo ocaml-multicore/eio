@@ -104,6 +104,7 @@ class virtual t : object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
   method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
   method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
+  method virtual getaddrinfo : service:string -> string -> Sockaddr.t list
 end
 
 (** {2 Out-bound Connections} *)
@@ -170,6 +171,17 @@ val recv : #datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
 (** [recv sock buf] receives data from the socket [sock] putting it in [buf]. The number of bytes received is 
     returned along with the sender address and port. If the [buf] is too small then excess bytes may be discarded
     depending on the type of the socket the message is received from. *)
+
+(** {2 DNS queries} *)
+
+val getaddrinfo: ?service:string -> #t -> string -> Sockaddr.t list
+(** [getaddrinfo ?service t node] returns a list of IP addresses for [node]. [node] is either a domain name or
+    an IP address.
+
+    @param service is a human friendly textual name for internet services assigned by IANA., eg.
+    'http', 'https', 'ftp', etc.
+
+    For a more thorough treatment, @see <https://man7.org/linux/man-pages/man3/getaddrinfo.3.html> getaddrinfo *)
 
 (** {2 Closing} *)
 val close : <close: unit; ..> -> unit

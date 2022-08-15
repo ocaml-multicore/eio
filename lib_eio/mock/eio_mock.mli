@@ -121,6 +121,7 @@ module Net : sig
     on_listen : Eio.Net.listening_socket Handler.t;
     on_connect : <Eio.Net.stream_socket; Eio.Flow.close> Handler.t;
     on_datagram_socket : <Eio.Net.datagram_socket; Eio.Flow.close> Handler.t;
+    on_getaddrinfo : Eio.Net.Sockaddr.t list Handler.t;
   >
 
   type listening_socket = <
@@ -139,6 +140,8 @@ module Net : sig
 
   val on_datagram_socket : t -> <Eio.Net.datagram_socket; Eio.Flow.close; ..> Handler.actions -> unit
   (** [on_datagram_socket t actions] configures how to create datagram sockets. *)
+
+  val on_getaddrinfo : t -> Eio.Net.Sockaddr.t list Handler.actions -> unit
 
   val listening_socket : string -> listening_socket
   (** [listening_socket label] can be configured to provide mock connections. *)

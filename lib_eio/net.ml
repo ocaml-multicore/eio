@@ -180,11 +180,14 @@ class virtual t = object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
   method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
   method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
+  method virtual getaddrinfo : service:string -> string -> Sockaddr.t list
 end
 
 let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw
 let connect ~sw (t:#t) = t#connect ~sw
 
 let datagram_socket ~sw (t:#t) = t#datagram_socket ~sw
+
+let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname
 
 let close = Flow.close
