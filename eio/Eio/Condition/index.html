@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Condition (eio.Eio.Condition)</title><link rel="stylesheet" href="../../../odoc.css"/><meta charset="utf-8"/><meta name="generator" content="odoc 2.1.1"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="../../../highlight.pack.js"></script><script>hljs.initHighlightingOnLoad();</script></head><body class="odoc"><nav class="odoc-nav"><a href="../index.html">Up</a> – <a href="../../index.html">eio</a> &#x00BB; <a href="../index.html">Eio</a> &#x00BB; Condition</nav><header class="odoc-preamble"><h1>Module <code><span>Eio.Condition</span></code></h1><p>Waiting for a condition to become true.</p><p>Waiters call <a href="#val-await"><code>await</code></a> in a loop as long as some condition is false. Fibers that modify inputs to the condition must call <code>broadcast</code> soon afterwards so that waiters can re-check the condition.</p><p>Example:</p><pre><code>let x = ref 0
+let cond = Eio.Condition.create ()
+let mutex = Eio.Mutex.create ()
+
+let set_x value =
+  Eio.Mutex.use_rw ~protect:false mutex (fun () -&gt; x := value);
+  Eio.Condition.broadcast cond
+
+let await_x p =
+  Eio.Mutex.use_ro mutex (fun () -&gt;
+     while not (p !x) do                  (* [x] cannot change, as mutex is locked. *)
+       Eio.Condition.await ~mutex cond    (* Mutex is unlocked while suspended. *)
+     done
+  )</code></pre><p>It is used like this:</p><pre><code>Fiber.both
+  (fun () -&gt;
+     traceln &quot;x = %d&quot; !x;
+     await_x ((=) 42);
+     traceln &quot;x = %d&quot; !x
+  )
+  (fun () -&gt;
+     set_x 5;
+     Fiber.yield ();
+     set_x 7;
+     set_x 42;
+  )</code></pre></header><div class="odoc-content"><div class="odoc-spec"><div class="spec type" id="type-t" class="anchored"><a href="#type-t" class="anchor"></a><code><span><span class="keyword">type</span> t</span></code></div></div><div class="odoc-spec"><div class="spec value" id="val-create" class="anchored"><a href="#val-create" class="anchor"></a><code><span><span class="keyword">val</span> create : <span>unit <span class="arrow">&#45;&gt;</span></span> <a href="#type-t">t</a></span></code></div><div class="spec-doc"><p><code>create ()</code> creates a new condition variable.</p></div></div><div class="odoc-spec"><div class="spec value" id="val-await" class="anchored"><a href="#val-await" class="anchor"></a><code><span><span class="keyword">val</span> await : <span><a href="#type-t">t</a> <span class="arrow">&#45;&gt;</span></span> <span><a href="../Mutex/index.html#type-t">Mutex.t</a> <span class="arrow">&#45;&gt;</span></span> unit</span></code></div><div class="spec-doc"><p><code>await t mutex</code> suspends the current fiber until it is notified by <code>t</code>.</p><p>You should lock <code>mutex</code> before testing whether the condition is true, and leave it locked while calling this function. It will be unlocked while the fiber is waiting and locked again before returning (it is also locked again if the wait is cancelled).</p></div></div><div class="odoc-spec"><div class="spec value" id="val-await_no_mutex" class="anchored"><a href="#val-await_no_mutex" class="anchor"></a><code><span><span class="keyword">val</span> await_no_mutex : <span><a href="#type-t">t</a> <span class="arrow">&#45;&gt;</span></span> unit</span></code></div><div class="spec-doc"><p><code>await_no_mutex t</code> suspends the current fiber until it is notified by <code>t</code>.</p><p>This is only safe to use in the case where <code>t</code> is only used within a single domain, and the test for the condition was done without switching fibers. i.e. you know the condition is still false, and no notification of a change can be sent until <code>await_no_mutex</code> has finished suspending the fiber.</p></div></div><div class="odoc-spec"><div class="spec value" id="val-broadcast" class="anchored"><a href="#val-broadcast" class="anchor"></a><code><span><span class="keyword">val</span> broadcast : <span><a href="#type-t">t</a> <span class="arrow">&#45;&gt;</span></span> unit</span></code></div><div class="spec-doc"><p><code>broadcast t</code> wakes up any waiting fibers (by appending them to the run-queue to resume later).</p><p>If no fibers are waiting, nothing happens.</p></div></div></div></body></html>
