@@ -1235,7 +1235,7 @@ This means that adding `traceln` to deterministic code will not affect its sched
 
 In particular, if you test your code by providing (deterministic) mocks then the tests will be deterministic.
 An easy way to write tests is by having the mocks call `traceln` and then comparing the trace output with the expected output.
-See Eio's own tests for examples, e.g., [tests/test_switch.md](tests/test_switch.md).
+See Eio's own tests for examples, e.g., [tests/switch.md](tests/switch.md).
 
 ## Provider Interfaces
 
