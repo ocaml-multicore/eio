@@ -38,6 +38,7 @@ Eio replaces existing concurrency libraries such as Lwt
   * [Example: Concurrent Cache](#example-concurrent-cache)
   * [Streams](#streams)
   * [Example: Worker Pool](#example-worker-pool)
+  * [The Rest: Mutex, Semaphore and Condition](#the-rest-mutex-semaphore-and-condition)
 * [Design Note: Determinism](#design-note-determinism)
 * [Provider Interfaces](#provider-interfaces)
 * [Example Applications](#example-applications)
@@ -1141,6 +1142,82 @@ The `Fiber.check ()` checks whether the worker itself has been cancelled, and ex
 It's not actually necessary in this case,
 because if we continue instead then the following `Stream.take` will perform the check anyway.
 
+### The Rest: Mutex, Semaphore and Condition
+
+Eio also provides `Mutex`, `Semaphore` and `Condition` sub-modules.
+Each of these corresponds to the module with the same name in the OCaml standard library,
+but allows other fibers to run while waiting instead of blocking the whole domain.
+They are all safe to use in parallel from multiple domains.
+
+- [Eio.Mutex][] provides *mutual exclusion*, so that only one fiber can access a resource at a time.
+- [Eio.Semaphore][] generalises this to allow up to *n* fibers to access a resource at once.
+- [Eio.Condition][] allows a fiber to wait until some condition is true.
+
+For example, if we allow loading and saving data in a file there could be a problem
+if we try to load the data while a save is in progress.
+Protecting the file with a mutex will prevent that:
+
+```ocaml
+module Atomic_file = struct
+  type 'a t = {
+    path : 'a Eio.Path.t;
+    mutex : Eio.Mutex.t;
+  }
+
+  let of_path path =
+    { path; mutex = Eio.Mutex.create () }
+
+  let save t data =
+    Eio.Mutex.use_rw t.mutex ~protect:true (fun () ->
+       Eio.Path.save t.path data ~create:(`Or_truncate 0o644)
+    )
+
+  let load t =
+    Eio.Mutex.use_ro t.mutex (fun () ->
+       Eio.Path.load t.path
+    )
+end
+```
+
+The `~protect:true` in `save` makes the critical section non-cancellable,
+so that if a cancel happens during a save then we will finish writing the data first.
+It can be used like this:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let dir = Eio.Stdenv.cwd env in
+  let t = Atomic_file.of_path (dir / "data") in
+  Fiber.both
+    (fun () -> Atomic_file.save t "some data")
+    (fun () ->
+      let data = Atomic_file.load t in
+      traceln "Loaded: %S" data
+    );;
++Loaded: "some data"
+- : unit = ()
+```
+
+Note: In practice, a better way to make file writes atomic is
+to write the data to a temporary file and then atomically rename it over the old data.
+That will work even if the whole computer crashes, and does not delay cancellation.
+
+If the operation being performed is very fast (such as updating some in-memory counters),
+then it is fine to use the standard library's `Mutex` instead.
+
+If the operation does not switch fibers *and* the resource is only accessed from one domain,
+then no mutex is needed at all. For example:
+
+```ocaml
+(* No mutex needed if only used from a single domain: *)
+
+let in_use = ref 10
+let free = ref 0
+
+let release () =
+  incr free;
+  decr in_use
+```
+
 ## Design Note: Determinism
 
 Within a domain, fibers are scheduled deterministically.
@@ -1287,3 +1364,6 @@ Some background about the effects system can be found in:
 [Eio_mock]: https://ocaml-multicore.github.io/eio/eio/Eio_mock/index.html
 [Eio_unix]: https://ocaml-multicore.github.io/eio/eio/Eio_unix/index.html
 [Async_eio]: https://github.com/talex5/async_eio
+[Eio.Mutex]: https://ocaml-multicore.github.io/eio/eio/Eio/Mutex/index.html
+[Eio.Semaphore]: https://ocaml-multicore.github.io/eio/eio/Eio/Semaphore/index.html
+[Eio.Condition]: https://ocaml-multicore.github.io/eio/eio/Eio/Condition/index.html
