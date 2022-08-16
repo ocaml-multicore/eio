@@ -52,7 +52,7 @@ Concurrent access to the mutex
 ```ocaml
 # run @@ fun () ->
   let t = M.create () in
-  let fn () = 
+  let fn () =
     lock t;
     Eio.Fiber.yield ();
     unlock t
