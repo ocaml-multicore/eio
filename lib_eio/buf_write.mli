@@ -80,6 +80,9 @@
 type t
 (** The type of a serializer. *)
 
+exception Flush_aborted
+(** Raised when waiting for a flush to complete if the buffer is destroyed instead. *)
+
 (** {2 Running} *)
 
 val with_flow : ?initial_size:int -> #Flow.sink -> (t -> 'a) -> 'a
@@ -244,7 +247,8 @@ val unpause : t -> unit
 val flush : t -> unit
 (** [flush t] waits until all prior writes have been successfully completed.
     If [t] has no pending writes, [flush] returns immediately.
-    If [t] is paused then it is unpaused first. *)
+    If [t] is paused then it is unpaused first.
+    @raise Flush_aborted if {!abort} is called before the data is written. *)
 
 val close : t -> unit
 (** [close t] closes [t]. All subsequent write calls will raise, and any
@@ -262,16 +266,21 @@ val is_closed : t -> bool
 
     Low-level operations for running a serializer. *)
 
-val create : sw:Switch.t -> int -> t
+val create : ?sw:Switch.t -> int -> t
 (** [create ~sw len] creates a serializer with a fixed-length internal buffer of
     length [len]. See the Buffered writes section for details about what happens
     when [len] is not large enough to support a write.
-    When [sw] is finished, any pending flush operations immediately fail. *)
+    @param sw When the switch is finished, {!abort} is called.
+              If you don't pass a switch, you may want to call [abort] manually on error. *)
 
-val of_buffer : sw:Switch.t -> Cstruct.buffer -> t
+val of_buffer : ?sw:Switch.t -> Cstruct.buffer -> t
 (** [of_buffer ~sw buf] creates a serializer, using [buf] as its internal
     buffer. The serializer takes ownership of [buf] until the serializer has
     been closed and flushed of all output. *)
+
+val abort : t -> unit
+(** [abort t] is like {!close} followed by {!drain}, except that any pending
+    flush operations fail instead of completing successfully. *)
 
 val await_batch : t -> Cstruct.t list
 (** [await_batch t] returns a list of buffers that should be written.

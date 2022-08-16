@@ -369,7 +369,7 @@ Ensure that we don't lose flushing fibers if the writer is aborted:
   Fiber.yield ();
   traceln "Finishing main switch";;
 +Finishing writer switch
-+Flush failed: Eio__Buf_write.Released
++Flush failed: Eio__Buf_write.Flush_aborted
 +Finishing main switch
 - : unit = ()
 ```
@@ -388,7 +388,7 @@ And with `with_flow`:
   );
   traceln "with_flow returning; t will be closed";;
 +with_flow returning; t will be closed
-+Flush failed: Eio__Buf_write.Released
++Flush failed: Eio__Buf_write.Flush_aborted
 Exception: Failure "Simulated IO error".
 ```
 
@@ -409,5 +409,20 @@ But the flush does succeed in the normal case:
 +flow: wrote "fo"
 +flow: wrote "o"
 +Flush succeeded
+- : unit = ()
+```
+
+If we don't pass a switch then we can still cancel flushes manually:
+
+```ocaml
+# let t = Write.create 100 in
+  Eio_mock.Backend.run @@ fun () ->
+  Fiber.both
+    (fun () ->
+       try Write.string t "hi"; Write.flush t
+       with Write.Flush_aborted -> traceln "Aborted"
+    )
+    (fun () -> Write.abort t);;
++Aborted
 - : unit = ()
 ```

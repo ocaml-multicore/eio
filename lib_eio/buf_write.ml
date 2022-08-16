@@ -167,7 +167,7 @@ type t =
   }
 (* Invariant: [write_pos >= scheduled_pos] *)
 
-exception Released
+exception Flush_aborted
 
 let writable_exn t =
   match t.state with
@@ -363,12 +363,12 @@ let abort t =
     match Flushes.dequeue_exn t.flushed with
     | exception Dequeue_empty -> ()
     | (_threshold, r) ->
-      Promise.resolve_error r Released;
+      Promise.resolve_error r Flush_aborted;
       aux ()
   in
   aux ()
 
-let of_buffer ~sw buffer =
+let of_buffer ?sw buffer =
   let t = { buffer
           ; write_pos       = 0
           ; scheduled_pos   = 0
@@ -381,11 +381,14 @@ let of_buffer ~sw buffer =
           ; id              = Ctf.mint_id ()
           }
   in
-  Switch.on_release sw (fun () -> abort t);
+  begin match sw with
+    | Some sw -> Switch.on_release sw (fun () -> abort t)
+    | None -> ()
+  end;
   t
 
-let create ~sw size =
-  of_buffer ~sw (Bigstringaf.create size)
+let create ?sw size =
+  of_buffer ?sw (Bigstringaf.create size)
 
 let pending_bytes t =
   (t.write_pos - t.scheduled_pos) + (t.bytes_received - t.bytes_written)
