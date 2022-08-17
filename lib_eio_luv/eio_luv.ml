@@ -405,19 +405,39 @@ module Low_level = struct
       if Fiber_context.clear_cancel_fn k.fiber then
       fn t k v
 
-    let ignore_node (_v : 'a Lwt_dllist.node) = ()
+    let poll_callback t events fd r =
+      begin match r with
+      | Ok (es : Luv.Poll.Event.t list) ->
+        if List.mem `READABLE es then apply_all events.read (fun k -> enqueue_and_remove t enqueue_thread k ());
+        if List.mem `WRITABLE es then apply_all events.write (fun k -> enqueue_and_remove t enqueue_thread k ());
+      | Error e ->
+        apply_all events.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e));
+        apply_all events.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e))
+      end;
+      if safe_to_stop_polling events then begin
+        Luv.Poll.stop events.handle |> or_raise;
+        t.fd_map <- Fd_map.remove fd t.fd_map
+      end
+
+    (* Sets the fiber cancel function which first removes the continutation
+       from the list to continue when the FD becomes readable or writeable.
+       Then it checks if the poll handle can be stopped and the mapping
+       removed. *)
+    let set_fiber_cancel ~t ~events ~node (k:unit Suspended.t) fd =
+      Fiber_context.set_cancel_fn k.fiber (fun ex ->
+        Lwt_dllist.remove node;
+        if safe_to_stop_polling events then begin
+          Luv.Poll.stop events.handle |> or_raise;
+          t.fd_map <- Fd_map.remove fd t.fd_map
+        end;
+        enqueue_failed_thread t k ex
+      )
 
     let await_readable t (k:unit Suspended.t) fd =
       match Fd_map.find_opt fd t.fd_map with
-      | Some ({ read; handle; _ } as events) ->
-        Fiber_context.set_cancel_fn k.fiber (fun ex ->
-          if safe_to_stop_polling events then begin
-            Luv.Poll.stop handle |> or_raise;
-            t.fd_map <- Fd_map.remove fd t.fd_map
-          end;
-          enqueue_failed_thread t k ex
-        );
-        Lwt_dllist.add_l k read |> ignore_node
+      | Some ({ read; _ } as events) -> 
+        let node = Lwt_dllist.add_l k read in
+        set_fiber_cancel ~t ~events ~node k fd
       | None ->
         let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
         let events = {
@@ -427,41 +447,15 @@ module Low_level = struct
         }
         in
         t.fd_map <- Fd_map.add fd events t.fd_map;
-        Fiber_context.set_cancel_fn k.fiber (fun ex ->
-            if safe_to_stop_polling events then begin
-              Luv.Poll.stop handle |> or_raise;
-              t.fd_map <- Fd_map.remove fd t.fd_map
-            end;
-            enqueue_failed_thread t k ex
-          );
-        Lwt_dllist.add_l k events.read |> ignore_node;
-        Luv.Poll.start handle [ `READABLE; `WRITABLE ] (fun r ->
-            (* t.fd_map <- Fd_map.remove fd t.fd_map; *)
-            begin match r with
-            | Ok (es : Luv.Poll.Event.t list) ->
-              if List.mem `READABLE es then apply_all events.read (fun k -> enqueue_and_remove t enqueue_thread k ());
-              if List.mem `WRITABLE es then apply_all events.write (fun k -> enqueue_and_remove t enqueue_thread k ());
-            | Error e ->
-              apply_all events.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e));
-              apply_all events.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e))
-            end;
-            if safe_to_stop_polling events then begin
-              Luv.Poll.stop handle |> or_raise;
-              t.fd_map <- Fd_map.remove fd t.fd_map
-            end
-        )
+        let node = Lwt_dllist.add_l k events.read in
+        set_fiber_cancel ~t ~events ~node k fd;
+        Luv.Poll.start handle [ `READABLE ] (poll_callback t events fd)
 
     let await_writable t (k:unit Suspended.t) fd =
       match Fd_map.find_opt fd t.fd_map with
-      | Some ({ write; handle; _ } as events) ->
-        Fiber_context.set_cancel_fn k.fiber (fun ex ->
-          if safe_to_stop_polling events then begin
-            Luv.Poll.stop handle |> or_raise;
-            t.fd_map <- Fd_map.remove fd t.fd_map
-          end;
-          enqueue_failed_thread t k ex
-        );
-        Lwt_dllist.add_l k write |> ignore_node
+      | Some ({ write; _ } as events) ->
+        let node = Lwt_dllist.add_l k write in
+        set_fiber_cancel ~t ~events ~node k fd
       | None ->
         let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
         let events = {
@@ -471,28 +465,9 @@ module Low_level = struct
         }
         in
         t.fd_map <- Fd_map.add fd events t.fd_map;
-        Fiber_context.set_cancel_fn k.fiber (fun ex ->
-            if safe_to_stop_polling events then begin
-              Luv.Poll.stop handle |> or_raise;
-              t.fd_map <- Fd_map.remove fd t.fd_map
-            end;
-            enqueue_failed_thread t k ex
-          );
-        Lwt_dllist.add_l k events.write |> ignore_node;
-        Luv.Poll.start handle [ `READABLE; `WRITABLE ] (fun r ->
-            begin match r with
-            | Ok (es : Luv.Poll.Event.t list) ->
-              if List.mem `WRITABLE es then apply_all events.write (fun v -> enqueue_and_remove t enqueue_thread v ());
-              if List.mem `READABLE es then apply_all events.read (fun v -> enqueue_and_remove t enqueue_thread v ())
-            | Error e ->
-              apply_all events.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e));
-              apply_all events.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e))
-            end;
-            if safe_to_stop_polling events then begin
-              Luv.Poll.stop handle |> or_raise;
-              t.fd_map <- Fd_map.remove fd t.fd_map
-            end
-        )
+        let node = Lwt_dllist.add_l k events.write in
+        set_fiber_cancel ~t ~events ~node k fd;
+        Luv.Poll.start handle [ `WRITABLE ] (poll_callback t events fd)
   end
 
   let sleep_until due =
