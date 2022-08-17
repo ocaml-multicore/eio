@@ -435,39 +435,56 @@ module Low_level = struct
 
     let await_readable t (k:unit Suspended.t) fd =
       match Fd_map.find_opt fd t.fd_map with
-      | Some ({ read; _ } as events) -> 
+      | Some ({ read; _ } as events) when not (Lwt_dllist.is_empty read) -> 
         let node = Lwt_dllist.add_l k read in
         set_fiber_cancel ~t ~events ~node k fd
-      | None ->
-        let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
-        let events = {
-          handle;
-          read = Lwt_dllist.create ();
-          write = Lwt_dllist.create ();
-        }
+      | v ->
+        (* Either we haven't created a handle yet, or [read] is empty which either
+           means all awaiting continuations have finished or we haven't yet started
+           the [`READABLE] callback. This can happen if [await_writable] was called
+           first. *)
+        let events, mask = match v with
+          | None ->
+            let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
+            {
+              handle;
+              read = Lwt_dllist.create ();
+              write = Lwt_dllist.create ();
+            },
+            [ `READABLE ]
+          | Some e ->
+            e, [ `READABLE; `WRITABLE ]
         in
         t.fd_map <- Fd_map.add fd events t.fd_map;
         let node = Lwt_dllist.add_l k events.read in
         set_fiber_cancel ~t ~events ~node k fd;
-        Luv.Poll.start handle [ `READABLE ] (poll_callback t events fd)
+        Luv.Poll.start events.handle mask (poll_callback t events fd)
 
     let await_writable t (k:unit Suspended.t) fd =
       match Fd_map.find_opt fd t.fd_map with
-      | Some ({ write; _ } as events) ->
+      | Some ({ write; _ } as events) when not (Lwt_dllist.is_empty write) ->
         let node = Lwt_dllist.add_l k write in
         set_fiber_cancel ~t ~events ~node k fd
-      | None ->
-        let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
-        let events = {
-          handle;
-          read = Lwt_dllist.create ();
-          write = Lwt_dllist.create ();
-        }
+      | v -> 
+        (* Either we haven't created a handle yet, or [write] is empty which either
+           means all awaiting continuations have finished or we haven't yet started
+           the [`WRITABLE] callback. This can happen if [await_readable] was called
+           first. *)
+        let events, mask = match v with
+          | None ->
+            let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
+            {
+              handle;
+              read = Lwt_dllist.create ();
+              write = Lwt_dllist.create ();
+            },
+            [ `WRITABLE ]
+          | Some e -> e, [ `READABLE; `WRITABLE ]
         in
         t.fd_map <- Fd_map.add fd events t.fd_map;
         let node = Lwt_dllist.add_l k events.write in
         set_fiber_cancel ~t ~events ~node k fd;
-        Luv.Poll.start handle [ `WRITABLE ] (poll_callback t events fd)
+        Luv.Poll.start events.handle mask (poll_callback t events fd)
   end
 
   let sleep_until due =

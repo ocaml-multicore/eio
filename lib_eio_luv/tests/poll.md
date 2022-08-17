@@ -56,15 +56,28 @@ Waiting for reading and writing on the same file descriptor.
   Eio.Fiber.both
     (fun () -> 
       Eio_unix.await_writable src_fd;
-      Eio_unix.await_readable src_fd; 
+      Eio_unix.await_readable src_fd;
       Eio.Flow.copy src (Flow.buffer_sink buffer))
     (fun () -> 
-      Eio_unix.await_writable dst_fd; 
+      Eio_unix.await_writable dst_fd;
       Eio.Flow.copy_string message dst;
       Eio.Flow.close dst
     );
   Buffer.contents buffer;;
 - : string = "hello"
+```
+
+Waiting for reading and writing on the same file descriptor, at the same time.
+
+```ocaml
+# with_sockets @@ fun ~sw ((src, src_fd), (dst, dst_fd)) ->
+  Eio.Fiber.both
+    (fun () -> 
+      Eio_unix.await_readable src_fd)
+    (fun () -> 
+      Eio_unix.await_writable src_fd;
+      Eio.Flow.close dst);;
+- : unit = ()
 ```
 
 Cancelling a fiber removes a fiber but does not stop polling if others are still waiting.
