@@ -83,8 +83,8 @@ type runnable =
 
 type 'a fd_event_waiters = {
   handle : Luv.Poll.t;
-  read : unit Suspended.t Lf_queue.t;
-  write : unit Suspended.t Lf_queue.t;
+  read : unit Suspended.t Lwt_dllist.t;
+  write : unit Suspended.t Lwt_dllist.t;
 }
 
 module Fd_map = Map.Make(struct type t = Unix.file_descr let compare = Stdlib.compare end)
@@ -389,21 +389,23 @@ module Low_level = struct
        waiters then it will be safe to close the file descriptor and remove the mapping. *)
 
     let safe_to_stop_polling events =
-      Lf_queue.is_empty events.read &&
-      Lf_queue.is_empty events.write
+      Lwt_dllist.is_empty events.read &&
+      Lwt_dllist.is_empty events.write
 
     let apply_all q fn =
-      if Lf_queue.is_empty q then ()
+      if Lwt_dllist.is_empty q then ()
       else
       let rec loop = function
         | None -> ()
-        | Some v -> fn v; loop (Lf_queue.pop q)
+        | Some v -> fn v; loop (Lwt_dllist.take_opt_r q)
     in
-      loop (Lf_queue.pop q)
+      loop (Lwt_dllist.take_opt_r q)
 
     let enqueue_and_remove t fn (k : unit Suspended.t) v =
       if Fiber_context.clear_cancel_fn k.fiber then
       fn t k v
+
+    let ignore_node (_v : 'a Lwt_dllist.node) = ()
 
     let await_readable t (k:unit Suspended.t) fd =
       match Fd_map.find_opt fd t.fd_map with
@@ -415,13 +417,13 @@ module Low_level = struct
           end;
           enqueue_failed_thread t k ex
         );
-        Lf_queue.push read k
+        Lwt_dllist.add_l k read |> ignore_node
       | None ->
         let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
         let events = {
           handle;
-          read = Lf_queue.create ();
-          write = Lf_queue.create ();
+          read = Lwt_dllist.create ();
+          write = Lwt_dllist.create ();
         }
         in
         t.fd_map <- Fd_map.add fd events t.fd_map;
@@ -432,7 +434,7 @@ module Low_level = struct
             end;
             enqueue_failed_thread t k ex
           );
-        Lf_queue.push events.read k;
+        Lwt_dllist.add_l k events.read |> ignore_node;
         Luv.Poll.start handle [ `READABLE; `WRITABLE ] (fun r ->
             (* t.fd_map <- Fd_map.remove fd t.fd_map; *)
             begin match r with
@@ -459,13 +461,13 @@ module Low_level = struct
           end;
           enqueue_failed_thread t k ex
         );
-        Lf_queue.push write k
+        Lwt_dllist.add_l k write |> ignore_node
       | None ->
         let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
         let events = {
           handle;
-          read = Lf_queue.create ();
-          write = Lf_queue.create ();
+          read = Lwt_dllist.create ();
+          write = Lwt_dllist.create ();
         }
         in
         t.fd_map <- Fd_map.add fd events t.fd_map;
@@ -476,7 +478,7 @@ module Low_level = struct
             end;
             enqueue_failed_thread t k ex
           );
-        Lf_queue.push events.write k;
+        Lwt_dllist.add_l k events.write |> ignore_node;
         Luv.Poll.start handle [ `READABLE; `WRITABLE ] (fun r ->
             begin match r with
             | Ok (es : Luv.Poll.Event.t list) ->
