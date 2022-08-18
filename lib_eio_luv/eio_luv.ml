@@ -81,7 +81,8 @@ type runnable =
   | IO
   | Thread of (unit -> unit)
 
-type 'a fd_event_waiters = {
+type fd_event_waiters = {
+  fd : Unix.file_descr;
   handle : Luv.Poll.t;
   read : unit Suspended.t Lwt_dllist.t;
   write : unit Suspended.t Lwt_dllist.t;
@@ -93,7 +94,7 @@ type t = {
   loop : Luv.Loop.t;
   async : Luv.Async.t;                          (* Will process [run_q] when prodded. *)
   run_q : runnable Lf_queue.t;
-  mutable fd_map : ((unit, exn) result fd_event_waiters) Fd_map.t;   (* Used for mapping readable/writable poll handles *)
+  mutable fd_map : fd_event_waiters Fd_map.t;   (* Used for mapping readable/writable poll handles *)
 }
 
 type _ Effect.t += Await : (Luv.Loop.t -> Eio.Private.Fiber_context.t -> ('a -> unit) -> unit) -> 'a Effect.t
@@ -388,103 +389,75 @@ module Low_level = struct
        Whenever we receive an event we signal to the waiters, and if there are no more read or write
        waiters then it will be safe to close the file descriptor and remove the mapping. *)
 
-    let safe_to_stop_polling events =
-      Lwt_dllist.is_empty events.read &&
-      Lwt_dllist.is_empty events.write
+    let maybe_stop t events =
+      if Lwt_dllist.is_empty events.read &&
+         Lwt_dllist.is_empty events.write then (
+        Luv.Poll.stop events.handle |> or_raise;
+        t.fd_map <- Fd_map.remove events.fd t.fd_map
+      )
 
     let apply_all q fn =
-      if Lwt_dllist.is_empty q then ()
-      else
       let rec loop = function
         | None -> ()
         | Some v -> fn v; loop (Lwt_dllist.take_opt_r q)
-    in
+      in
       loop (Lwt_dllist.take_opt_r q)
 
     let enqueue_and_remove t fn (k : unit Suspended.t) v =
       if Fiber_context.clear_cancel_fn k.fiber then
-      fn t k v
+        fn t k v
 
-    let poll_callback t events fd r =
+    let poll_callback t events r =
       begin match r with
-      | Ok (es : Luv.Poll.Event.t list) ->
-        if List.mem `READABLE es then apply_all events.read (fun k -> enqueue_and_remove t enqueue_thread k ());
-        if List.mem `WRITABLE es then apply_all events.write (fun k -> enqueue_and_remove t enqueue_thread k ());
-      | Error e ->
-        apply_all events.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e));
-        apply_all events.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e))
+        | Ok (es : Luv.Poll.Event.t list) ->
+          if List.mem `READABLE es then apply_all events.read (fun k -> enqueue_and_remove t enqueue_thread k ());
+          if List.mem `WRITABLE es then apply_all events.write (fun k -> enqueue_and_remove t enqueue_thread k ());
+        | Error e ->
+          apply_all events.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e));
+          apply_all events.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e))
       end;
-      if safe_to_stop_polling events then begin
-        Luv.Poll.stop events.handle |> or_raise;
-        t.fd_map <- Fd_map.remove fd t.fd_map
-      end
+      maybe_stop t events
 
-    (* Sets the fiber cancel function which first removes the continutation
-       from the list to continue when the FD becomes readable or writeable.
-       Then it checks if the poll handle can be stopped and the mapping
-       removed. *)
-    let set_fiber_cancel ~t ~events ~node (k:unit Suspended.t) fd =
+    let get_events t fd =
+      match Fd_map.find_opt fd t.fd_map with
+      | Some events -> events
+      | None ->
+        let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
+        let events = {
+          fd;
+          handle;
+          read = Lwt_dllist.create ();
+          write = Lwt_dllist.create ();
+        } in
+        t.fd_map <- Fd_map.add fd events t.fd_map;
+        events
+
+    let mask events =
+      let m = if Lwt_dllist.is_empty events.write then [] else [`WRITABLE] in
+      if Lwt_dllist.is_empty events.read then m else `READABLE :: m
+
+    let await t (k:unit Suspended.t) events queue =
+      let was_empty = Lwt_dllist.is_empty queue in
+      let node = Lwt_dllist.add_l k queue in
+      (* Set the fiber cancel function, which first removes the continutation
+         from the list to continue when the FD becomes readable or writeable.
+         Then it checks if the poll handle can be stopped and the mapping
+         removed. *)
       Fiber_context.set_cancel_fn k.fiber (fun ex ->
-        Lwt_dllist.remove node;
-        if safe_to_stop_polling events then begin
-          Luv.Poll.stop events.handle |> or_raise;
-          t.fd_map <- Fd_map.remove fd t.fd_map
-        end;
-        enqueue_failed_thread t k ex
-      )
+          Lwt_dllist.remove node;
+          maybe_stop t events;
+          enqueue_failed_thread t k ex
+        );
+      if was_empty then
+        Luv.Poll.start events.handle (mask events) (poll_callback t events)
 
-    let await_readable t (k:unit Suspended.t) fd =
-      match Fd_map.find_opt fd t.fd_map with
-      | Some ({ read; _ } as events) when not (Lwt_dllist.is_empty read) ->
-        let node = Lwt_dllist.add_l k read in
-        set_fiber_cancel ~t ~events ~node k fd
-      | v ->
-        (* Either we haven't created a handle yet, or [read] is empty which either
-           means all awaiting continuations have finished or we haven't yet started
-           the [`READABLE] callback. This can happen if [await_writable] was called
-           first. *)
-        let events, mask = match v with
-          | None ->
-            let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
-            {
-              handle;
-              read = Lwt_dllist.create ();
-              write = Lwt_dllist.create ();
-            },
-            [ `READABLE ]
-          | Some e ->
-            e, [ `READABLE; `WRITABLE ]
-        in
-        t.fd_map <- Fd_map.add fd events t.fd_map;
-        let node = Lwt_dllist.add_l k events.read in
-        set_fiber_cancel ~t ~events ~node k fd;
-        Luv.Poll.start events.handle mask (poll_callback t events fd)
+    let await_readable t k fd =
+      let events = get_events t fd in
+      await t k events events.read
 
-    let await_writable t (k:unit Suspended.t) fd =
-      match Fd_map.find_opt fd t.fd_map with
-      | Some ({ write; _ } as events) when not (Lwt_dllist.is_empty write) ->
-        let node = Lwt_dllist.add_l k write in
-        set_fiber_cancel ~t ~events ~node k fd
-      | v ->
-        (* Either we haven't created a handle yet, or [write] is empty which either
-           means all awaiting continuations have finished or we haven't yet started
-           the [`WRITABLE] callback. This can happen if [await_readable] was called
-           first. *)
-        let events, mask = match v with
-          | None ->
-            let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
-            {
-              handle;
-              read = Lwt_dllist.create ();
-              write = Lwt_dllist.create ();
-            },
-            [ `WRITABLE ]
-          | Some e -> e, [ `READABLE; `WRITABLE ]
-        in
-        t.fd_map <- Fd_map.add fd events t.fd_map;
-        let node = Lwt_dllist.add_l k events.write in
-        set_fiber_cancel ~t ~events ~node k fd;
-        Luv.Poll.start events.handle mask (poll_callback t events fd)
+    let await_writable t k fd =
+      let events = get_events t fd in
+      await t k events events.write
   end
 
   let sleep_until due =
