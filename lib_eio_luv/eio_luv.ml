@@ -900,7 +900,13 @@ let rec run : type a. (_ -> a) -> a = fun main ->
   let loop = Luv.Loop.init () |> or_raise in
   let run_q = Lf_queue.create () in
   let io_queued = ref false in
-  let async = Luv.Async.init ~loop (fun async -> wakeup ~async ~io_queued run_q) |> or_raise in
+  let async = Luv.Async.init ~loop (fun async ->
+      try wakeup ~async ~io_queued run_q
+      with ex ->
+        let bt = Printexc.get_raw_backtrace () in
+        Fmt.epr "Uncaught exception in run loop:@,%a@." Fmt.exn_backtrace (ex, bt);
+        Luv.Loop.stop loop
+    ) |> or_raise in
   let st = { loop; async; run_q } in
   let stdenv = stdenv ~run_event_loop:run in
   let rec fork ~new_fiber:fiber fn =
