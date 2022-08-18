@@ -435,7 +435,7 @@ module Low_level = struct
 
     let await_readable t (k:unit Suspended.t) fd =
       match Fd_map.find_opt fd t.fd_map with
-      | Some ({ read; _ } as events) when not (Lwt_dllist.is_empty read) -> 
+      | Some ({ read; _ } as events) when not (Lwt_dllist.is_empty read) ->
         let node = Lwt_dllist.add_l k read in
         set_fiber_cancel ~t ~events ~node k fd
       | v ->
@@ -465,7 +465,7 @@ module Low_level = struct
       | Some ({ write; _ } as events) when not (Lwt_dllist.is_empty write) ->
         let node = Lwt_dllist.add_l k write in
         set_fiber_cancel ~t ~events ~node k fd
-      | v -> 
+      | v ->
         (* Either we haven't created a handle yet, or [write] is empty which either
            means all awaiting continuations have finished or we haven't yet started
            the [`WRITABLE] callback. This can happen if [await_readable] was called
