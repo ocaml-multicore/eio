@@ -284,7 +284,7 @@ module Low_level = struct
     let with_dir_to_read path fn =
       match opendir path with
       | Ok dir ->
-        Fun.protect ~finally:(fun () -> closedir dir |> or_raise) @@ fun () -> fn dir 
+        Fun.protect ~finally:(fun () -> closedir dir |> or_raise) @@ fun () -> fn dir
       | Error _ as e -> e
 
     let readdir path =
@@ -293,7 +293,7 @@ module Low_level = struct
         match await_with_cancel ~request (fun loop -> Luv.File.readdir ~loop ~request dir) with
         | Ok dirents ->
           let dirs = Array.map (fun v -> v.Luv.File.Dirent.name) dirents |> Array.to_list in
-          Ok dirs 
+          Ok dirs
         | Error _ as e -> e
       in
         with_dir_to_read path fn
@@ -313,7 +313,7 @@ module Low_level = struct
     let rec fill buf =
       let request = Luv.Random.Request.make () in
       match await_with_cancel ~request (fun loop -> Luv.Random.random ~loop ~request buf) with
-      | Ok x -> x 
+      | Ok x -> x
       | Error `EINTR -> fill buf
       | Error x -> raise (Luv_error x)
   end
@@ -345,7 +345,7 @@ module Low_level = struct
       | xs -> xs
 
     let rec write t bufs =
-      let err, n = 
+      let err, n =
         (* note: libuv doesn't seem to allow cancelling stream writes *)
         enter (fun st k ->
             Luv.Stream.write (Handle.get "write_stream" t) bufs @@ fun err n ->
@@ -564,7 +564,7 @@ module Udp = struct
   type 'a t = [`UDP] Handle.t
 
   (* When the sender address in the callback of [recv_start] is [None], this usually indicates
-     EAGAIN according to the luv documentation which can be ignored. Libuv calls the callback 
+     EAGAIN according to the luv documentation which can be ignored. Libuv calls the callback
      in case C programs wish to handle the allocated buffer in some way. *)
   let recv (sock:'a t) buf =
     let r = enter (fun t k ->
@@ -587,7 +587,7 @@ module Udp = struct
       `Udp (luv_ip_addr_to_eio sockaddr), Luv.Buffer.size buf'
     | Error x -> raise (wrap_flow_error x)
 
-  let send t buf = function 
+  let send t buf = function
   | `Udp (host, port) ->
     let bufs = [ Cstruct.to_bigarray buf ] in
     match await (fun _loop _fiber -> Luv.UDP.send (Handle.get "send" t) bufs (luv_addr_of_eio host port)) with
@@ -600,8 +600,8 @@ let udp_socket endp = object
 
   method close = Handle.close endp
 
-  method send sockaddr bufs = Udp.send endp bufs sockaddr 
-  method recv buf = 
+  method send sockaddr bufs = Udp.send endp bufs sockaddr
+  method recv buf =
     let buf = Cstruct.to_bigarray buf in
     Udp.recv endp buf
 end
@@ -662,7 +662,7 @@ let net = object
       (socket sock :> < Eio.Flow.two_way; Eio.Flow.close> )
 
   method datagram_socket ~sw = function
-    | `Udp (host, port) -> 
+    | `Udp (host, port) ->
       let domain = Eio.Net.Ipaddr.fold ~v4:(fun _ -> `INET) ~v6:(fun _ -> `INET6) host in
       let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise in
       let dg_sock = Handle.of_luv ~sw sock in
@@ -900,7 +900,13 @@ let rec run : type a. (_ -> a) -> a = fun main ->
   let loop = Luv.Loop.init () |> or_raise in
   let run_q = Lf_queue.create () in
   let io_queued = ref false in
-  let async = Luv.Async.init ~loop (fun async -> wakeup ~async ~io_queued run_q) |> or_raise in
+  let async = Luv.Async.init ~loop (fun async ->
+      try wakeup ~async ~io_queued run_q
+      with ex ->
+        let bt = Printexc.get_raw_backtrace () in
+        Fmt.epr "Uncaught exception in run loop:@,%a@." Fmt.exn_backtrace (ex, bt);
+        Luv.Loop.stop loop
+    ) |> or_raise in
   let st = { loop; async; run_q } in
   let stdenv = stdenv ~run_event_loop:run in
   let rec fork ~new_fiber:fiber fn =
@@ -912,11 +918,11 @@ let rec run : type a. (_ -> a) -> a = fun main ->
       effc = fun (type a) (e : a Effect.t) ->
         match e with
         | Await fn ->
-          Some (fun k -> 
+          Some (fun k ->
             let k = { Suspended.k; fiber } in
             fn loop fiber (enqueue_thread st k))
         | Eio.Private.Effects.Fork (new_fiber, f) ->
-          Some (fun k -> 
+          Some (fun k ->
               let k = { Suspended.k; fiber } in
               enqueue_at_head st k ();
               fork ~new_fiber f
@@ -931,7 +937,7 @@ let rec run : type a. (_ -> a) -> a = fun main ->
             | None -> fn st { Suspended.k; fiber }
           )
         | Eio.Private.Effects.Suspend fn ->
-          Some (fun k -> 
+          Some (fun k ->
               let k = { Suspended.k; fiber } in
               fn fiber (enqueue_result_thread st k)
             )
