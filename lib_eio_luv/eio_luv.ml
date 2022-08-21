@@ -117,6 +117,25 @@ let enqueue_failed_thread t k ex =
   Lf_queue.push t.run_q (Thread (fun () -> Suspended.discontinue k ex));
   Luv.Async.send t.async |> or_raise
 
+(* For polling *)
+let maybe_stop t events =
+  if Lwt_dllist.is_empty events.read &&
+      Lwt_dllist.is_empty events.write then (
+    Luv.Poll.stop events.handle |> or_raise;
+    t.fd_map <- Fd_map.remove events.fd t.fd_map
+  )
+
+let apply_all q fn =
+  let rec loop = function
+    | None -> ()
+    | Some v -> fn v; loop (Lwt_dllist.take_opt_r q)
+  in
+  loop (Lwt_dllist.take_opt_r q)
+
+let enqueue_and_remove t fn (k : unit Suspended.t) v =
+  if Fiber_context.clear_cancel_fn k.fiber then
+    fn t k v
+
 (* Can only be called from our domain. *)
 let enqueue_at_head t k v =
   Lf_queue.push_head t.run_q (Thread (fun () -> Suspended.continue k v));
@@ -125,6 +144,14 @@ let enqueue_at_head t k v =
 let get_loop () =
   enter_unchecked @@ fun t k ->
   Suspended.continue k t.loop
+
+let cancel_all_rw_waiters t fd =
+  match Fd_map.find_opt fd t.fd_map with
+  | Some v ->
+    apply_all v.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Failure "Closed file descriptor whilst polling"));
+    apply_all v.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Failure "Closed file descriptor whilst polling"));
+    maybe_stop t v
+  | None -> ()
 
 module Low_level = struct
   type 'a or_error = ('a, Luv.Error.t) result
@@ -173,6 +200,15 @@ module Low_level = struct
       | { fd = `Open _; _ } -> true
       | { fd = `Closed; _ } -> false
 
+    let cancel_waiters t fd =
+      (* Luv doesn't expose a way to optionally get a file number for an ['a Luv.Handle.t].handle.
+         So we bypass the typechecker and [fileno] will raise EINVAL if a handle that doesn't support
+         file descriptors is used. *)
+      let fd = Obj.magic fd in
+      let os_fd = Luv.Handle.fileno fd |> or_raise in
+      let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
+      cancel_all_rw_waiters t fd
+
     let close t =
       Ctf.label "close";
       let fd = get "close" t in
@@ -180,6 +216,7 @@ module Low_level = struct
       Eio.Switch.remove_hook t.release_hook;
       if t.close_unix then (
         enter_unchecked @@ fun t k ->
+        cancel_waiters t fd;
         Luv.Handle.close fd (enqueue_thread t k)
       )
 
@@ -229,7 +266,12 @@ module Low_level = struct
       let fd = get "close" t in
       t.fd <- `Closed;
       Eio.Switch.remove_hook t.release_hook;
-      await_exn (fun loop _fiber -> Luv.File.close ~loop fd)
+      enter (fun st k ->
+          let os_fd = Luv.File.get_osfhandle fd |> or_raise in
+          let unix_fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
+          cancel_all_rw_waiters st unix_fd;
+          Luv.File.close ~loop:st.loop fd (enqueue_thread st k)
+        ) |> or_raise
 
     let ensure_closed t =
       if is_open t then close t
@@ -388,24 +430,6 @@ module Low_level = struct
 
        Whenever we receive an event we signal to the waiters, and if there are no more read or write
        waiters then it will be safe to close the file descriptor and remove the mapping. *)
-
-    let maybe_stop t events =
-      if Lwt_dllist.is_empty events.read &&
-         Lwt_dllist.is_empty events.write then (
-        Luv.Poll.stop events.handle |> or_raise;
-        t.fd_map <- Fd_map.remove events.fd t.fd_map
-      )
-
-    let apply_all q fn =
-      let rec loop = function
-        | None -> ()
-        | Some v -> fn v; loop (Lwt_dllist.take_opt_r q)
-      in
-      loop (Lwt_dllist.take_opt_r q)
-
-    let enqueue_and_remove t fn (k : unit Suspended.t) v =
-      if Fiber_context.clear_cancel_fn k.fiber then
-        fn t k v
 
     let poll_callback t events r =
       begin match r with

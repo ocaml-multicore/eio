@@ -103,3 +103,13 @@ Cancelling a fiber removes a fiber but does not stop polling if others are still
 - : unit = ()
 ```
 
+Closing a file descriptor with an actively waiting poll fails the fiber that is waiting.
+
+```ocaml
+# with_sockets @@ fun ~sw ((src, src_fd), (_dst, _dst_fd)) ->
+  Eio.Fiber.both
+      (fun () -> Eio_unix.await_readable src_fd)
+      (fun () -> Eio.Flow.close src);;
+Exception: Failure "Closed file descriptor whilst polling".
+```
+
