@@ -201,13 +201,16 @@ module Low_level = struct
       | { fd = `Closed; _ } -> false
 
     let cancel_waiters t fd =
-      (* Luv doesn't expose a way to optionally get a file number for an ['a Luv.Handle.t].handle.
+      (* Luv doesn't expose a way to optionally get a file number for an ['a Luv.Handle.t] handle.
          So we bypass the typechecker and [fileno] will raise EINVAL if a handle that doesn't support
          file descriptors is used. *)
       let fd = Obj.magic fd in
-      let os_fd = Luv.Handle.fileno fd |> or_raise in
-      let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
-      cancel_all_rw_waiters t fd
+      match Luv.Handle.fileno fd with
+        | Ok os_fd ->
+          let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
+          cancel_all_rw_waiters t fd
+        | Error `EINVAL -> ()
+        | Error e -> raise (Luv_error e)
 
     let close t =
       Ctf.label "close";
