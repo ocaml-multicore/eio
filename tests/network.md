@@ -488,6 +488,7 @@ EPIPE:
 
 ## Getaddrinfo
 
+<!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo env#net "127.0.0.1";;
@@ -495,6 +496,7 @@ EPIPE:
 [`Tcp ("\127\000\000\001", 0); `Udp ("\127\000\000\001", 0)]
 ```
 
+<!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo env#net "127.0.0.1" ~service:"80";;
