@@ -90,6 +90,7 @@ module Low_level : sig
 
   module Handle : sig
     type 'a t
+      constraint 'a = [< `Poll | `Stream of [< `Pipe | `TCP | `TTY ] | `UDP ]
 
     val is_open : 'a t -> bool
     (** [is_open t] is [true] if {!close} hasn't been called yet. *)

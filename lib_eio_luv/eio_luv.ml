@@ -148,8 +148,9 @@ let get_loop () =
 let cancel_all_rw_waiters t fd =
   match Fd_map.find_opt fd t.fd_map with
   | Some v ->
-    apply_all v.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Failure "Closed file descriptor whilst polling"));
-    apply_all v.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Failure "Closed file descriptor whilst polling"));
+    let ex = Failure "Closed file descriptor whilst polling" in
+    apply_all v.read (fun k -> enqueue_and_remove t enqueue_failed_thread k ex);
+    apply_all v.write (fun k -> enqueue_and_remove t enqueue_failed_thread k ex);
     maybe_stop t v
   | None -> ()
 
@@ -190,7 +191,7 @@ module Low_level = struct
       mutable release_hook : Eio.Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
       close_unix : bool;
       mutable fd : [`Open of 'a Luv.Handle.t | `Closed]
-    }
+    } constraint 'a = [< `Poll | `Stream of [< `Pipe | `TCP | `TTY ] | `UDP ]
 
     let get op = function
       | { fd = `Open fd; _ } -> fd
@@ -200,18 +201,6 @@ module Low_level = struct
       | { fd = `Open _; _ } -> true
       | { fd = `Closed; _ } -> false
 
-    let cancel_waiters t fd =
-      (* Luv doesn't expose a way to optionally get a file number for an ['a Luv.Handle.t] handle.
-         So we bypass the typechecker and [fileno] will raise EINVAL if a handle that doesn't support
-         file descriptors is used. *)
-      let fd = Obj.magic fd in
-      match Luv.Handle.fileno fd with
-        | Ok os_fd ->
-          let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
-          cancel_all_rw_waiters t fd
-        | Error `EINVAL -> ()
-        | Error e -> raise (Luv_error e)
-
     let close t =
       Ctf.label "close";
       let fd = get "close" t in
@@ -219,7 +208,11 @@ module Low_level = struct
       Eio.Switch.remove_hook t.release_hook;
       if t.close_unix then (
         enter_unchecked @@ fun t k ->
-        cancel_waiters t fd;
+        begin match Luv.Handle.fileno fd with
+          | Ok fd -> cancel_all_rw_waiters t (Luv_unix.Os_fd.Fd.to_unix fd)
+          | Error `EBADF -> ()  (* We don't have a Unix FD yet, so we can't be watching it. *)
+          | Error e -> raise (Luv_error e)
+        end;
         Luv.Handle.close fd (enqueue_thread t k)
       )
 
