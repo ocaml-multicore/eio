@@ -6,6 +6,7 @@ type t = <
   on_connect : <Eio.Net.stream_socket; Eio.Flow.close> Handler.t;
   on_datagram_socket : <Eio.Net.datagram_socket; Eio.Flow.close> Handler.t;
   on_getaddrinfo : Eio.Net.Sockaddr.t list Handler.t;
+  on_getnameinfo : (string * string) Handler.t;
 >
 
 let make label =
@@ -13,6 +14,7 @@ let make label =
   let on_connect = Handler.make (`Raise (Failure "Mock connect handler not configured")) in
   let on_datagram_socket = Handler.make (`Raise (Failure "Mock datagram_socket handler not configured")) in
   let on_getaddrinfo = Handler.make (`Raise (Failure "Mock getaddrinfo handler not configured")) in
+  let on_getnameinfo = Handler.make (`Raise (Failure "Mock getnameinfo handler not configured")) in
   object
     inherit Eio.Net.t
 
@@ -20,6 +22,7 @@ let make label =
     method on_connect = on_connect
     method on_datagram_socket = on_datagram_socket
     method on_getaddrinfo = on_getaddrinfo
+    method on_getnameinfo = on_getnameinfo
 
     method listen ~reuse_addr:_ ~reuse_port:_ ~backlog:_ ~sw addr =
       traceln "%s: listen on %a" label Eio.Net.Sockaddr.pp addr;
@@ -42,6 +45,10 @@ let make label =
     method getaddrinfo ~service node =
       traceln "%s: getaddrinfo ~service:%s %s" label service node;
       Handler.run on_getaddrinfo
+
+    method getnameinfo sockaddr =
+      traceln "%s: getnameinfo %a" label Eio.Net.Sockaddr.pp sockaddr;
+      Handler.run on_getnameinfo
   end
 
 let on_connect (t:t) actions =
@@ -57,6 +64,8 @@ let on_datagram_socket (t:t) actions =
   Handler.seq t#on_datagram_socket (List.map (Action.map as_socket) actions)
 
 let on_getaddrinfo (t:t) actions = Handler.seq t#on_getaddrinfo actions
+
+let on_getnameinfo (t:t) actions = Handler.seq t#on_getnameinfo actions
 
 type listening_socket = <
   Eio.Net.listening_socket;

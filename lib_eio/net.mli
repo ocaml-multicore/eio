@@ -105,6 +105,7 @@ class virtual t : object
   method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
   method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
   method virtual getaddrinfo : service:string -> string -> Sockaddr.t list
+  method virtual getnameinfo : Sockaddr.t -> (string * string)
 end
 
 (** {2 Out-bound Connections} *)
@@ -182,6 +183,11 @@ val getaddrinfo: ?service:string -> #t -> string -> Sockaddr.t list
     'http', 'https', 'ftp', etc.
 
     For a more thorough treatment, @see <https://man7.org/linux/man-pages/man3/getaddrinfo.3.html> getaddrinfo *)
+
+val getnameinfo : #t -> Sockaddr.t -> (string * string)
+(** [getnameinfo t sockaddr] is [(hostname, service)] corresponding to [sockaddr]. [hostname] is the
+    registered domain name represented by [sockaddr]. [service] is the IANA specified textual name of the
+    port specified in [sockaddr], e.g. 'ftp', 'http', 'https', etc. *)
 
 (** {2 Closing} *)
 val close : <close: unit; ..> -> unit

@@ -671,6 +671,8 @@ let net = object
       udp_socket dg_sock
 
   method getaddrinfo = Low_level.getaddrinfo
+
+  method getnameinfo = Eio_unix.getnameinfo
 end
 
 let secure_random =

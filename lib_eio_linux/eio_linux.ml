@@ -908,7 +908,7 @@ module Low_level = struct
     in
     Eio_unix.run_in_systhread @@ fun () ->
     Unix.getaddrinfo node service []
-    |> List.filter_map to_eio_sockaddr_t    
+    |> List.filter_map to_eio_sockaddr_t
 end
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
@@ -1139,6 +1139,8 @@ let net = object
       udp_socket sock
 
   method getaddrinfo = Low_level.getaddrinfo
+
+  method getnameinfo = Eio_unix.getnameinfo
 end
 
 type stdenv = <

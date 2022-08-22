@@ -527,3 +527,12 @@ EPIPE:
  `Tcp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443);
  `Udp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443)]
 ```
+
+## getnameinfo
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let sockaddr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 80) in
+  Eio.Net.getnameinfo env#net sockaddr;;
+- : string * string = ("localhost", "http")
+```
