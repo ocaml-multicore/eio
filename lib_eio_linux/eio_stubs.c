@@ -41,21 +41,6 @@ CAMLprim value caml_eio_mkdirat(value v_fd, value v_path, value v_perm) {
   CAMLreturn(Val_unit);
 }
 
-CAMLprim value caml_eio_unlinkat(value v_fd, value v_path, value v_rmdir) {
-  CAMLparam1(v_path);
-  char *path;
-  int ret;
-  caml_unix_check_path(v_path, "unlinkat");
-  path = caml_stat_strdup(String_val(v_path));
-  caml_enter_blocking_section();
-  ret = unlinkat(Int_val(v_fd), path,
-                 Bool_val(v_rmdir) ? AT_REMOVEDIR : 0);
-  caml_leave_blocking_section();
-  caml_stat_free(path);
-  if (ret == -1) uerror("unlinkat", v_path);
-  CAMLreturn(Val_unit);
-}
-
 CAMLprim value caml_eio_renameat(value v_old_fd, value v_old_path, value v_new_fd, value v_new_path) {
   CAMLparam2(v_old_path, v_new_path);
   char *old_path;
