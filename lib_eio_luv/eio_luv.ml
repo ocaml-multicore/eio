@@ -131,11 +131,12 @@ end = struct
         by an active poll handle.
 
      As such, we keep track of the mapping between poll handle and FD in the [fd_map].
-     This contains to sets of waiters for a given handle; those waiting for readability and
+     This contains two queues of waiters for a given handle; those waiting for readability and
      those waiting for writability.
 
-     Whenever we receive an event we signal to the waiters, and if there are no more read or write
-     waiters, then it will be safe to close the file descriptor and remove the mapping. *)
+     Whenever the [read] queue is non-empty we enable polling for the READ event, and
+     whenevent the [write] queue is non-empty we enable polling for WRTIE. When both are
+     empty we stop polling. *)
 
   let apply_all q fn =
     let rec loop = function
@@ -181,7 +182,7 @@ end = struct
     match Fd_map.find_opt fd t.fd_map with
     | Some events -> events
     | None ->
-      let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
+      let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd : int) |> or_raise in
       let events = {
         fd;
         handle;
@@ -331,7 +332,7 @@ module Low_level = struct
       let fd = get "close" t in
       t.fd <- `Closed;
       Eio.Switch.remove_hook t.release_hook;
-      enter (fun st k ->
+      enter_unchecked (fun st k ->
           let os_fd = Luv.File.get_osfhandle fd |> or_raise in
           let unix_fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
           Poll.cancel_all st unix_fd;
