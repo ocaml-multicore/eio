@@ -112,4 +112,3 @@ Closing a file descriptor with an actively waiting poll fails the fiber that is 
       (fun () -> Eio.Flow.close src);;
 Exception: Failure "Closed file descriptor whilst polling".
 ```
-
