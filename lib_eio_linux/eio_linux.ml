@@ -410,6 +410,19 @@ let rec enqueue_openat2 ((access, flags, perm, resolve, dir, path) as args) st a
     | Error ex -> enqueue_failed_thread st action ex
     | Ok fd -> use (Some fd)
 
+
+let rec enqueue_unlink ((dir, fd, path) as args) st action =
+  Ctf.label "unlinkat";
+  match FD.get "unlink" fd with
+  | Error ex -> enqueue_failed_thread st action ex
+  | Ok fd ->
+    let retry = with_cancel_hook ~action st (fun () ->
+        Uring.unlink st.uring ~dir ~fd path (Job action)
+      )
+    in
+    if retry then (* wait until an sqe is available *)
+      Queue.push (fun st -> enqueue_unlink args st action) st.io_q
+
 let rec enqueue_connect fd addr st action =
   Log.debug (fun l -> l "connect: submitting call");
   Ctf.label "connect";
@@ -810,8 +823,6 @@ module Low_level = struct
 
   external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
 
-  external eio_unlinkat : Unix.file_descr -> string -> bool -> unit = "caml_eio_unlinkat"
-
   external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit = "caml_eio_renameat"
 
   external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
@@ -850,7 +861,8 @@ module Low_level = struct
     (* [unlink] is really an operation on [path]'s parent. Get a reference to that first: *)
     with_parent_dir dir path @@ fun parent leaf ->
     wrap_errors path @@ fun () ->
-    eio_unlinkat (FD.get_exn "unlinkat" parent) leaf rmdir
+    let res = enter (enqueue_unlink (rmdir, parent, leaf)) in
+    if res <> 0 then raise @@ Unix.Unix_error (Uring.error_of_errno res, "unlinkat", "")
 
   let rename old_dir old_path new_dir new_path =
     with_parent_dir old_dir old_path @@ fun old_parent old_leaf ->
