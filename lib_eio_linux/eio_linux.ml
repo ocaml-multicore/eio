@@ -170,7 +170,6 @@ type t = {
   need_wakeup : bool Atomic.t;
 
   sleep_q: Zzz.t;
-  mutable io_jobs: int;
 }
 
 let wake_buffer =
@@ -522,24 +521,24 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
       Suspended.continue k ()                   (* A sleeping task is now due *)
     | `Wait_until _ | `Nothing as next_due ->
       (* Handle any pending events before submitting. This is faster. *)
-      match Uring.peek uring with
+      match Uring.get_cqe_nonblocking uring with
       | Some { data = runnable; result } ->
         Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
         handle_complete st ~runnable result
       | None ->
-        let num_jobs = Uring.submit uring in
-        st.io_jobs <- st.io_jobs + num_jobs;
+        ignore (Uring.submit uring : int);
         let timeout =
           match next_due with
           | `Wait_until time -> Some (time -. now)
           | `Nothing -> None
         in
-        Log.debug (fun l -> l "scheduler: %d sub / %d total, timeout %s" num_jobs st.io_jobs
-                      (match timeout with None -> "inf" | Some v -> string_of_float v));
+        Log.debug (fun l -> l "@[<v2>scheduler out of jobs, next timeout %s:@,%a@]"
+                      (match timeout with None -> "inf" | Some v -> string_of_float v)
+                      Uring.Stats.pp (Uring.get_debug_stats uring));
         if not (Lf_queue.is_empty st.run_q) then (
           Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
           schedule st
-        ) else if timeout = None && st.io_jobs = 0 then (
+        ) else if timeout = None && Uring.active_ops uring = 0 then (
           (* Nothing further can happen at this point.
              If there are no events in progress but also still no memory available, something has gone wrong! *)
           assert (Queue.length mem_q = 0);
@@ -572,7 +571,6 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
           )
         )
 and handle_complete st ~runnable result =
-  st.io_jobs <- st.io_jobs - 1;
   submit_pending_io st;                       (* If something was waiting for a slot, submit it now. *)
   match runnable with
   | Read req ->
@@ -1340,7 +1338,7 @@ let rec run : type a.
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
   let eventfd = FD.placeholder ~seekable:false ~close_unix:false in
-  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; io_jobs = 0 } in
+  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q } in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
