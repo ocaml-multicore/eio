@@ -1,7 +1,7 @@
 open Eio.Std
 
 type t = <
-  Eio.Time.clock;
+  float Eio.Time.clock;
   advance : unit;
   set_time : float -> unit;
 >
@@ -24,12 +24,15 @@ module Q = Psq.Make(Key)(Job)
 
 let make () =
   object (self)
-    inherit Eio.Time.clock
+    inherit [float] Eio.Time.clock
 
     val mutable now = 0.0
     val mutable q = Q.empty
 
     method now = now
+
+    method add_seconds t d = t +. d
+    method to_seconds t = t
 
     method sleep_until time =
       if time <= now then Fiber.yield ()

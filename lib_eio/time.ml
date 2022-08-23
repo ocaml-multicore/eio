@@ -1,26 +1,29 @@
 exception Timeout
 
-class virtual clock = object
-  method virtual now : float
-  method virtual sleep_until : float -> unit
+class virtual ['a] clock = object
+  method virtual now : 'a
+  method virtual sleep_until : 'a -> unit
+  method virtual add_seconds : 'a -> float -> 'a
+  method virtual to_seconds : 'a -> float
 end
 
-let now (t : #clock) = t#now
+let now (t: (_ #clock)) = t#now
 
-let sleep_until (t : #clock) time = t#sleep_until time
+let sleep_until (t : (_ #clock)) time = t#sleep_until time
 
-let sleep t d = sleep_until t (now t +. d)
+let sleep t d = sleep_until t (t#add_seconds t#now d)
 
+let to_seconds t time = t#to_seconds time
 let with_timeout t d = Fiber.first (fun () -> sleep t d; Error `Timeout)
 let with_timeout_exn t d = Fiber.first (fun () -> sleep t d; raise Timeout)
 
 module Timeout = struct
-  type t =
-    | Timeout of clock * float
+  type 'a t =
+    | Timeout of 'a clock * float
     | Unlimited
 
   let none = Unlimited
-  let of_s clock time = Timeout ((clock :> clock), time)
+  let of_s clock time = Timeout ((clock :> 'a clock), time)
 
   let run t fn =
     match t with

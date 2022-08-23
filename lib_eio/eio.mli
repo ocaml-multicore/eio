@@ -178,7 +178,8 @@ module Stdenv : sig
     stderr : Flow.sink;
     net : Net.t;
     domain_mgr : Domain_manager.t;
-    clock : Time.clock;
+    real_clock : Ptime.t Time.clock;
+    mono_clock : Mtime.t Time.clock;
     fs : Fs.dir Path.t;
     cwd : Fs.dir Path.t;
     secure_random : Flow.source;
@@ -231,8 +232,11 @@ module Stdenv : sig
       To use this, see {!Time}.
   *)
 
-  val clock : <clock : #Time.clock as 'a; ..> -> 'a
-  (** [clock t] is the system clock. *)
+  val real_clock : <real_clock : Ptime.t #Time.clock as 'a; ..> -> 'a
+  (** [real_clock t] is the realtime OS clock. *)
+
+  val mono_clock : <mono_clock : Mtime.t #Time.clock as 'a; ..> -> 'a
+  (** [mono_clock t] is the monotonic OS clock. *)
 
   (** {1 Randomness} *)
 

@@ -119,7 +119,7 @@ val connect : sw:Switch.t -> #t -> Sockaddr.stream -> <stream_socket; Flow.close
     @raise Connection_failure if connection couldn't be established. *)
 
 val with_tcp_connect :
-  ?timeout:Time.Timeout.t ->
+  ?timeout:'a Time.Timeout.t ->
   host:string ->
   service:string ->
   #t ->

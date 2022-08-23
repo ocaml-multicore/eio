@@ -32,9 +32,9 @@ let run_bench ~domain_mgr ~clock ~use_domains ~iters_per_thread ~threads =
     );
   assert (!v = 0);
   let t1 = Eio.Time.now clock in
-  let time_total = t1 -. t0 in
+  let time_total = Mtime.span t1 t0 in
   let n_iters = iters_per_thread * threads in
-  let time_per_iter = time_total /. float n_iters in
+  let time_per_iter = Mtime.Span.to_s time_total /. float n_iters in
   let _minor1, prom1, _major1 = Gc.counters () in
   let prom = prom1 -. prom0 in
   Printf.printf "%11b, %12d, %8d, %8.2f, %13.4f\n%!" use_domains n_iters threads (1e9 *. time_per_iter) (prom /. float n_iters)
@@ -55,4 +55,4 @@ let () =
   Eio_main.run @@ fun env ->
   main
     ~domain_mgr:(Eio.Stdenv.domain_mgr env)
-    ~clock:(Eio.Stdenv.clock env)
+    ~clock:(Eio.Stdenv.mono_clock env)

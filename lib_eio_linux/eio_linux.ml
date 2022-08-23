@@ -1166,7 +1166,8 @@ type stdenv = <
   stderr : sink;
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
-  clock : Eio.Time.clock;
+  real_clock : Ptime.t Eio.Time.clock;
+  mono_clock : Mtime.t Eio.Time.clock;
   fs : Eio.Fs.dir Eio.Path.t;
   cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
@@ -1189,13 +1190,6 @@ let domain_mgr ~run_event_loop = object (self)
         run_event_loop (fun _ -> result := Some (fn ()));
         Option.get !result
       )
-end
-
-let clock = object
-  inherit Eio.Time.clock
-
-  method now = Unix.gettimeofday ()
-  method sleep_until = Low_level.sleep_until
 end
 
 class dir ~label (fd : dir_fd) = object
@@ -1279,7 +1273,8 @@ let stdenv ~run_event_loop =
     method stderr = Lazy.force stderr
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
-    method clock = clock
+    method real_clock = Eio_unix.real_clock
+    method mono_clock = Eio_unix.mono_clock
     method fs = (fs :> Eio.Fs.dir Eio.Path.t)
     method cwd = (cwd :> Eio.Fs.dir Eio.Path.t)
     method secure_random = secure_random
@@ -1433,7 +1428,6 @@ let rec run : type a.
                   );
                 schedule st
             )
-          | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
           | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
               let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
               continue k (flow fd :> Eio_unix.socket)

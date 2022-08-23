@@ -60,7 +60,9 @@ val sleep : float -> unit
 (** [sleep d] sleeps for [d] seconds, allowing other fibers to run.
     This is can be useful for debugging (e.g. to introduce delays to trigger a race condition)
     without having to plumb {!Eio.Stdenv.clock} through your code.
-    It can also be used in programs that don't care about tracking determinism. *)
+    It can also be used in programs that don't care about tracking determinism.
+
+    The clock used is the monotonic system clock. See {!val:mono_clock}. *)
 
 val run_in_systhread : (unit -> 'a) -> 'a
 (** [run_in_systhread fn] runs the function [fn] in a newly created system thread (a {! Thread.t}).
@@ -85,7 +87,6 @@ module Private : sig
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
-    | Get_system_clock : Eio.Time.clock Effect.t             (** See {!sleep} *)
     | Socket_of_fd : Switch.t * bool * Unix.file_descr ->
         socket Effect.t                                      (** See {!FD.as_socket} *)
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int ->
@@ -96,3 +97,9 @@ module Ctf = Ctf_unix
 
 val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
 (** [getnameinfo sockaddr] returns domain name and service for [sockaddr]. *)
+
+val real_clock : Ptime.t Eio.Time.clock
+(** [real_clock] is the realtime OS clock. *)
+
+val mono_clock : Mtime.t Eio.Time.clock
+(** [mono_clock] is the monotonic OS clock. *)

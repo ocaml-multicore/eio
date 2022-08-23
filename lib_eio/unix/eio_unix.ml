@@ -14,7 +14,6 @@ module Private = struct
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t
     | Await_writable : Unix.file_descr -> unit Effect.t
-    | Get_system_clock : Eio.Time.clock Effect.t
     | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> socket Effect.t
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int -> (socket * socket) Effect.t
 end
@@ -22,8 +21,29 @@ end
 let await_readable fd = Effect.perform (Private.Await_readable fd)
 let await_writable fd = Effect.perform (Private.Await_writable fd)
 
-let sleep d =
-  Eio.Time.sleep (Effect.perform Private.Get_system_clock) d
+let real_clock = object
+  inherit [Ptime.t] Eio.Time.clock
+
+  method now = Ptime_clock.now ()
+  method sleep_until = failwith "sleep_until not implemented"
+  method add_seconds t d =
+    let span = Ptime.Span.of_float_s d in
+    Option.bind span (Ptime.add_span t)
+    |> Option.get
+end
+
+let mono_clock = object
+  inherit [Mtime.t] Eio.Time.clock
+
+  method now = Mtime_clock.now ()
+  method sleep_until = failwith "sleep_until not implemented"
+  method add_seconds t d =
+    let span = (d *. 1e9) |> Int64.of_float |> Mtime.Span.of_uint64_ns in
+    Mtime.add_span t span
+    |> Option.get
+end
+
+let sleep d = Eio.Time.sleep mono_clock d
 
 let run_in_systhread fn =
   let f fiber enqueue =

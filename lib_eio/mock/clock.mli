@@ -1,5 +1,5 @@
 type t = <
-  Eio.Time.clock;
+  float Eio.Time.clock;
   advance : unit;
   set_time : float -> unit;
 >

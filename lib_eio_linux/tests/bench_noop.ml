@@ -19,9 +19,9 @@ let main ~clock =
           done
         );
       let t1 = Eio.Time.now clock in
-      let time_total = t1 -. t0 in
+      let time_total = Mtime.span t1 t0 in
       let n_total = n_fibers * n_iters in
-      let time_per_iter = time_total /. float n_total in
+      let time_per_iter = Mtime.Span.to_s time_total /. float n_total in
       let _minor1, prom1, _major1 = Gc.counters () in
       let prom = prom1 -. prom0 in
       Printf.printf "%5d, %.2f, %7.4f\n%!" n_fibers (1e9 *. time_per_iter) (prom /. float n_total)
@@ -29,4 +29,4 @@ let main ~clock =
 
 let () =
   Eio_linux.run @@ fun env ->
-  main ~clock:(Eio.Stdenv.clock env)
+  main ~clock:(Eio.Stdenv.mono_clock env)
