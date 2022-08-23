@@ -81,10 +81,20 @@ type runnable =
   | IO
   | Thread of (unit -> unit)
 
+type fd_event_waiters = {
+  fd : Unix.file_descr;
+  handle : Luv.Poll.t;
+  read : unit Suspended.t Lwt_dllist.t;
+  write : unit Suspended.t Lwt_dllist.t;
+}
+
+module Fd_map = Map.Make(struct type t = Unix.file_descr let compare = Stdlib.compare end)
+
 type t = {
   loop : Luv.Loop.t;
   async : Luv.Async.t;                          (* Will process [run_q] when prodded. *)
   run_q : runnable Lf_queue.t;
+  mutable fd_map : fd_event_waiters Fd_map.t;   (* Used for mapping readable/writable poll handles *)
 }
 
 type _ Effect.t += Await : (Luv.Loop.t -> Eio.Private.Fiber_context.t -> ('a -> unit) -> unit) -> 'a Effect.t
@@ -106,6 +116,104 @@ let enqueue_result_thread t k r =
 let enqueue_failed_thread t k ex =
   Lf_queue.push t.run_q (Thread (fun () -> Suspended.discontinue k ex));
   Luv.Async.send t.async |> or_raise
+
+module Poll : sig
+  val await_readable : t -> unit Suspended.t -> Unix.file_descr -> unit
+  val await_writable : t -> unit Suspended.t -> Unix.file_descr -> unit
+
+  val cancel_all : t -> Unix.file_descr -> unit
+  (** [cancel_all t fd] should be called just before [fd] is closed.
+      Any waiters will be cancelled. *)
+end = struct
+  (* According to the libuv docs:
+     - It is not okay to have multiple poll handles for the same file descriptor.
+     - The user should not close the file descriptor while it is being polled
+        by an active poll handle.
+
+     As such, we keep track of the mapping between poll handle and FD in the [fd_map].
+     This contains two queues of waiters for a given handle; those waiting for readability and
+     those waiting for writability.
+
+     Whenever the [read] queue is non-empty we enable polling for the READ event, and
+     whenevent the [write] queue is non-empty we enable polling for WRTIE. When both are
+     empty we stop polling. *)
+
+  let apply_all q fn =
+    let rec loop = function
+      | None -> ()
+      | Some v -> fn v; loop (Lwt_dllist.take_opt_r q)
+    in
+    loop (Lwt_dllist.take_opt_r q)
+
+  let enqueue_and_remove t fn (k : unit Suspended.t) v =
+    if Fiber_context.clear_cancel_fn k.fiber then
+      fn t k v
+
+  let rec poll_callback t events r =
+    begin match r with
+      | Ok (es : Luv.Poll.Event.t list) ->
+        if List.mem `READABLE es then apply_all events.read (fun k -> enqueue_and_remove t enqueue_thread k ());
+        if List.mem `WRITABLE es then apply_all events.write (fun k -> enqueue_and_remove t enqueue_thread k ());
+      | Error e ->
+        apply_all events.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e));
+        apply_all events.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e))
+    end;
+    update t events
+  and update t events =
+    let m = if Lwt_dllist.is_empty events.write then [] else [`WRITABLE] in
+    let m = if Lwt_dllist.is_empty events.read then m else `READABLE :: m in
+    if m = [] then (
+      Luv.Poll.stop events.handle |> or_raise;
+      t.fd_map <- Fd_map.remove events.fd t.fd_map
+    ) else (
+      Luv.Poll.start events.handle m (poll_callback t events)
+    )
+
+  let cancel_all t fd =
+    match Fd_map.find_opt fd t.fd_map with
+    | Some v ->
+      let ex = Failure "Closed file descriptor whilst polling" in
+      apply_all v.read (fun k -> enqueue_and_remove t enqueue_failed_thread k ex);
+      apply_all v.write (fun k -> enqueue_and_remove t enqueue_failed_thread k ex);
+      update t v
+    | None -> ()
+
+  let get_events t fd =
+    match Fd_map.find_opt fd t.fd_map with
+    | Some events -> events
+    | None ->
+      let handle = Luv.Poll.init ~loop:t.loop (Obj.magic fd : int) |> or_raise in
+      let events = {
+        fd;
+        handle;
+        read = Lwt_dllist.create ();
+        write = Lwt_dllist.create ();
+      } in
+      t.fd_map <- Fd_map.add fd events t.fd_map;
+      events
+
+  let await t (k:unit Suspended.t) events queue =
+    let was_empty = Lwt_dllist.is_empty queue in
+    let node = Lwt_dllist.add_l k queue in
+    (* Set the fiber cancel function, which first removes the continutation
+       from the list to continue when the FD becomes readable or writeable.
+       Then it checks if the poll handle can be stopped and the mapping
+       removed. *)
+    Fiber_context.set_cancel_fn k.fiber (fun ex ->
+        Lwt_dllist.remove node;
+        if Lwt_dllist.is_empty queue then update t events;
+        enqueue_failed_thread t k ex
+      );
+    if was_empty then update t events
+
+  let await_readable t k fd =
+    let events = get_events t fd in
+    await t k events events.read
+
+  let await_writable t k fd =
+    let events = get_events t fd in
+    await t k events events.write
+end
 
 (* Can only be called from our domain. *)
 let enqueue_at_head t k v =
@@ -153,7 +261,7 @@ module Low_level = struct
       mutable release_hook : Eio.Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
       close_unix : bool;
       mutable fd : [`Open of 'a Luv.Handle.t | `Closed]
-    }
+    } constraint 'a = [< `Poll | `Stream of [< `Pipe | `TCP | `TTY ] | `UDP ]
 
     let get op = function
       | { fd = `Open fd; _ } -> fd
@@ -170,6 +278,11 @@ module Low_level = struct
       Eio.Switch.remove_hook t.release_hook;
       if t.close_unix then (
         enter_unchecked @@ fun t k ->
+        begin match Luv.Handle.fileno fd with
+          | Ok fd -> Poll.cancel_all t (Luv_unix.Os_fd.Fd.to_unix fd)
+          | Error `EBADF -> ()  (* We don't have a Unix FD yet, so we can't be watching it. *)
+          | Error e -> raise (Luv_error e)
+        end;
         Luv.Handle.close fd (enqueue_thread t k)
       )
 
@@ -219,7 +332,12 @@ module Low_level = struct
       let fd = get "close" t in
       t.fd <- `Closed;
       Eio.Switch.remove_hook t.release_hook;
-      await_exn (fun loop _fiber -> Luv.File.close ~loop fd)
+      enter_unchecked (fun st k ->
+          let os_fd = Luv.File.get_osfhandle fd |> or_raise in
+          let unix_fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
+          Poll.cancel_all st unix_fd;
+          Luv.File.close ~loop:st.loop fd (enqueue_thread st k)
+        ) |> or_raise
 
     let ensure_closed t =
       if is_open t then close t
@@ -365,35 +483,7 @@ module Low_level = struct
       Luv_unix.Os_fd.Socket.from_unix fd |> or_raise
   end
 
-  module Poll = struct
-    let await_readable t (k:unit Suspended.t) fd =
-      let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
-      Fiber_context.set_cancel_fn k.fiber (fun ex ->
-          Luv.Poll.stop poll |> or_raise;
-          enqueue_failed_thread t k ex
-        );
-      Luv.Poll.start poll [`READABLE;] (fun r ->
-          Luv.Poll.stop poll |> or_raise;
-          if Fiber_context.clear_cancel_fn k.fiber then
-            match r with
-            | Ok (_ : Luv.Poll.Event.t list) -> enqueue_thread t k ()
-            | Error e -> enqueue_failed_thread t k (Luv_error e)
-        )
-
-    let await_writable t (k:unit Suspended.t) fd =
-      let poll = Luv.Poll.init ~loop:t.loop (Obj.magic fd) |> or_raise in
-      Fiber_context.set_cancel_fn k.fiber (fun ex ->
-          Luv.Poll.stop poll |> or_raise;
-          enqueue_failed_thread t k ex
-        );
-      Luv.Poll.start poll [`WRITABLE;] (fun r ->
-          Luv.Poll.stop poll |> or_raise;
-          if Fiber_context.clear_cancel_fn k.fiber then
-            match r with
-            | Ok (_ : Luv.Poll.Event.t list) -> enqueue_thread t k ()
-            | Error e -> enqueue_failed_thread t k (Luv_error e)
-        )
-  end
+  module Poll = Poll
 
   let sleep_until due =
     let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
@@ -907,7 +997,7 @@ let rec run : type a. (_ -> a) -> a = fun main ->
         Fmt.epr "Uncaught exception in run loop:@,%a@." Fmt.exn_backtrace (ex, bt);
         Luv.Loop.stop loop
     ) |> or_raise in
-  let st = { loop; async; run_q } in
+  let st = { loop; async; run_q; fd_map = Fd_map.empty } in
   let stdenv = stdenv ~run_event_loop:run in
   let rec fork ~new_fiber:fiber fn =
     Ctf.note_switch (Fiber_context.tid fiber);
