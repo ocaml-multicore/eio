@@ -93,3 +93,6 @@ module Private : sig
 end
 
 module Ctf = Ctf_unix
+
+val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
+(** [getnameinfo sockaddr] returns domain name and service for [sockaddr]. *)

@@ -54,3 +54,14 @@ module Ipaddr = struct
 end
 
 module Ctf = Ctf_unix
+
+let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
+  let sockaddr, options =
+    match sockaddr with
+    | `Unix s -> (Unix.ADDR_UNIX s, [])
+    | `Tcp (addr, port) -> (Unix.ADDR_INET (Ipaddr.to_unix addr, port), [])
+    | `Udp (addr, port) -> (Unix.ADDR_INET (Ipaddr.to_unix addr, port), [Unix.NI_DGRAM])
+  in
+  run_in_systhread (fun () ->
+    let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
+    (ni_hostname, ni_service))
