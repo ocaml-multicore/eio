@@ -490,16 +490,26 @@ EPIPE:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
-  Eio.Net.getaddrinfo env#net "127.0.0.1";;
-- : Eio.Net.Sockaddr.t list =
-[`Tcp ("\127\000\000\001", 0); `Udp ("\127\000\000\001", 0)]
+  Eio.Net.getaddrinfo_stream env#net "127.0.0.1";;
+- : Eio.Net.Sockaddr.stream list = [`Tcp ("\127\000\000\001", 0)]
 ```
 
 ```ocaml
 # Eio_main.run @@ fun env ->
-  Eio.Net.getaddrinfo env#net "127.0.0.1" ~service:"80";;
-- : Eio.Net.Sockaddr.t list =
-[`Tcp ("\127\000\000\001", 80); `Udp ("\127\000\000\001", 80)]
+  Eio.Net.getaddrinfo_stream env#net "127.0.0.1" ~service:"80";;
+- : Eio.Net.Sockaddr.stream list = [`Tcp ("\127\000\000\001", 80)]
+```
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Net.getaddrinfo_datagram env#net "127.0.0.1";;
+- : Eio.Net.Sockaddr.datagram list = [`Udp ("\127\000\000\001", 0)]
+```
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Net.getaddrinfo_datagram env#net "127.0.0.1" ~service:"80";;
+- : Eio.Net.Sockaddr.datagram list = [`Udp ("\127\000\000\001", 80)]
 ```
 
 <!-- $MDX non-deterministic=output -->

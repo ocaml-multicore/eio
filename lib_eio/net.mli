@@ -184,6 +184,12 @@ val getaddrinfo: ?service:string -> #t -> string -> Sockaddr.t list
 
     For a more thorough treatment, @see <https://man7.org/linux/man-pages/man3/getaddrinfo.3.html> getaddrinfo *)
 
+val getaddrinfo_stream: ?service:string -> #t -> string -> Sockaddr.stream list
+(** [getaddrinfo_stream] is like {!getaddrinfo}, but filters out non-stream protocols. *)
+
+val getaddrinfo_datagram: ?service:string -> #t -> string -> Sockaddr.datagram list
+(** [getaddrinfo_datagram] is like {!getaddrinfo}, but filters out non-datagram protocols. *)
+
 val getnameinfo : #t -> Sockaddr.t -> (string * string)
 (** [getnameinfo t sockaddr] is [(hostname, service)] corresponding to [sockaddr]. [hostname] is the
     registered domain name represented by [sockaddr]. [service] is the IANA specified textual name of the
