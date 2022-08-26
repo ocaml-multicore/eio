@@ -42,7 +42,7 @@ module Action : sig
     | `Return of 'a                     (** Immediately return a value *)
     | `Raise of exn                     (** Raise an exception *)
     | `Await of 'a Eio.Promise.or_exn   (** Wait for a promise to resolve *)
-    | `Yield_then of 'a t               (** Call {!Fiber.yield}, then perform an action *)
+    | `Yield_then of 'a t               (** Call {!Eio.Fiber.yield}, then perform an action *)
     | `Run of unit -> 'a                (** Run any code you like. *)
   ]
 

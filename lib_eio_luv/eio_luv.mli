@@ -26,7 +26,7 @@ module Low_level : sig
   val sleep_until : float -> unit
   (** [sleep_until time] blocks until the current time is [time]. *)
 
-  (** {DNS functions} *)
+  (** {1 DNS functions} *)
 
   val getaddrinfo : service:string -> string -> Eio.Net.Sockaddr.t list
   (** [getaddrinfo ~service host] returns a list of IP addresses for [host]. [host] is either a domain name or
