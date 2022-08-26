@@ -1,3 +1,30 @@
+## v0.5
+
+New features:
+
+- Add `Eio.Condition` (@TheLortex @talex5 #277).  
+  Allows a fiber to wait for some condition to become true.
+
+- Add `Eio.Net.getaddrinfo` and `getnameinfo` (@bikallem @talex5 #278 #288 #291).  
+  Convert between host names and addresses.
+
+- Add `Eio.Debug` (@talex5 #276).  
+  Currently, this allows overriding the `traceln` function.
+
+- `Buf_write.create`: make switch optional (@talex5 #283).  
+  This makes things easier for people porting code from Faraday.
+
+Bug fixes:
+
+- Allow sharing of libuv poll handles (@patricoferris @talex5 #279).  
+  Luv doesn't allow two callers to watch the same file handle, so we need to handle that in Eio.
+
+Other changes:
+
+- Upgrade to uring 0.4 (@talex5 #290).
+
+- Mention `Mutex`, `Semaphore` and `Condition` in the README (@talex5 #281).
+
 ## v0.4
 
 Note: Eio 0.4 drops compatibility with OCaml 4.12+domains. Use OCaml 5.0.0~alpha1 instead.
