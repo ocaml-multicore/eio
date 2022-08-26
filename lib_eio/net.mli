@@ -182,7 +182,7 @@ val getaddrinfo: ?service:string -> #t -> string -> Sockaddr.t list
     @param service is a human friendly textual name for internet services assigned by IANA., eg.
     'http', 'https', 'ftp', etc.
 
-    For a more thorough treatment, @see <https://man7.org/linux/man-pages/man3/getaddrinfo.3.html> getaddrinfo *)
+    For a more thorough treatment, see {{:https://man7.org/linux/man-pages/man3/getaddrinfo.3.html} getaddrinfo}. *)
 
 val getaddrinfo_stream: ?service:string -> #t -> string -> Sockaddr.stream list
 (** [getaddrinfo_stream] is like {!getaddrinfo}, but filters out non-stream protocols. *)
