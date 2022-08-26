@@ -191,6 +191,20 @@ let datagram_socket ~sw (t:#t) = t#datagram_socket ~sw
 
 let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname
 
+let getaddrinfo_stream ?service t hostname =
+  getaddrinfo ?service t hostname
+  |> List.filter_map (function
+      | #Sockaddr.stream as x -> Some x
+      | _ -> None
+    )
+
+let getaddrinfo_datagram ?service t hostname =
+  getaddrinfo ?service t hostname
+  |> List.filter_map (function
+      | #Sockaddr.datagram as x -> Some x
+      | _ -> None
+    )
+
 let getnameinfo (t:#t) sockaddr = t#getnameinfo sockaddr
 
 let close = Flow.close
