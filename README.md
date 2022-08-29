@@ -425,9 +425,9 @@ $ cat_ocaml_eio.exe  <dummy | pv >/dev/null
 ```
 
 `Eio.Flow.copy src dst` asks `dst` to copy from `src`.
-As `dst` here is a Unix file descriptor,
-it first calls the `probe` method on the `src` object to check whether it is too.
-Discovering that `src` is also a file descriptor, it switches to a faster code path optimised for that case.
+As `dst` here wraps a Unix file descriptor,
+it first calls the `probe` method on the `src` object to check whether it does too.
+Discovering that `src` is also wrapping a file descriptor, it switches to a faster code path optimised for that case.
 On my machine, this code path uses the Linux-specific `splice` system call for maximum performance.
 
 Note that not all cases are well-optimised yet, but the idea is for each backend to choose the most efficient way to implement the operation.
