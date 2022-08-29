@@ -952,7 +952,7 @@ with the twist that another user might ask the cache for the value while it's st
 We don't want to start a second fetch in that case, so instead we just store promises in the cache:
 
 ```ocaml
-let make_cache ~sw fn =
+let make_cache fn =
   let tbl = Hashtbl.create 10 in
   fun key ->
     match Hashtbl.find_opt tbl key with
@@ -960,20 +960,13 @@ let make_cache ~sw fn =
     | None ->
       let p, r = Promise.create () in
       Hashtbl.add tbl key p;
-      Fiber.fork ~sw (fun () ->
-        match fn key with
-        | v -> Promise.resolve_ok r v
-        | exception ex -> Promise.resolve_error r ex
-      );
-      Promise.await_exn p
+      match fn key with
+      | v -> Promise.resolve_ok r v; v
+      | exception ex -> Promise.resolve_error r ex; raise ex
 ```
 
 Notice that we store the new promise in the cache immediately,
 without doing anything that might switch to another fiber.
-
-The reason for the `fork` here is to run the fetch inside the cache's switch `sw`.
-Then if the caller is cancelled it will only cancel the `Promise.await`, not the fetch
-(which might affect other users of the cache).
 
 We can use it like this:
 
@@ -981,33 +974,41 @@ We can use it like this:
 # let fetch url =
     traceln "Fetching %S..." url;
     Fiber.yield ();             (* Simulate work... *)
+    traceln "Got response for %S" url;
     if url = "http://example.com" then "<h1>Example.com</h1>"
     else failwith "404 Not Found";;
 val fetch : string -> string = <fun>
 
 # Eio_main.run @@ fun _ ->
-  Switch.run @@ fun sw ->
-  let c = make_cache ~sw fetch in
+  let c = make_cache fetch in
   let test url =
-    Fiber.fork ~sw (fun () ->
-       match c url with
-       | page -> traceln "%s -> %s" url page
-       | exception ex -> traceln "%s -> %a" url Fmt.exn ex
-    )
+    traceln "Requesting %s..." url;
+    match c url with
+    | page -> traceln "%s -> %s" url page
+    | exception ex -> traceln "%s -> %a" url Fmt.exn ex
   in
-  test "http://example.com";
-  test "http://example.com";
-  test "http://bad.com";
-  test "http://bad.com";;
+  Fiber.iter test [
+    "http://example.com";
+    "http://example.com";
+    "http://bad.com";
+    "http://bad.com";
+  ];;
++Requesting http://example.com...
 +Fetching "http://example.com"...
++Requesting http://example.com...
++Requesting http://bad.com...
 +Fetching "http://bad.com"...
++Requesting http://bad.com...
++Got response for "http://example.com"
 +http://example.com -> <h1>Example.com</h1>
-+http://example.com -> <h1>Example.com</h1>
++Got response for "http://bad.com"
 +http://bad.com -> Failure("404 Not Found")
++http://example.com -> <h1>Example.com</h1>
 +http://bad.com -> Failure("404 Not Found")
 - : unit = ()
 ```
 
+`Fiber.iter` is like `List.iter` but doesn't wait for each job to finish before starting the next.
 Notice that we made four requests, but only started two download operations.
 
 This version of the cache remembers failed lookups too.
