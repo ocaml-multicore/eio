@@ -105,17 +105,17 @@ Remember that you can always fall back to using Lwt libraries to provide missing
 
 ## Getting OCaml 5.0
 
-You'll need OCaml 5.0.0~alpha0 or later.
+You'll need OCaml 5.0.0~alpha1 or later.
 You can either install it yourself or build the included [Dockerfile](./Dockerfile).
 
 To install it yourself:
 
 1. Make sure you have opam 2.1 or later (run `opam --version` to check).
 
-2. Use opam to install OCaml 5.0.0~alpha0 or later:
+2. Use opam to install OCaml 5.0.0~alpha1 or later:
 
    ```
-   opam switch create 5.0.0~alpha0 --repo=default,alpha=git+https://github.com/kit-ty-kate/opam-alpha-repository.git
+   opam switch create 5.0.0~alpha1 --repo=default,alpha=git+https://github.com/kit-ty-kate/opam-alpha-repository.git
    ```
 
 ## Getting Eio
