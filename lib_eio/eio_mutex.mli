@@ -33,7 +33,10 @@ val use_ro : t -> (unit -> 'a) -> 'a
 (** [use_ro t fn] is like [use_rw ~protect:false],
     but if [fn] raises an exception it unlocks the mutex instead of disabling it.
     Use this if you only need read-only access to the mutex's resource and so
-    know that it will be in a consistent state even if an exception is raised. *)
+    know that it will be in a consistent state even if an exception is raised.
+
+    Note: a mutex still only allows one fiber to have the mutex locked at a time,
+    even if all operations are "read-only". *)
 
 (** {2 Low-level API}
 
