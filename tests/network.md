@@ -546,3 +546,42 @@ EPIPE:
   Eio.Net.getnameinfo env#net sockaddr;;
 - : string * string = ("localhost", "http")
 ```
+
+## with_tcp_connet
+
+<!-- $MDX non-deterministic=command -->
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Net.with_tcp_connect ~host:"www.example.com" ~service:"http" env#net (fun conn ->
+    let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
+    Eio.Flow.copy_string req conn;
+    let cs = Cstruct.create 25 in
+    Eio.Flow.read_exact conn cs;
+    Eio.Flow.close conn;
+    Eio.traceln "%S" (Cstruct.to_string cs));;
++"HTTP/1.1 200 OK\r\nAge: 372"
+- : unit = ()
+
+# Eio_main.run @@ fun env ->
+  Eio.Net.with_tcp_connect ~timeout:(env#clock, 0.1) ~host:"www.example.com" ~service:"http" env#net (fun conn ->
+    let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
+    Eio.Flow.copy_string req conn;
+    let cs = Cstruct.create 25 in
+    Eio.Flow.read_exact conn cs;
+    Eio.Flow.close conn;
+    Eio.traceln "%S" (Cstruct.to_string cs));;
++"HTTP/1.1 200 OK\r\nAge: 296"
+- : unit = ()
+
+# Eio_main.run @@ fun env ->
+  Eio.Net.with_tcp_connect ~timeout:(env#clock, 0.01) ~host:"www.example.com" ~service:"http" env#net (fun conn ->
+    let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
+    Eio.Flow.copy_string req conn;
+    let cs = Cstruct.create 25 in
+    Eio.Flow.read_exact conn cs;
+    Eio.Flow.close conn;
+    Eio.traceln "%S" (Cstruct.to_string cs));;
+Exception:
+Eio__Net.Connection_failure
+ (Failure "Unable to connect to host:www.example.com, service:http").
+```

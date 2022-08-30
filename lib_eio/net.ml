@@ -2,6 +2,10 @@ exception Connection_reset of exn
 (** This is a wrapper for EPIPE, ECONNRESET and similar errors.
     It indicates that the flow has failed, and data may have been lost. *)
 
+exception Unix_error of string * string * string
+(* Unix.Unix_error without depending on "unix" *)
+
+exception Connection_failure of exn
 
 module Ipaddr = struct
   type 'a t = string   (* = [Unix.inet_addr], but avoid a Unix dependency here *)
@@ -208,3 +212,36 @@ let getaddrinfo_datagram ?service t hostname =
 let getnameinfo (t:#t) sockaddr = t#getnameinfo sockaddr
 
 let close = Flow.close
+
+type 'a timeout = (#Time.clock as 'a) * float
+
+let rec try_connection connect_fn = function
+  | [] -> None
+  | addr::addrs -> (
+    match connect_fn addr with
+    | conn -> Some conn
+    | exception Unix_error(_,_,_)
+    | exception Time.Timeout -> try_connection connect_fn addrs)
+
+let with_tcp_connect ?timeout ~host ~service t f =
+  let addrs =
+    getaddrinfo_stream ~service t host
+    |> List.filter_map (function
+        | `Tcp _ as x -> Some x
+        | `Unix _ -> None)
+  in
+  Switch.run (fun sw ->
+    let conn =
+      match timeout with
+      | Some (clock, d) ->
+        let connect_fn addr = Time.with_timeout_exn clock d (fun () -> connect ~sw t addr) in
+        try_connection connect_fn addrs
+      | None ->
+        let connect_fn addr = connect ~sw t addr in
+        try_connection connect_fn addrs
+    in
+    match conn with
+    | Some conn -> f conn
+    | None ->
+      let exn = Failure (Printf.sprintf "Unable to connect to host:%s, service:%s" host service) in
+      raise @@ Connection_failure exn)

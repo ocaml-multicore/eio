@@ -12,6 +12,8 @@
 *)
 
 exception Connection_reset of exn
+exception Unix_error of string * string * string
+exception Connection_failure of exn
 
 (** IP addresses. *)
 module Ipaddr : sig
@@ -113,7 +115,33 @@ end
 val connect : sw:Switch.t -> #t -> Sockaddr.stream -> <stream_socket; Flow.close>
 (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
-    The new socket will be closed when [sw] finishes, unless closed manually first. *)
+    The new socket will be closed when [sw] finishes, unless closed manually first.
+
+    @raise Unix_error if connection couldn't be established. *)
+
+type 'a timeout = (#Time.clock as 'a) * float
+
+val with_tcp_connect :
+  ?timeout:'a timeout ->
+  host:string ->
+  service:string ->
+  #t ->
+  (<stream_socket; Flow.close> -> 'b) ->
+  'b
+(** [with_tcp_connect ~host ~service t f] creates a tcp connection [conn] to [host] and [service] and executes 
+    [f conn]. IPv6 connection is preferred over IPv4 addresses if [host] provides them. If a connection
+    can't be established for any of the addresses defined for [host], then [Connection_failure] exception is raised.
+
+    [conn] is closed after [f] returns if it isn't already closed.
+
+    [host] is either an IP address or a domain name, eg. "www.example.org", "www.ocaml.org" or "127.0.0.1".
+
+    [service] is an IANA recognized service name or port number, eg. "http", "ftp", "8080" etc.
+    See https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml.
+
+    [timeout] specifies the amount of seconds to wait for establishing the connection to host per host ip address.
+
+    @raise Connection_failure. *)
 
 (** {2 Incoming Connections} *)
 
