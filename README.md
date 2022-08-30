@@ -46,6 +46,10 @@ Eio replaces existing concurrency libraries such as Lwt
   * [Async](#async)
   * [Lwt](#lwt)
   * [Unix and System Threads](#unix-and-system-threads)
+* [Best Practices](#best-practices)
+  * [Switches](#switches-1)
+  * [Casting](#casting)
+  * [Passing Stdenv.t](#passing-stdenvt)
 * [Further Reading](#further-reading)
 
 <!-- vim-markdown-toc -->
@@ -1319,6 +1323,117 @@ This may be useful during the process of porting existing code to Eio.
 The [Eio_unix][] module provides features for using Eio with OCaml's Unix module.
 In particular, `Eio_unix.run_in_systhread` can be used to run a blocking operation in a separate systhread,
 allowing it to be used within Eio without blocking the whole domain.
+
+## Best Practices
+
+This section contains some recommendations for designing library APIs for use with Eio.
+
+### Switches
+
+A function should not take a switch argument if it could create one internally instead.
+
+Taking a switch indicates that a function creates resources that outlive the function call,
+and users seeing a switch argument will naturally wonder what these resources may be
+and what lifetime to give them, which is confusing if this is not needed.
+
+Creating the switch inside your function ensures that all resources are released
+promptly.
+
+```ocaml
+(* BAD - switch should be created internally instead *)
+let load_config ~sw path =
+  parse_config (Eio.Path.open_in ~sw path)
+
+(* GOOD - less confusing and closes file promptly *)
+let load_config path =
+  Switch.run @@ fun sw ->
+  parse_config (Eio.Path.open_in ~sw path)
+```
+
+Of course, you could use `with_open_in` in this case to simplify it further.
+
+### Casting
+
+Unlike many languages, OCaml does not automatically cast objects (polymorphic records) to super-types as needed.
+Remember to keep the type polymorphic in your interface so users don't need to do this manually.
+This is similar to the case with polymorphic variants (where APIs should use `[< ...]` or `[> ...]`).
+
+For example, if you need an `Eio.Flow.source` then users should be able to use a `Flow.two_way`
+without having to cast it first:
+
+<!-- $MDX skip -->
+```ocaml
+(* BAD - user must cast to use function: *)
+module Message : sig
+  type t
+  val read : Eio.Flow.source -> t
+end
+
+(* GOOD - a Flow.two_way can be used without casting: *)
+module Message : sig
+  type t
+  val read : #Eio.Flow.source -> t
+end
+```
+
+If you want to store the argument, this may require you to cast internally:
+
+```ocaml
+module Foo : sig
+  type t
+  val of_source : #Eio.Flow.source -> t
+end = struct
+  type t = {
+    src : Eio.Flow.source;
+  }
+
+  let of_source x = {
+    src = (x :> Eio.Flow.source);
+  }
+end
+```
+
+Note: the `#type` syntax only works on types defined by classes, whereas the slightly more verbose `<type; ..>` works on all object types.
+
+### Passing Stdenv.t
+
+The `env` value you get from `Eio_main.run` is a powerful capability,
+and programs are easier to understand when it's not passed around too much.
+
+In many cases, it's clearer (if a little more verbose) to take the resources you need as separate arguments, e.g.
+
+<!-- $MDX skip -->
+```ocaml
+module Status : sig
+  val check :
+    clock:#Eio.Time.clock ->
+    net:#Eio.Net.t ->
+    bool
+end
+```
+
+You can also provide a convenience function that takes an `env` too.
+Doing this is most appropriate if many resources are needed and
+your library is likely to be initialised right at the start of the user's application.
+
+In that case, be sure to request only the resources you need, rather than the full set.
+This makes it clearer what you library does, makes it easier to test,
+and allows it to be used on platforms without the full set of OS resources.
+If you define the type explicitly, you can describe why you need each resource there:
+
+<!-- $MDX skip -->
+```ocaml
+module Status : sig
+  type 'a env = <
+    net : #Eio.Net.t;             (** To connect to the servers *)
+    clock : #Eio.Time.clock;      (** Needed for timeouts *)
+    ..
+  > as 'a
+
+  val check : _ env -> bool
+end
+```
+
 
 ## Further Reading
 
