@@ -46,7 +46,7 @@ type 'a or_exn = ('a, exn) result t
 let to_public_promise : 'a promise -> 'a t = Obj.magic
 let of_public_promise : 'a t -> 'a promise = Obj.magic
 
-let create_with_id id: 'a t * 'a u =
+let create_with_id id =
   let t = {
     id;
     state = Atomic.make (Unresolved (Waiters.create (), Mutex.create ()));
@@ -101,37 +101,36 @@ let await_exn t =
 
 let resolve t v =
   let rec resolve' t v =
-  match Atomic.get t.state with
-  | Resolved _ -> invalid_arg "Can't resolve already-resolved promise"
-  | Unresolved (q, mutex) as prev ->
-    (* The above [get] just gets us access to the mutex;
-       By the time we get here, the promise may have become resolved. *)
-    Mutex.lock mutex;
-    (* Having opened the mutex, we have:
-       - Access to the waiters.
-       - Half access to the promise's state (so we know it can't change until we close the mutex).
-       - The mutex invariant.
-       Now we open the atomic again, getting the other half access. Together,
-       this gives us full access to the state (i.e. no-one else can be using
-       it), allowing us to change it.
-       Note: we don't actually need an atomic CAS here, just a get and a set
-       would do, but this seems simplest. *)
-    if Atomic.compare_and_set t.state prev (Resolved v) then (
-      (* The atomic now has half-access to the fullfilled state (which counts
-         as non-zero), and we have the other half. Now we need to restore the
-         mutex invariant by clearing the wakers. *)
-      Ctf.note_resolved t.id ~ex:None;
-      Waiters.wake_all q v;
-      Mutex.unlock mutex
-    ) else (
-      (* Otherwise, the promise was already resolved when we opened the mutex.
-         Close it without any changes and retry. *)
-      Mutex.unlock mutex;
-      resolve' t v
-    )
+    match Atomic.get t.state with
+    | Resolved _ -> invalid_arg "Can't resolve already-resolved promise"
+    | Unresolved (q, mutex) as prev ->
+      (* The above [get] just gets us access to the mutex;
+         By the time we get here, the promise may have become resolved. *)
+      Mutex.lock mutex;
+      (* Having opened the mutex, we have:
+         - Access to the waiters.
+         - Half access to the promise's state (so we know it can't change until we close the mutex).
+         - The mutex invariant.
+         Now we open the atomic again, getting the other half access. Together,
+         this gives us full access to the state (i.e. no-one else can be using
+         it), allowing us to change it.
+         Note: we don't actually need an atomic CAS here, just a get and a set
+         would do, but this seems simplest. *)
+      if Atomic.compare_and_set t.state prev (Resolved v) then (
+        (* The atomic now has half-access to the fullfilled state (which counts
+           as non-zero), and we have the other half. Now we need to restore the
+           mutex invariant by clearing the wakers. *)
+        Ctf.note_resolved t.id ~ex:None;
+        Waiters.wake_all q v;
+        Mutex.unlock mutex
+      ) else (
+        (* Otherwise, the promise was already resolved when we opened the mutex.
+           Close it without any changes and retry. *)
+        Mutex.unlock mutex;
+        resolve' t v
+      )
   in
   resolve' (of_public_promise t) v
-
 
 let resolve_ok    u x = resolve u (Ok x)
 let resolve_error u x = resolve u (Error x)
