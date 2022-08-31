@@ -29,7 +29,7 @@ type 'a state =
      - Half access to the promise's state.
      - The invariant that if the promise is resolved then the waiters list is empty. *)
 
-type !'a t = {
+type !'a promise = {
   id : Ctf.id;
 
   state : 'a state Atomic.t;
@@ -38,16 +38,20 @@ type !'a t = {
      - A half-share of the reference to the Unresolved state. *)
 }
 
+type +'a t
 type 'a u = 'a t
 
 type 'a or_exn = ('a, exn) result t
 
-let create_with_id id =
+let to_public_promise : 'a promise -> 'a t = Obj.magic
+let of_public_promise : 'a t -> 'a promise = Obj.magic
+
+let create_with_id id: 'a t * 'a u =
   let t = {
     id;
     state = Atomic.make (Unresolved (Waiters.create (), Mutex.create ()));
   } in
-  t, t
+  to_public_promise t, to_public_promise t
 
 let create ?label () =
   let id = Ctf.mint_id () in
@@ -57,9 +61,10 @@ let create ?label () =
 let create_resolved x =
   let id = Ctf.mint_id () in
   Ctf.note_created id Ctf.Promise;
-  { id; state = Atomic.make (Resolved x) }
+  to_public_promise { id; state = Atomic.make (Resolved x) }
 
 let await t =
+  let t = of_public_promise t in
   match Atomic.get t.state with
   (* If the atomic is resolved, we take a share of that reference and return
      the remainder to the atomic (which will still be non-zero). We can then
@@ -94,7 +99,8 @@ let await_exn t =
   | Ok x -> x
   | Error ex -> raise ex
 
-let rec resolve t v =
+let resolve t v =
+  let rec resolve' t v =
   match Atomic.get t.state with
   | Resolved _ -> invalid_arg "Can't resolve already-resolved promise"
   | Unresolved (q, mutex) as prev ->
@@ -121,18 +127,24 @@ let rec resolve t v =
       (* Otherwise, the promise was already resolved when we opened the mutex.
          Close it without any changes and retry. *)
       Mutex.unlock mutex;
-      resolve t v
+      resolve' t v
     )
+  in
+  resolve' (of_public_promise t) v
+
 
 let resolve_ok    u x = resolve u (Ok x)
 let resolve_error u x = resolve u (Error x)
 
 let peek t =
+  let t = of_public_promise t in
   match Atomic.get t.state with
   | Unresolved _ -> None
   | Resolved x -> Some x
 
-let id t = t.id
+let id t =
+  let t = of_public_promise t in
+  t.id
 
 let is_resolved t =
   Option.is_some (peek t)
