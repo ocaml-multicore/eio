@@ -35,3 +35,5 @@ module Eio_main = struct
       method clock      = fake_clock env#clock
     end
 end
+
+let parse_config (flow : #Eio.Flow.source) = ignore
