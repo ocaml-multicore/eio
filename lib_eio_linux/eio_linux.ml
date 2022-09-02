@@ -514,7 +514,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
   | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
     (* This is not a fair scheduler: timers always run before all other IO *)
-    let now = Unix.gettimeofday () in
+    let now = Eio_unix.(mono_clock#now |> mono_clock#to_seconds) in
     match Zzz.pop ~now sleep_q with
     | `Due k ->
       Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
@@ -644,9 +644,8 @@ module Low_level = struct
     Log.debug (fun l -> l "noop returned");
     if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
-  type _ Effect.t += Sleep_until : float -> unit Effect.t
   let sleep_until d =
-    Effect.perform (Sleep_until d)
+    Effect.perform (Eio_unix.Private.Sleep_until d)
 
   type _ Effect.t += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
 
@@ -1380,7 +1379,7 @@ let rec run : type a.
               enqueue_write st k args;
               schedule st
             )
-          | Low_level.Sleep_until time -> Some (fun k ->
+          | Eio_unix.Private.Sleep_until time -> Some (fun k ->
               let k = { Suspended.k; fiber } in
               match Fiber_context.get_error fiber with
               | Some ex -> Suspended.discontinue k ex

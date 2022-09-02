@@ -87,6 +87,7 @@ module Private : sig
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
+    | Sleep_until : float -> unit Effect.t
     | Socket_of_fd : Switch.t * bool * Unix.file_descr ->
         socket Effect.t                                      (** See {!FD.as_socket} *)
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int ->

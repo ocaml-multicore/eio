@@ -14,6 +14,7 @@ module Private = struct
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t
     | Await_writable : Unix.file_descr -> unit Effect.t
+    | Sleep_until : float -> unit Effect.t
     | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> socket Effect.t
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int -> (socket * socket) Effect.t
 end
@@ -25,22 +26,36 @@ let real_clock = object
   inherit [Ptime.t] Eio.Time.clock
 
   method now = Ptime_clock.now ()
-  method sleep_until = failwith "sleep_until not implemented"
+
+  method sleep_until time =
+    let time = Ptime.to_float_s time in
+    Effect.perform (Private.Sleep_until time)
+
   method add_seconds t d =
     let span = Ptime.Span.of_float_s d in
     Option.bind span (Ptime.add_span t)
     |> Option.get
+
+  method to_seconds time = Ptime.to_float_s time
 end
 
 let mono_clock = object
   inherit [Mtime.t] Eio.Time.clock
 
   method now = Mtime_clock.now ()
-  method sleep_until = failwith "sleep_until not implemented"
+
+  method sleep_until time =
+    let time = Mtime.to_uint64_ns time |> Int64.to_float in
+    Effect.perform (Private.Sleep_until (time /. 1e9))
+
   method add_seconds t d =
     let span = (d *. 1e9) |> Int64.of_float |> Mtime.Span.of_uint64_ns in
     Mtime.add_span t span
     |> Option.get
+
+  method to_seconds time =
+    let time = Mtime.to_uint64_ns time |> Int64.to_float in
+    (time /. 1e9)
 end
 
 let sleep d = Eio.Time.sleep mono_clock d

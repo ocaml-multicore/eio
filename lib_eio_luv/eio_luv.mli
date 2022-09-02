@@ -21,11 +21,6 @@ module Low_level : sig
   (** [await_with_cancel ~request fn] converts a function using a luv-style callback to one using effects.
       It sets the fiber's cancel function to cancel [request], and clears it when the operation completes. *)
 
-  (** {1 Time functions} *)
-
-  val sleep_until : float -> unit
-  (** [sleep_until time] blocks until the current time is [time]. *)
-
   (** {1 DNS functions} *)
 
   val getaddrinfo : service:string -> string -> Eio.Net.Sockaddr.t list

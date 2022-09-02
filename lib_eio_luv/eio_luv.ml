@@ -520,9 +520,9 @@ module Low_level = struct
 
   module Poll = Poll
 
-  let sleep_until due =
-    let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
-    enter @@ fun st k ->
+  let sleep_until due st (k: unit Suspended.t) =
+    let now = Eio_unix.(mono_clock#now |> mono_clock#to_seconds) in
+    let delay = 1000. *. (due -.  now) |> ceil |> truncate |> max 0 in
     let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in
     Fiber_context.set_cancel_fn k.fiber (fun ex ->
         Luv.Timer.stop timer |> or_raise;
@@ -1071,6 +1071,11 @@ let rec run : type a. (_ -> a) -> a = fun main ->
               let k = { Suspended.k; fiber } in
               fn fiber (enqueue_result_thread st k)
             )
+        | Eio_unix.Private.Sleep_until due -> Some (fun k ->
+            match Fiber_context.get_error fiber with
+            | Some e -> discontinue k e
+            | None -> sleep_until due st {Suspended.k; fiber}
+          )
         | Eio_unix.Private.Await_readable fd -> Some (fun k ->
             match Fiber_context.get_error fiber with
             | Some e -> discontinue k e
