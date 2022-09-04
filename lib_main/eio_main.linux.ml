@@ -1,6 +1,6 @@
 let has_working_uring v =
   match String.split_on_char '.' v with
-  | "5" :: minor :: _ -> int_of_string minor >= 11
+  | "5" :: minor :: _ -> int_of_string minor >= 10
   | major :: _ -> int_of_string major > 5
   | [] -> false
 
