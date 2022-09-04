@@ -470,7 +470,7 @@ let rec enqueue_recv_msg fd msghdr st action =
       )
     in
     if retry then (* wait until an sqe is available *)
-      Queue.push (fun st -> enqueue_recv_msg fd msghdr st action) st.io_q 
+      Queue.push (fun st -> enqueue_recv_msg fd msghdr st action) st.io_q
 
 let rec enqueue_accept fd client_addr st action =
   Log.debug (fun l -> l "accept: submitting call");
@@ -999,20 +999,20 @@ let udp_socket sock = object
 
   method close = FD.close sock
 
-  method send sockaddr buf = 
-    let addr = match sockaddr with 
-      | `Udp (host, port) -> 
+  method send sockaddr buf =
+    let addr = match sockaddr with
+      | `Udp (host, port) ->
         let host = Eio_unix.Ipaddr.to_unix host in
         Unix.ADDR_INET (host, port)
     in
-    Low_level.send_msg sock ~dst:addr [buf] 
-  
+    Low_level.send_msg sock ~dst:addr [buf]
+
   method recv buf =
     let addr, recv = Low_level.recv_msg sock [buf] in
     match Uring.Sockaddr.get addr with
       | Unix.ADDR_INET (inet, port) ->
         `Udp (Eio_unix.Ipaddr.of_unix inet, port), recv
-      | Unix.ADDR_UNIX _ -> 
+      | Unix.ADDR_UNIX _ ->
         raise (Failure "Expected INET UDP socket address but got Unix domain socket address.")
 end
 
@@ -1034,6 +1034,12 @@ let flow fd =
         Low_level.await_readable fd
       );
       Low_level.readv fd [buf]
+
+    method pread ~file_offset bufs =
+      Low_level.readv ~file_offset fd bufs
+
+    method pwrite ~file_offset bufs =
+      Low_level.writev_single ~file_offset fd bufs
 
     method read_methods = []
 
@@ -1204,7 +1210,7 @@ class dir ~label (fd : dir_fd) = object
         ~flags:Uring.Open_flags.cloexec
         ~perm:0
     in
-    (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
+    (flow fd :> <Eio.Fs.ro; Eio.Flow.close>)
 
   method open_out ~sw ~append ~create path =
     let perm, flags =

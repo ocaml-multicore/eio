@@ -47,12 +47,12 @@ val load : _ t -> string
 
     This is a convenience wrapper around {!with_open_in}. *)
 
-val open_in : sw:Switch.t -> _ t -> <Flow.source; Flow.close>
+val open_in : sw:Switch.t -> _ t -> <ro; Flow.close>
 (** [open_in ~sw t] opens [t] for reading.
 
     Note: files are always opened in binary mode. *)
 
-val with_open_in : _ t -> (<Flow.source; Flow.close> -> 'a) -> 'a
+val with_open_in : _ t -> (<ro; Flow.close> -> 'a) -> 'a
 (** [with_open_in] is like [open_in], but calls [fn flow] with the new flow and closes
     it automatically when [fn] returns (if it hasn't already been closed by then). *)
 

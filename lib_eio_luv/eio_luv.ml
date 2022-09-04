@@ -357,9 +357,13 @@ module Low_level = struct
       await_with_cancel ~request (fun loop -> Luv.File.open_ ~loop ?mode ~request path flags)
       |> Result.map (of_luv ~sw)
 
-    let read fd bufs =
+    let read ?file_offset fd bufs =
       let request = Luv.File.Request.make () in
-      await_with_cancel ~request (fun loop -> Luv.File.read ~loop ~request (get "read" fd) bufs)
+      await_with_cancel ~request (fun loop -> Luv.File.read ~loop ~request ?file_offset (get "read" fd) bufs)
+
+    let write_single ?file_offset fd bufs =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.write ~loop ~request ?file_offset (get "write" fd) bufs)
 
     let rec write fd bufs =
       let request = Luv.File.Request.make () in
@@ -545,6 +549,20 @@ let flow fd = object (_ : <source; sink; ..>)
   method read_into buf =
     let buf = Cstruct.to_bigarray buf in
     match File.read fd [buf] |> or_raise |> Unsigned.Size_t.to_int with
+    | 0 -> raise End_of_file
+    | got -> got
+
+  method pread ~file_offset bufs =
+    let bufs = List.map Cstruct.to_bigarray bufs in
+    let file_offset = Optint.Int63.to_int64 file_offset in
+    match File.read ~file_offset fd bufs |> or_raise |> Unsigned.Size_t.to_int with
+    | 0 -> raise End_of_file
+    | got -> got
+
+  method pwrite ~file_offset bufs =
+    let bufs = List.map Cstruct.to_bigarray bufs in
+    let file_offset = Optint.Int63.to_int64 file_offset in
+    match File.write_single ~file_offset fd bufs |> or_raise |> Unsigned.Size_t.to_int with
     | 0 -> raise End_of_file
     | got -> got
 
@@ -879,7 +897,7 @@ class dir ~label (dir_path : string) = object (self)
 
   method open_in ~sw path =
     let fd = File.open_ ~sw (self#resolve path) [`NOFOLLOW; `RDONLY] |> or_raise_path path in
-    (flow fd :> <Eio.Flow.source; Eio.Flow.close>)
+    (flow fd :> <Eio.Fs.ro; Eio.Flow.close>)
 
   method open_out ~sw ~append ~create path =
     let mode, flags =

@@ -61,7 +61,7 @@ module Low_level : sig
       string -> Luv.File.Open_flag.t list -> t or_error
     (** Wraps {!Luv.File.open_} *)
 
-    val read : t -> Luv.Buffer.t list -> Unsigned.Size_t.t or_error
+    val read : ?file_offset:int64 -> t -> Luv.Buffer.t list -> Unsigned.Size_t.t or_error
     (** Wraps {!Luv.File.read} *)
 
     val write : t -> Luv.Buffer.t list -> unit
