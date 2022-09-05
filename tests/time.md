@@ -8,9 +8,9 @@
 ```ocaml
 open Eio.Std
 
-let run (fn : clock:Eio.Time.clock -> unit) =
+let run (fn : clock:'a Eio.Time.clock -> unit) =
   Eio_main.run @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
+  let clock = Eio.Stdenv.real_clock env in
   fn ~clock
 ```
 

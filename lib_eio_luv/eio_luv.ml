@@ -521,7 +521,7 @@ module Low_level = struct
   module Poll = Poll
 
   let sleep_until due st (k: unit Suspended.t) =
-    let now = Eio_unix.(mono_clock#now |> mono_clock#to_seconds) in
+    let now = Eio_unix.(real_clock#now |> real_clock#to_seconds) in
     let delay = 1000. *. (due -.  now) |> ceil |> truncate |> max 0 in
     let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in
     Fiber_context.set_cancel_fn k.fiber (fun ex ->

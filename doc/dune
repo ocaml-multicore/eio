@@ -1,4 +1,4 @@
 (mdx
   (package eio_main)
-  (packages eio_main)
+  (packages eio_main ptime)
   (files multicore.md))

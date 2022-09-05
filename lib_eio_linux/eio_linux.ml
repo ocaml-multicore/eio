@@ -514,7 +514,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
   | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
     (* This is not a fair scheduler: timers always run before all other IO *)
-    let now = Eio_unix.(mono_clock#now |> mono_clock#to_seconds) in
+    let now = Eio_unix.(real_clock#now |> real_clock#to_seconds) in
     match Zzz.pop ~now sleep_q with
     | `Due k ->
       Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
