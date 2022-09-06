@@ -39,19 +39,21 @@ type !'a promise = {
 }
 
 type +'a t
-type 'a u = 'a t
+type -'a u
 
 type 'a or_exn = ('a, exn) result t
 
 let to_public_promise : 'a promise -> 'a t = Obj.magic
+let to_public_resolver : 'a promise -> 'a u = Obj.magic
 let of_public_promise : 'a t -> 'a promise = Obj.magic
+let of_public_resolver : 'a u -> 'a promise = Obj.magic
 
 let create_with_id id =
   let t = {
     id;
     state = Atomic.make (Unresolved (Waiters.create (), Mutex.create ()));
   } in
-  to_public_promise t, to_public_promise t
+  to_public_promise t, to_public_resolver t
 
 let create ?label () =
   let id = Ctf.mint_id () in
@@ -130,7 +132,7 @@ let resolve t v =
         resolve' t v
       )
   in
-  resolve' (of_public_promise t) v
+  resolve' (of_public_resolver t) v
 
 let resolve_ok    u x = resolve u (Ok x)
 let resolve_error u x = resolve u (Error x)

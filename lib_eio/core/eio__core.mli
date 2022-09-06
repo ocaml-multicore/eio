@@ -129,7 +129,7 @@ module Promise : sig
   type +'a t
   (** An ['a t] is a promise for a value of type ['a]. *)
 
-  type 'a u
+  type -'a u
   (** An ['a u] is a resolver for a promise of type ['a]. *)
 
   val create : ?label:string -> unit -> 'a t * 'a u
