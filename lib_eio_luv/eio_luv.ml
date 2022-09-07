@@ -486,6 +486,35 @@ module Low_level = struct
 
     let of_unix fd =
       Luv_unix.Os_fd.Socket.from_unix fd |> or_raise
+
+    let connect_pipe ~sw path =
+      let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
+      await_exn (fun _loop _fiber -> Luv.Pipe.connect (Handle.get "connect" sock) path);
+      sock
+
+    let connect_tcp ~sw addr =
+      let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise in
+      enter (fun st k ->
+          Luv.TCP.connect sock addr (fun v ->
+              ignore (Fiber_context.clear_cancel_fn k.fiber : bool);
+              match v with
+              | Ok () -> enqueue_thread st k ()
+              | Error e ->
+                Luv.Handle.close sock ignore;
+                match Fiber_context.get_error k.fiber with
+                | Some ex -> enqueue_failed_thread st k ex
+                | None -> enqueue_failed_thread st k (Luv_error e)
+            );
+          Fiber_context.set_cancel_fn k.fiber (fun _ex ->
+              match Luv.Handle.fileno sock with
+              | Error _ -> ()
+              | Ok os_fd ->
+                let fd = Luv_unix.Os_fd.Fd.to_unix os_fd in
+                Unix.shutdown fd Unix.SHUTDOWN_ALL;
+                (* Luv.Handle.close sock ignore *)
+            )
+        );
+      Handle.of_luv ~sw sock
   end
 
   module Poll = Poll
@@ -756,17 +785,13 @@ let net = object
         Switch.on_release sw (fun () -> Unix.unlink path);
       listening_unix_socket ~backlog sock
 
-  (* todo: how do you cancel connect operations with luv? *)
   method connect ~sw = function
     | `Tcp (host, port) ->
-      let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
-      let addr = luv_addr_of_eio host port in
-      await_exn (fun _loop _fiber -> Luv.TCP.connect (Handle.get "connect" sock) addr);
-      (socket sock :> < Eio.Flow.two_way; Eio.Flow.close> )
+      let sock = Stream.connect_tcp ~sw (luv_addr_of_eio host port) in
+      (socket sock :> < Eio.Flow.two_way; Eio.Flow.close >)
     | `Unix path ->
-      let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
-      await_exn (fun _loop _fiber -> Luv.Pipe.connect (Handle.get "connect" sock) path);
-      (socket sock :> < Eio.Flow.two_way; Eio.Flow.close> )
+      let sock = Stream.connect_pipe ~sw path in
+      (socket sock :> < Eio.Flow.two_way; Eio.Flow.close >)
 
   method datagram_socket ~sw = function
     | `Udp (host, port) ->
