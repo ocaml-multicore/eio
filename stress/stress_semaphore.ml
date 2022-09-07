@@ -17,22 +17,17 @@ let main ~domain_mgr =
                 while !i < n_iters do
                   let got = ref false in
                   Fiber.first
-                    (fun () -> Eio.Semaphore.acquire sem; got := true)
+                    (fun () ->
+                      Eio.Semaphore.acquire sem;
+                      got := true)
                     (fun () -> Fiber.yield ());
                   if !got then (
                     incr i;
-                    Eio.Semaphore.release sem;
-                  ) else (
-                    (* traceln "yield" *)
-                  )
-                done
-              )
-          )
-      done;
-    );
+                    Eio.Semaphore.release sem)
+                  else ( (* traceln "yield" *) )
+                done))
+      done);
   assert (Eio.Semaphore.get_value sem = n_tokens);
   print_endline "OK"
 
-let () =
-  Eio_main.run @@ fun env ->
-  main ~domain_mgr:(Eio.Stdenv.domain_mgr env)
+let () = Eio_main.run @@ fun env -> main ~domain_mgr:(Eio.Stdenv.domain_mgr env)

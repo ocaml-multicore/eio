@@ -3,6 +3,7 @@ module Fiber = Fiber
 module Switch = Switch
 module Cancel = Cancel
 module Exn = Exn
+
 module Private = struct
   module Suspend = Suspend
   module Waiters = Waiters
@@ -12,6 +13,7 @@ module Private = struct
 
   module Effects = struct
     type 'a enqueue = 'a Suspend.enqueue
+
     type _ Effect.t +=
       | Suspend = Suspend.Suspend
       | Fork = Fiber.Fork

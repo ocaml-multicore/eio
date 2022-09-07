@@ -5,7 +5,7 @@ module Ctf = Eio.Private.Ctf
 
 type 'a t = {
   fiber : Eio.Private.Fiber_context.t;
-  k : ('a, [`Exit_scheduler]) continuation;
+  k : ('a, [ `Exit_scheduler ]) continuation;
 }
 
 let tid t = Eio.Private.Fiber_context.tid t.fiber

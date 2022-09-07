@@ -18,10 +18,12 @@ let add_waiter t cb =
 (* Wake a waiter with the result.
    Returns [false] if the waiter got cancelled while we were trying to wake it. *)
 let wake { enqueue; ctx } r =
-  if Cancel.Fiber_context.clear_cancel_fn ctx then (enqueue (Ok r); true)
+  if Cancel.Fiber_context.clear_cancel_fn ctx then (
+    enqueue (Ok r);
+    true)
   else false (* [cancel] gets called and we enqueue an error *)
 
-let wake_all (t:_ t) v =
+let wake_all (t : _ t) v =
   try
     while true do
       let waiter = Lwt_dllist.take_r t in
@@ -32,35 +34,32 @@ let wake_all (t:_ t) v =
 let rec wake_one t v =
   match Lwt_dllist.take_opt_r t with
   | None -> `Queue_empty
-  | Some waiter ->
-    if wake waiter v then `Ok
-    else wake_one t v
+  | Some waiter -> if wake waiter v then `Ok else wake_one t v
 
 let is_empty = Lwt_dllist.is_empty
 
-let await_internal ~mutex (t:'a t) id (ctx:Cancel.fiber_context) enqueue =
+let await_internal ~mutex (t : 'a t) id (ctx : Cancel.fiber_context) enqueue =
   match Cancel.Fiber_context.get_error ctx with
   | Some ex ->
-    Option.iter Mutex.unlock mutex;
-    enqueue (Error ex)
-  | None ->
-    let resolved_waiter = ref Hook.null in
-    let enqueue x =
-      Ctf.note_read ~reader:id ctx.tid;
-      enqueue x
-    in
-    let cancel ex =
-      Hook.remove !resolved_waiter;
+      Option.iter Mutex.unlock mutex;
       enqueue (Error ex)
-    in
-    Cancel.Fiber_context.set_cancel_fn ctx cancel;
-    let waiter = { enqueue; ctx } in
-    match mutex with
-    | None ->
-      resolved_waiter := add_waiter t waiter
-    | Some mutex ->
-      resolved_waiter := add_waiter_protected ~mutex t waiter;
-      Mutex.unlock mutex
+  | None -> (
+      let resolved_waiter = ref Hook.null in
+      let enqueue x =
+        Ctf.note_read ~reader:id ctx.tid;
+        enqueue x
+      in
+      let cancel ex =
+        Hook.remove !resolved_waiter;
+        enqueue (Error ex)
+      in
+      Cancel.Fiber_context.set_cancel_fn ctx cancel;
+      let waiter = { enqueue; ctx } in
+      match mutex with
+      | None -> resolved_waiter := add_waiter t waiter
+      | Some mutex ->
+          resolved_waiter := add_waiter_protected ~mutex t waiter;
+          Mutex.unlock mutex)
 
 (* Returns a result if the wait succeeds, or raises if cancelled. *)
 let await ~mutex waiters id =

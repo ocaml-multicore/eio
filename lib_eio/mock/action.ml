@@ -1,18 +1,19 @@
 open Eio.Std
 
-type 'a t = [
-  | `Return of 'a
+type 'a t =
+  [ `Return of 'a
   | `Raise of exn
   | `Await of 'a Eio.Promise.or_exn
   | `Yield_then of 'a t
-  | `Run of unit -> 'a
-]
+  | `Run of unit -> 'a ]
 
 let rec run = function
   | `Return x -> x
   | `Raise ex -> raise ex
   | `Await p -> Promise.await_exn p
-  | `Yield_then t -> Fiber.yield (); run t
+  | `Yield_then t ->
+      Fiber.yield ();
+      run t
   | `Run fn -> fn ()
 
 let rec map f = function

@@ -28,20 +28,21 @@ let run_bench ?domain_mgr ~clock () =
         Fiber.fork ~sw (run_sender stream1);
         Fiber.fork ~sw (run_sender stream2);
         for _ = 1 to n_iters do
-          ignore @@
-          Fiber.first
-            (fun () -> Eio.Stream.take stream1)
-            (fun () -> Eio.Stream.take stream2)
+          ignore
+          @@ Fiber.first
+               (fun () -> Eio.Stream.take stream1)
+               (fun () -> Eio.Stream.take stream2)
         done;
-        raise Exit
-      )
+        raise Exit)
   with Exit ->
     let t1 = Eio.Time.now clock in
     let time_total = t1 -. t0 in
     let time_per_iter = time_total /. float n_iters in
     let _minor1, prom1, _major1 = Gc.counters () in
     let prom = prom1 -. prom0 in
-    Printf.printf "%11b, %7.2f, %13.4f\n%!" (domain_mgr <> None) (1e9 *. time_per_iter) (prom /. float n_iters)
+    Printf.printf "%11b, %7.2f, %13.4f\n%!" (domain_mgr <> None)
+      (1e9 *. time_per_iter)
+      (prom /. float n_iters)
 
 let main ~domain_mgr ~clock =
   Printf.printf "use_domains,  ns/iter, promoted/iter\n%!";
@@ -50,6 +51,4 @@ let main ~domain_mgr ~clock =
 
 let () =
   Eio_main.run @@ fun env ->
-  main
-    ~domain_mgr:(Eio.Stdenv.domain_mgr env)
-    ~clock:(Eio.Stdenv.clock env)
+  main ~domain_mgr:(Eio.Stdenv.domain_mgr env) ~clock:(Eio.Stdenv.clock env)

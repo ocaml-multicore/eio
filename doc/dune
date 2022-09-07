@@ -1,4 +1,4 @@
 (mdx
-  (package eio_main)
-  (packages eio_main)
-  (files multicore.md))
+ (package eio_main)
+ (packages eio_main)
+ (files multicore.md))

@@ -5,42 +5,42 @@ let yield () =
   Cancel.check fiber.cancel_context
 
 (* Note: [f] must not raise an exception, as that would terminate the whole scheduler. *)
-let fork_raw new_fiber f =
-  Effect.perform (Fork (new_fiber, f))
+let fork_raw new_fiber f = Effect.perform (Fork (new_fiber, f))
 
 let fork ~sw f =
   Switch.check_our_domain sw;
-  if Cancel.is_on sw.cancel then (
+  if Cancel.is_on sw.cancel then
     let vars = Cancel.Fiber_context.get_vars () in
     let new_fiber = Cancel.Fiber_context.make ~cc:sw.cancel ~vars in
     fork_raw new_fiber @@ fun () ->
     Switch.with_op sw @@ fun () ->
     match f () with
-    | () ->
-      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
+    | () -> Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
     | exception ex ->
-      Switch.fail sw ex;  (* The [with_op] ensures this will succeed *)
-      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
-  ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
+        Switch.fail sw ex;
+        (* The [with_op] ensures this will succeed *)
+        Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
+(* else the fiber should report the error to [sw], but [sw] is failed anyway *)
 
 let fork_daemon ~sw f =
   Switch.check_our_domain sw;
-  if Cancel.is_on sw.cancel then (
+  if Cancel.is_on sw.cancel then
     let vars = Cancel.Fiber_context.get_vars () in
     let new_fiber = Cancel.Fiber_context.make ~cc:sw.cancel ~vars in
     fork_raw new_fiber @@ fun () ->
     Switch.with_daemon sw @@ fun () ->
     match f () with
     | `Stop_daemon ->
-      (* The daemon asked to stop. *)
-      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
+        (* The daemon asked to stop. *)
+        Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
     | exception Cancel.Cancelled Exit when not (Cancel.is_on sw.cancel) ->
-      (* The daemon was cancelled because all non-daemon fibers are finished. *)
-      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
+        (* The daemon was cancelled because all non-daemon fibers are finished. *)
+        Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
     | exception ex ->
-      Switch.fail sw ex;  (* The [with_daemon] ensures this will succeed *)
-      Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
-  ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
+        Switch.fail sw ex;
+        (* The [with_daemon] ensures this will succeed *)
+        Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
+(* else the fiber should report the error to [sw], but [sw] is failed anyway *)
 
 let fork_promise ~sw f =
   Switch.check_our_domain sw;
@@ -50,8 +50,8 @@ let fork_promise ~sw f =
   fork_raw new_fiber (fun () ->
       match Switch.with_op sw f with
       | x -> Promise.resolve_ok r x
-      | exception ex -> Promise.resolve_error r ex        (* Can't fail; only we have [r] *)
-    );
+      | exception ex ->
+          Promise.resolve_error r ex (* Can't fail; only we have [r] *));
   p
 
 (* This is not exposed. On failure it fails [sw], but you need to make sure that
@@ -65,15 +65,11 @@ let fork_promise_exn ~sw f =
       match Switch.with_op sw f with
       | x -> Promise.resolve r x
       | exception ex ->
-        Switch.fail sw ex  (* The [with_op] ensures this will succeed *)
-    );
+          Switch.fail sw ex (* The [with_op] ensures this will succeed *));
   p
 
-let all xs =
-  Switch.run @@ fun sw ->
-  List.iter (fork ~sw) xs
-
-let both f g = all [f; g]
+let all xs = Switch.run @@ fun sw -> List.iter (fork ~sw) xs
+let both f g = all [ f; g ]
 
 let pair f g =
   Switch.run @@ fun sw ->
@@ -84,18 +80,17 @@ let pair f g =
 let fork_sub ~sw ~on_error f =
   fork ~sw (fun () ->
       try Switch.run f
-      with
-      | ex when Cancel.is_on sw.cancel ->
+      with ex when Cancel.is_on sw.cancel -> (
         (* Typically the caller's context is within [sw], but it doesn't have to be.
            It's possible that the original context has finished by now,
            but [fork] is keeping [sw] alive so we can use that report the error. *)
-        Switch.run_in sw @@ fun () ->
+        Switch.run_in sw
+        @@ fun () ->
         try on_error ex
         with ex2 ->
           (* The [run_in] ensures [adopting_sw] isn't finished here *)
           Switch.fail sw ex;
-          Switch.fail sw ex2
-    )
+          Switch.fail sw ex2))
 
 exception Not_first
 
@@ -109,54 +104,58 @@ let any fs =
     Cancel.sub_unchecked (fun cc ->
         let wrap h =
           match h () with
-          | x ->
-            begin match !r with
-              | `None -> r := `Ok x; Cancel.cancel cc Not_first
-              | `Ex _ | `Ok _ -> ()
-            end
+          | x -> (
+              match !r with
+              | `None ->
+                  r := `Ok x;
+                  Cancel.cancel cc Not_first
+              | `Ex _ | `Ok _ -> ())
           | exception Cancel.Cancelled _ when not (Cancel.is_on cc) ->
-            (* If this is in response to us asking the fiber to cancel then we can just ignore it.
-               If it's in response to our parent context being cancelled (which also cancels [cc]) then
-               we'll check that context and raise it at the end anyway. *)
-            ()
-          | exception ex ->
-            begin match !r with
-              | `None -> r := `Ex (ex, Printexc.get_raw_backtrace ()); Cancel.cancel cc ex
+              (* If this is in response to us asking the fiber to cancel then we can just ignore it.
+                 If it's in response to our parent context being cancelled (which also cancels [cc]) then
+                 we'll check that context and raise it at the end anyway. *)
+              ()
+          | exception ex -> (
+              match !r with
+              | `None ->
+                  r := `Ex (ex, Printexc.get_raw_backtrace ());
+                  Cancel.cancel cc ex
               | `Ok _ -> r := `Ex (ex, Printexc.get_raw_backtrace ())
               | `Ex prev ->
-                let bt = Printexc.get_raw_backtrace () in
-                r := `Ex (Exn.combine prev (ex, bt))
-            end
+                  let bt = Printexc.get_raw_backtrace () in
+                  r := `Ex (Exn.combine prev (ex, bt)))
         in
         let vars = Cancel.Fiber_context.get_vars () in
         let rec aux = function
           | [] -> await_cancel ()
-          | [f] -> wrap f; []
+          | [ f ] ->
+              wrap f;
+              []
           | f :: fs ->
-            let new_fiber = Cancel.Fiber_context.make ~cc ~vars in
-            let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
-            fork_raw new_fiber (fun () ->
-                match wrap f with
-                | x -> Promise.resolve_ok r x
-                | exception ex -> Promise.resolve_error r ex
-              );
-            p :: aux fs
+              let new_fiber = Cancel.Fiber_context.make ~cc ~vars in
+              let p, r =
+                Promise.create_with_id (Cancel.Fiber_context.tid new_fiber)
+              in
+              fork_raw new_fiber (fun () ->
+                  match wrap f with
+                  | x -> Promise.resolve_ok r x
+                  | exception ex -> Promise.resolve_error r ex);
+              p :: aux fs
         in
         let ps = aux fs in
-        Cancel.protect (fun () -> List.iter Promise.await_exn ps)
-      )
+        Cancel.protect (fun () -> List.iter Promise.await_exn ps))
   in
-  match !r, Cancel.get_error parent_c with
+  match (!r, Cancel.get_error parent_c) with
   | `Ok r, None -> r
   | (`Ok _ | `None), Some ex -> raise ex
   | `Ex (ex, bt), None -> Printexc.raise_with_backtrace ex bt
   | `Ex ex1, Some ex2 ->
-    let bt2 = Printexc.get_raw_backtrace () in
-    let ex, bt = Exn.combine ex1 (ex2, bt2) in
-    Printexc.raise_with_backtrace ex bt
+      let bt2 = Printexc.get_raw_backtrace () in
+      let ex, bt = Exn.combine ex1 (ex2, bt2) in
+      Printexc.raise_with_backtrace ex bt
   | `None, None -> assert false
 
-let first f g = any [f; g]
+let first f g = any [ f; g ]
 
 let check () =
   let ctx = Effect.perform Cancel.Get_context in
@@ -164,10 +163,7 @@ let check () =
 
 (* Some concurrent list operations *)
 
-let opt_cons x xs =
-  match x with
-  | None -> xs
-  | Some x -> x :: xs
+let opt_cons x xs = match x with None -> xs | Some x -> x :: xs
 
 module Limiter : sig
   (** This is a bit like using a semaphore, but it assumes that there is only a
@@ -186,8 +182,8 @@ module Limiter : sig
   (** [fork t fn x] runs [fn x] in a new fibre, once a fiber is free. *)
 
   val fork_promise_exn : t -> ('a -> 'b) -> 'a -> 'b Promise.t
-  (** [fork_promise_exn t fn x] runs [fn x] in a new fibre, once a fiber is free,
-      and returns a promise for the result. *)
+  (** [fork_promise_exn t fn x] runs [fn x] in a new fibre, once a fiber is
+      free, and returns a promise for the result. *)
 end = struct
   type t = {
     mutable free_fibers : int;
@@ -195,16 +191,11 @@ end = struct
     sw : Switch.t;
   }
 
-  let max_fibers_err n =
-    Fmt.failwith "max_fibers must be positive (got %d)" n
+  let max_fibers_err n = Fmt.failwith "max_fibers must be positive (got %d)" n
 
   let create ~sw max_fibers =
     if max_fibers <= 0 then max_fibers_err max_fibers;
-    {
-      free_fibers = max_fibers;
-      cond = Single_waiter.create ();
-      sw;
-    }
+    { free_fibers = max_fibers; cond = Single_waiter.create (); sw }
 
   let await_free t =
     if t.free_fibers = 0 then Single_waiter.await t.cond t.sw.id;
@@ -225,51 +216,57 @@ end = struct
 
   let fork_promise_exn t fn x =
     await_free t;
-    fork_promise_exn ~sw:t.sw (fun () -> let r = fn x in release t; r)
+    fork_promise_exn ~sw:t.sw (fun () ->
+        let r = fn x in
+        release t;
+        r)
 
   let fork t fn x =
     await_free t;
-    fork ~sw:t.sw (fun () -> fn x; release t)
+    fork ~sw:t.sw (fun () ->
+        fn x;
+        release t)
 end
 
-let filter_map ?(max_fibers=max_int) fn items =
+let filter_map ?(max_fibers = max_int) fn items =
   match items with
-  | [] -> []    (* Avoid creating a switch in the simple case *)
+  | [] -> [] (* Avoid creating a switch in the simple case *)
   | items ->
-    Switch.run @@ fun sw ->
-    let limiter = Limiter.create ~sw max_fibers in
-    let rec aux = function
-      | [] -> []
-      | [x] -> Option.to_list (Limiter.use limiter fn x)
-      | x :: xs ->
-        let x = Limiter.fork_promise_exn limiter fn x in
-        let xs = aux xs in
-        opt_cons (Promise.await x) xs
-    in
-    aux items
+      Switch.run @@ fun sw ->
+      let limiter = Limiter.create ~sw max_fibers in
+      let rec aux = function
+        | [] -> []
+        | [ x ] -> Option.to_list (Limiter.use limiter fn x)
+        | x :: xs ->
+            let x = Limiter.fork_promise_exn limiter fn x in
+            let xs = aux xs in
+            opt_cons (Promise.await x) xs
+      in
+      aux items
 
 let map ?max_fibers fn = filter_map ?max_fibers (fun x -> Some (fn x))
-let filter ?max_fibers fn = filter_map ?max_fibers (fun x -> if fn x then Some x else None)
 
-let iter ?(max_fibers=max_int) fn items =
+let filter ?max_fibers fn =
+  filter_map ?max_fibers (fun x -> if fn x then Some x else None)
+
+let iter ?(max_fibers = max_int) fn items =
   match items with
-  | [] -> ()    (* Avoid creating a switch in the simple case *)
+  | [] -> () (* Avoid creating a switch in the simple case *)
   | items ->
-    Switch.run @@ fun sw ->
-    let limiter = Limiter.create ~sw max_fibers in
-    let rec aux = function
-      | [] -> ()
-      | [x] -> Limiter.use limiter fn x
-      | x :: xs ->
-        Limiter.fork limiter fn x;
-        aux xs
-    in
-    aux items
+      Switch.run @@ fun sw ->
+      let limiter = Limiter.create ~sw max_fibers in
+      let rec aux = function
+        | [] -> ()
+        | [ x ] -> Limiter.use limiter fn x
+        | x :: xs ->
+            Limiter.fork limiter fn x;
+            aux xs
+      in
+      aux items
 
 type 'a key = 'a Hmap.key
 
 let create_key () = Hmap.Key.create ()
-
 let get key = Hmap.find key (Cancel.Fiber_context.get_vars ())
 
 let with_binding var value fn =

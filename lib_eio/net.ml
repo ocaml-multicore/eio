@@ -1,13 +1,12 @@
 exception Connection_reset of exn
-(** This is a wrapper for EPIPE, ECONNRESET and similar errors.
-    It indicates that the flow has failed, and data may have been lost. *)
-
+(** This is a wrapper for EPIPE, ECONNRESET and similar errors. It indicates
+    that the flow has failed, and data may have been lost. *)
 
 module Ipaddr = struct
-  type 'a t = string   (* = [Unix.inet_addr], but avoid a Unix dependency here *)
+  type 'a t = string (* = [Unix.inet_addr], but avoid a Unix dependency here *)
 
   module V4 = struct
-    let any      = "\000\000\000\000"
+    let any = "\000\000\000\000"
     let loopback = "\127\000\000\001"
 
     let pp f t =
@@ -19,12 +18,14 @@ module Ipaddr = struct
   end
 
   module V6 = struct
-    let any      = "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
-    let loopback = "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\001"
+    let any = "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+
+    let loopback =
+      "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\001"
 
     let to_int16 t =
-      let get i = Char.code (t.[i]) in
-      let pair i = (get i lsl 8) lor (get (i + 1)) in
+      let get i = Char.code t.[i] in
+      let pair i = (get i lsl 8) lor get (i + 1) in
       List.init 8 (fun i -> pair (i * 2))
 
     (* [calc_elide elide zeros acc parts] finds the best place for the "::"
@@ -38,15 +39,15 @@ module Ipaddr = struct
          [acc] is the values seen so far, with runs of zeros replaced by a
          negative value giving the length of the run. *)
       let rec loop elide zeros acc = function
-      | 0 :: xs -> loop elide (zeros - 1) acc xs
-      | n :: xs when zeros = 0 -> loop elide 0 (n :: acc) xs
-      | n :: xs -> loop (min elide zeros) 0 (n :: zeros :: acc) xs
-      | [] ->
-        let elide = min elide zeros in
-        let parts = if zeros = 0 then acc else zeros :: acc in
-        ((if elide < -1 then Some elide else None), List.rev parts)
-          
+        | 0 :: xs -> loop elide (zeros - 1) acc xs
+        | n :: xs when zeros = 0 -> loop elide 0 (n :: acc) xs
+        | n :: xs -> loop (min elide zeros) 0 (n :: zeros :: acc) xs
+        | [] ->
+            let elide = min elide zeros in
+            let parts = if zeros = 0 then acc else zeros :: acc in
+            ((if elide < -1 then Some elide else None), List.rev parts)
       in
+
       loop 0 0 [] t
 
     let rec cons_zeros l x =
@@ -55,12 +56,9 @@ module Ipaddr = struct
     let elide l =
       let rec aux ~elide = function
         | [] -> []
-        | x :: xs when x >= 0 ->
-          Some x :: aux ~elide xs
-        | x :: xs when Some x = elide ->
-          None :: aux ~elide:None xs
-        | z :: xs ->
-          cons_zeros (aux ~elide xs) z
+        | x :: xs when x >= 0 -> Some x :: aux ~elide xs
+        | x :: xs when Some x = elide -> None :: aux ~elide:None xs
+        | z :: xs -> cons_zeros (aux ~elide xs) z
       in
       let elide, l = calc_elide l in
       assert (match elide with Some x when x < -8 -> false | _ -> true);
@@ -70,141 +68,148 @@ module Ipaddr = struct
        See http://tools.ietf.org/html/rfc5952 *)
     let pp f t =
       let comp = to_int16 t in
-      let v4 = match comp with [0; 0; 0; 0; 0; 0xffff; _; _] -> true | _ -> false in
+      let v4 =
+        match comp with [ 0; 0; 0; 0; 0; 0xffff; _; _ ] -> true | _ -> false
+      in
       let l = elide comp in
       let rec fill = function
         | [ Some hi; Some lo ] when v4 ->
-          Fmt.pf f "%d.%d.%d.%d"
-            (hi lsr 8) (hi land 0xff)
-            (lo lsr 8) (lo land 0xff)
+            Fmt.pf f "%d.%d.%d.%d" (hi lsr 8) (hi land 0xff) (lo lsr 8)
+              (lo land 0xff)
         | None :: xs ->
-          Fmt.string f "::";
-          fill xs
+            Fmt.string f "::";
+            fill xs
         | [ Some n ] -> Fmt.pf f "%x" n
         | Some n :: None :: xs ->
-          Fmt.pf f "%x::" n;
-          fill xs
+            Fmt.pf f "%x::" n;
+            fill xs
         | Some n :: xs ->
-          Fmt.pf f "%x:" n;
-          fill xs
+            Fmt.pf f "%x:" n;
+            fill xs
         | [] -> ()
       in
       fill l
   end
 
-  type v4v6 = [`V4 | `V6] t
+  type v4v6 = [ `V4 | `V6 ] t
 
   let fold ~v4 ~v6 t =
-    match String.length t with
-    | 4 -> v4 t
-    | 16 -> v6 t
-    | _ -> assert false
+    match String.length t with 4 -> v4 t | 16 -> v6 t | _ -> assert false
 
   let of_raw t =
     match String.length t with
     | 4 | 16 -> t
-    | x -> Fmt.invalid_arg "An IP address must be either 4 or 16 bytes long (%S is %d bytes)" t x
+    | x ->
+        Fmt.invalid_arg
+          "An IP address must be either 4 or 16 bytes long (%S is %d bytes)" t x
 
   let pp f = fold ~v4:(V4.pp f) ~v6:(V6.pp f)
-
-  let pp_for_uri f =
-    fold
-      ~v4:(V4.pp f)
-      ~v6:(Fmt.pf f "[%a]" V6.pp)
+  let pp_for_uri f = fold ~v4:(V4.pp f) ~v6:(Fmt.pf f "[%a]" V6.pp)
 end
 
 module Sockaddr = struct
-  type stream = [
-    | `Unix of string
-    | `Tcp of Ipaddr.v4v6 * int
-  ]
-
-  type datagram = [
-    | `Udp of Ipaddr.v4v6 * int
-  ]
-
+  type stream = [ `Unix of string | `Tcp of Ipaddr.v4v6 * int ]
+  type datagram = [ `Udp of Ipaddr.v4v6 * int ]
   type t = [ stream | datagram ]
 
   let pp f = function
-    | `Unix path ->
-      Format.fprintf f "unix:%s" path
+    | `Unix path -> Format.fprintf f "unix:%s" path
     | `Tcp (addr, port) ->
-      Format.fprintf f "tcp:%a:%d" Ipaddr.pp_for_uri addr port
+        Format.fprintf f "tcp:%a:%d" Ipaddr.pp_for_uri addr port
     | `Udp (addr, port) ->
-      Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
+        Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
-class virtual socket = object (_ : #Generic.t)
-  method probe _ = None
-end
+class virtual socket =
+  object (_ : #Generic.t)
+    method probe _ = None
+  end
 
-class virtual stream_socket = object
-  inherit Flow.two_way
-end
+class virtual stream_socket =
+  object
+    inherit Flow.two_way
+  end
 
-class virtual listening_socket = object
-  inherit socket
-  method virtual accept : sw:Switch.t -> <stream_socket; Flow.close> * Sockaddr.stream
-  method virtual close : unit
-end
+class virtual listening_socket =
+  object
+    inherit socket
+
+    method virtual accept
+        : sw:Switch.t -> < stream_socket ; Flow.close > * Sockaddr.stream
+
+    method virtual close : unit
+  end
 
 let accept ~sw (t : #listening_socket) = t#accept ~sw
 
 let accept_fork ~sw (t : #listening_socket) ~on_error handle =
   let child_started = ref false in
   let flow, addr = accept ~sw t in
-  Fun.protect ~finally:(fun () -> if !child_started = false then Flow.close flow)
+  Fun.protect
+    ~finally:(fun () -> if !child_started = false then Flow.close flow)
     (fun () ->
-       Fiber.fork ~sw (fun () ->
-           match child_started := true; handle (flow :> stream_socket) addr with
-           | x -> Flow.close flow; x
-           | exception ex ->
-             Flow.close flow;
-             on_error ex
-         )
-    )
+      Fiber.fork ~sw (fun () ->
+          match
+            child_started := true;
+            handle (flow :> stream_socket) addr
+          with
+          | x ->
+              Flow.close flow;
+              x
+          | exception ex ->
+              Flow.close flow;
+              on_error ex))
 
 let accept_sub ~sw (t : #listening_socket) ~on_error handle =
-  accept_fork ~sw t ~on_error (fun flow addr -> Switch.run (fun sw -> handle ~sw flow addr))
+  accept_fork ~sw t ~on_error (fun flow addr ->
+      Switch.run (fun sw -> handle ~sw flow addr))
 
-class virtual datagram_socket = object
-  inherit socket
-  method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
-  method virtual recv : Cstruct.t -> Sockaddr.datagram * int
-end
+class virtual datagram_socket =
+  object
+    inherit socket
+    method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
+    method virtual recv : Cstruct.t -> Sockaddr.datagram * int
+  end
 
-let send (t:#datagram_socket) = t#send
-let recv (t:#datagram_socket) = t#recv
+let send (t : #datagram_socket) = t#send
+let recv (t : #datagram_socket) = t#recv
 
-class virtual t = object
-  method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
-  method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
-  method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
-  method virtual getaddrinfo : service:string -> string -> Sockaddr.t list
-  method virtual getnameinfo : Sockaddr.t -> (string * string)
-end
+class virtual t =
+  object
+    method virtual listen
+        : reuse_addr:bool ->
+          reuse_port:bool ->
+          backlog:int ->
+          sw:Switch.t ->
+          Sockaddr.stream ->
+          listening_socket
 
-let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw
-let connect ~sw (t:#t) = t#connect ~sw
+    method virtual connect
+        : sw:Switch.t -> Sockaddr.stream -> < stream_socket ; Flow.close >
 
-let datagram_socket ~sw (t:#t) = t#datagram_socket ~sw
+    method virtual datagram_socket
+        : sw:Switch.t -> Sockaddr.datagram -> < datagram_socket ; Flow.close >
 
-let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname
+    method virtual getaddrinfo : service:string -> string -> Sockaddr.t list
+    method virtual getnameinfo : Sockaddr.t -> string * string
+  end
+
+let listen ?(reuse_addr = false) ?(reuse_port = false) ~backlog ~sw (t : #t) =
+  t#listen ~reuse_addr ~reuse_port ~backlog ~sw
+
+let connect ~sw (t : #t) = t#connect ~sw
+let datagram_socket ~sw (t : #t) = t#datagram_socket ~sw
+
+let getaddrinfo ?(service = "") (t : #t) hostname =
+  t#getaddrinfo ~service hostname
 
 let getaddrinfo_stream ?service t hostname =
   getaddrinfo ?service t hostname
-  |> List.filter_map (function
-      | #Sockaddr.stream as x -> Some x
-      | _ -> None
-    )
+  |> List.filter_map (function #Sockaddr.stream as x -> Some x | _ -> None)
 
 let getaddrinfo_datagram ?service t hostname =
   getaddrinfo ?service t hostname
-  |> List.filter_map (function
-      | #Sockaddr.datagram as x -> Some x
-      | _ -> None
-    )
+  |> List.filter_map (function #Sockaddr.datagram as x -> Some x | _ -> None)
 
-let getnameinfo (t:#t) sockaddr = t#getnameinfo sockaddr
-
+let getnameinfo (t : #t) sockaddr = t#getnameinfo sockaddr
 let close = Flow.close

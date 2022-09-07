@@ -9,6 +9,7 @@ let remove = function
   | Null -> ()
   | Node n -> Lwt_dllist.remove n
   | Node_with_mutex (n, m) ->
-    Mutex.lock m;
-    Fun.protect ~finally:(fun () -> Mutex.unlock m)
-      (fun () -> Lwt_dllist.remove n)
+      Mutex.lock m;
+      Fun.protect
+        ~finally:(fun () -> Mutex.unlock m)
+        (fun () -> Lwt_dllist.remove n)
