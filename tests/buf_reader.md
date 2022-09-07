@@ -377,6 +377,20 @@ Exception: Failure "take_while1".
 # test ["abc"] (R.take_while1 is_a);;
 +mock_flow returning 3 bytes
 - : string = "a"
+
+# test ["aaaaabc"] (R.skip_while1 is_a *> R.take_all);;
++mock_flow returning 7 bytes
++mock_flow returning Eof
+- : string = "bc"
+
+# test ["bbbccc"] (R.skip_while1 is_a *> R.take_all);;
++mock_flow returning 6 bytes
+Exception: Failure "skip_while1".
+
+# test ["abbbccc"] (R.skip_while1 is_a *> R.take_all);;
++mock_flow returning 7 bytes
++mock_flow returning Eof
+- : string = "bbbccc"
 ```
 
 ## Take all

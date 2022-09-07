@@ -237,6 +237,11 @@ let skip_while p t =
   try aux 0
   with End_of_file -> ()
 
+let skip_while1 p t =
+  let len = count_while p t in
+  if len < 1 then Fmt.failwith "skip_while1"
+  else consume t len
+
 let rec skip n t =
   if n <= t.len then (
     consume t n
