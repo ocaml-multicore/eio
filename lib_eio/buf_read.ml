@@ -215,6 +215,14 @@ let take_while p t =
   consume t len;
   data
 
+let take_while1 p t =
+  let len = count_while p t in
+  if len < 1 then Fmt.failwith "take_while1"
+  else
+    let data = Cstruct.to_string (Cstruct.of_bigarray t.buf ~off:t.pos ~len) in
+    consume t len;
+    data
+
 let skip_while p t =
   let rec aux i =
     if i < t.len then (

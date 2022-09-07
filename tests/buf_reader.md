@@ -360,6 +360,23 @@ val i : R.t = <abstr>
 +mock_flow returning 1 bytes
 +mock_flow returning Eof
 - : string = "fg"
+
+# let is_a = function
+  | 'a' -> true
+  | _ -> false;;
+val is_a : char -> bool = <fun>
+
+# test ["aaabc"] (R.take_while1 is_a);;
++mock_flow returning 5 bytes
+- : string = "aaa"
+
+# test ["aaabc"] (R.take_while1 (Fun.negate is_a));;
++mock_flow returning 5 bytes
+Exception: Failure "take_while1".
+
+# test ["abc"] (R.take_while1 is_a);;
++mock_flow returning 3 bytes
+- : string = "a"
 ```
 
 ## Take all
