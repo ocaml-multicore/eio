@@ -597,6 +597,10 @@ let flow fd = object (_ : <source; sink; ..>)
 
   method read_methods = []
 
+  method write bufs =
+    let bufs = List.map Cstruct.to_bigarray bufs in
+    File.write fd bufs |> or_raise
+
   method copy src =
     let buf = Luv.Buffer.create 4096 in
     try
@@ -623,6 +627,10 @@ let socket sock = object
   method read_into buf =
     let buf = Cstruct.to_bigarray buf in
     Stream.read_into sock buf
+
+  method! write bufs =
+    let bufs = List.map Cstruct.to_bigarray bufs in
+    Stream.write sock bufs
 
   method copy src =
     let buf = Luv.Buffer.create 4096 in

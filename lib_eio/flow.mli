@@ -62,7 +62,16 @@ type read_method += Read_source_buffer of ((Cstruct.t list -> int) -> unit)
 class virtual sink : object
   inherit Generic.t
   method virtual copy : 'a. (#source as 'a) -> unit
+
+  method write : Cstruct.t list -> unit
+  (** The default implementation is [copy (cstruct_source ...)], but it can be overridden for speed. *)
 end
+
+val write : #sink -> Cstruct.t list -> unit
+(** [write dst bufs] writes all bytes from [bufs].
+
+    This is a low level API, consider using {!copy} if possible as it
+    may allow optimizations. *)
 
 val copy : #source -> #sink -> unit
 (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)

@@ -1044,6 +1044,8 @@ let flow fd =
 
     method read_methods = []
 
+    method write bufs = Low_level.writev fd bufs
+
     method copy src =
       match get_fd_opt src with
       | Some src -> fast_copy_try_splice src fd

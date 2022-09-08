@@ -695,3 +695,33 @@ Both attempts time out:
 +mock time is now 20
 Exception: Eio__Net.Connection_failure Eio__Time.Timeout.
 ```
+
+## read/write on SOCK_DGRAM
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let a, b = Eio_unix.socketpair ~sw ~domain:Unix.PF_UNIX ~ty:Unix.SOCK_DGRAM () in
+  ignore (Eio_unix.FD.peek a : Unix.file_descr);
+  ignore (Eio_unix.FD.peek b : Unix.file_descr);
+  let l = [ "foo"; "bar"; "foobar"; "cellar door" ] in
+  let buf = Cstruct.create 32 in
+  let write bufs = Eio.Flow.write a (List.map Cstruct.of_string bufs) in
+  let read () =
+    let n = Eio.Flow.read b buf in
+    traceln "Got: %d bytes: %S" n Cstruct.(to_string (sub buf 0 n))
+  in
+  List.iter (fun sbuf -> write [sbuf]) l;
+  List.iter (fun _ -> read ()) l;
+  write ["abaca"; "bb"];
+  read ();
+  Eio.Flow.close a;
+  Eio.Flow.close b;;
++Got: 3 bytes: "foo"
++Got: 3 bytes: "bar"
++Got: 6 bytes: "foobar"
++Got: 11 bytes: "cellar door"
++Got: 7 bytes: "abacabb"
+- : unit = ()
+```
+

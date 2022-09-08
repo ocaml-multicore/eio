@@ -70,10 +70,13 @@ let string_source s : source =
       len
   end
 
-class virtual sink = object (_ : <Generic.t; ..>)
+class virtual sink = object (self : <Generic.t; ..>)
   method probe _ = None
   method virtual copy : 'a. (#source as 'a) -> unit
+  method write bufs = self#copy (cstruct_source bufs)
 end
+
+let write (t : #sink) (bufs : Cstruct.t list) = t#write bufs
 
 let copy (src : #source) (dst : #sink) = dst#copy src
 
@@ -91,10 +94,13 @@ let buffer_sink b =
           Buffer.add_string b (Cstruct.to_string ~len:got buf)
         done
       with End_of_file -> ()
+
+    method! write bufs =
+      List.iter (fun buf -> Buffer.add_bytes b (Cstruct.to_bytes buf)) bufs
   end
 
 class virtual two_way = object (_ : <source; sink; ..>)
-  method probe _ = None
+  inherit sink
   method read_methods = []
 
   method virtual shutdown : shutdown_command -> unit
