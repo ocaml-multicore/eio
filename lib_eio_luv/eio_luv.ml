@@ -839,6 +839,8 @@ let socket_domain_of = function
 let net = object
   inherit Eio.Net.t
 
+  method somaxconn = Eio_unix.somaxconn ()
+
   method listen ~reuse_addr ~reuse_port ~backlog ~sw = function
     | `Tcp (host, port) ->
       let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in

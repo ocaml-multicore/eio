@@ -103,3 +103,6 @@ module Ctf = Ctf_unix
 
 val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
 (** [getnameinfo sockaddr] returns domain name and service for [sockaddr]. *)
+
+val somaxconn : unit -> int
+(** [somaxconn ()] returns the maximum number of backlog connections supported by an OS socket. *)

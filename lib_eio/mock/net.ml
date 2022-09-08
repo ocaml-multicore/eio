@@ -9,7 +9,7 @@ type t = <
   on_getnameinfo : (string * string) Handler.t;
 >
 
-let make label =
+let make ?(somaxconn = 5) label =
   let on_listen = Handler.make (`Raise (Failure "Mock listen handler not configured")) in
   let on_connect = Handler.make (`Raise (Failure "Mock connect handler not configured")) in
   let on_datagram_socket = Handler.make (`Raise (Failure "Mock datagram_socket handler not configured")) in
@@ -18,6 +18,7 @@ let make label =
   object
     inherit Eio.Net.t
 
+    method somaxconn = somaxconn
     method on_listen = on_listen
     method on_connect = on_connect
     method on_datagram_socket = on_datagram_socket

@@ -102,6 +102,7 @@ class virtual listening_socket : object
 end
 
 class virtual t : object
+  method virtual somaxconn : int
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
   method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
   method virtual datagram_socket :
@@ -182,6 +183,9 @@ val accept_fork :
     After accepting a connection to [socket], it runs [fn flow client_addr] in a new fiber.
 
     [flow] will be closed when [fn] returns. *)
+
+val somaxconn : #t -> int 
+(** [somaxconn t] is the maximum amount of backlog connections supported by a listening OS socket. *) 
 
 val accept_sub :
   sw:Switch.t ->

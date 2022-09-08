@@ -68,3 +68,5 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
   run_in_systhread (fun () ->
     let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
     (ni_hostname, ni_service))
+
+external somaxconn : unit -> int = "caml_eio_somaxconn" [@@noalloc]

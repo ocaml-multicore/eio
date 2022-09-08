@@ -178,6 +178,7 @@ let send (t:#datagram_socket) = t#send
 let recv (t:#datagram_socket) = t#recv
 
 class virtual t = object
+  method virtual somaxconn : int
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
   method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
   method virtual datagram_socket :
@@ -191,7 +192,10 @@ class virtual t = object
   method virtual getnameinfo : Sockaddr.t -> (string * string)
 end
 
+let somaxconn t = t#somaxconn
+
 let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw
+
 let connect ~sw (t:#t) = t#connect ~sw
 
 let datagram_socket ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:#t) addr =

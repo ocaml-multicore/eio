@@ -130,7 +130,7 @@ module Net : sig
     on_accept : (Flow.t * Eio.Net.Sockaddr.stream) Handler.t;
   >
 
-  val make : string -> t
+  val make : ?somaxconn:int -> string -> t
   (** [make label] is a new mock network. *)
 
   val on_connect : t -> <Eio.Net.stream_socket; Eio.Flow.close; ..> Handler.actions -> unit

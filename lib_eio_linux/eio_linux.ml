@@ -1140,6 +1140,8 @@ let socket_domain_of = function
 let net = object
   inherit Eio.Net.t
 
+  method somaxconn = Eio_unix.somaxconn ()
+
   method listen ~reuse_addr ~reuse_port  ~backlog ~sw listen_addr =
     let socket_type, addr =
       match listen_addr with
