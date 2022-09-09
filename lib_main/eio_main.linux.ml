@@ -1,4 +1,5 @@
 let has_working_uring v =
+  (* Note: if you change this, remember to change the log message below too *)
   match String.split_on_char '.' v with
   | "5" :: minor :: _ -> int_of_string minor >= 11
   | major :: _ -> int_of_string major > 5
@@ -26,7 +27,7 @@ let run fn =
               run_luv fn
             )
       | _ ->
-        Logs.info (fun f -> f "Selecting luv backend (io-uring needs Linux >= 5.10)");
+        Logs.info (fun f -> f "Selecting luv backend (io-uring needs Linux >= 5.11)");
         run_luv fn
     end
   | Some x -> Fmt.failwith "Unknown eio backend %S (from $EIO_BACKEND)" x
