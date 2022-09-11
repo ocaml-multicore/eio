@@ -340,7 +340,7 @@ let crash_on_three x =
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  Fiber.filter (process is_even) [1; 2; 3; 4]
+  Fiber.List.filter (process is_even) [1; 2; 3; 4]
   |> traceln "%a" Fmt.(Dump.list int);;
 +Start 1
 +Start 2
@@ -356,7 +356,7 @@ let crash_on_three x =
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  Fiber.map (process string_even) [1; 2; 3; 4]
+  Fiber.List.map (process string_even) [1; 2; 3; 4]
   |> traceln "%a" Fmt.Dump.(list (option string));;
 +Start 1
 +Start 2
@@ -372,7 +372,7 @@ let crash_on_three x =
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  Fiber.filter_map (process string_even) [1; 2; 3; 4]
+  Fiber.List.filter_map (process string_even) [1; 2; 3; 4]
   |> traceln "%a" Fmt.Dump.(list string);;
 +Start 1
 +Start 2
@@ -390,7 +390,7 @@ If any fiber raises, everything is cancelled:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  Fiber.filter_map (process crash_on_three) [1; 2; 3; 4]
+  Fiber.List.filter_map (process crash_on_three) [1; 2; 3; 4]
   |> traceln "%a" Fmt.Dump.(list string);;
 +Start 1
 +Start 2
@@ -410,7 +410,7 @@ The number of concurrent fibers can be limited:
   let finish i = Promise.resolve (snd (ps.(i))) in
   Fiber.both
     (fun () ->
-       Fiber.map ~max_fibers:2 (process await) (List.init 4 Fun.id)
+       Fiber.List.map ~max_fibers:2 (process await) (List.init 4 Fun.id)
        |> traceln "%a" Fmt.(Dump.list string)
     )
     (fun () ->
@@ -443,7 +443,7 @@ Handling exceptions while waiting for a free fiber:
   let finish i = Promise.resolve (snd (ps.(i))) in
   Fiber.both
     (fun () ->
-       Fiber.map ~max_fibers:1 (process await) (List.init 2 Fun.id)
+       Fiber.List.map ~max_fibers:1 (process await) (List.init 2 Fun.id)
        |> traceln "%a" Fmt.(Dump.list string)
     )
     (fun () ->
@@ -463,7 +463,7 @@ Simple iteration:
   let finish i = Promise.resolve (snd (ps.(i))) () in
   Fiber.both
     (fun () ->
-       Fiber.iter ~max_fibers:2 (process await) (List.init 4 Fun.id)
+       Fiber.List.iter ~max_fibers:2 (process await) (List.init 4 Fun.id)
     )
     (fun () ->
        finish 1;
