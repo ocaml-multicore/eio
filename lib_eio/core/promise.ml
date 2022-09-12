@@ -38,8 +38,8 @@ type !'a promise = {
      - A half-share of the reference to the Unresolved state. *)
 }
 
-type +'a t
-type -'a u
+type +!'a t
+type -!'a u
 
 type 'a or_exn = ('a, exn) result t
 
