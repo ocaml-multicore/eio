@@ -991,7 +991,7 @@ val fetch : string -> string = <fun>
     | page -> traceln "%s -> %s" url page
     | exception ex -> traceln "%s -> %a" url Fmt.exn ex
   in
-  Fiber.iter test [
+  Fiber.List.iter test [
     "http://example.com";
     "http://example.com";
     "http://bad.com";
@@ -1012,7 +1012,7 @@ val fetch : string -> string = <fun>
 - : unit = ()
 ```
 
-`Fiber.iter` is like `List.iter` but doesn't wait for each job to finish before starting the next.
+`Fiber.List.iter` is like `List.iter` but doesn't wait for each job to finish before starting the next.
 Notice that we made four requests, but only started two download operations.
 
 This version of the cache remembers failed lookups too.

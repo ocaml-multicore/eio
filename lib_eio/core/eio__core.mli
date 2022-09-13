@@ -265,27 +265,48 @@ module Fiber : sig
       The current task remains runnable, but goes to the back of the queue.
       Automatically calls {!check} just before resuming. *)
 
-  (** {2 Concurrent list operations} *)
+  (** Concurrent list operations. *)
+  module List : sig
+    (** These functions behave like the ones in the standard library's [List]
+        module, except that multiple items can be processed concurrently.
+
+        They correspond to Lwt's [Lwt_list.*_p] operations. e.g.
+        [Lwt_list.iter_p] becomes [Fiber.List.iter].
+        For the [Lwt_list.*_s] operations, just use the standard library function.
+        e.g. [Lwt_list.iter_s] can be replaced by a plain [List.iter]. *)
+
+    val filter : ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
+    (** [filter f x] is like [List.filter f x] except that the invocations of [f] are
+        run concurrently in separate fibers.
+        @param max_fibers Maximum number of fibers to run concurrently *)
+
+    val map : ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
+    (** [map f x] is like [List.map f x] except that the invocations of [f] are
+        run concurrently in separate fibers.
+        @param max_fibers Maximum number of fibers to run concurrently *)
+
+    val filter_map : ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
+    (** [filter_map f x] is like [List.filter_map f x] except that the
+        invocations of [f] are run concurrently in separate fibers.
+        @param max_fibers Maximum number of fibers to run concurrently *)
+
+    val iter : ?max_fibers:int -> ('a -> unit) -> 'a list -> unit
+    (** [iter f x] is like [List.iter f x] except that the invocations of [f] are
+        run concurrently in separate fibers.
+        @param max_fibers Maximum number of fibers to run concurrently *)
+  end
 
   val filter : ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
-  (** [filter f x] is like [List.filter f x] except that the invocations of [f] are
-      run concurrently in separate fibers.
-      @param max_fibers Maximum number of fibers to run concurrently *)
+  [@@ocaml.deprecated "Use `Eio.Fiber.List.filter` instead."]
 
   val map : ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
-  (** [map f x] is like [List.map f x] except that the invocations of [f] are
-      run concurrently in separate fibers.
-      @param max_fibers Maximum number of fibers to run concurrently *)
+  [@@ocaml.deprecated "Use `Eio.Fiber.List.map instead."]
 
   val filter_map : ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
-  (** [filter_map f x] is like [List.filter_map f x] except that the
-      invocations of [f] are run concurrently in separate fibers.
-      @param max_fibers Maximum number of fibers to run concurrently *)
+  [@@ocaml.deprecated "Use `Eio.Fiber.List.filter_map instead."]
 
   val iter : ?max_fibers:int -> ('a -> unit) -> 'a list -> unit
-  (** [iter f x] is like [List.iter f x] except that the invocations of [f] are
-      run concurrently in separate fibers.
-      @param max_fibers Maximum number of fibers to run concurrently *)
+  [@@ocaml.deprecated "Use `Eio.Fiber.List.iter instead."]
 
   (** {2 Fiber-local variables}
 
