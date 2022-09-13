@@ -265,8 +265,15 @@ module Fiber : sig
       The current task remains runnable, but goes to the back of the queue.
       Automatically calls {!check} just before resuming. *)
 
+  (** Concurrent list operations. *)
   module List : sig
-    (** {2 Concurrent list operations} *)
+    (** These functions behave like the ones in the standard library's [List]
+        module, except that multiple items can be processed concurrently.
+
+        They correspond to Lwt's [Lwt_list.*_p] operations. e.g.
+        [Lwt_list.iter_p] becomes [Fiber.List.iter].
+        For the [Lwt_list.*_s] operations, just use the standard library function.
+        e.g. [Lwt_list.iter_s] can be replaced by a plain [List.iter]. *)
 
     val filter : ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
     (** [filter f x] is like [List.filter f x] except that the invocations of [f] are
