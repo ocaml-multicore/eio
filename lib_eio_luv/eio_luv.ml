@@ -562,9 +562,7 @@ let flow fd = object (_ : <source; sink; ..>)
   method pwrite ~file_offset bufs =
     let bufs = List.map Cstruct.to_bigarray bufs in
     let file_offset = Optint.Int63.to_int64 file_offset in
-    match File.write_single ~file_offset fd bufs |> or_raise |> Unsigned.Size_t.to_int with
-    | 0 -> raise End_of_file
-    | got -> got
+    File.write_single ~file_offset fd bufs |> or_raise |> Unsigned.Size_t.to_int
 
   method read_methods = []
 
@@ -897,7 +895,7 @@ class dir ~label (dir_path : string) = object (self)
 
   method open_in ~sw path =
     let fd = File.open_ ~sw (self#resolve path) [`NOFOLLOW; `RDONLY] |> or_raise_path path in
-    (flow fd :> <Eio.Fs.ro; Eio.Flow.close>)
+    (flow fd :> <Eio.File.ro; Eio.Flow.close>)
 
   method open_out ~sw ~append ~create path =
     let mode, flags =
@@ -914,7 +912,7 @@ class dir ~label (dir_path : string) = object (self)
       else self#resolve_new path
     in
     let fd = File.open_ ~sw real_path flags ~mode:[`NUMERIC mode] |> or_raise_path path in
-    (flow fd :> <Eio.Fs.rw; Eio.Flow.close>)
+    (flow fd :> <Eio.File.rw; Eio.Flow.close>)
 
   method open_dir ~sw path =
     Switch.check sw;

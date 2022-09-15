@@ -12,17 +12,6 @@ exception Already_exists of path * exn
 exception Not_found of path * exn
 exception Permission_denied of path * exn
 
-class virtual ro = object (_ : <Generic.t; Flow.source; ..>)
-  method virtual pread : file_offset:Optint.Int63.t -> Cstruct.t list -> int
-end
-
-class virtual rw = object (_ : <Generic.t; Flow.source; Flow.sink; ..>)
-  inherit ro
-  method virtual pwrite : file_offset:Optint.Int63.t -> Cstruct.t list -> int
-  method probe _ = None
-  method read_methods = []
-end
-
 (** When to create a new file. *)
 type create = [
   | `Never                            (** fail if the named file doesn't exist *)
@@ -35,12 +24,12 @@ type create = [
 (** Note: use the functions in {!Path} to access directories. *)
 class virtual dir = object (_ : #Generic.t)
   method probe _ = None
-  method virtual open_in : sw:Switch.t -> path -> <ro; Flow.close>
+  method virtual open_in : sw:Switch.t -> path -> <File.ro; Flow.close>
   method virtual open_out :
     sw:Switch.t ->
     append:bool ->
     create:create ->
-    path -> <rw; Flow.close>
+    path -> <File.rw; Flow.close>
   method virtual mkdir : perm:Unix_perm.t -> path -> unit
   method virtual open_dir : sw:Switch.t -> path -> dir_with_close
   method virtual read_dir : path -> string list
@@ -54,27 +43,3 @@ and virtual dir_with_close = object
   inherit dir
   method virtual close : unit
 end
-
-let pread (t : #ro) ~file_offset bufs =
-  let got = t#pread ~file_offset bufs in
-  assert (got > 0 && got <= Cstruct.lenv bufs);
-  got
-
-let rec pread_exact (t : #ro) ~file_offset bufs =
-  if Cstruct.lenv bufs > 0 then (
-    let got = t#pread ~file_offset bufs in
-    let file_offset = Optint.Int63.add file_offset (Optint.Int63.of_int got) in
-    pread_exact t ~file_offset (Cstruct.shiftv bufs got)
-  )
-
-let pwrite (t : #rw) ~file_offset bufs =
-  let got = t#pwrite ~file_offset bufs in
-  assert (got > 0 && got <= Cstruct.lenv bufs);
-  got
-
-let rec pwrite_exact (t : #rw) ~file_offset bufs =
-  if Cstruct.lenv bufs > 0 then (
-    let got = t#pwrite ~file_offset bufs in
-    let file_offset = Optint.Int63.add file_offset (Optint.Int63.of_int got) in
-    pwrite_exact t ~file_offset (Cstruct.shiftv bufs got)
-  )

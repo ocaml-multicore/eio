@@ -25,6 +25,7 @@ module Buf_write = Buf_write
 module Net = Net
 module Domain_manager = Domain_manager
 module Time = Time
+module File = File
 module Fs = Fs
 module Path = Path
 

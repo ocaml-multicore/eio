@@ -1210,7 +1210,7 @@ class dir ~label (fd : dir_fd) = object
         ~flags:Uring.Open_flags.cloexec
         ~perm:0
     in
-    (flow fd :> <Eio.Fs.ro; Eio.Flow.close>)
+    (flow fd :> <Eio.File.ro; Eio.Flow.close>)
 
   method open_out ~sw ~append ~create path =
     let perm, flags =
@@ -1226,7 +1226,7 @@ class dir ~label (fd : dir_fd) = object
         ~flags:Uring.Open_flags.(cloexec + flags)
         ~perm
     in
-    (flow fd :> <Eio.Fs.rw; Eio.Flow.close>)
+    (flow fd :> <Eio.File.rw; Eio.Flow.close>)
 
   method open_dir ~sw path =
     let fd = Low_level.openat ~sw ~seekable:false fd path
