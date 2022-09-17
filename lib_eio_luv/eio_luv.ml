@@ -366,14 +366,15 @@ module Low_level = struct
       await_with_cancel ~request (fun loop -> Luv.File.write ~loop ~request ?file_offset (get "write" fd) bufs)
 
     let rec write fd bufs =
-      let request = Luv.File.Request.make () in
-      let sent = await_with_cancel ~request (fun loop -> Luv.File.write ~loop ~request (get "write" fd) bufs) |> or_raise in
-      let rec aux = function
-        | [] -> ()
-        | x :: xs when Luv.Buffer.size x = 0 -> aux xs
-        | bufs -> write fd bufs
-      in
-      aux @@ Luv.Buffer.drop bufs (Unsigned.Size_t.to_int sent)
+      match write_single fd bufs with
+      | Error _ as e -> e
+      | Ok sent ->
+        let rec aux = function
+          | [] -> Ok ()
+          | x :: xs when Luv.Buffer.size x = 0 -> aux xs
+          | bufs -> write fd bufs
+        in
+        aux @@ Luv.Buffer.drop bufs (Unsigned.Size_t.to_int sent)
 
     let realpath path =
       let request = Luv.File.Request.make () in
@@ -572,7 +573,7 @@ let flow fd = object (_ : <source; sink; ..>)
       while true do
         let got = Eio.Flow.read src (Cstruct.of_bigarray buf) in
         let sub = Luv.Buffer.sub buf ~offset:0 ~length:got in
-        File.write fd [sub]
+        File.write fd [sub] |> or_raise
       done
     with End_of_file -> ()
 end
