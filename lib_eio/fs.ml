@@ -12,11 +12,6 @@ exception Already_exists of path * exn
 exception Not_found of path * exn
 exception Permission_denied of path * exn
 
-class virtual rw = object (_ : <Generic.t; Flow.source; Flow.sink; ..>)
-  method probe _ = None
-  method read_methods = []
-end
-
 (** When to create a new file. *)
 type create = [
   | `Never                            (** fail if the named file doesn't exist *)
@@ -29,12 +24,12 @@ type create = [
 (** Note: use the functions in {!Path} to access directories. *)
 class virtual dir = object (_ : #Generic.t)
   method probe _ = None
-  method virtual open_in : sw:Switch.t -> path -> <Flow.source; Flow.close>
+  method virtual open_in : sw:Switch.t -> path -> <File.ro; Flow.close>
   method virtual open_out :
     sw:Switch.t ->
     append:bool ->
     create:create ->
-    path -> <rw; Flow.close>
+    path -> <File.rw; Flow.close>
   method virtual mkdir : perm:Unix_perm.t -> path -> unit
   method virtual open_dir : sw:Switch.t -> path -> dir_with_close
   method virtual read_dir : path -> string list

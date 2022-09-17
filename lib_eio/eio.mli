@@ -134,6 +134,9 @@ module Time : sig
       raising exception [Timeout]. *)
 end
 
+(** Operations on open files. *)
+module File = File
+
 (** File-system types. *)
 module Fs = Fs
 

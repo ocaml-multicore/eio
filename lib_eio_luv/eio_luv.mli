@@ -61,11 +61,15 @@ module Low_level : sig
       string -> Luv.File.Open_flag.t list -> t or_error
     (** Wraps {!Luv.File.open_} *)
 
-    val read : t -> Luv.Buffer.t list -> Unsigned.Size_t.t or_error
+    val read : ?file_offset:int64 -> t -> Luv.Buffer.t list -> Unsigned.Size_t.t or_error
     (** Wraps {!Luv.File.read} *)
 
-    val write : t -> Luv.Buffer.t list -> unit
-    (** [write t bufs] writes all the data in [bufs] (which may take several calls to {!Luv.File.write}). *)
+    val write_single : ?file_offset:int64 -> t -> Luv.Buffer.t list -> Unsigned.Size_t.t or_error
+    (** [write_single t bufs] performs a single write call and returns the number of bytes written,
+        which may be less than the amount of data provided in [bufs]. *)
+
+    val write : t -> Luv.Buffer.t list -> unit or_error
+    (** [write t bufs] writes all the data in [bufs] (which may take several calls to {!write_single}). *)
 
     val realpath : string -> string or_error
     (** Wraps {!Luv.File.realpath} *)
