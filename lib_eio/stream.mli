@@ -28,6 +28,16 @@ val add : 'a t -> 'a -> unit
 
     If this would take [t] over capacity, it blocks until there is space. *)
 
+val add_nonblocking : 'a t -> 'a -> bool
+(** [add_nonblocking t item] adds [item] to [t].
+
+    Returns true if added, false if it would block. *)
+
+val add_canfail : 'a t -> 'a -> unit
+(** [add_canfail t item] tries to add [item] to [t].
+
+    Adding can fail if [t] is full, only use this when you want unreliable streams. *)
+
 val take : 'a t -> 'a
 (** [take t] takes the next item from the head of [t].
 

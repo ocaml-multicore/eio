@@ -64,6 +64,22 @@ let add t item =
         )
     )
 
+let add_nonblocking t item =
+  Mutex.lock t.mutex;
+  match Waiters.wake_one t.readers item with
+  | `Ok -> Mutex.unlock t.mutex; true
+  | `Queue_empty ->
+    (* No-one is waiting for an item. Queue it. *)
+    if Queue.length t.items < t.capacity then (
+      Queue.add item t.items;
+      Mutex.unlock t.mutex;
+      true
+    ) else (
+      Mutex.unlock t.mutex;
+      false)
+
+let add_canfail t item = ignore @@ add_nonblocking t item
+
 let take t =
   Mutex.lock t.mutex;
   match Queue.take_opt t.items with

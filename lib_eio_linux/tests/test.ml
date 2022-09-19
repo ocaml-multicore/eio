@@ -31,7 +31,7 @@ let test_poll_add () =
   Alcotest.(check string) "Received data" "!" result
 
 let test_poll_add_busy () =
-  Eio_linux.run ~queue_depth:2 @@ fun _stdenv ->
+  Eio_linux.run ~queue_depth:3 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   let a = read_one_byte ~sw r in

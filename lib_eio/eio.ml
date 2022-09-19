@@ -28,6 +28,7 @@ module Time = Time
 module File = File
 module Fs = Fs
 module Path = Path
+module Signal = Signal
 
 module Stdenv = struct
   type t = <

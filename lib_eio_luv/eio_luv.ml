@@ -120,6 +120,7 @@ type t = {
   async : Luv.Async.t;                          (* Will process [run_q] when prodded. *)
   run_q : runnable Lf_queue.t;
   mutable fd_map : fd_event_waiters Fd_map.t;   (* Used for mapping readable/writable poll handles *)
+  signal_map : (unit Eio.Stream.t, Luv.Signal.t) Hashtbl.t; (* Maps a signal box into a handle *)
 }
 
 type _ Effect.t += Await : (Luv.Loop.t -> Eio.Private.Fiber_context.t -> ('a -> unit) -> unit) -> 'a Effect.t
@@ -1189,7 +1190,8 @@ let rec run : type a. (_ -> a) -> a = fun main ->
         Fmt.epr "Uncaught exception in run loop:@,%a@." Fmt.exn_backtrace (ex, bt);
         Luv.Loop.stop loop
     ) |> or_raise in
-  let st = { loop; async; run_q; fd_map = Fd_map.empty } in
+  let st = { loop; async; run_q; fd_map = Fd_map.empty;
+             signal_map = Hashtbl.create Eio.Signal.nsig } in
   let stdenv = stdenv ~run_event_loop:run in
   let rec fork ~new_fiber:fiber fn =
     Ctf.note_switch (Fiber_context.tid fiber);
@@ -1275,7 +1277,25 @@ let rec run : type a. (_ -> a) -> a = fun main ->
             let w = (flow (File.of_luv ~close_unix:true ~sw w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
             continue k (r, w)
           )
-        | _ -> None
+          | Eio.Signal.Private.Subscribe (signum, box) -> Some (fun k ->
+              let handle = Luv.Signal.init ~loop () |> or_raise in
+              Luv.Signal.start handle signum
+                (fun () -> Eio.Stream.add_canfail box ())
+              |> or_raise;
+              Hashtbl.add st.signal_map box handle;
+              continue k ()
+            )
+          | Eio.Signal.Private.Unsubscribe (_signum, box) -> Some (fun k ->
+              let handle = Hashtbl.find st.signal_map box in
+              Hashtbl.remove st.signal_map box;
+              Luv.Signal.stop handle |> or_raise;
+              continue k ()
+            )
+          | Eio.Signal.Private.Publish signum -> Some (fun k ->
+              Unix.kill (Unix.getpid ()) signum;
+              continue k ()
+            )
+          | _ -> None
     }
   in
   let main_status = ref `Running in

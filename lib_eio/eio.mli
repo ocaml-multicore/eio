@@ -120,6 +120,9 @@ module Fs = Fs
 (** Accessing paths on a file-system. *)
 module Path = Path
 
+(** Setting up signal handlers. *)
+module Signal = Signal
+
 (** Control over debugging. *)
 module Debug : sig
   (** Example:

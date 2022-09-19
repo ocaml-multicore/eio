@@ -190,6 +190,9 @@ type t = {
   eventfd : FD.t;
   eventfd_mutex : Mutex.t;
 
+  (* We use the old trick of writing to a pipe from the signal handler *)
+  signal_pipe : Unix.file_descr * Unix.file_descr;
+
   (* If [false], the main thread will check [run_q] before sleeping again
      (possibly because an event has been or will be sent to [eventfd]).
      It can therefore be set to [false] in either of these cases:
@@ -960,6 +963,43 @@ end
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
+module Signal = struct
+  let sigmap = Array.init Eio.Signal.nsig (fun _ -> (Atomic.make []))
+  let sigmap_mutex = Mutex.create ()
+
+  let with_signal f =
+    Mutex.lock sigmap_mutex;
+    f ();
+    Mutex.unlock sigmap_mutex
+
+  let unsubscribe signum box =
+    with_signal (fun () ->
+        let nl = List.filter (fun box' -> box != box')
+            (Atomic.get sigmap.(signum)) in
+        if nl = [] then
+          Sys.set_signal signum Sys.Signal_default;
+        Atomic.set sigmap.(signum) nl)
+
+  let subscribe signum box pipe =
+    with_signal (fun () ->
+        let ol = Atomic.get sigmap.(signum) in
+        let first = ol = [] in
+        Atomic.set sigmap.(signum) (box :: ol);
+        if first then
+          Sys.set_signal signum
+            (Sys.Signal_handle
+               (fun _sysnum ->
+                  let b = Bytes.create 1 in
+                  Bytes.set_uint8  b 0 signum;
+                  let n = Unix.single_write (snd pipe) b 0 1 in
+                  assert (n = 1))))
+
+  let publish signum =
+    List.iter
+      (fun box -> Eio.Stream.add_canfail box ()) (Atomic.get sigmap.(signum))
+
+end
+
 type has_fd = < fd : FD.t >
 type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
 type sink   = < Eio.Flow.sink  ; Eio.Flow.close; has_fd >
@@ -1362,6 +1402,16 @@ let monitor_event_fd t =
   done;
   assert false
 
+let monitor_signals signal_in =
+  let buf = Cstruct.create 1 in
+  let rec loop () =
+    let got = Low_level.readv signal_in [ buf ] in
+    assert (got = 1);
+    Signal.publish (Cstruct.get_uint8 buf 0);
+    loop ()
+  in
+  loop ()
+
 let no_fallback (`Msg msg) = failwith msg
 
 (* Don't use [Fun.protect] - it throws away the original exception! *)
@@ -1404,7 +1454,11 @@ let rec run : type a.
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
   let eventfd = FD.placeholder ~seekable:false ~close_unix:false in
-  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q } in
+  let signal_pipe = Unix.pipe ~cloexec:true () in
+  Unix.set_nonblock (snd signal_pipe); (* We can't block inside a signal handler *)
+  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; signal_pipe;
+             need_wakeup = Atomic.make false; sleep_q }
+  in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
@@ -1512,6 +1566,12 @@ let rec run : type a.
               let w = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
               continue k (r, w)
             )
+          | Eio.Signal.Private.Subscribe (signum, box) -> Some (fun k ->
+              continue k (Signal.subscribe signum box st.signal_pipe))
+          | Eio.Signal.Private.Unsubscribe (signum, box) -> Some (fun k ->
+              continue k (Signal.unsubscribe signum box))
+          | Eio.Signal.Private.Publish signum -> Some (fun k ->
+              continue k (Unix.kill (Unix.getpid ()) signum))
           | Low_level.Alloc -> Some (fun k ->
               match st.mem with
               | None -> continue k None
@@ -1536,19 +1596,29 @@ let rec run : type a.
     let new_fiber = Fiber_context.make_root () in
     fork ~new_fiber (fun () ->
         Switch.run_protected (fun sw ->
-            let fd = eio_eventfd 0 in
-            st.eventfd.fd <- `Open fd;
+            let signal_in, signal_out =
+              FD.of_unix ~sw ~seekable:false ~close_unix:true (fst st.signal_pipe),
+              FD.of_unix ~sw ~seekable:false ~close_unix:true (snd st.signal_pipe)
+            in
+            let eventfd = eio_eventfd 0 in
+            st.eventfd.fd <- `Open eventfd;
             Switch.on_release sw (fun () ->
                 Mutex.lock st.eventfd_mutex;
                 FD.close st.eventfd;
                 Mutex.unlock st.eventfd_mutex;
-                Unix.close fd
+                Unix.close eventfd;
+                FD.close signal_in;
+                FD.close signal_out;
               );
             Log.debug (fun f -> f "Monitoring eventfd %a" FD.pp st.eventfd);
+            Log.debug (fun f -> f "Monitoring signal_in %a (signal_out %a)"
+                          FD.pp signal_in FD.pp signal_out);
             result := Some (
-                Fiber.first
-                  (fun () -> main stdenv)
-                  (fun () -> monitor_event_fd st)
+                Fiber.any [
+                  (fun () -> main stdenv);
+                  (fun () -> monitor_event_fd st);
+                  (fun () -> monitor_signals signal_in);
+                ]
               )
           )
       )
