@@ -450,7 +450,7 @@ ECONNRESET:
   try
     ignore (Eio.Flow.read a (Cstruct.create 1) : int);
     assert false
-  with Eio.Net.Connection_reset _ -> traceln "Connection failed (good)";;
+  with Eio.Net.Connection_reset _ | End_of_file -> traceln "Connection failed (good)";;
 +Connection failed (good)
 - : unit = ()
 ```
