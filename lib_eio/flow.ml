@@ -55,7 +55,20 @@ let cstruct_source data : source =
       avail
   end
 
-let string_source s = cstruct_source [Cstruct.of_string s]
+let string_source s : source =
+  object
+    val mutable offset = 0
+
+    inherit source
+
+    method read_into dst =
+      if offset = String.length s then raise End_of_file;
+
+      let len = min (Cstruct.length dst) (String.length s - offset) in
+      Cstruct.blit_from_string s offset dst 0 len;
+      offset <- offset + len;
+      len
+  end
 
 class virtual sink = object (_ : <Generic.t; ..>)
   method probe _ = None
