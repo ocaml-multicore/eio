@@ -108,3 +108,39 @@ let rec loop () =
     (fun () -> Eio.Time.sleep clock 0.01);;
 - : unit = ()
 ```
+
+### Timeouts
+
+```ocaml
+# run @@ fun ~clock ->
+  Eio.Time.Timeout.(run_exn none) (fun () -> ());
+  let t = Eio.Time.Timeout.of_s clock 0.0001 in
+  Eio.Time.Timeout.run_exn t (fun () -> Fiber.await_cancel ());;
+Exception: Eio__Time.Timeout.
+```
+
+```ocaml
+# run @@ fun ~clock ->
+  let show d =
+    let t = Eio.Time.Timeout.of_s clock d in
+    traceln "%g -> %a" d Eio.Time.Timeout.pp t
+  in
+  show 0.000000001;
+  show 0.01;
+  show 0.1;
+  show 2.;
+  show 60.;
+  show 61.5;
+  show 120.;
+  show (30. *. 60.);
+  ;;
++1e-09 -> 1e-09s
++0.01 -> 10ms
++0.1 -> 0.1s
++2 -> 2s
++60 -> 60s
++61.5 -> 62s
++120 -> 2m
++1800 -> 30m
+- : unit = ()
+```
