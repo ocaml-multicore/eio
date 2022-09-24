@@ -22,4 +22,6 @@ let await_no_mutex t =
   Waiters.await ~mutex:(Some t.mutex) t.waiters t.id
 
 let broadcast t =
-  Waiters.wake_all t.waiters ()
+  Mutex.lock t.mutex;
+  Waiters.wake_all t.waiters ();
+  Mutex.unlock t.mutex
