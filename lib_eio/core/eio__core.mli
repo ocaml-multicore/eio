@@ -173,6 +173,10 @@ end
 
 (** @canonical Eio.Fiber *)
 module Fiber : sig
+  exception Not_first
+  (** Exception attached to [Cancel.Cancelled] when an operation is cancelled
+      in one of the racing functions described below. *)
+
   (** Within a domain, only one fiber can be running at a time.
       A fiber runs until it performs an IO operation (directly or indirectly).
       At that point, it may be suspended and the next fiber on the run queue runs. *)
