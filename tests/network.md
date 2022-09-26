@@ -470,6 +470,20 @@ EPIPE:
 - : unit = ()
 ```
 
+Connection refused:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Switch.run @@ fun sw ->
+  try
+    ignore (Eio.Net.connect ~sw env#net (`Unix "idontexist.sock"));
+    assert false
+  with Eio.Net.Connection_failure _ ->
+    traceln "Connection failure";;
++Connection failure
+- : unit = ()
+```
+
 ## Shutdown
 
 ```ocaml
@@ -549,39 +563,135 @@ EPIPE:
 
 ## with_tcp_connet
 
-<!-- $MDX non-deterministic=command -->
 ```ocaml
-# Eio_main.run @@ fun env ->
-  Eio.Net.with_tcp_connect ~host:"www.example.com" ~service:"http" env#net (fun conn ->
-    let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
-    Eio.Flow.copy_string req conn;
-    let cs = Cstruct.create 25 in
-    Eio.Flow.read_exact conn cs;
-    Eio.Flow.close conn;
-    Eio.traceln "%S" (Cstruct.to_string cs));;
-+"HTTP/1.1 200 OK\r\nAge: 372"
-- : unit = ()
+let net = Eio_mock.Net.make "mock-net"
+let addr1 = `Tcp (Eio.Net.Ipaddr.V4.loopback, 80)
+let addr2 = `Tcp (Eio.Net.Ipaddr.of_raw "\001\002\003\004", 8080)
+let connection_failure = Eio.Net.Connection_failure (Failure "Simulated connection failure")
+```
 
-# Eio_main.run @@ fun env ->
-  Eio.Net.with_tcp_connect ~timeout:(env#clock, 0.1) ~host:"www.example.com" ~service:"http" env#net (fun conn ->
-    let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
-    Eio.Flow.copy_string req conn;
-    let cs = Cstruct.create 25 in
-    Eio.Flow.read_exact conn cs;
-    Eio.Flow.close conn;
-    Eio.traceln "%S" (Cstruct.to_string cs));;
-+"HTTP/1.1 200 OK\r\nAge: 296"
-- : unit = ()
+No usable addresses:
 
-# Eio_main.run @@ fun env ->
-  Eio.Net.with_tcp_connect ~timeout:(env#clock, 0.01) ~host:"www.example.com" ~service:"http" env#net (fun conn ->
-    let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
-    Eio.Flow.copy_string req conn;
-    let cs = Cstruct.create 25 in
-    Eio.Flow.read_exact conn cs;
-    Eio.Flow.close conn;
-    Eio.traceln "%S" (Cstruct.to_string cs));;
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Eio_mock.Net.on_getaddrinfo net [`Return [`Unix "/foo"]];
+  Eio.Net.with_tcp_connect ~host:"www.example.com" ~service:"http" net (fun _ -> assert false);;
++mock-net: getaddrinfo ~service:http www.example.com
 Exception:
 Eio__Net.Connection_failure
- (Failure "Unable to connect to host:www.example.com, service:http").
+ (Failure "No TCP addresses for \"www.example.com\"").
+```
+
+First address works:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
+  let mock_flow = Eio_mock.Flow.make "flow" in
+  Eio_mock.Net.on_connect net [`Return mock_flow];
+  Eio.Net.with_tcp_connect ~host:"www.example.com" ~service:"http" net (fun conn ->
+     let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
+     Eio.Flow.copy_string req conn
+  );;
++mock-net: getaddrinfo ~service:http www.example.com
++mock-net: connect to tcp:127.0.0.1:80
++flow: wrote "GET / HTTP/1.1\r\n"
++            "Host:www.example.com:80\r\n"
++            "\r\n"
++flow: closed
+- : unit = ()
+```
+
+Second address works:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
+  let mock_flow = Eio_mock.Flow.make "flow" in
+  Eio_mock.Net.on_connect net [`Raise connection_failure;
+                               `Return mock_flow];
+  Eio.Net.with_tcp_connect ~host:"www.example.com" ~service:"http" net (fun conn ->
+     let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
+     Eio.Flow.copy_string req conn
+  );;
++mock-net: getaddrinfo ~service:http www.example.com
++mock-net: connect to tcp:127.0.0.1:80
++mock-net: connect to tcp:1.2.3.4:8080
++flow: wrote "GET / HTTP/1.1\r\n"
++            "Host:www.example.com:80\r\n"
++            "\r\n"
++flow: closed
+- : unit = ()
+```
+
+Both addresses fail:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
+  Eio_mock.Net.on_connect net [`Raise connection_failure; `Raise connection_failure];
+  Eio.Net.with_tcp_connect ~host:"www.example.com" ~service:"http" net (fun _ -> assert false);;
++mock-net: getaddrinfo ~service:http www.example.com
++mock-net: connect to tcp:127.0.0.1:80
++mock-net: connect to tcp:1.2.3.4:8080
+Exception:
+Eio__Net.Connection_failure (Failure "Simulated connection failure").
+```
+
+First attempt times out:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let clock = Eio_mock.Clock.make () in
+  let timeout = Eio.Time.Timeout.of_s clock 10. in
+  Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
+  let mock_flow = Eio_mock.Flow.make "flow" in
+  Eio_mock.Net.on_connect net [`Run Fiber.await_cancel; `Return mock_flow];
+  Fiber.both
+    (fun () ->
+       Eio.Net.with_tcp_connect ~timeout ~host:"www.example.com" ~service:"http" net (fun conn ->
+          let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
+          Eio.Flow.copy_string req conn
+       )
+    )
+    (fun () ->
+       Eio_mock.Clock.advance clock
+     );;
++mock-net: getaddrinfo ~service:http www.example.com
++mock-net: connect to tcp:127.0.0.1:80
++mock time is now 10
++mock-net: connect to tcp:1.2.3.4:8080
++flow: wrote "GET / HTTP/1.1\r\n"
++            "Host:www.example.com:80\r\n"
++            "\r\n"
++flow: closed
+- : unit = ()
+```
+
+Both attempts time out:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let clock = Eio_mock.Clock.make () in
+  let timeout = Eio.Time.Timeout.of_s clock 10. in
+  Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
+  Eio_mock.Net.on_connect net [`Run Fiber.await_cancel; `Run Fiber.await_cancel];
+  Fiber.both
+    (fun () ->
+       Eio.Net.with_tcp_connect ~timeout ~host:"www.example.com" ~service:"http" net (fun _ ->
+          assert false
+       )
+    )
+    (fun () ->
+       Eio_mock.Clock.advance clock;
+       Fiber.yield ();
+       Fiber.yield ();
+       Eio_mock.Clock.advance clock
+     );;
++mock-net: getaddrinfo ~service:http www.example.com
++mock-net: connect to tcp:127.0.0.1:80
++mock time is now 10
++mock-net: connect to tcp:1.2.3.4:8080
++mock time is now 20
+Exception: Eio__Net.Connection_failure Eio__Time.Timeout.
 ```

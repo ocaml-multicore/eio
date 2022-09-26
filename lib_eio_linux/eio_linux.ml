@@ -747,8 +747,8 @@ module Low_level = struct
     let res = enter (enqueue_connect fd addr) in
     Log.debug (fun l -> l "connect returned");
     if res < 0 then (
-      let err = Uring.error_of_errno res |> Unix.error_message in
-      raise (Eio.Net.Unix_error (err, "connect", ""))
+      let ex = Unix.Unix_error (Uring.error_of_errno res, "connect", "") in
+      raise (Eio.Net.Connection_failure ex)
     )
 
   let send_msg fd ?(fds=[]) ?dst buf =

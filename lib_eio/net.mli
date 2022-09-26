@@ -12,7 +12,6 @@
 *)
 
 exception Connection_reset of exn
-exception Unix_error of string * string * string
 exception Connection_failure of exn
 
 (** IP addresses. *)
@@ -117,31 +116,31 @@ val connect : sw:Switch.t -> #t -> Sockaddr.stream -> <stream_socket; Flow.close
 
     The new socket will be closed when [sw] finishes, unless closed manually first.
 
-    @raise Unix_error if connection couldn't be established. *)
-
-type 'a timeout = (#Time.clock as 'a) * float
+    @raise Connection_failure if connection couldn't be established. *)
 
 val with_tcp_connect :
-  ?timeout:'a timeout ->
+  ?timeout:Time.Timeout.t ->
   host:string ->
   service:string ->
   #t ->
   (<stream_socket; Flow.close> -> 'b) ->
   'b
 (** [with_tcp_connect ~host ~service t f] creates a tcp connection [conn] to [host] and [service] and executes 
-    [f conn]. IPv6 connection is preferred over IPv4 addresses if [host] provides them. If a connection
-    can't be established for any of the addresses defined for [host], then [Connection_failure] exception is raised.
+    [f conn].
 
-    [conn] is closed after [f] returns if it isn't already closed.
+    [conn] is closed after [f] returns (if it isn't already closed by then).
 
     [host] is either an IP address or a domain name, eg. "www.example.org", "www.ocaml.org" or "127.0.0.1".
 
     [service] is an IANA recognized service name or port number, eg. "http", "ftp", "8080" etc.
     See https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml.
 
-    [timeout] specifies the amount of seconds to wait for establishing the connection to host per host ip address.
+    Addresses are tried in the order they are returned by {!getaddrinfo}, until one succeeds.
 
-    @raise Connection_failure. *)
+    @param timeout Limits how long to wait for each connection attempt before moving on to the next.
+                   By default there is no timeout (beyond what the underlying network does).
+
+    @raise Connection_failure A connection couldn't be established for any of the addresses defined for [host]. *)
 
 (** {2 Incoming Connections} *)
 
