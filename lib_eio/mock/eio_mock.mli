@@ -156,6 +156,9 @@ module Net : sig
   (** [on_accept socket actions] configures how to respond when the server calls "accept". *)
 end
 
+(** A mock {!Eio.Time} clock for testing timeouts. *)
+module Clock = Clock
+
 (** {2 Backend for mocks}
 
     The mocks can be used with any backend, but if you don't need any IO then you can use this one

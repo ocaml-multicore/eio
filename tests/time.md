@@ -2,6 +2,7 @@
 
 ```ocaml
 # #require "eio_main";;
+# #require "eio.mock";;
 ```
 
 ```ocaml
@@ -143,4 +144,88 @@ Exception: Eio__Time.Timeout.
 +120 -> 2m
 +1800 -> 30m
 - : unit = ()
+```
+
+### Mock clock
+
+```ocaml
+let mock = Eio_mock.Clock.make ()
+let sleeper label time () = Eio.Time.sleep_until mock time; traceln "%s (%g) woken" label time
+```
+
+Advancing the time:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Fiber.all [
+    sleeper "A" 5.0;
+    sleeper "B" 7.0;
+    sleeper "C" 2.0;
+    sleeper "D" 0.0;
+    sleeper "E" 5.0;
+    (fun () ->
+       while true do
+         Fiber.yield ();
+         Eio_mock.Clock.advance mock
+       done
+    )
+  ];;
++D (0) woken
++mock time is now 2
++C (2) woken
++mock time is now 5
++A (5) woken
++E (5) woken
++mock time is now 7
++B (7) woken
+Exception: Invalid_argument "No further events scheduled on mock clock".
+```
+
+Setting the time directly:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Eio_mock.Clock.set_time mock 0.0;
+  Fiber.all [
+    sleeper "A" 5.0;
+    sleeper "B" 7.0;
+    sleeper "C" 2.0;
+    sleeper "D" 0.0;
+    sleeper "E" 5.0;
+    (fun () ->
+       Fiber.yield ();
+       Eio_mock.Clock.set_time mock 5.0;
+       Fiber.yield ();
+       Eio_mock.Clock.set_time mock 1.0;
+       Fiber.yield ();
+       Eio_mock.Clock.set_time mock 10.0;
+       Fiber.yield ();
+       Eio_mock.Clock.set_time mock 12.0
+    )
+  ];;
++mock time is now 0
++D (0) woken
++mock time is now 5
++C (2) woken
++A (5) woken
++E (5) woken
++mock time is now 1
++mock time is now 10
++B (7) woken
++mock time is now 12
+- : unit = ()
+```
+
+Cancellation:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Eio_mock.Clock.set_time mock 0.0;
+  Fiber.first
+    (sleeper "A" 5.0)
+    (fun () -> traceln "Cancel sleeper");
+  Eio_mock.Clock.advance mock;;
++mock time is now 0
++Cancel sleeper
+Exception: Invalid_argument "No further events scheduled on mock clock".
 ```
