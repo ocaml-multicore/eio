@@ -29,7 +29,7 @@ let traceln ?__POS__ fmt =
     match Fiber.get traceln_key with
     | Some { traceln } -> traceln
     | None
-    | exception Unhandled -> default_traceln
+    | exception (Effect.Unhandled _) -> default_traceln
   in
   traceln ?__POS__ fmt
 
