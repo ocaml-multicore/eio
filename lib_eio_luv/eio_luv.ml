@@ -489,8 +489,9 @@ module Low_level = struct
 
     let connect_pipe ~sw path =
       let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
-      await_exn (fun _loop _fiber -> Luv.Pipe.connect (Handle.get "connect" sock) path);
-      sock
+      match await (fun _loop _fiber -> Luv.Pipe.connect (Handle.get "connect" sock) path) with
+      | Ok () -> sock
+      | Error e -> raise (Eio.Net.Connection_failure (Luv_error e))
 
     let connect_tcp ~sw addr =
       let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise in
@@ -503,7 +504,7 @@ module Low_level = struct
                 Luv.Handle.close sock ignore;
                 match Fiber_context.get_error k.fiber with
                 | Some ex -> enqueue_failed_thread st k ex
-                | None -> enqueue_failed_thread st k (Luv_error e)
+                | None -> enqueue_failed_thread st k (Eio.Net.Connection_failure (Luv_error e))
             );
           Fiber_context.set_cancel_fn k.fiber (fun _ex ->
               match Luv.Handle.fileno sock with

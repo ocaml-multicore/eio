@@ -12,6 +12,7 @@
 *)
 
 exception Connection_reset of exn
+exception Connection_failure of exn
 
 (** IP addresses. *)
 module Ipaddr : sig
@@ -113,7 +114,33 @@ end
 val connect : sw:Switch.t -> #t -> Sockaddr.stream -> <stream_socket; Flow.close>
 (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
-    The new socket will be closed when [sw] finishes, unless closed manually first. *)
+    The new socket will be closed when [sw] finishes, unless closed manually first.
+
+    @raise Connection_failure if connection couldn't be established. *)
+
+val with_tcp_connect :
+  ?timeout:Time.Timeout.t ->
+  host:string ->
+  service:string ->
+  #t ->
+  (<stream_socket; Flow.close> -> 'b) ->
+  'b
+(** [with_tcp_connect ~host ~service t f] creates a tcp connection [conn] to [host] and [service] and executes 
+    [f conn].
+
+    [conn] is closed after [f] returns (if it isn't already closed by then).
+
+    [host] is either an IP address or a domain name, eg. "www.example.org", "www.ocaml.org" or "127.0.0.1".
+
+    [service] is an IANA recognized service name or port number, eg. "http", "ftp", "8080" etc.
+    See https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml.
+
+    Addresses are tried in the order they are returned by {!getaddrinfo}, until one succeeds.
+
+    @param timeout Limits how long to wait for each connection attempt before moving on to the next.
+                   By default there is no timeout (beyond what the underlying network does).
+
+    @raise Connection_failure A connection couldn't be established for any of the addresses defined for [host]. *)
 
 (** {2 Incoming Connections} *)
 
