@@ -598,6 +598,10 @@ module Private : sig
     (** [wake_one t] is like {!wake_all}, but only calls (and removes) the first waiter in the queue.
         If [t] is shared between domains, the caller must hold the mutex while calling this. *)
 
+    val wake_one' : 'a t -> 'a -> unit
+    (** [wake_one t] is like {!wake_all}, but only calls (and removes) the first waiter in the queue.
+        If [t] is shared between domains, the caller must hold the mutex while calling this. *)
+
     val is_empty : 'a t -> bool
     (** [is_empty t] checks whether there are any functions waiting on [t].
         If [t] is shared between domains, the caller must hold the mutex while calling this,

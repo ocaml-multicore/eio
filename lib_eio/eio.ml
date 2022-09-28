@@ -15,6 +15,7 @@ end
 
 module Semaphore = Semaphore
 module Mutex = Eio_mutex
+module Mbox = Mbox
 module Condition = Condition
 module Stream = Stream
 module Exn = Exn

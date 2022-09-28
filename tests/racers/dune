@@ -1,0 +1,3 @@
+(executables
+  (names race_mbox)
+  (libraries eio_main))

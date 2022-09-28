@@ -8,6 +8,8 @@ val wake_all : 'a t -> 'a -> unit
 
 val wake_one : 'a t -> 'a -> [`Ok | `Queue_empty]
 
+val wake_one' : 'a t -> 'a -> unit
+
 val is_empty : 'a t -> bool
 
 val await :

@@ -34,6 +34,9 @@ module Semaphore = Semaphore
 (** Mutual exclusion. *)
 module Mutex = Eio_mutex
 
+(** Asynchronous, mailbox-like message passing. *)
+module Mbox = Mbox
+
 (** Waiting for a condition to become true. *)
 module Condition = Condition
 
