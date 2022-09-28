@@ -1162,11 +1162,87 @@ let net = object
   method getnameinfo = Eio_unix.getnameinfo
 end
 
+let pid_to_process close pid = object
+  inherit Eio.Process.process
+  method pid = pid
+  method status = 
+    match Eio_unix.run_in_systhread @@ fun () -> let v = Unix.waitpid [] pid in close (); v with
+    | _, WEXITED i -> Exited i
+    | _, WSIGNALED i -> Signaled i
+    | _, WSTOPPED i -> Stopped i
+  
+  method stop = 
+    Unix.kill pid Sys.sigkill
+end
+
+let source_or_std fd = function
+  | Some flow -> flow
+  | None -> (source (FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd) :> Eio.Flow.source)
+
+let sink_or_std fd = function
+  | Some flow -> flow
+  | None -> (sink (FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd) :> Eio.Flow.sink)
+
+let get_fd_or_err flow =
+  match get_fd_opt flow with
+  | Some fd -> 
+    Unix.dup ~cloexec:false (FD.to_unix `Peek fd)
+  | None -> failwith "Currently only flows backed by file descriptors are supported!"
+
+let open_null flags = lazy (Unix.openfile "/dev/null" flags 0o666)
+
+let dev_null_in = open_null [ Unix.O_RDONLY; Unix.O_CLOEXEC ]
+
+let dev_null_out = open_null [ Unix.O_WRONLY; Unix.O_CLOEXEC ]
+
+let process = object
+  inherit Eio.Process.t
+
+  (* TODO: Is Sys.chdir cwd domain-safe, ? *)
+  method spawn ~sw ?cwd ?stderr ?stdout ?stdin cmd args =
+    let stdin = source_or_std (Lazy.force dev_null_in) stdin |> get_fd_or_err in
+    let stdout = sink_or_std (Lazy.force dev_null_out) stdout |> get_fd_or_err in
+    let stderr = sink_or_std (Lazy.force dev_null_out) stderr |> get_fd_or_err in
+    let pid =
+      Option.iter Sys.chdir cwd;
+      Unix.create_process cmd
+        (Array.of_list args) 
+        stdin stdout stderr
+    in
+    let close () =
+      Unix.close stdin;
+      Unix.close stdout;
+      Unix.close stderr
+    in
+    let process = pid_to_process close pid in
+    let cleanup () =
+      try 
+        ignore (Unix.waitpid [] pid);
+        close ()
+      with Unix.Unix_error (ECHILD, _, _) -> ()
+    in
+    Switch.on_release sw cleanup;
+    process
+    
+
+  method spawn_detached ?cwd ?stderr ?stdout ?stdin cmd args = 
+    let pid =
+      Option.iter Sys.chdir cwd;
+      Unix.create_process cmd 
+        (Array.of_list args) 
+        (get_fd_or_err (source_or_std (Lazy.force dev_null_in) stdin))
+        (get_fd_or_err (sink_or_std (Lazy.force dev_null_out) stdout))
+        (get_fd_or_err (sink_or_std (Lazy.force dev_null_out) stderr))
+    in
+    pid_to_process (fun () -> ()) pid
+end
+
 type stdenv = <
   stdin  : source;
   stdout : sink;
   stderr : sink;
   net : Eio.Net.t;
+  process : Eio.Process.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   fs : Eio.Fs.dir Eio.Path.t;
@@ -1280,6 +1356,7 @@ let stdenv ~run_event_loop =
     method stdout = Lazy.force stdout
     method stderr = Lazy.force stderr
     method net = net
+    method process = process
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
     method fs = (fs :> Eio.Fs.dir Eio.Path.t)

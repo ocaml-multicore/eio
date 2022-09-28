@@ -41,6 +41,7 @@ module FD = struct
   let take x = x#unix_fd `Take
 
   let peek_opt x = Eio.Generic.probe x (Private.Unix_file_descr `Peek)
+
   let take_opt x = Eio.Generic.probe x (Private.Unix_file_descr `Take)
 
   let as_socket ~sw ~close_unix fd = Effect.perform (Private.Socket_of_fd (sw, close_unix, fd))
