@@ -29,12 +29,6 @@ let wake_all (t:_ t) v =
     done
   with Lwt_dllist.Empty -> ()
 
-let wake_one' t v =
-  try
-    let waiter = Lwt_dllist.take_r t in
-    ignore (wake waiter v : bool)
-  with Lwt_dllist.Empty -> ()
-
 let rec wake_one t v =
   match Lwt_dllist.take_opt_r t with
   | None -> `Queue_empty

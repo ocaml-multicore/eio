@@ -23,7 +23,7 @@ let send (t:'a t) (m : 'a) : unit =
       Waiters.await ~mutex:(Some t.mutex) t.writers t.id
     | None ->
       t.value := Some m;
-      Waiters.wake_one' t.readers ();
+      Waiters.wake_one t.readers () |> ignore;
       Mutex.unlock t.mutex;
       sent := true
   in
@@ -38,7 +38,7 @@ let recv t =
     match !(t.value) with
     | Some v ->
       t.value := None;
-      Waiters.wake_one' t.writers ();
+      Waiters.wake_one t.writers () |> ignore;
       Mutex.unlock t.mutex;
       received := Some v
     | None ->
