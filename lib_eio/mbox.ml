@@ -24,8 +24,8 @@ let send (t:'a t) (m : 'a) : unit =
     | None ->
       t.value := Some m;
       Waiters.wake_one' t.readers ();
-      sent := true;
-      Mutex.unlock t.mutex
+      Mutex.unlock t.mutex;
+      sent := true
   in
   while !sent = false do
     wait ()
@@ -38,9 +38,9 @@ let recv t =
     match !(t.value) with
     | Some v ->
       t.value := None;
-      received := Some v;
       Waiters.wake_one' t.writers ();
-      Mutex.unlock t.mutex
+      Mutex.unlock t.mutex;
+      received := Some v
     | None ->
       Waiters.await ~mutex:(Some t.mutex) t.readers t.id
   in
