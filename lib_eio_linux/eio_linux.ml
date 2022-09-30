@@ -1162,11 +1162,15 @@ let net = object
   method getnameinfo = Eio_unix.getnameinfo
 end
 
+let rec wait_for_process flags pid = 
+  try Unix.waitpid flags pid with
+  | Unix.Unix_error (Unix.EINTR, _, _) -> wait_for_process flags pid
+
 let pid_to_process close pid = object
   inherit Eio.Process.t
   method pid = pid
   method status = 
-    match Eio_unix.run_in_systhread @@ fun () -> let v = Unix.waitpid [] pid in close (); v with
+    match Eio_unix.run_in_systhread @@ fun () -> let v = wait_for_process [] pid in close (); v with
     | _, WEXITED i -> Exited i
     | _, WSIGNALED i -> Signaled i
     | _, WSTOPPED i -> Stopped i
@@ -1204,7 +1208,7 @@ let process = object
     let process = pid_to_process close pid in
     let cleanup () =
       try 
-        ignore (Unix.waitpid [] pid);
+        ignore (wait_for_process [] pid);
         close ()
       with Unix.Unix_error (ECHILD, _, _) -> ()
     in
