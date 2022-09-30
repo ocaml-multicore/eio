@@ -1203,6 +1203,7 @@ let process = object
     let stdin = source_or_std (Lazy.force dev_null_in) stdin |> get_fd_or_err in
     let stdout = sink_or_std (Lazy.force dev_null_out) stdout |> get_fd_or_err in
     let stderr = sink_or_std (Lazy.force dev_null_out) stderr |> get_fd_or_err in
+    let cwd = Option.map snd cwd in
     let pid =
       Option.iter Sys.chdir cwd;
       Unix.create_process cmd
@@ -1226,6 +1227,7 @@ let process = object
     
 
   method spawn_detached ?cwd ?stderr ?stdout ?stdin cmd args = 
+    let cwd = Option.map snd cwd in
     let pid =
       Option.iter Sys.chdir cwd;
       Unix.create_process cmd 

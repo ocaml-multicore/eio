@@ -880,6 +880,7 @@ let process = object
        Option.map (fun fd -> inherit_fd ~fd:Luv.Process.stdin ~from_parent_fd:(fd |> Obj.magic) ()) stdin_fd
     ] |> List.filter_map Fun.id
     in
+    let cwd = Option.map snd cwd in
     Switch.on_release sw (fun () -> ignore (Promise.await promise));
     Luv.Process.spawn ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise |> process_of_handle promise
 
@@ -893,6 +894,7 @@ let process = object
       in
         Promise.resolve resolve status
     in
+    let cwd = Option.map snd cwd in
     Luv.Process.spawn ?working_directory:cwd ~on_exit cmd args |> or_raise |> process_of_handle promise
 end
 
