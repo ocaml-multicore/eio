@@ -10,7 +10,7 @@ Creating some useful helper functions
 open Eio
 open Eio.Std
 
-let run (fn : Eio.Process.t -> 'a) =
+let run fn =
   Eio_main.run @@ fun env ->
   fn (Eio.Stdenv.process env) env
 
@@ -106,7 +106,7 @@ val with_pipe_from_child :
   let buff = Buffer.create 10 in
   Flow.copy r (Flow.buffer_sink buff);
   Buffer.contents buff;;
-val pread : process:#Process.t -> unit -> string = <fun>
+val pread : process:#Process.mgr -> unit -> string = <fun>
 # run @@ fun process _env ->
   pread ~process ();;
 +Exited 0

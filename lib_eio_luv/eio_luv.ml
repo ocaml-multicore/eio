@@ -843,7 +843,7 @@ let net = object
 end
 
 let process_of_handle status_promise handle = object
-   inherit Eio.Process.process
+   inherit Eio.Process.t
    method stop = Luv.Process.kill handle Luv.Signal.sigkill |> or_raise
    method pid = Luv.Process.pid handle
    method status = Promise.await status_promise
@@ -856,7 +856,7 @@ let get_fd_or_err flow =
   | None -> failwith "Currently only flows backed by file descriptors are supported!"
 
 let process = object
-  inherit Eio.Process.t
+  inherit Eio.Process.mgr
 
   method spawn ~sw ?cwd ?stderr:stderr_flow ?stdout:stdout_flow ?stdin:stdin_flow cmd args =
     let promise, resolve = Promise.create () in
@@ -911,7 +911,7 @@ type stdenv = <
   stdout : sink;
   stderr : sink;
   net : Eio.Net.t;
-  process : Eio.Process.t;
+  process : Eio.Process.mgr;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   fs : Eio.Fs.dir Eio.Path.t;

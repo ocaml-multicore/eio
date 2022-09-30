@@ -127,7 +127,7 @@ type stdenv = <
   stdout : sink;
   stderr : sink;
   net : Eio.Net.t;
-  process : Eio.Process.t;
+  process : Eio.Process.mgr;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   fs : Eio.Fs.dir Eio.Path.t;

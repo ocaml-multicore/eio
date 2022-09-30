@@ -36,7 +36,7 @@ module Stdenv = struct
     stdout : Flow.sink;
     stderr : Flow.sink;
     net : Net.t;
-    process : Process.t;
+    process : Process.mgr;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
     fs : Fs.dir Path.t;
@@ -49,7 +49,7 @@ module Stdenv = struct
   let stdout (t : <stdout : #Flow.sink;   ..>) = t#stdout
   let stderr (t : <stderr : #Flow.sink;   ..>) = t#stderr
   let net (t : <net : #Net.t; ..>) = t#net
-  let process (t : <process : #Process.t; ..>) = t#process
+  let process (t : <process : #Process.mgr; ..>) = t#process
   let domain_mgr (t : <domain_mgr : #Domain_manager.t; ..>) = t#domain_mgr
   let clock (t : <clock : #Time.clock; ..>) = t#clock
   let secure_random (t: <secure_random : #Flow.source; ..>) = t#secure_random

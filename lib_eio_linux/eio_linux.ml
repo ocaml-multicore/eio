@@ -1163,7 +1163,7 @@ let net = object
 end
 
 let pid_to_process close pid = object
-  inherit Eio.Process.process
+  inherit Eio.Process.t
   method pid = pid
   method status = 
     match Eio_unix.run_in_systhread @@ fun () -> let v = Unix.waitpid [] pid in close (); v with
@@ -1196,7 +1196,7 @@ let dev_null_in = open_null [ Unix.O_RDONLY; Unix.O_CLOEXEC ]
 let dev_null_out = open_null [ Unix.O_WRONLY; Unix.O_CLOEXEC ]
 
 let process = object
-  inherit Eio.Process.t
+  inherit Eio.Process.mgr
 
   (* TODO: Is Sys.chdir cwd domain-safe, ? *)
   method spawn ~sw ?cwd ?stderr ?stdout ?stdin cmd args =
@@ -1242,7 +1242,7 @@ type stdenv = <
   stdout : sink;
   stderr : sink;
   net : Eio.Net.t;
-  process : Eio.Process.t;
+  process : Eio.Process.mgr;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   fs : Eio.Fs.dir Eio.Path.t;
