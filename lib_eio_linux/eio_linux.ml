@@ -1175,34 +1175,20 @@ let pid_to_process close pid = object
     Unix.kill pid Sys.sigkill
 end
 
-let source_or_std fd = function
-  | Some flow -> flow
-  | None -> (source (FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd) :> Eio.Flow.source)
-
-let sink_or_std fd = function
-  | Some flow -> flow
-  | None -> (sink (FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd) :> Eio.Flow.sink)
-
 let get_fd_or_err flow =
   match get_fd_opt flow with
   | Some fd -> 
     Unix.dup ~cloexec:false (FD.to_unix `Peek fd)
   | None -> failwith "Currently only flows backed by file descriptors are supported!"
 
-let open_null flags = lazy (Unix.openfile "/dev/null" flags 0o666)
-
-let dev_null_in = open_null [ Unix.O_RDONLY; Unix.O_CLOEXEC ]
-
-let dev_null_out = open_null [ Unix.O_WRONLY; Unix.O_CLOEXEC ]
-
 let process = object
   inherit Eio.Process.mgr
 
   (* TODO: Is Sys.chdir cwd domain-safe, ? *)
-  method spawn ~sw ?cwd ?stderr ?stdout ?stdin cmd args =
-    let stdin = source_or_std (Lazy.force dev_null_in) stdin |> get_fd_or_err in
-    let stdout = sink_or_std (Lazy.force dev_null_out) stdout |> get_fd_or_err in
-    let stderr = sink_or_std (Lazy.force dev_null_out) stderr |> get_fd_or_err in
+  method spawn ~sw ?cwd ~stdin ~stdout ~stderr cmd args =
+    let stdin = get_fd_or_err stdin in
+    let stdout = get_fd_or_err stdout in
+    let stderr = get_fd_or_err stderr in
     let cwd = Option.map snd cwd in
     let pid =
       Option.iter Sys.chdir cwd;
@@ -1226,15 +1212,15 @@ let process = object
     process
     
 
-  method spawn_detached ?cwd ?stderr ?stdout ?stdin cmd args = 
+  method spawn_detached ?cwd ~stdin ~stdout ~stderr cmd args = 
     let cwd = Option.map snd cwd in
     let pid =
       Option.iter Sys.chdir cwd;
       Unix.create_process cmd 
         (Array.of_list args) 
-        (get_fd_or_err (source_or_std (Lazy.force dev_null_in) stdin))
-        (get_fd_or_err (sink_or_std (Lazy.force dev_null_out) stdout))
-        (get_fd_or_err (sink_or_std (Lazy.force dev_null_out) stderr))
+        (get_fd_or_err stdin)
+        (get_fd_or_err stdout)
+        (get_fd_or_err stderr)
     in
     pid_to_process (fun () -> ()) pid
 end

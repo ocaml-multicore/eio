@@ -18,9 +18,9 @@ let stop proc = proc#stop
 
 class virtual mgr = object (_ : #Generic.t)
   method probe _ = None
-  method virtual spawn : sw:Switch.t -> ?cwd:Fs.dir Path.t -> ?stderr:Flow.sink -> ?stdout:Flow.sink -> ?stdin:Flow.source -> string -> string list -> t
-  method virtual spawn_detached : ?cwd:Fs.dir Path.t -> ?stderr:Flow.sink -> ?stdout:Flow.sink -> ?stdin:Flow.source -> string -> string list -> t
+  method virtual spawn : sw:Switch.t -> ?cwd:Fs.dir Path.t -> stdin:Flow.source -> stdout:Flow.sink -> stderr:Flow.sink -> string -> string list -> t
+  method virtual spawn_detached : ?cwd:Fs.dir Path.t -> stdin:Flow.source -> stdout:Flow.sink -> stderr:Flow.sink -> string -> string list -> t
 end
 
-let spawn ~sw t ?cwd ?stderr ?stdout ?stdin cmd args = t#spawn ~sw ?cwd ?stderr ?stdout ?stdin  cmd args
-let spawn_detached t ?cwd ?stderr ?stdout ?stdin cmd args = t#spawn_detached ?cwd ?stderr ?stdout ?stdin cmd args
+let spawn ~sw t ?cwd ~stdin ~stdout ~stderr cmd args = t#spawn ~sw ?cwd ~stdin ~stdout ~stderr cmd args
+let spawn_detached t ?cwd ~stdin ~stdout ~stderr cmd args = t#spawn_detached ?cwd ~stdin ~stdout ~stderr cmd args

@@ -10,21 +10,27 @@ Creating some useful helper functions
 open Eio
 open Eio.Std
 
+let spawn ~env ~sw ?cwd cmd args =
+  Process.spawn ~sw ?cwd ~stdout:env#stdout ~stdin:env#stdin ~stderr:env#stderr env#process cmd args
+
+let spawn_detached ~env ~sw ?cwd cmd args =
+  Process.spawn ~sw ?cwd ~stdout:env#stdout ~stdin:env#stdin ~stderr:env#stderr env#process cmd args
+
 let run fn =
   Eio_main.run @@ fun env ->
-  fn (Eio.Stdenv.process env) env
+  fn (spawn ~env) env
 
-let run_env (fn : Eio.Stdenv.t -> 'a) =
+let run_detached fn =
   Eio_main.run @@ fun env ->
-  fn env
+  fn (spawn_detached ~env) env
 ```
 
 Running a program as a subprocess
 
 ```ocaml
-# run @@ fun process env ->
+# run @@ fun spawn env ->
   Switch.run @@ fun sw ->
-  let t = Eio.Process.spawn ~sw ~stdout:(env#stdout) process "echo" [ "echo"; "hello world" ] in
+  let t = spawn ~sw "echo" [ "echo"; "hello world" ] in
   Eio.Process.status t;;
 hello world
 - : Process.status = Eio.Process.Exited 0
@@ -33,21 +39,21 @@ hello world
 Stopping a subprocess works and checking the status waits and reports correctly
 
 ```ocaml
-# run @@ fun process _env ->
+# run @@ fun spawn _env ->
   Switch.run @@ fun sw ->
-  let t = Eio.Process.spawn ~sw process "sleep" [ "sleep"; "10" ] in
+  let t = spawn ~sw "sleep" [ "sleep"; "10" ] in
   Eio.Process.stop t;
   Eio.Process.status t;;
-- : Process.status = Eio.Process.Signaled 9
+- : Process.status = Eio.Process.Signaled (-7)
 ```
 
 A switch will wait for a subprocess to finished when spawned.
 <!-- Need a better test of this... -->
 
 ```ocaml
-# run @@ fun process env ->
+# run_detached @@ fun spawn env ->
   Switch.run @@ fun sw ->
-  let _t = Eio.Process.spawn ~sw ~stdout:(env#stdout) process "echo" [ "echo"; "Waited..." ] in
+  let _t = spawn ~sw "echo" [ "echo"; "Waited..." ] in
   ();;
 Waited...
 - : unit = ()
@@ -56,7 +62,7 @@ Waited...
 Passing in flows allows you to redirect the child process' stdout.
 
 ```ocaml
-# run_env @@ fun env ->
+# run @@ fun _spawn env ->
   let process = Eio.Stdenv.process env in
   let fs = Eio.Stdenv.fs env in
   let filename = "process-test.txt" in
@@ -64,7 +70,7 @@ Passing in flows allows you to redirect the child process' stdout.
     Eio.Path.(with_open_out ~create:(`Exclusive 0o600) (fs / filename)) @@ fun stdout ->
     let stdout = (stdout :> Eio.Flow.sink) in
     Switch.run @@ fun sw ->
-    let t = Eio.Process.spawn ~sw ~stdout process "echo" [ "echo"; "Hello" ] in
+    let t = Eio.Process.spawn ~sw ~stdout ~stdin:env#stdin ~stderr:env#stderr process "echo" [ "echo"; "Hello" ] in
     Eio.Process.status t
   in
   match run () with
@@ -95,10 +101,10 @@ val with_pipe_from_child :
        write : Cstruct.t list -> unit > ->
    'c) ->
   'c = <fun>
-# let pread ~process () =
+# let pread env =
   with_pipe_from_child @@ fun ~sw ~r ~w ->
   let t =
-    Eio.Process.spawn ~sw ~stdout:(w :> Flow.sink) process "echo" [ "echo"; "Hello" ] 
+    Eio.Process.spawn ~sw ~stdout:(w :> Flow.sink) ~stdin:env#stdin ~stderr:env#stderr env#process "echo" [ "echo"; "Hello" ] 
   in
   let status = Eio.Process.status t in
   Eio.traceln "%a" Eio.Process.pp_status status;
@@ -106,9 +112,11 @@ val with_pipe_from_child :
   let buff = Buffer.create 10 in
   Flow.copy r (Flow.buffer_sink buff);
   Buffer.contents buff;;
-val pread : process:#Process.mgr -> unit -> string = <fun>
-# run @@ fun process _env ->
-  pread ~process ();;
+val pread :
+  < process : #Process.mgr; stderr : Flow.sink; stdin : Flow.source; .. > ->
+  string = <fun>
+# run @@ fun _spawn env ->
+  pread env;;
 +Exited 0
 - : string = "Hello\n"
 ```
@@ -116,12 +124,11 @@ val pread : process:#Process.mgr -> unit -> string = <fun>
 Spawning subprocesses in new domains works normally
 
 ```ocaml
-# run_env @@ fun env ->
-  let process = Eio.Stdenv.process env in
+# run @@ fun spawn env ->
   let mgr = Eio.Stdenv.domain_mgr env in
   Eio.Domain_manager.run mgr @@ fun () ->
   Switch.run @@ fun sw ->
-  let t = Eio.Process.spawn ~sw ~stdout:(env#stdout) process "echo" [ "echo"; "Hello from another domain" ] in
+  let t = spawn ~sw "echo" [ "echo"; "Hello from another domain" ] in
   Eio.Process.status t;;
 Hello from another domain
 - : Process.status = Eio.Process.Exited 0

@@ -858,33 +858,33 @@ let get_fd_or_err flow =
 let process = object
   inherit Eio.Process.mgr
 
-  method spawn ~sw ?cwd ?stderr:stderr_flow ?stdout:stdout_flow ?stdin:stdin_flow cmd args =
+  method spawn ~sw ?cwd ~stdin:stdin_flow ~stdout:stdout_flow ~stderr:stderr_flow cmd args =
     let promise, resolve = Promise.create () in
-    let stdout_fd = Option.map get_fd_or_err stdout_flow in
-    let stdin_fd = Option.map get_fd_or_err stdin_flow in
-    let stderr_fd = Option.map get_fd_or_err stderr_flow in
+    let stdout_fd = get_fd_or_err stdout_flow in
+    let stdin_fd = get_fd_or_err stdin_flow in
+    let stderr_fd = get_fd_or_err stderr_flow in
     let on_exit _ ~exit_status ~term_signal =
       let status = 
         match term_signal, exit_status with
         | 0, e -> Eio.Process.Exited (Int64.to_int e)
         | i, _ -> Eio.Process.Signaled i
       in
-        Option.iter Unix.close stdout_fd;
-        Option.iter Unix.close stderr_fd;
-        Option.iter Unix.close stdin_fd;
+        Unix.close stdout_fd;
+        Unix.close stderr_fd;
+        Unix.close stdin_fd;
         Promise.resolve resolve status
     in
     let redirect = Luv.Process.[
-       Option.map (fun fd -> inherit_fd ~fd:Luv.Process.stdout ~from_parent_fd:(fd |> Obj.magic) ()) stdout_fd;
-       Option.map (fun fd -> inherit_fd ~fd:Luv.Process.stderr ~from_parent_fd:(fd |> Obj.magic) ()) stderr_fd;
-       Option.map (fun fd -> inherit_fd ~fd:Luv.Process.stdin ~from_parent_fd:(fd |> Obj.magic) ()) stdin_fd
-    ] |> List.filter_map Fun.id
+       inherit_fd ~fd:Luv.Process.stdout ~from_parent_fd:(stdout_fd |> Obj.magic) ();
+       inherit_fd ~fd:Luv.Process.stderr ~from_parent_fd:(stderr_fd |> Obj.magic) ();
+       inherit_fd ~fd:Luv.Process.stdin ~from_parent_fd:(stdin_fd |> Obj.magic) ()
+    ]
     in
     let cwd = Option.map snd cwd in
     Switch.on_release sw (fun () -> ignore (Promise.await promise));
     Luv.Process.spawn ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise |> process_of_handle promise
 
-  method spawn_detached ?cwd ?stderr:_ ?stdout:_ ?stdin:_ cmd args = 
+  method spawn_detached ?cwd ~stdin:_ ~stdout:_ ~stderr:_ cmd args = 
     let promise, resolve = Promise.create () in
     let on_exit _ ~exit_status ~term_signal =
       let status = 

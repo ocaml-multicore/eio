@@ -24,28 +24,28 @@ class virtual mgr : object
     method virtual spawn : 
         sw:Switch.t -> 
         ?cwd:Fs.dir Path.t ->
-        ?stderr:Flow.sink ->
-        ?stdout:Flow.sink -> 
-        ?stdin:Flow.source ->
+        stdin:Flow.source ->
+        stdout:Flow.sink -> 
+        stderr:Flow.sink ->
         string ->
         string list ->
         t
     
     method virtual spawn_detached :
         ?cwd:Fs.dir Path.t ->
-        ?stderr:Flow.sink ->
-        ?stdout:Flow.sink -> 
-        ?stdin:Flow.source ->
+        stdin:Flow.source ->
+        stdout:Flow.sink -> 
+        stderr:Flow.sink ->
         string ->
         string list ->
         t
 end
 (** A process manager capable of spawning new processes. *)
 
-val spawn : sw:Switch.t -> #mgr -> ?cwd:Fs.dir Path.t -> ?stderr:Flow.sink -> ?stdout:Flow.sink -> ?stdin:Flow.source -> string -> string list -> t
+val spawn : sw:Switch.t -> #mgr -> ?cwd:Fs.dir Path.t -> stdin:Flow.source -> stdout:Flow.sink -> stderr:Flow.sink -> string -> string list -> t
 (** [spawn ~sw t cmd] creates a new subprocess that is connected to the
     switch [sw]. The standard input and outputs redirect to nothing by default. *)
 
-val spawn_detached : #mgr -> ?cwd:Fs.dir Path.t -> ?stderr:Flow.sink -> ?stdout:Flow.sink -> ?stdin:Flow.source -> string -> string list -> t
+val spawn_detached : #mgr -> ?cwd:Fs.dir Path.t -> stdin:Flow.source -> stdout:Flow.sink -> stderr:Flow.sink -> string -> string list -> t
 (** [spawn_detached t cmd] is like {! spawn} but the new subprocess is not
     attached to any switch. *)
