@@ -1208,9 +1208,11 @@ let process = object
     let process = pid_to_process close pid in
     let cleanup () =
       try 
-        ignore (wait_for_process [] pid);
+        process#stop;
         close ()
-      with Unix.Unix_error (ECHILD, _, _) -> ()
+      with Unix.Unix_error (Unix.ESRCH, _, _) -> 
+      (* Process is already finished when trying to stop it. *)
+      ()
     in
     Switch.on_release sw cleanup;
     process
