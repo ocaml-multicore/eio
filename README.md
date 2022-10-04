@@ -82,7 +82,7 @@ Platform support:
 
 - Unix and macos: should be fully working using the libuv backend.
 - Linux: can additionally use io_uring for better performance on recent kernels.
-- Windows: should be mostly working - see [#123](https://github.com/ocaml-multicore/eio/issues/125) for remaining tasks.
+- Windows: should be mostly working - see [#125](https://github.com/ocaml-multicore/eio/issues/125) for remaining tasks.
 - MirageOS: waiting for [ocaml-freestanding](https://github.com/mirage/ocaml-freestanding) to be updated to OCaml 5.0.
 - Browsers: waiting for [js_of_ocaml](https://github.com/ocsigen/js_of_ocaml/issues/1088) to be updated to OCaml 5.0.
 
@@ -92,7 +92,7 @@ Feature status:
 - Multicore support: Working.
 - Networking: Clients and servers using TCP, UDP and Unix domain sockets work.
 - File-systems: Can create files and directories, load, save, parse, etc. Most other operations missing.
-- Spawning sub-processes: Not implemented yet.
+- Spawning sub-processes: Not implemented yet (see [#330](https://github.com/ocaml-multicore/eio/pull/330)).
 
 See [Awesome Multicore OCaml][] for links to work migrating other projects to Eio.
 
@@ -365,13 +365,6 @@ so it needs to take a switch argument.
 Every switch also creates a new cancellation context.
 You can use `Switch.fail` to mark the switch as failed and cancel all fibers within it.
 The exception (or exceptions) passed to `fail` will be raised by `run` when the fibers have exited.
-
-You can also use `Fiber.fork_sub` to create a child sub-switch.
-Turning off the parent switch will also turn off the child switch, but turning off the child doesn't disable the parent.
-
-For example, a web-server might use one switch for the whole server and then create one sub-switch for each incoming connection.
-This allows you to end all fibers handling a single connection by turning off that connection's switch,
-or to exit the whole application using the top-level switch.
 
 ## Design Note: Results vs Exceptions
 
