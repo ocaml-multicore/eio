@@ -5,11 +5,11 @@ end
 
 module Job = struct
   type t = {
-    time : float;
+    time : Mtime.t;
     thread : unit Suspended.t;
   }
 
-  let compare a b = Float.compare a.time b.time
+  let compare a b = Mtime.compare a.time b.time
 end
 
 module Q = Psq.Make(Key)(Job)

@@ -1,6 +1,10 @@
+class virtual ['a] clock_base : object
+  method virtual now : 'a
+  method virtual sleep_until : 'a -> unit
+end
+
 class virtual clock : object
-  method virtual now : float
-  method virtual sleep_until : float -> unit
+  inherit [float] clock_base
 end
 
 val now : #clock -> float
@@ -11,6 +15,31 @@ val sleep_until : #clock -> float -> unit
 
 val sleep : #clock -> float -> unit
 (** [sleep t d] waits for [d] seconds. *)
+
+(** Monotonic clocks. *)
+module Mono : sig
+  (** Monotonic clocks are unaffected by corrections to the real-time clock,
+      and so are a better choice for timeouts or measuring intervals,
+      where the absolute time doesn't matter.
+
+      A monotonic clock may or may not include time while the computer is suspended. *)
+
+  class virtual t : object
+    inherit [Mtime.t] clock_base
+  end
+
+  val now : #t -> Mtime.t
+  (** [now t] is the current time according to [t]. *)
+
+  val sleep_until : #t -> Mtime.t -> unit
+  (** [sleep_until t time] waits until [time] before returning. *)
+
+  val sleep : #t -> float -> unit
+  (** [sleep t d] waits for [d] seconds. *)
+
+  val sleep_span : #t -> Mtime.span -> unit
+  (** [sleep_span t d] waits for duration [d]. *)
+end
 
 (** {2 Timeouts} *)
 
@@ -28,8 +57,14 @@ module Timeout : sig
   type t
 
   val of_s : #clock -> float -> t
-  (** [of_s clock duration] is a timeout of [duration] seconds, as measured by [clock].
+  (** [of_s clock duration] is a timeout of [duration] seconds, as measured by [clock]. *)
+
+  val v : #Mono.t -> Mtime.Span.t -> t
+  (** [v clock duration] is a timeout of [duration], as measured by [clock].
       Internally, this is just the tuple [(clock, duration)]. *)
+
+  val seconds : #Mono.t -> float -> t
+  (** [seconds clock duration] is a timeout of [duration] seconds, as measured by [clock]. *)
 
   val none : t
   (** [none] is an infinite timeout. *)
