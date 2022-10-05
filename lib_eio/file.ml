@@ -1,8 +1,47 @@
+(** Tranditional Unix permissions. *)
+module Unix_perm = struct
+  type t = int
+  (** This is the same as {!Unix.file_perm}, but avoids a dependency on [Unix]. *)
+end
+
+(** Portable file stats. *)
+module Stat = struct
+
+  (** Kind of file from st_mode. **)
+  type kind = [
+    | `Unknown
+    | `Fifo
+    | `Character_special
+    | `Directory
+    | `Block_device
+    | `Regular_file
+    | `Symbolic_link
+    | `Socket
+  ]
+
+  (** Like stat(2). *)
+  type t = {
+    dev : Int64.t;
+    ino : Int64.t;
+    kind : kind;
+    perm : Unix_perm.t;
+    nlink : Int64.t;
+    uid : Int64.t;
+    gid : Int64.t;
+    rdev : Int64.t;
+    size : Optint.Int63.t;
+    atime : float;
+    mtime : float;
+    ctime : float;
+  }
+end
+
 (** A file opened for reading. *)
 class virtual ro = object (_ : <Generic.t; Flow.source; ..>)
   method probe _ = None
   method read_methods = []
   method virtual pread : file_offset:Optint.Int63.t -> Cstruct.t list -> int
+  method virtual stat : Stat.t
 end
 
 (** A file opened for reading and writing. *)
@@ -10,6 +49,12 @@ class virtual rw = object (_ : <Generic.t; Flow.source; Flow.sink; ..>)
   inherit ro
   method virtual pwrite : file_offset:Optint.Int63.t -> Cstruct.t list -> int
 end
+
+(** [stat t] returns the {!Stat.t} record associated with [t]. *)
+let stat (t : #ro) = t#stat
+
+(** [size t] returns the size of [t]. *)
+let size t = (stat t).size
 
 (** [pread t ~file_offset bufs] performs a single read of [t] at [file_offset] into [bufs].
 

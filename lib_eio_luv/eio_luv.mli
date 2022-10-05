@@ -55,6 +55,9 @@ module Low_level : sig
         This allows unsafe access to the FD.
         @raise Invalid_arg if [t] is closed. *)
 
+    val fstat : t -> Luv.File.Stat.t or_error
+    (** [fstat fd] returns the stat of [fd]. *)
+
     val open_ :
       sw:Switch.t ->
       ?mode:Luv.File.Mode.t list ->

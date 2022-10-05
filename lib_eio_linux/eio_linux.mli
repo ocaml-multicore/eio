@@ -203,8 +203,8 @@ module Low_level : sig
   val await_writable : FD.t -> unit
   (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
-  val fstat : FD.t -> Unix.stats
-  (** Like {!Unix.fstat}. *)
+  val fstat : FD.t -> Eio.File.Stat.t
+  (** Like {!Unix.LargeFile.fstat}. *)
 
   val read_dir : FD.t -> string list
   (** [read_dir dir] reads all directory entries from [dir].

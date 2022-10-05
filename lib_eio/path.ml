@@ -30,10 +30,20 @@ let with_lines path fn =
   let buf = Buf_read.of_flow flow ~max_size:max_int in
   fn (Buf_read.lines buf)
 
-let load path =
-  with_open_in path @@ fun flow ->
-  let buf = Buf_read.of_flow flow ~max_size:max_int in
-  Buf_read.take_all buf
+let load (t, path) =
+  with_open_in (t, path) @@ fun flow ->
+  let size = File.size flow in
+  if Optint.Int63.(compare size (of_int Sys.max_string_length)) = 1 then
+    raise (Fs.File_too_large
+             (path, Invalid_argument "can't represent a string that long"));
+  let buf = Cstruct.create (Optint.Int63.to_int size) in
+  let rec loop buf got =
+    match Flow.single_read flow buf with
+    | n -> loop (Cstruct.shift buf n) (n + got)
+    | exception End_of_file -> got
+  in
+  let got = loop buf 0 in
+  Cstruct.to_string ~len:got buf
 
 let save ?append ~create path data =
   with_open_out ?append ~create path @@ fun flow ->

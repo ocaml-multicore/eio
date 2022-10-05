@@ -31,7 +31,7 @@ let run_cp block_size queue_depth infile outfile () =
   let open Unix in
   let infd = U.openfile ~sw infile [O_RDONLY] 0 in
   let outfd = U.openfile ~sw outfile [O_WRONLY; O_CREAT; O_TRUNC] 0o644 in
-  let insize = U.fstat infd |> fun {st_size; _} -> Int63.of_int st_size in
+  let insize = (U.fstat infd).size in
   Logs.debug (fun l -> l "eurcp: %s -> %s size %a queue %d bs %d"
                  infile
                  outfile
