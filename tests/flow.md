@@ -107,3 +107,14 @@ Copying from src using `Read_source_buffer`:
 +dst: wrote (rsb) ["bar"]
 - : unit = ()
 ```
+
+## write
+
+```ocaml
+# run @@ fun () ->
+  let dst = Eio_mock.Flow.make "dst" in
+  Eio_mock.Flow.on_copy_bytes dst [`Return 6];
+  Eio.Flow.write dst [Cstruct.of_string "foobar"];;
++dst: wrote "foobar"
+- : unit = ()
+```
