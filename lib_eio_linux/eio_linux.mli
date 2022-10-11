@@ -237,8 +237,8 @@ module Low_level : sig
 
   (** {1 Randomness} *)
 
-  val getrandom : Cstruct.t -> int
-  (**[ getrandom buf] reads some random bytes into [buf] and returns the number of bytes written.
+  val getrandom : Cstruct.t -> unit
+  (**[getrandom buf] fills [buf] with random bytes.
 
      It uses Linux's [getrandom] call, which is like reading from /dev/urandom
      except that it will block (the whole domain) if used at early boot

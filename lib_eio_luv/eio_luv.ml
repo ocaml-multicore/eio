@@ -847,9 +847,9 @@ let secure_random =
     inherit Eio.Flow.source
 
     method read_into buf =
-      let ba = cstruct_to_luv_truncate buf in
-      Random.fill ba;
-      Bigarray.Array1.dim ba
+      List.fold_left
+        (fun dim ba -> Random.fill ba; dim + Bigarray.Array1.dim ba)
+        0 (cstructv_to_luv [ buf ])
   end
 
 type stdenv = <

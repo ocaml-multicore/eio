@@ -829,7 +829,13 @@ module Low_level = struct
   external eio_getdents : Unix.file_descr -> string list = "caml_eio_getdents"
 
   let getrandom { Cstruct.buffer; off; len } =
-    eio_getrandom buffer off len
+    let rec loop n =
+      if n = len then
+        ()
+      else
+        loop (n + eio_getrandom buffer (off + n) (len - n))
+    in
+    loop 0
 
   (* [with_parent_dir dir path fn] runs [fn parent (basename path)],
      where [parent] is a path FD for [path]'s parent, resolved using [Resolve.beneath]. *)
@@ -1269,7 +1275,7 @@ end
 
 let secure_random = object
   inherit Eio.Flow.source
-  method read_into buf = Low_level.getrandom buf
+  method read_into buf = Low_level.getrandom buf; Cstruct.length buf
 end
 
 let stdenv ~run_event_loop =
