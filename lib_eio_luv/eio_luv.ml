@@ -56,6 +56,31 @@ let or_raise_path path = function
   | Ok x -> x
   | Error e -> raise (wrap_error ~path e)
 
+(* Luv can't handle buffers with more than 2^32-1 bytes, limit it to
+   31bit so we can also make sure 32bit archs don't overflow.
+   See https://github.com/ocaml-multicore/eio/issues/335 *)
+let max_luv_buffer_size = 0x7fffffff
+
+(* Return as much of [buf] as luv can handle. This is suitable if a short read/write is acceptable. *)
+let cstruct_to_luv_truncate buf =
+  Cstruct.to_bigarray @@
+  if Cstruct.length buf <= max_luv_buffer_size then buf
+  else Cstruct.sub buf 0 max_luv_buffer_size
+
+(* Raise if the buffer is too big. Use this for atomic reads and writes. *)
+let cstruct_to_luv_exn buf =
+  if Cstruct.length buf <= max_luv_buffer_size then Cstruct.to_bigarray buf
+  else Fmt.invalid_arg "Buffer too large for luv (%d > %d)" (Cstruct.length buf) max_luv_buffer_size
+
+(* For vectors, we can just split long buffers into two. *)
+let rec cstructv_to_luv = function
+  | [] -> []
+  | x :: xs when Cstruct.length x <= max_luv_buffer_size ->
+    Cstruct.to_bigarray x :: cstructv_to_luv xs
+  | x :: xs ->
+    let x1, x2 = Cstruct.split x max_luv_buffer_size in
+    Cstruct.to_bigarray x1 :: cstructv_to_luv (x2 :: xs)
+
 module Suspended = struct
   type 'a t = {
     fiber : Eio.Private.Fiber_context.t;
@@ -578,27 +603,27 @@ let flow fd = object (_ : <source; sink; ..>)
     | _ -> None
 
   method read_into buf =
-    let buf = Cstruct.to_bigarray buf in
+    let buf = cstruct_to_luv_truncate buf in
     match File.read fd [buf] |> or_raise |> Unsigned.Size_t.to_int with
     | 0 -> raise End_of_file
     | got -> got
 
   method pread ~file_offset bufs =
-    let bufs = List.map Cstruct.to_bigarray bufs in
+    let bufs = cstructv_to_luv bufs in
     let file_offset = Optint.Int63.to_int64 file_offset in
     match File.read ~file_offset fd bufs |> or_raise |> Unsigned.Size_t.to_int with
     | 0 -> raise End_of_file
     | got -> got
 
   method pwrite ~file_offset bufs =
-    let bufs = List.map Cstruct.to_bigarray bufs in
+    let bufs = cstructv_to_luv bufs in
     let file_offset = Optint.Int63.to_int64 file_offset in
     File.write_single ~file_offset fd bufs |> or_raise |> Unsigned.Size_t.to_int
 
   method read_methods = []
 
   method write bufs =
-    let bufs = List.map Cstruct.to_bigarray bufs in
+    let bufs = cstructv_to_luv bufs in
     File.write fd bufs |> or_raise
 
   method copy src =
@@ -625,11 +650,11 @@ let socket sock = object
   method unix_fd op = Stream.to_unix_opt op sock |> Option.get
 
   method read_into buf =
-    let buf = Cstruct.to_bigarray buf in
+    let buf = cstruct_to_luv_truncate buf in
     Stream.read_into sock buf
 
   method! write bufs =
-    let bufs = List.map Cstruct.to_bigarray bufs in
+    let bufs = cstructv_to_luv bufs in
     Stream.write sock bufs
 
   method copy src =
@@ -734,7 +759,7 @@ module Udp = struct
 
   let send t buf = function
   | `Udp (host, port) ->
-    let bufs = [ Cstruct.to_bigarray buf ] in
+    let bufs = cstructv_to_luv [ buf ] in
     match await (fun _loop _fiber -> Luv.UDP.send (Handle.get "send" t) bufs (luv_addr_of_eio host port)) with
     | Ok () -> ()
     | Error e -> raise (wrap_flow_error e)
@@ -747,7 +772,7 @@ let udp_socket endp = object
 
   method send sockaddr bufs = Udp.send endp bufs sockaddr
   method recv buf =
-    let buf = Cstruct.to_bigarray buf in
+    let buf = cstruct_to_luv_exn buf in
     Udp.recv endp buf
 end
 
@@ -821,9 +846,9 @@ let secure_random =
     inherit Eio.Flow.source
 
     method read_into buf =
-      let ba = Cstruct.to_bigarray buf in
+      let ba = cstruct_to_luv_truncate buf in
       Random.fill ba;
-      Cstruct.length buf
+      Bigarray.Array1.dim ba
   end
 
 type stdenv = <
