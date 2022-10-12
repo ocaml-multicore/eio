@@ -26,6 +26,8 @@ depends: [
 ]
 conflicts: [
   "ocaml-base-compiler" {< "5.0.0~beta1"}
+  "ocaml-variants" {< "5.0.0~beta1"}
+  "ocaml-system" {< "5.0.0~beta1"}
 ]
 build: [
   ["dune" "subst"] {dev}
