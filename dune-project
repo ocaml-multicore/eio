@@ -11,6 +11,8 @@
  (name eio)
  (synopsis "Effect-based direct-style IO API for OCaml")
  (description "An effect-based IO API for multicore OCaml with fibers.")
+ (conflicts
+  (ocaml-base-compiler (< 5.0.0~beta1)))
  (depends
   (ocaml (>= 5.0.0))
   (bigstringaf (>= 0.9.0))
