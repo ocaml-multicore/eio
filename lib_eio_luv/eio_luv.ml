@@ -855,48 +855,42 @@ let get_fd_or_err flow =
     Unix.dup ~cloexec:false (File.to_unix `Peek fd)
   | None -> failwith "Currently only flows backed by file descriptors are supported!"
 
+let spawn_process ?cwd ~stdin:stdin_flow ~stdout:stdout_flow ~stderr:stderr_flow cmd args =
+  let promise, resolve = Promise.create () in
+  let stdout_fd = get_fd_or_err stdout_flow in
+  let stdin_fd = get_fd_or_err stdin_flow in
+  let stderr_fd = get_fd_or_err stderr_flow in
+  let on_exit _ ~exit_status ~term_signal =
+    let status = 
+      match term_signal, exit_status with
+      | 0, e -> Eio.Process.Exited (Int64.to_int e)
+      | i, _ -> Eio.Process.Signaled i
+    in
+      Unix.close stdout_fd;
+      Unix.close stderr_fd;
+      Unix.close stdin_fd;
+      Promise.resolve resolve status
+  in
+  let redirect = Luv.Process.[
+     inherit_fd ~fd:Luv.Process.stdout ~from_parent_fd:(stdout_fd |> Obj.magic) ();
+     inherit_fd ~fd:Luv.Process.stderr ~from_parent_fd:(stderr_fd |> Obj.magic) ();
+     inherit_fd ~fd:Luv.Process.stdin ~from_parent_fd:(stdin_fd |> Obj.magic) ()
+  ]
+  in
+  let cwd = Option.map snd cwd in
+  promise, Luv.Process.spawn ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise
+
 let process = object
   inherit Eio.Process.mgr
 
   method spawn ~sw ?cwd ~stdin:stdin_flow ~stdout:stdout_flow ~stderr:stderr_flow cmd args =
-    let promise, resolve = Promise.create () in
-    let stdout_fd = get_fd_or_err stdout_flow in
-    let stdin_fd = get_fd_or_err stdin_flow in
-    let stderr_fd = get_fd_or_err stderr_flow in
-    let on_exit _ ~exit_status ~term_signal =
-      let status = 
-        match term_signal, exit_status with
-        | 0, e -> Eio.Process.Exited (Int64.to_int e)
-        | i, _ -> Eio.Process.Signaled i
-      in
-        Unix.close stdout_fd;
-        Unix.close stderr_fd;
-        Unix.close stdin_fd;
-        Promise.resolve resolve status
-    in
-    let redirect = Luv.Process.[
-       inherit_fd ~fd:Luv.Process.stdout ~from_parent_fd:(stdout_fd |> Obj.magic) ();
-       inherit_fd ~fd:Luv.Process.stderr ~from_parent_fd:(stderr_fd |> Obj.magic) ();
-       inherit_fd ~fd:Luv.Process.stdin ~from_parent_fd:(stdin_fd |> Obj.magic) ()
-    ]
-    in
-    let cwd = Option.map snd cwd in
-    let handle = Luv.Process.spawn ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise in
+    let promise, handle = spawn_process ?cwd ~stdin:stdin_flow ~stdout:stdout_flow ~stderr:stderr_flow cmd args in
     Switch.on_release sw (fun () -> try Luv.Process.kill handle Luv.Signal.sigkill |> or_raise with Luv_error `ESRCH -> ());
     process_of_handle promise handle 
 
-  method spawn_detached ?cwd ~stdin:_ ~stdout:_ ~stderr:_ cmd args = 
-    let promise, resolve = Promise.create () in
-    let on_exit _ ~exit_status ~term_signal =
-      let status = 
-        match term_signal, exit_status with
-        | 0, e -> Eio.Process.Exited (Int64.to_int e)
-        | i, _ -> Eio.Process.Signaled i
-      in
-        Promise.resolve resolve status
-    in
-    let cwd = Option.map snd cwd in
-    Luv.Process.spawn ?working_directory:cwd ~on_exit cmd args |> or_raise |> process_of_handle promise
+  method spawn_detached ?cwd ~stdin:stdin_flow ~stdout:stdout_flow ~stderr:stderr_flow cmd args = 
+    let promise, handle = spawn_process ?cwd ~stdin:stdin_flow ~stdout:stdout_flow ~stderr:stderr_flow cmd args in
+    process_of_handle promise handle 
 end
 
 let secure_random =

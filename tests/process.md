@@ -13,8 +13,8 @@ open Eio.Std
 let spawn ~env ~sw ?cwd cmd args =
   Process.spawn ~sw ?cwd ~stdout:env#stdout ~stdin:env#stdin ~stderr:env#stderr env#process cmd args
 
-let spawn_detached ~env ~sw ?cwd cmd args =
-  Process.spawn ~sw ?cwd ~stdout:env#stdout ~stdin:env#stdin ~stderr:env#stderr env#process cmd args
+let spawn_detached ~env ?cwd cmd args =
+  Process.spawn_detached ?cwd ~stdout:env#stdout ~stdin:env#stdin ~stderr:env#stderr env#process cmd args
 
 let run fn =
   Eio_main.run @@ fun env ->
@@ -134,5 +134,15 @@ Spawning subprocesses in new domains works normally
   let t = spawn ~sw "echo" [ "echo"; "Hello from another domain" ] in
   Promise.await (Process.status t);;
 Hello from another domain
+- : Process.status = Eio.Process.Exited 0
+```
+
+The `spawn_detached` function will spawn a process without needing to provide a switch.
+
+```ocaml
+# run_detached @@ fun spawn env ->
+  let t = spawn "echo" [ "echo"; "hello world" ] in
+  Promise.await (Process.status t);;
+hello world
 - : Process.status = Eio.Process.Exited 0
 ```
