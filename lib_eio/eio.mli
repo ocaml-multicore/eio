@@ -228,8 +228,7 @@ module Stdenv : sig
   *)
 
   val process : <process : #Process.mgr as 'a; ..> -> 'a
-  (** [process t] allows spawning subprocesses. This is a powerful capability
-      and should be used with care. *)
+  (** [process t] allows spawning subprocesses. *)
 
   val domain_mgr : <domain_mgr : #Domain_manager.t as 'a; ..> -> 'a
   (** [domain_mgr t] allows running code on other cores. *)
