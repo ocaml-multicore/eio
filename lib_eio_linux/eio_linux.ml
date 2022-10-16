@@ -1166,6 +1166,8 @@ let rec wait_for_process flags pid =
   try Unix.waitpid flags pid with
   | Unix.Unix_error (Unix.EINTR, _, _) -> wait_for_process flags pid
 
+external sig_to_host_sig : int -> int = "caml_signal_to_posix_signal"
+
 let pid_to_process close pid = object
   inherit Eio.Process.t
   method pid = pid
@@ -1178,9 +1180,9 @@ let pid_to_process close pid = object
       let v = wait_for_process [] pid in 
       if needs_close then (close (); needs_close <- false);
       match v with
-      | _, WEXITED i -> Promise.resolve r  (Eio.Process.Exited i)
-      | _, WSIGNALED i -> Promise.resolve r  (Eio.Process.Signaled i)
-      | _, WSTOPPED i -> Promise.resolve r  (Eio.Process.Stopped i)
+      | _, WEXITED i -> Promise.resolve r  (Eio.Process.Exited (sig_to_host_sig i))
+      | _, WSIGNALED i -> Promise.resolve r  (Eio.Process.Signaled (sig_to_host_sig i))
+      | _, WSTOPPED i -> Promise.resolve r  (Eio.Process.Stopped (sig_to_host_sig i))
     in
     Eio_unix.run_in_systhread run;
     p

@@ -99,3 +99,10 @@ CAMLprim value caml_eio_getdents(value v_fd) {
 
   CAMLreturn(result);
 }
+
+CAMLextern int caml_convert_signal_number(int);
+
+CAMLprim value caml_signal_to_posix_signal(value v_signo)
+{
+  return Val_int(caml_convert_signal_number(Int_val(v_signo)));
+}
