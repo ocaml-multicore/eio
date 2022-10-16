@@ -881,8 +881,9 @@ let process = object
     ]
     in
     let cwd = Option.map snd cwd in
-    Switch.on_release sw (fun () -> ignore (Promise.await promise));
-    Luv.Process.spawn ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise |> process_of_handle promise
+    let handle = Luv.Process.spawn ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise in
+    Switch.on_release sw (fun () -> try Luv.Process.kill handle Luv.Signal.sigkill |> or_raise with Luv_error `ESRCH -> ());
+    process_of_handle promise handle 
 
   method spawn_detached ?cwd ~stdin:_ ~stdout:_ ~stderr:_ cmd args = 
     let promise, resolve = Promise.create () in

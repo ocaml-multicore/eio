@@ -47,16 +47,19 @@ Stopping a subprocess works and checking the status waits and reports correctly
 - : Process.status = Eio.Process.Signaled 9
 ```
 
-A switch will wait for a subprocess to finished when spawned.
+A switch will stop a process when it is released.
 <!-- Need a better test of this... -->
 
 ```ocaml
-# run_detached @@ fun spawn env ->
-  Switch.run @@ fun sw ->
-  let _t = spawn ~sw "echo" [ "echo"; "Waited..." ] in
-  ();;
-Waited...
-- : unit = ()
+# run @@ fun spawn env ->
+  let proc = ref None in 
+  let run () =
+    Switch.run @@ fun sw ->
+    proc := Some (spawn ~sw "sleep" [ "sleep"; "10" ])
+  in
+  run ();
+  Promise.await @@ Process.status (Option.get !proc);;
+- : Process.status = Eio.Process.Signaled 9
 ```
 
 Passing in flows allows you to redirect the child process' stdout.

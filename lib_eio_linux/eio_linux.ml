@@ -1169,11 +1169,21 @@ let rec wait_for_process flags pid =
 let pid_to_process close pid = object
   inherit Eio.Process.t
   method pid = pid
-  method status = 
-    match Eio_unix.run_in_systhread @@ fun () -> let v = wait_for_process [] pid in close (); v with
-    | _, WEXITED i -> Exited i
-    | _, WSIGNALED i -> Signaled i
-    | _, WSTOPPED i -> Stopped i
+  val mutable needs_close = true
+  method needs_close = needs_close
+  method set_needs_close b = needs_close <- b
+  method status =
+    let p, r = Promise.create () in
+    let run () =
+      let v = wait_for_process [] pid in 
+      if needs_close then (close (); needs_close <- false);
+      match v with
+      | _, WEXITED i -> Promise.resolve r  (Eio.Process.Exited i)
+      | _, WSIGNALED i -> Promise.resolve r  (Eio.Process.Signaled i)
+      | _, WSTOPPED i -> Promise.resolve r  (Eio.Process.Stopped i)
+    in
+    Eio_unix.run_in_systhread run;
+    p
   
   method stop = 
     Unix.kill pid Sys.sigkill
@@ -1207,15 +1217,12 @@ let process = object
     in
     let process = pid_to_process close pid in
     let cleanup () =
-      try 
-        process#stop;
-        close ()
-      with Unix.Unix_error (Unix.ESRCH, _, _) -> 
-      (* Process is already finished when trying to stop it. *)
-      ()
+      (* Catch if the process is already finished when trying to stop it. *)
+      (try process#stop with Unix.Unix_error (Unix.ESRCH, _, _) -> ());
+      if process#needs_close then (close (); process#set_needs_close false)
     in
     Switch.on_release sw cleanup;
-    process
+    (process :> Eio.Process.t)
     
 
   method spawn_detached ?cwd ~stdin ~stdout ~stderr cmd args = 
@@ -1228,7 +1235,7 @@ let process = object
         (get_fd_or_err stdout)
         (get_fd_or_err stderr)
     in
-    pid_to_process (fun () -> ()) pid
+    (pid_to_process (fun () -> ()) pid :> Eio.Process.t)
 end
 
 type stdenv = <
