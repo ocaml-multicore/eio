@@ -846,7 +846,7 @@ let process_of_handle status_promise handle = object
    inherit Eio.Process.t
    method stop = Luv.Process.kill handle Luv.Signal.sigkill |> or_raise
    method pid = Luv.Process.pid handle
-   method status = Promise.await status_promise
+   method status = status_promise
 end
 
 let get_fd_or_err flow =

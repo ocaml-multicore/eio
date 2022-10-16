@@ -5,14 +5,14 @@ val pp_status : Format.formatter -> status -> unit
 class virtual t : object
     inherit Generic.t
     method virtual pid : int
-    method virtual status : status
+    method virtual status : status Promise.t
     method virtual stop : unit
 end
 
 val pid : #t -> int
 (** The process ID *)
 
-val status : #t -> status
+val status : #t -> status Promise.t
 (** Checks the status of the subprocess, this will block waiting for the subprocess
     to terminate or be stopped by a signal. *)
 

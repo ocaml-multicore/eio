@@ -8,7 +8,7 @@ let pp_status ppf = function
 class virtual t = object (_ : #Generic.t)
   method probe _ = None
   method virtual pid : int
-  method virtual status : status
+  method virtual status : status Promise.t
   method virtual stop : unit
 end
 

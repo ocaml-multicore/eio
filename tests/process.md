@@ -31,7 +31,7 @@ Running a program as a subprocess
 # run @@ fun spawn env ->
   Switch.run @@ fun sw ->
   let t = spawn ~sw "echo" [ "echo"; "hello world" ] in
-  Eio.Process.status t;;
+  Promise.await (Process.status t);;
 hello world
 - : Process.status = Eio.Process.Exited 0
 ```
@@ -42,9 +42,9 @@ Stopping a subprocess works and checking the status waits and reports correctly
 # run @@ fun spawn _env ->
   Switch.run @@ fun sw ->
   let t = spawn ~sw "sleep" [ "sleep"; "10" ] in
-  Eio.Process.stop t;
-  Eio.Process.status t;;
-- : Process.status = Eio.Process.Signaled (-7)
+  Process.stop t;
+  Promise.await (Process.status t);;
+- : Process.status = Eio.Process.Signaled 9
 ```
 
 A switch will wait for a subprocess to finished when spawned.
@@ -71,7 +71,7 @@ Passing in flows allows you to redirect the child process' stdout.
     let stdout = (stdout :> Eio.Flow.sink) in
     Switch.run @@ fun sw ->
     let t = Eio.Process.spawn ~sw ~stdout ~stdin:env#stdin ~stderr:env#stderr process "echo" [ "echo"; "Hello" ] in
-    Eio.Process.status t
+    Promise.await (Process.status t)
   in
   match run () with
     | Exited 0 ->
@@ -106,7 +106,7 @@ val with_pipe_from_child :
   let t =
     Eio.Process.spawn ~sw ~stdout:(w :> Flow.sink) ~stdin:env#stdin ~stderr:env#stderr env#process "echo" [ "echo"; "Hello" ] 
   in
-  let status = Eio.Process.status t in
+  let status = Promise.await (Process.status t) in
   Eio.traceln "%a" Eio.Process.pp_status status;
   Flow.close w;
   let buff = Buffer.create 10 in
@@ -129,7 +129,7 @@ Spawning subprocesses in new domains works normally
   Eio.Domain_manager.run mgr @@ fun () ->
   Switch.run @@ fun sw ->
   let t = spawn ~sw "echo" [ "echo"; "Hello from another domain" ] in
-  Eio.Process.status t;;
+  Promise.await (Process.status t);;
 Hello from another domain
 - : Process.status = Eio.Process.Exited 0
 ```
