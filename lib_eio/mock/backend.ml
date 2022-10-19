@@ -26,7 +26,11 @@ let run main =
     (* Create a new fiber and run [fn] in it. *)
     Effect.Deep.match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; schedule t);
-        exnc = (fun ex -> Fiber_context.destroy fiber; raise ex);
+        exnc = (fun ex ->
+            let bt = Printexc.get_raw_backtrace () in
+            Fiber_context.destroy fiber;
+            Printexc.raise_with_backtrace ex bt
+          );
         effc = fun (type a) (e : a Effect.t) : ((a, exit) Effect.Deep.continuation -> exit) option ->
           match e with
           | Eio.Private.Effects.Suspend f -> Some (fun k ->
