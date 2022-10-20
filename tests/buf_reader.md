@@ -40,7 +40,7 @@ end
 
 let read flow n =
   let buf = Cstruct.create n in
-  let len = Eio.Flow.read flow buf in
+  let len = Eio.Flow.single_read flow buf in
   traceln "Read %S" (Cstruct.to_string buf ~len)
 
 let is_digit = function

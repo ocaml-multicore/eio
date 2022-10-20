@@ -56,7 +56,7 @@ let make ?(pp=pp_default) label =
       while true do
         let size = Handler.run on_copy_bytes in
         let buf = Cstruct.create size in
-        let n = Eio.Flow.read src buf in
+        let n = Eio.Flow.single_read src buf in
         traceln "%s: wrote @[<v>%a@]" label pp (Cstruct.to_string (Cstruct.sub buf 0 n))
       done
     with End_of_file -> ()

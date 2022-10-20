@@ -981,7 +981,7 @@ let fallback_copy src dst =
     let buf = Cstruct.create 4096 in
     try
       while true do
-        let got = Eio.Flow.read src buf in
+        let got = Eio.Flow.single_read src buf in
         Low_level.writev dst [Cstruct.sub buf 0 got]
       done
     with End_of_file -> ()
@@ -990,7 +990,7 @@ let fallback_copy src dst =
   let chunk_cs = Uring.Region.to_cstruct chunk in
   try
     while true do
-      let got = Eio.Flow.read src chunk_cs in
+      let got = Eio.Flow.single_read src chunk_cs in
       Low_level.write dst chunk got
     done
   with End_of_file -> ()
