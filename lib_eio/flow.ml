@@ -15,7 +15,7 @@ class virtual source = object (_ : <Generic.t; ..>)
   method virtual read_into : Cstruct.t -> int
 end
 
-let read (t : #source) buf =
+let single_read (t : #source) buf =
   let got = t#read_into buf in
   assert (got > 0 && got <= Cstruct.length buf);
   got
@@ -24,7 +24,7 @@ let read_methods (t : #source) = t#read_methods
 
 let rec read_exact t buf =
   if Cstruct.length buf > 0 then (
-    let got = read t buf in
+    let got = single_read t buf in
     read_exact t (Cstruct.shift buf got)
   )
 
@@ -107,3 +107,5 @@ class virtual two_way = object (_ : <source; sink; ..>)
 end
 
 let shutdown (t : #two_way) = t#shutdown
+
+let read = single_read

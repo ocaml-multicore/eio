@@ -17,7 +17,7 @@ end
     even if more bytes are available. Use {!pread_exact} instead if you require
     the buffer to be filled.
 
-    To read at the current offset, use {!Flow.read} instead. *)
+    To read at the current offset, use {!Flow.single_read} instead. *)
 let pread (t : #ro) ~file_offset bufs =
   let got = t#pread ~file_offset bufs in
   assert (got > 0 && got <= Cstruct.lenv bufs);

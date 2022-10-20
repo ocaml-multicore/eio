@@ -448,7 +448,7 @@ ECONNRESET:
   Eio.Flow.copy_string "foo" a;
   Eio.Flow.close b;     (* Close without reading *)
   try
-    ignore (Eio.Flow.read a (Cstruct.create 1) : int);
+    Eio.Flow.read_exact a (Cstruct.create 1);
     assert false
   with Eio.Net.Connection_reset _ | End_of_file -> traceln "Connection failed (good)";;
 +Connection failed (good)
@@ -492,8 +492,8 @@ Connection refused:
   let a, b = Eio_unix.socketpair ~sw () in
   Fiber.both
     (fun () ->
-       match Eio.Flow.read a (Cstruct.create 1) with
-       | (_ : int) -> failwith "Should have ended!"
+       match Eio.Flow.read_exact a (Cstruct.create 1) with
+       | () -> failwith "Should have ended!"
        | exception End_of_file -> ()
     )
     (fun () -> Eio.Flow.shutdown a `Receive);;
@@ -698,6 +698,8 @@ Exception: Eio__Net.Connection_failure Eio__Time.Timeout.
 
 ## read/write on SOCK_DGRAM
 
+TODO: This is wrong; see https://github.com/ocaml-multicore/eio/issues/342
+
 ```ocaml
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
@@ -708,7 +710,7 @@ Exception: Eio__Net.Connection_failure Eio__Time.Timeout.
   let buf = Cstruct.create 32 in
   let write bufs = Eio.Flow.write a (List.map Cstruct.of_string bufs) in
   let read () =
-    let n = Eio.Flow.read b buf in
+    let n = Eio.Flow.single_read b buf in
     traceln "Got: %d bytes: %S" n Cstruct.(to_string (sub buf 0 n))
   in
   List.iter (fun sbuf -> write [sbuf]) l;

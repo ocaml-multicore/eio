@@ -16,11 +16,14 @@ class virtual source : object
 end
 
 val read : #source -> Cstruct.t -> int
-(** [read src buf] reads one or more bytes into [buf].
+[@@deprecated "Use single_read if you really want this."]
+
+val single_read : #source -> Cstruct.t -> int
+(** [single_read src buf] reads one or more bytes into [buf].
 
     It returns the number of bytes read (which may be less than the
     buffer size even if there is more data to be read).
-    [read src] just makes a single call to [src#read_into]
+    [single_read src] just makes a single call to [src#read_into]
     (and asserts that the result is in range).
 
     - Use {!read_exact} instead if you want to fill [buf] completely.

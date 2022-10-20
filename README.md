@@ -1237,7 +1237,7 @@ See Eio's own tests for examples, e.g., [tests/switch.md](tests/switch.md).
 
 ## Provider Interfaces
 
-Eio applications use resources by calling functions (such as `Eio.Flow.read`).
+Eio applications use resources by calling functions (such as `Eio.Flow.write`).
 These functions are actually wrappers that call methods on the resources.
 This allows you to define your own resources.
 
@@ -1274,10 +1274,10 @@ it is recommended that you use the functions instead.
 The functions provide type information to the compiler, leading to clearer error messages,
 and may provide extra features or sanity checks.
 
-For example `Eio.Flow.read` is defined as:
+For example `Eio.Flow.single_read` is defined as:
 
 ```ocaml
-let read (t : #Eio.Flow.source) buf =
+let single_read (t : #Eio.Flow.source) buf =
   let got = t#read_into buf in
   assert (got > 0 && got <= Cstruct.length buf);
   got

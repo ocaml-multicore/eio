@@ -631,7 +631,7 @@ let flow fd = object (_ : <source; sink; ..>)
     let buf = Luv.Buffer.create 4096 in
     try
       while true do
-        let got = Eio.Flow.read src (Cstruct.of_bigarray buf) in
+        let got = Eio.Flow.single_read src (Cstruct.of_bigarray buf) in
         let sub = Luv.Buffer.sub buf ~offset:0 ~length:got in
         File.write fd [sub] |> or_raise
       done
@@ -662,7 +662,7 @@ let socket sock = object
     let buf = Luv.Buffer.create 4096 in
     try
       while true do
-        let got = Eio.Flow.read src (Cstruct.of_bigarray buf) in
+        let got = Eio.Flow.single_read src (Cstruct.of_bigarray buf) in
         let buf' = Luv.Buffer.sub buf ~offset:0 ~length:got in
         Stream.write sock [buf']
       done

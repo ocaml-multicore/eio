@@ -117,7 +117,7 @@ let ensure_slow_path t n =
       while t.len < n do
         let free_space = Cstruct.of_bigarray t.buf ~off:(t.pos + t.len) in
         assert (t.len + Cstruct.length free_space >= n);
-        let got = Flow.read flow free_space in
+        let got = Flow.single_read flow free_space in
         t.len <- t.len + got
       done;
       assert (buffered_bytes t >= n)
