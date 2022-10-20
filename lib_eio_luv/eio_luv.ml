@@ -596,6 +596,7 @@ let get_fd_opt t = Eio.Generic.probe t FD
 let flow fd = object (_ : <source; sink; ..>)
   method fd = fd
   method close = Low_level.File.close fd
+  method unix_fd op = File.to_unix op fd
 
   method probe : type a. a Eio.Generic.ty -> a option = function
     | FD -> Some fd
@@ -1154,6 +1155,12 @@ let rec run : type a. (_ -> a) -> a = fun main ->
               continue k (wrap a, wrap b)
             with Luv_error _ as ex ->
               discontinue k ex
+          )
+          | Eio_unix.Private.Pipe sw -> Some (fun k ->
+            let r, w = Luv.Pipe.pipe ~read_flags:[] ~write_flags:[] () |> or_raise in
+            let r = (flow (File.of_luv ~close_unix:true ~sw r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
+            let w = (flow (File.of_luv ~close_unix:true ~sw w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
+            continue k (r, w)
           )
         | _ -> None
     }

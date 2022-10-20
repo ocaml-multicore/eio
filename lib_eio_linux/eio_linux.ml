@@ -1446,6 +1446,12 @@ let rec run : type a.
               let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
               continue k ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
             )
+          | Eio_unix.Private.Pipe sw -> Some (fun k ->
+              let r, w = Unix.pipe ~cloexec:true () in
+              let r = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
+              let w = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
+              continue k (r, w)
+            )
           | Low_level.Alloc -> Some (fun k ->
               match st.mem with
               | None -> continue k None

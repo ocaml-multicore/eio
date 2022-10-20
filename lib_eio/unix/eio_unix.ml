@@ -17,6 +17,7 @@ module Private = struct
     | Get_system_clock : Eio.Time.clock Effect.t
     | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> socket Effect.t
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int -> (socket * socket) Effect.t
+    | Pipe : Eio.Switch.t -> (<Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>) Effect.t
 end
 
 let await_readable fd = Effect.perform (Private.Await_readable fd)
@@ -47,6 +48,8 @@ end
 
 let socketpair ~sw ?(domain=Unix.PF_UNIX) ?(ty=Unix.SOCK_STREAM) ?(protocol=0) () =
   Effect.perform (Private.Socketpair (sw, domain, ty, protocol))
+
+let pipe sw = Effect.perform (Private.Pipe sw)
 
 module Ipaddr = struct
   let to_unix : _ Eio.Net.Ipaddr.t -> Unix.inet_addr = Obj.magic

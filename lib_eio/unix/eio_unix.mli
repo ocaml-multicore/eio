@@ -77,6 +77,11 @@ val socketpair :
     This creates OS-level resources using [socketpair(2)].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
+val pipe : Switch.t -> <Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>
+(** [pipe sw] returns a connected pair of flows [src] and [sink]. Data written to [sink]
+    can be read from [src].
+    Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
+
 (** API for Eio backends only. *)
 module Private : sig
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
@@ -90,6 +95,8 @@ module Private : sig
         socket Effect.t                                      (** See {!FD.as_socket} *)
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int ->
         (socket * socket) Effect.t                           (** See {!socketpair} *)
+    | Pipe : Eio.Switch.t -> 
+        (<Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>) Effect.t (** See {!pipe} *)
 end
 
 module Ctf = Ctf_unix

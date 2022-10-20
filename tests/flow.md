@@ -118,3 +118,26 @@ Copying from src using `Read_source_buffer`:
 +dst: wrote "foobar"
 - : unit = ()
 ```
+
+## Pipes
+
+Writing to and reading from a pipe.
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let r, w = Eio_unix.pipe sw in
+  let msg = "Hello, world" in
+  Eio.Fiber.both
+    (fun () ->
+      let buf = Cstruct.create (String.length msg) in
+      let () = Eio.Flow.read_exact r buf in
+      traceln "Got: %s" (Cstruct.to_string buf)
+    )
+    (fun () ->
+      Eio.Flow.copy_string msg w;
+      Eio.Flow.close w
+    );;
++Got: Hello, world
+- : unit = ()
+```
