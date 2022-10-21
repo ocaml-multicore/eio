@@ -953,7 +953,7 @@ let fast_copy src dst =
   with End_of_file -> ()
 
 (* Try a fast copy using splice. If the FDs don't support that, switch to copying. *)
-let fast_copy_try_splice src dst =
+let _fast_copy_try_splice src dst =
   try
     while true do
       let _ : int = Low_level.splice src ~dst ~len:max_int in
@@ -961,7 +961,11 @@ let fast_copy_try_splice src dst =
     done
   with
   | End_of_file -> ()
+  | Unix.Unix_error (Unix.EAGAIN, "splice", _) -> fast_copy src dst
   | Unix.Unix_error (Unix.EINVAL, "splice", _) -> fast_copy src dst
+
+(* XXX workaround for issue #319, PR #327 *)
+let fast_copy_try_splice src dst = fast_copy src dst
 
 (* Copy using the [Read_source_buffer] optimisation.
    Avoids a copy if the source already has the data. *)
@@ -1290,6 +1294,9 @@ let stdenv ~run_event_loop =
 
 let pipe sw =
   let r, w = Unix.pipe () in
+  (* XXX workaround for issue #319, PR #327 *)
+  Unix.set_nonblock r;
+  Unix.set_nonblock w;
   let r = source (FD.of_unix ~sw ~seekable:false ~close_unix:true r) in
   let w = sink (FD.of_unix ~sw ~seekable:false ~close_unix:true w) in
   r, w
