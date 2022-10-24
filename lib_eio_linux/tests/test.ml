@@ -20,7 +20,7 @@ let read_one_byte ~sw r =
 let test_poll_add () =
   Eio_linux.run @@ fun _stdenv ->
   Switch.run @@ fun sw ->
-  let r, w = Eio_linux.pipe sw in
+  let r, w = Eio_unix.pipe sw in
   let thread = read_one_byte ~sw r in
   Fiber.yield ();
   let w = Option.get (Eio_linux.get_fd_opt w) in
@@ -33,7 +33,7 @@ let test_poll_add () =
 let test_poll_add_busy () =
   Eio_linux.run ~queue_depth:2 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
-  let r, w = Eio_linux.pipe sw in
+  let r, w = Eio_unix.pipe sw in
   let a = read_one_byte ~sw r in
   let b = read_one_byte ~sw r in
   Fiber.yield ();
@@ -50,7 +50,7 @@ let test_copy () =
   Eio_linux.run ~queue_depth:3 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let msg = "Hello!" in
-  let from_pipe, to_pipe = Eio_linux.pipe sw in
+  let from_pipe, to_pipe = Eio_unix.pipe sw in
   let buffer = Buffer.create 20 in
   Fiber.both
     (fun () -> Eio.Flow.copy from_pipe (Eio.Flow.buffer_sink buffer))
@@ -67,8 +67,8 @@ let test_direct_copy () =
   Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let msg = "Hello!" in
-  let from_pipe1, to_pipe1 = Eio_linux.pipe sw in
-  let from_pipe2, to_pipe2 = Eio_linux.pipe sw in
+  let from_pipe1, to_pipe1 = Eio_unix.pipe sw in
+  let from_pipe2, to_pipe2 = Eio_unix.pipe sw in
   let buffer = Buffer.create 20 in
   let to_output = Eio.Flow.buffer_sink buffer in
   Switch.run (fun sw ->
@@ -85,9 +85,15 @@ let test_direct_copy () =
 let test_iovec () =
   Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
-  let from_pipe, to_pipe = Eio_linux.pipe sw in
-  let from_pipe = Eio_linux.get_fd from_pipe in
-  let to_pipe = Eio_linux.get_fd to_pipe in
+  let from_pipe, to_pipe = Eio_unix.pipe sw in
+  let from_pipe =
+    Eio_unix.FD.take from_pipe |>
+    Eio_linux.FD.of_unix ~sw ~seekable:false ~close_unix:true
+  in
+  let to_pipe =
+    Eio_unix.FD.take to_pipe |>
+    Eio_linux.FD.of_unix ~sw ~seekable:false ~close_unix:true
+  in
   let message = Cstruct.of_string "Got [   ] and [   ]" in
   let rec recv = function
     | [] -> ()
