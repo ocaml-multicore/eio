@@ -8,12 +8,12 @@ let pp_status ppf = function
 class virtual t = object (_ : #Generic.t)
   method probe _ = None
   method virtual pid : int
-  method virtual status : status Promise.t
+  method virtual await_exit : status
   method virtual stop : unit
 end
 
 let pid proc = proc#pid
-let status proc = proc#status
+let await_exit proc = proc#await_exit
 let stop proc = proc#stop
 
 class virtual mgr = object (_ : #Generic.t)

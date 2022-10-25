@@ -1168,24 +1168,23 @@ let rec wait_for_process flags pid =
 
 external sig_to_host_sig : int -> int = "caml_signal_to_posix_signal"
 
-let pid_to_process close pid = object
+let pid_to_process p resolver close pid = object
   inherit Eio.Process.t
   method pid = pid
   val mutable needs_close = true
   method needs_close = needs_close
   method set_needs_close b = needs_close <- b
-  method status =
-    let p, r = Promise.create () in
+  method await_exit =
     let run () =
       let v = wait_for_process [] pid in 
       if needs_close then (close (); needs_close <- false);
       match v with
-      | _, WEXITED i -> Promise.resolve r  (Eio.Process.Exited (sig_to_host_sig i))
-      | _, WSIGNALED i -> Promise.resolve r  (Eio.Process.Signaled (sig_to_host_sig i))
-      | _, WSTOPPED i -> Promise.resolve r  (Eio.Process.Stopped (sig_to_host_sig i))
+      | _, WEXITED i -> Promise.resolve resolver (Eio.Process.Exited (sig_to_host_sig i))
+      | _, WSIGNALED i -> Promise.resolve resolver (Eio.Process.Signaled (sig_to_host_sig i))
+      | _, WSTOPPED i -> Promise.resolve resolver (Eio.Process.Stopped (sig_to_host_sig i))
     in
     Eio_unix.run_in_systhread run;
-    p
+    Promise.await p
   
   method stop = 
     Unix.kill pid Sys.sigkill
@@ -1217,7 +1216,8 @@ let process_mgr = object
       Unix.close stdout;
       Unix.close stderr
     in
-    let process = pid_to_process close pid in
+    let status, resolver = Promise.create () in
+    let process = pid_to_process status resolver close pid in
     let cleanup () =
       (* Catch if the process is already finished when trying to stop it. *)
       (try process#stop with Unix.Unix_error (Unix.ESRCH, _, _) -> ());
@@ -1229,6 +1229,7 @@ let process_mgr = object
 
   method spawn_detached ?cwd ~stdin ~stdout ~stderr cmd args = 
     let cwd = Option.map snd cwd in
+    let status, resolver = Promise.create () in
     let pid =
       Option.iter Sys.chdir cwd;
       Unix.create_process cmd 
@@ -1237,7 +1238,7 @@ let process_mgr = object
         (get_fd_or_err stdout)
         (get_fd_or_err stderr)
     in
-    (pid_to_process (fun () -> ()) pid :> Eio.Process.t)
+    (pid_to_process status resolver (fun () -> ()) pid :> Eio.Process.t)
 end
 
 type stdenv = <

@@ -31,7 +31,7 @@ Running a program as a subprocess
 # run @@ fun spawn env ->
   Switch.run @@ fun sw ->
   let t = spawn ~sw "echo" [ "echo"; "hello world" ] in
-  Promise.await (Process.status t);;
+  Process.await_exit t;;
 hello world
 - : Process.status = Eio.Process.Exited 0
 ```
@@ -43,7 +43,7 @@ Stopping a subprocess works and checking the status waits and reports correctly
   Switch.run @@ fun sw ->
   let t = spawn ~sw "sleep" [ "sleep"; "10" ] in
   Process.stop t;
-  Promise.await (Process.status t);;
+  Process.await_exit t;;
 - : Process.status = Eio.Process.Signaled 9
 ```
 
@@ -58,7 +58,7 @@ A switch will stop a process when it is released.
     proc := Some (spawn ~sw "sleep" [ "sleep"; "10" ])
   in
   run ();
-  Promise.await @@ Process.status (Option.get !proc);;
+  Process.await_exit (Option.get !proc);;
 - : Process.status = Eio.Process.Signaled 9
 ```
 
@@ -74,7 +74,7 @@ Passing in flows allows you to redirect the child process' stdout.
     let stdout = (stdout :> Eio.Flow.sink) in
     Switch.run @@ fun sw ->
     let t = Eio.Process.spawn ~sw ~stdout ~stdin:env#stdin ~stderr:env#stderr process "echo" [ "echo"; "Hello" ] in
-    Promise.await (Process.status t)
+    Process.await_exit t
   in
   match run () with
     | Exited 0 ->
@@ -109,7 +109,7 @@ val with_pipe_from_child :
   let t =
     Eio.Process.spawn ~sw ~stdout:(w :> Flow.sink) ~stdin:env#stdin ~stderr:env#stderr env#process_mgr "echo" [ "echo"; "Hello" ] 
   in
-  let status = Promise.await (Process.status t) in
+  let status = Process.await_exit t in
   Eio.traceln "%a" Eio.Process.pp_status status;
   Flow.close w;
   let buff = Buffer.create 10 in
@@ -132,9 +132,21 @@ Spawning subprocesses in new domains works normally
   Eio.Domain_manager.run mgr @@ fun () ->
   Switch.run @@ fun sw ->
   let t = spawn ~sw "echo" [ "echo"; "Hello from another domain" ] in
-  Promise.await (Process.status t);;
+  Process.await_exit t;;
 Hello from another domain
 - : Process.status = Eio.Process.Exited 0
+```
+
+Calling `await_exit` multiple times on the same spawn just returns the status.
+
+```ocaml
+# run @@ fun spawn env ->
+  Switch.run @@ fun sw ->
+  let t = spawn ~sw "echo" [ "echo"; "hello world" ] in
+  (Process.await_exit t, Process.await_exit t, Process.await_exit t);;
+hello world
+- : Process.status * Process.status * Process.status =
+(Eio.Process.Exited 0, Eio.Process.Exited 0, Eio.Process.Exited 0)
 ```
 
 The `spawn_detached` function will spawn a process without needing to provide a switch.
@@ -142,7 +154,7 @@ The `spawn_detached` function will spawn a process without needing to provide a 
 ```ocaml
 # run_detached @@ fun spawn env ->
   let t = spawn "echo" [ "echo"; "hello world" ] in
-  Promise.await (Process.status t);;
+  Process.await_exit t;;
 hello world
 - : Process.status = Eio.Process.Exited 0
 ```
