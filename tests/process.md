@@ -11,10 +11,10 @@ open Eio
 open Eio.Std
 
 let spawn ~env ~sw ?cwd cmd args =
-  Process.spawn ~sw ?cwd ~stdout:env#stdout ~stdin:env#stdin ~stderr:env#stderr env#process cmd args
+  Process.spawn ~sw ?cwd ~stdout:env#stdout ~stdin:env#stdin ~stderr:env#stderr env#process_mgr cmd args
 
 let spawn_detached ~env ?cwd cmd args =
-  Process.spawn_detached ?cwd ~stdout:env#stdout ~stdin:env#stdin ~stderr:env#stderr env#process cmd args
+  Process.spawn_detached ?cwd ~stdout:env#stdout ~stdin:env#stdin ~stderr:env#stderr env#process_mgr cmd args
 
 let run fn =
   Eio_main.run @@ fun env ->
@@ -66,7 +66,7 @@ Passing in flows allows you to redirect the child process' stdout.
 
 ```ocaml
 # run @@ fun _spawn env ->
-  let process = Eio.Stdenv.process env in
+  let process = Eio.Stdenv.process_mgr env in
   let fs = Eio.Stdenv.fs env in
   let filename = "process-test.txt" in
   let run () =
@@ -107,7 +107,7 @@ val with_pipe_from_child :
 # let pread env =
   with_pipe_from_child @@ fun ~sw ~r ~w ->
   let t =
-    Eio.Process.spawn ~sw ~stdout:(w :> Flow.sink) ~stdin:env#stdin ~stderr:env#stderr env#process "echo" [ "echo"; "Hello" ] 
+    Eio.Process.spawn ~sw ~stdout:(w :> Flow.sink) ~stdin:env#stdin ~stderr:env#stderr env#process_mgr "echo" [ "echo"; "Hello" ] 
   in
   let status = Promise.await (Process.status t) in
   Eio.traceln "%a" Eio.Process.pp_status status;
@@ -116,7 +116,7 @@ val with_pipe_from_child :
   Flow.copy r (Flow.buffer_sink buff);
   Buffer.contents buff;;
 val pread :
-  < process : #Process.mgr; stderr : Flow.sink; stdin : Flow.source; .. > ->
+  < process_mgr : #Process.mgr; stderr : Flow.sink; stdin : Flow.source; .. > ->
   string = <fun>
 # run @@ fun _spawn env ->
   pread env;;

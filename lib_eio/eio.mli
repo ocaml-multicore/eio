@@ -180,7 +180,7 @@ module Stdenv : sig
     stdout : Flow.sink;
     stderr : Flow.sink;
     net : Net.t;
-    process : Process.mgr;
+    process_mgr : Process.mgr;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
     fs : Fs.dir Path.t;
@@ -227,8 +227,8 @@ module Stdenv : sig
       To use this, see {!Domain_manager}.
   *)
 
-  val process : <process : #Process.mgr as 'a; ..> -> 'a
-  (** [process t] allows spawning subprocesses. *)
+  val process_mgr : <process_mgr : #Process.mgr as 'a; ..> -> 'a
+  (** [process_mgr t] allows spawning subprocesses. *)
 
   val domain_mgr : <domain_mgr : #Domain_manager.t as 'a; ..> -> 'a
   (** [domain_mgr t] allows running code on other cores. *)

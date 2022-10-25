@@ -880,7 +880,7 @@ let spawn_process ?cwd ~stdin:stdin_flow ~stdout:stdout_flow ~stderr:stderr_flow
   let cwd = Option.map snd cwd in
   promise, Luv.Process.spawn ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise
 
-let process = object
+let process_mgr = object
   inherit Eio.Process.mgr
 
   method spawn ~sw ?cwd ~stdin:stdin_flow ~stdout:stdout_flow ~stderr:stderr_flow cmd args =
@@ -908,7 +908,7 @@ type stdenv = <
   stdout : sink;
   stderr : sink;
   net : Eio.Net.t;
-  process : Eio.Process.mgr;
+  process_mgr : Eio.Process.mgr;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   fs : Eio.Fs.dir Eio.Path.t;
@@ -1091,7 +1091,7 @@ let stdenv ~run_event_loop =
     method stdout = Lazy.force stdout
     method stderr = Lazy.force stderr
     method net = net
-    method process = process
+    method process_mgr = process_mgr
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
     method fs = (fs :> Eio.Fs.dir), "."

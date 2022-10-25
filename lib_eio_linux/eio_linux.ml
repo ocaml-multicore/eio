@@ -1197,7 +1197,7 @@ let get_fd_or_err flow =
     Unix.dup ~cloexec:false (FD.to_unix `Peek fd)
   | None -> failwith "Currently only flows backed by file descriptors are supported!"
 
-let process = object
+let process_mgr = object
   inherit Eio.Process.mgr
 
   (* TODO: Is Sys.chdir cwd domain-safe, ? *)
@@ -1245,7 +1245,7 @@ type stdenv = <
   stdout : sink;
   stderr : sink;
   net : Eio.Net.t;
-  process : Eio.Process.mgr;
+  process_mgr : Eio.Process.mgr;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   fs : Eio.Fs.dir Eio.Path.t;
@@ -1359,7 +1359,7 @@ let stdenv ~run_event_loop =
     method stdout = Lazy.force stdout
     method stderr = Lazy.force stderr
     method net = net
-    method process = process
+    method process_mgr = process_mgr
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
     method fs = (fs :> Eio.Fs.dir Eio.Path.t)
