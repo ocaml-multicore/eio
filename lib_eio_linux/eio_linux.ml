@@ -1292,15 +1292,6 @@ let stdenv ~run_event_loop =
     method debug = Eio.Private.Debug.v
   end
 
-let pipe sw =
-  let r, w = Unix.pipe () in
-  (* XXX workaround for issue #319, PR #327 *)
-  Unix.set_nonblock r;
-  Unix.set_nonblock w;
-  let r = source (FD.of_unix ~sw ~seekable:false ~close_unix:true r) in
-  let w = sink (FD.of_unix ~sw ~seekable:false ~close_unix:true w) in
-  r, w
-
 let monitor_event_fd t =
   let buf = Cstruct.create 8 in
   while true do
@@ -1455,6 +1446,9 @@ let rec run : type a.
             )
           | Eio_unix.Private.Pipe sw -> Some (fun k ->
               let r, w = Unix.pipe ~cloexec:true () in
+              (* See issue #319, PR #327 *)
+              Unix.set_nonblock r;
+              Unix.set_nonblock w;
               let r = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
               let w = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
               continue k (r, w)

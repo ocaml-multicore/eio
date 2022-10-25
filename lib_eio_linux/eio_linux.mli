@@ -74,10 +74,6 @@ type stdenv = <
 val get_fd : <has_fd; ..> -> FD.t
 val get_fd_opt : #Eio.Generic.t -> FD.t option
 
-val pipe : Switch.t -> source * sink
-(** [pipe sw] is a source-sink pair [(r, w)], where data written to [w] can be read from [r].
-    It is implemented as a Unix pipe. *)
-
 (** {1 Main Loop} *)
 
 val run :
