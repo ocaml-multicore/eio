@@ -574,6 +574,51 @@ module Low_level = struct
       Handle.of_luv ~sw sock
   end
 
+  module Pipe = struct
+    type t = [`Stream of [`Pipe]] Handle.t
+
+    let init ?for_handle_passing ~sw () =
+      Luv.Pipe.init ~loop:(get_loop ()) ?for_handle_passing ()
+      |> or_raise
+      |> Handle.of_luv ~close_unix:true ~sw
+  end
+
+  module Process = struct
+    type t = {
+      proc : Luv.Process.t;
+      status : (int * int64) Promise.t;
+    }
+
+    let pid t = Luv.Process.pid t.proc
+
+    let to_parent_pipe ?readable_in_child ?writable_in_child ?overlapped ~fd ~parent_pipe () =
+      let parent_pipe = Handle.to_luv parent_pipe in
+      Luv.Process.to_parent_pipe ?readable_in_child ?writable_in_child ?overlapped ~fd ~parent_pipe ()
+
+    let await_exit t = Promise.await t.status
+
+    let has_exited t = Promise.is_resolved t.status
+
+    let send_signal t i = Luv.Process.kill t.proc i |> or_raise
+
+    let spawn ?cwd ?env ?uid ?gid ?(redirect=[]) ~sw cmd args =
+      let status, set_status = Promise.create () in
+      let hook = ref None in
+      let on_exit _ ~exit_status ~term_signal =
+        Option.iter Switch.remove_hook !hook;
+        Promise.resolve set_status (term_signal, exit_status)
+      in
+      let proc = Luv.Process.spawn ?environment:env ?uid ?gid ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise in
+      if not (Promise.is_resolved status) then (
+        let h = Switch.on_release_cancellable sw (fun () ->
+            Luv.Process.kill proc Luv.Signal.sigkill |> or_raise;
+            ignore (Promise.await status)
+          ) in
+        hook := Some h
+      );
+    { proc; status }
+  end
+
   module Poll = Poll
 
   let sleep_ms delay =
