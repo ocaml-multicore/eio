@@ -207,7 +207,11 @@ module Fiber : sig
 
       As with [both], [f] runs immediately and [g] is scheduled next, ahead of any other queued work.
 
-      If both fibers fail, {!Exn.combine} is used to combine the exceptions. *)
+      If both fibers fail, {!Exn.combine} is used to combine the exceptions.
+
+      Warning: it is always possible that {i both} operations will succeed (and one result will be thrown away).
+      This is because there is a period of time after the first operation succeeds,
+      but before its fiber finishes, during which the other operation may also succeed. *)
 
   val any : (unit -> 'a) list -> 'a
   (** [any fs] is like [first], but for any number of fibers.
