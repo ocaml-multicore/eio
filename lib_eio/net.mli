@@ -104,7 +104,11 @@ end
 class virtual t : object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
   method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
-  method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
+  method virtual datagram_socket :
+       sw:Switch.t
+    -> [Sockaddr.datagram | `UdpV4 | `UdpV6]
+    -> <datagram_socket; Flow.close>
+
   method virtual getaddrinfo : service:string -> string -> Sockaddr.t list
   method virtual getnameinfo : Sockaddr.t -> (string * string)
 end
@@ -187,8 +191,12 @@ val accept_sub :
 
 (** {2 Datagram Sockets} *)
 
-val datagram_socket : sw:Switch.t -> #t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
-(** [datagram_socket ~sw t addr] creates a new datagram socket that data can be sent to
+val datagram_socket :
+     sw:Switch.t
+  -> #t
+  -> [Sockaddr.datagram | `UdpV4 | `UdpV6]
+  -> <datagram_socket; Flow.close>
+(** [datagram_socket ?addr ~sw t] creates a new datagram socket that data can be sent to
     and received from. The new socket will be closed when [sw] finishes. *)
 
 val send : #datagram_socket -> Sockaddr.datagram -> Cstruct.t -> unit

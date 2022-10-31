@@ -37,7 +37,11 @@ let make label =
       socket
 
     method datagram_socket ~sw addr =
-      traceln "%s: datagram_socket %a" label Eio.Net.Sockaddr.pp addr;
+      (match addr with
+      | `Udp _ as saddr -> traceln "%s: datagram_socket %a" label Eio.Net.Sockaddr.pp saddr
+      | `UdpV4 -> traceln "%s: datagram_socket UDPv4" label
+      | `UdpV6 -> traceln "%s: datagram_socket UDPv6" label
+      );
       let socket = Handler.run on_datagram_socket in
       Switch.on_release sw (fun () -> Eio.Flow.close socket);
       socket
