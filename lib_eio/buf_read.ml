@@ -295,6 +295,17 @@ let end_of_input t =
   if not (at_end_of_input t) then
     failwith "Unexpected data after parsing"
 
+let try_ p t =
+  let consumed_bytes = consumed_bytes t in
+  let pos = t.pos in
+  let len = t.len in
+  try p t
+  with exn ->
+    t.consumed <- consumed_bytes;
+    t.pos <- pos;
+    t.len <- len;
+    Fmt.failwith "%a" Fmt.exn exn
+
 let pp_pos f t =
   Fmt.pf f "at offset %d" (consumed_bytes t)
 

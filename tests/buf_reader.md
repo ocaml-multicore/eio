@@ -421,6 +421,28 @@ Exception: Eio__Buf_read.Buffer_limit_exceeded.
 - : string = "abc"
 ```
 
+## try_
+
+```ocaml
+# let i = R.of_flow mock_flow ~max_size:50;;
+val i : R.t = <abstr>
+# next := ["abc"]; R.(char 'a') i;;
++mock_flow returning 3 bytes
+- : unit = ()
+# let c1 = R.consumed_bytes i;;
+val c1 : int = 1
+# R.(try_ (char 'b' *> string "hello")) i;;
+Exception: Failure "Failure(\"Expected \\\"hello\\\" but got \\\"c\\\"\")".
+# let c2 = R.consumed_bytes i;;
+val c2 : int = 1
+# c1 = c2;;
+- : bool = true
+# R.(string "bc") i;;
+- : unit = ()
+# R.consumed_bytes i = 3;;
+- : bool = true
+```
+
 ## Combinators
 
 Parsers can be combined in the usual ways:

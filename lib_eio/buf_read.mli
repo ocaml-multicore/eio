@@ -157,6 +157,10 @@ val end_of_input : unit parser
 (** [end_of_input] checks that there are no further bytes in the stream.
     @raise Failure if there are further bytes *)
 
+val try_ : 'a parser -> 'a parser
+(** [try_ p] is [p] except when [p] fails, it resets all {!val:consumed_bytes} during parsing
+    of [p] before propagating the parsing error. *)
+
 (** {2 Combinators} *)
 
 val seq : ?stop:bool parser -> 'a parser -> 'a Seq.t parser
