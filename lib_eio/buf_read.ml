@@ -38,6 +38,8 @@ module Syntax = struct
   let ( *> ) a b t =
     ignore (a t);
     b t
+
+  let ( <|> ) a b t = try a t with _ -> b t
 end
 
 open Syntax

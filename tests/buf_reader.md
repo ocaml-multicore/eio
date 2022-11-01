@@ -443,6 +443,20 @@ val c2 : int = 1
 - : bool = true
 ```
 
+## <|>
+
+```ocaml
+# let i = R.of_flow mock_flow ~max_size:50;;
+val i : R.t = <abstr>
+# next := ["abc"]; R.(char 'z' <|> (char 'a')) i;;
++mock_flow returning 3 bytes
+- : unit = ()
+# R.string "bc" i;;
+- : unit = ()
+# R.consumed_bytes i;;
+- : int = 3
+```
+
 ## Combinators
 
 Parsers can be combined in the usual ways:

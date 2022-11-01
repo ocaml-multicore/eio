@@ -226,6 +226,15 @@ module Syntax : sig
   val ( *> ) : 'a parser -> 'b parser -> 'b parser
   (** [a *> b] is [map snd (pair a b)].
       It parses two things and keeps only the second. *)
+
+  val ( <|> ) : 'a parser -> 'a parser -> 'a parser
+  (** [a <|> b] is a choice or alternate operator. It first attempts to parse [a]. Failing which
+      it attempts to parse [b].
+
+      [<|>] doesn't change the default backtracking behavior - no backtracking. However together
+      with a `try_` operator one can implement parsers that support a limited form of
+      backtracking. It is recommended to wrap the left side of `a <|> b` with `try_`, e.g. 
+      `(try_ a) <|> b` to achieve this. *)
 end
 
 (** {2 Low-level API} *)
