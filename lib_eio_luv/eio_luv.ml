@@ -249,6 +249,33 @@ let get_loop () =
   enter_unchecked @@ fun t k ->
   Suspended.continue k t.loop
 
+let unix_fstat fd =
+  let ust = Unix.LargeFile.fstat fd in
+  let st_kind : Eio.File.Stat.kind =
+    match ust.st_kind with
+    | Unix.S_REG  -> `Regular_file
+    | Unix.S_DIR  -> `Directory
+    | Unix.S_CHR  -> `Character_special
+    | Unix.S_BLK  -> `Block_device
+    | Unix.S_LNK  -> `Symbolic_link
+    | Unix.S_FIFO -> `Fifo
+    | Unix.S_SOCK -> `Socket
+  in
+  Eio.File.Stat.{
+    dev     = ust.st_dev   |> Int64.of_int;
+    ino     = ust.st_ino   |> Int64.of_int;
+    kind    = st_kind;
+    perm    = ust.st_perm;
+    nlink   = ust.st_nlink |> Int64.of_int;
+    uid     = ust.st_uid   |> Int64.of_int;
+    gid     = ust.st_gid   |> Int64.of_int;
+    rdev    = ust.st_rdev  |> Int64.of_int;
+    size    = ust.st_size  |> Optint.Int63.of_int64;
+    atime   = ust.st_atime;
+    mtime   = ust.st_mtime;
+    ctime   = ust.st_ctime;
+  }
+
 module Low_level = struct
   type 'a or_error = ('a, Luv.Error.t) result
 
@@ -376,6 +403,10 @@ module Low_level = struct
       let t = of_luv_no_hook ~close_unix fd in
       t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
       t
+
+    let fstat fd =
+      let request = Luv.File.Request.make () in
+      await_with_cancel ~request (fun loop -> Luv.File.fstat ~loop ~request (to_luv fd))
 
     let open_ ~sw ?mode path flags =
       let request = Luv.File.Request.make () in
@@ -597,6 +628,8 @@ let flow fd = object (_ : <source; sink; ..>)
   method fd = fd
   method close = Low_level.File.close fd
   method unix_fd op = File.to_unix op fd
+
+  method stat = unix_fstat (File.to_unix `Peek fd)
 
   method probe : type a. a Eio.Generic.ty -> a option = function
     | FD -> Some fd

@@ -64,6 +64,10 @@ let try_rmdir path =
 let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
+
+let assert_kind path kind =
+  Path.with_open_in path @@ fun file ->
+  assert ((Eio.File.stat file).kind = kind)
 ```
 
 # Basic test cases
@@ -493,5 +497,19 @@ Unconfined:
 +rename <dir:bar> to <fs:foo> -> ok
 +read <fs:foo> -> "FOO"
 +rename <fs:../foo> to <fs:foo> -> ok
+- : unit = ()
+```
+
+# Stat
+```ocaml
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  Switch.run @@ fun sw ->
+  try_mkdir (cwd / "stat_subdir");
+  assert_kind (cwd / "stat_subdir") `Directory;
+  try_write_file (cwd / "stat_reg") "kingbula" ~create:(`Exclusive 0o600);
+  assert_kind (cwd / "stat_reg") `Regular_file;;
++mkdir <cwd:stat_subdir> -> ok
++write <cwd:stat_reg> -> ok
 - : unit = ()
 ```

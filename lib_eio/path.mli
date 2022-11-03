@@ -88,7 +88,7 @@ val with_open_out :
 
 (** {1 Directories} *)
 
-val mkdir : perm:Unix_perm.t -> _ t -> unit
+val mkdir : perm:File.Unix_perm.t -> _ t -> unit
 (** [mkdir ~perm t] creates a new directory [t] with permissions [perm]. *)
 
 val open_dir : sw:Switch.t -> _ t -> <dir; Flow.close> t

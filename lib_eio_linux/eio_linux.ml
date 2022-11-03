@@ -110,6 +110,34 @@ module FD = struct
     match t.fd with
     | `Open fd -> Fmt.pf f "%d" (Obj.magic fd : int)
     | `Closed -> Fmt.string f "(closed)"
+
+  let fstat t =
+    (* todo: use uring  *)
+    let ust = Unix.LargeFile.fstat (get_exn "fstat" t) in
+    let st_kind : Eio.File.Stat.kind =
+      match ust.st_kind with
+      | Unix.S_REG  -> `Regular_file
+      | Unix.S_DIR  -> `Directory
+      | Unix.S_CHR  -> `Character_special
+      | Unix.S_BLK  -> `Block_device
+      | Unix.S_LNK  -> `Symbolic_link
+      | Unix.S_FIFO -> `Fifo
+      | Unix.S_SOCK -> `Socket
+    in
+    Eio.File.Stat.{
+      dev     = ust.st_dev   |> Int64.of_int;
+      ino     = ust.st_ino   |> Int64.of_int;
+      kind    = st_kind;
+      perm    = ust.st_perm;
+      nlink   = ust.st_nlink |> Int64.of_int;
+      uid     = ust.st_uid   |> Int64.of_int;
+      gid     = ust.st_gid   |> Int64.of_int;
+      rdev    = ust.st_rdev  |> Int64.of_int;
+      size    = ust.st_size  |> Optint.Int63.of_int64;
+      atime   = ust.st_atime;
+      mtime   = ust.st_mtime;
+      ctime   = ust.st_ctime;
+    }
 end
 
 type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
@@ -816,9 +844,7 @@ module Low_level = struct
     | Cwd -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.beneath path
     | Fs -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.empty path
 
-  let fstat fd =
-    (* todo: use uring *)
-    Unix.fstat (FD.get_exn "fstat" fd)
+  let fstat fd = FD.fstat fd
 
   external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
 
@@ -1032,6 +1058,8 @@ let flow fd =
   object (_ : <source; sink; ..>)
     method fd = fd
     method close = FD.close fd
+
+    method stat = FD.fstat fd
 
     method probe : type a. a Eio.Generic.ty -> a option = function
       | FD -> Some fd
