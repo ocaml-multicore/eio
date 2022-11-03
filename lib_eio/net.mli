@@ -194,10 +194,15 @@ val accept_sub :
 val datagram_socket :
      sw:Switch.t
   -> #t
-  -> [Sockaddr.datagram | `UdpV4 | `UdpV6]
+  -> [< Sockaddr.datagram | `UdpV4 | `UdpV6]
   -> <datagram_socket; Flow.close>
-(** [datagram_socket ?addr ~sw t] creates a new datagram socket that data can be sent to
-    and received from. The new socket will be closed when [sw] finishes. *)
+  (** [datagram_socket ~sw t addr] creates a new datagram socket bound to [addr]. The new 
+      socket will be closed when [sw] finishes. 
+
+      [`UdpV4] and [`UdpV6] represents IPv4 and IPv6
+      datagram client sockets where the OS assigns the next available socket address and port
+      automatically. [`Udp ..] can be used to create both listening server socket and client 
+      socket. *)
 
 val send : #datagram_socket -> Sockaddr.datagram -> Cstruct.t -> unit
 (** [send sock addr buf] sends the data in [buf] to the address [addr] using the 
