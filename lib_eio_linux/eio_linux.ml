@@ -1190,8 +1190,10 @@ let net = object
       let host = Eio_unix.Ipaddr.to_unix host in
       let addr = Unix.ADDR_INET (host, port) in
       let sock_unix = Unix.socket (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
-      Eio_unix.reuse_addr sock_unix reuse_addr;
-      Eio_unix.reuse_port sock_unix reuse_port;
+      if reuse_addr then
+        Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+      if reuse_port then
+        Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
       let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
       Unix.bind sock_unix addr;
       udp_socket sock
