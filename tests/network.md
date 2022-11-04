@@ -204,8 +204,12 @@ Handling one UDP packet using IPv6:
 - : unit = ()
 ```
 
+Now test host-assigned addresses.
+`run_dgram2` is like `run_dgram` above, but doesn't print the sender address
+since it will be different in each run:
+
 ```ocaml
-let run_dgram2 addr fn ~net sw =
+let run_dgram2 ~e1 addr ~net sw =
   let server_addr = `Udp (addr, 8082) in
   let listening_socket = Eio.Net.datagram_socket ~sw net server_addr in
   Fiber.both
@@ -215,18 +219,17 @@ let run_dgram2 addr fn ~net sw =
       let addr, recv = Eio.Net.recv listening_socket buf in
       traceln "Received message %s" (Cstruct.(to_string (sub buf 0 recv)))
     )
-    (fun () -> fn ~net sw server_addr)
+    (fun () ->
+      let e = Eio.Net.datagram_socket ~sw net e1 in
+      traceln "Sending data to %a" Eio.Net.Sockaddr.pp server_addr;
+      Eio.Net.send e server_addr (Cstruct.of_string "UDP Message"));;
 ```
 
 Handling one UDP packet using IPv4:
 
 ```ocaml
 # let addr = Eio.Net.Ipaddr.V4.loopback in
-  run @@ run_dgram2 addr (fun ~net sw server_addr ->
-    let e1 = `UdpV4 in
-    let e = Eio.Net.datagram_socket ~sw net e1 in
-    traceln "Sending data to %a" Eio.Net.Sockaddr.pp server_addr;
-    Eio.Net.send e server_addr (Cstruct.of_string "UDP Message"));;
+  run @@ run_dgram2 addr ~e1:`UdpV4;;
 +Waiting to receive data on udp:127.0.0.1:8082
 +Sending data to udp:127.0.0.1:8082
 +Received message UDP Message
@@ -237,26 +240,7 @@ Handling one UDP packet using IPv6:
 
 ```ocaml
 # let addr = Eio.Net.Ipaddr.V6.loopback in
-  run @@ run_dgram2 addr (fun ~net sw server_addr ->
-    let e1 = `UdpV6 in
-    let e = Eio.Net.datagram_socket ~sw net e1 in
-    traceln "Sending data to %a" Eio.Net.Sockaddr.pp server_addr;
-    Eio.Net.send e server_addr (Cstruct.of_string "UDP Message"));;
-+Waiting to receive data on udp:[::1]:8082
-+Sending data to udp:[::1]:8082
-+Received message UDP Message
-- : unit = ()
-```
-
-Handling one UDP packet using IPv6 client address:
-
-```ocaml
-# let addr = Eio.Net.Ipaddr.V6.loopback in
-  run @@ run_dgram2 addr (fun ~net sw server_addr ->
-    let client_addr : Eio.Net.Sockaddr.datagram = `Udp (addr, 8081) in
-    let e = Eio.Net.datagram_socket ~sw net client_addr in
-    traceln "Sending data to %a" Eio.Net.Sockaddr.pp server_addr;
-    Eio.Net.send e server_addr (Cstruct.of_string "UDP Message"));;
+  run @@ run_dgram2 addr ~e1:`UdpV6;;
 +Waiting to receive data on udp:[::1]:8082
 +Sending data to udp:[::1]:8082
 +Received message UDP Message
