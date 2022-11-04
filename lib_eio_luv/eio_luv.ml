@@ -827,6 +827,15 @@ let listening_unix_socket ~backlog sock = object
     `Unix (Luv.Pipe.getpeername (Handle.get "get_client_addr" c) |> or_raise)
 end
 
+let socket_domain_of = function
+  | `UdpV4 -> `INET
+  | `UdpV6 -> `INET6
+  | `Udp (host, _)
+  | `Tcp (host, _) ->
+    Eio.Net.Ipaddr.fold host
+      ~v4:(fun _ -> `INET)
+      ~v6:(fun _ -> `INET6)
+
 let net = object
   inherit Eio.Net.t
 
@@ -861,14 +870,19 @@ let net = object
       let sock = Stream.connect_pipe ~sw path in
       (socket sock :> < Eio.Flow.two_way; Eio.Flow.close >)
 
-  method datagram_socket ~sw = function
+  method datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
+    let domain = socket_domain_of saddr in
+    let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise in
+    let dg_sock = Handle.of_luv ~sw sock in
+    begin match saddr with
     | `Udp (host, port) ->
-      let domain = Eio.Net.Ipaddr.fold ~v4:(fun _ -> `INET) ~v6:(fun _ -> `INET6) host in
-      let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise in
-      let dg_sock = Handle.of_luv ~sw sock in
       let addr = luv_addr_of_eio host port in
-      Luv.UDP.bind sock addr |> or_raise;
-      udp_socket dg_sock
+      luv_reuse_addr sock reuse_addr;
+      luv_reuse_port sock reuse_port;
+      Luv.UDP.bind sock addr |> or_raise
+    | `UdpV4 | `UdpV6 -> ()
+    end;
+    udp_socket dg_sock
 
   method getaddrinfo = Low_level.getaddrinfo
 

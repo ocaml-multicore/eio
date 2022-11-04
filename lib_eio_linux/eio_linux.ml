@@ -1129,6 +1129,8 @@ end
 
 let socket_domain_of = function
   | `Unix _ -> Unix.PF_UNIX
+  | `UdpV4 -> Unix.PF_INET
+  | `UdpV6 -> Unix.PF_INET6
   | `Udp (host, _)
   | `Tcp (host, _) ->
     Eio.Net.Ipaddr.fold host
@@ -1183,17 +1185,21 @@ let net = object
     Low_level.connect sock addr;
     (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
 
-  method datagram_socket ~sw saddr =
-    match saddr with
+  method datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
+    let sock_unix = Unix.socket ~cloexec:true (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
+    let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
+    begin match saddr with
     | `Udp (host, port) ->
       let host = Eio_unix.Ipaddr.to_unix host in
       let addr = Unix.ADDR_INET (host, port) in
-      let sock_unix = Unix.socket (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
-      Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
-      Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
-      let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
-      Unix.bind sock_unix addr;
-      udp_socket sock
+      if reuse_addr then
+        Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+      if reuse_port then
+        Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
+      Unix.bind sock_unix addr
+    | `UdpV4 | `UdpV6 -> ()
+    end;
+    udp_socket sock
 
   method getaddrinfo = Low_level.getaddrinfo
 

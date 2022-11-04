@@ -104,7 +104,13 @@ end
 class virtual t : object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
   method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
-  method virtual datagram_socket : sw:Switch.t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
+  method virtual datagram_socket :
+       reuse_addr:bool
+    -> reuse_port:bool
+    -> sw:Switch.t
+    -> [Sockaddr.datagram | `UdpV4 | `UdpV6]
+    -> <datagram_socket; Flow.close>
+
   method virtual getaddrinfo : service:string -> string -> Sockaddr.t list
   method virtual getnameinfo : Sockaddr.t -> (string * string)
 end
@@ -187,9 +193,23 @@ val accept_sub :
 
 (** {2 Datagram Sockets} *)
 
-val datagram_socket : sw:Switch.t -> #t -> Sockaddr.datagram -> <datagram_socket; Flow.close>
-(** [datagram_socket ~sw t addr] creates a new datagram socket that data can be sent to
-    and received from. The new socket will be closed when [sw] finishes. *)
+val datagram_socket :
+     ?reuse_addr:bool
+  -> ?reuse_port:bool
+  -> sw:Switch.t
+  -> #t
+  -> [< Sockaddr.datagram | `UdpV4 | `UdpV6]
+  -> <datagram_socket; Flow.close>
+  (** [datagram_socket ~sw t addr] creates a new datagram socket bound to [addr]. The new 
+      socket will be closed when [sw] finishes. 
+
+      [`UdpV4] and [`UdpV6] represents IPv4 and IPv6
+      datagram client sockets where the OS assigns the next available socket address and port
+      automatically. [`Udp ..] can be used to create both listening server socket and client 
+      socket.
+
+      @param reuse_addr Set the {!Unix.SO_REUSEADDR} socket option.
+      @param reuse_port Set the {!Unix.SO_REUSEPORT} socket option. *)
 
 val send : #datagram_socket -> Sockaddr.datagram -> Cstruct.t -> unit
 (** [send sock addr buf] sends the data in [buf] to the address [addr] using the 
