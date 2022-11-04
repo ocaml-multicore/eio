@@ -747,11 +747,15 @@ class virtual ['a] listening_socket ~backlog sock = object (self)
       )
 end
 
-(* TODO: implement, or maybe remove from the Eio API.
-   Luv makes TCP sockets reuse_addr by default, and maybe that's fine everywhere.
-   Extracting the FD will require https://github.com/aantron/luv/issues/120 *)
-let luv_reuse_addr _sock _v = ()
-let luv_reuse_port _sock _v = ()
+let luv_reuse_addr sock v =
+  match Handle.to_unix_opt `Peek sock with
+  | Some fd -> Unix.setsockopt fd Unix.SO_REUSEADDR v
+  | None -> ()
+
+let luv_reuse_port sock v =
+  match Handle.to_unix_opt `Peek sock with
+  | Some fd -> Unix.setsockopt fd Unix.SO_REUSEPORT v
+  | None -> ()
 
 let luv_addr_of_eio host port =
   let host = Unix.string_of_inet_addr (Eio_unix.Ipaddr.to_unix host) in
@@ -877,8 +881,8 @@ let net = object
     begin match saddr with
     | `Udp (host, port) ->
       let addr = luv_addr_of_eio host port in
-      luv_reuse_addr sock reuse_addr;
-      luv_reuse_port sock reuse_port;
+      luv_reuse_addr dg_sock reuse_addr;
+      luv_reuse_port dg_sock reuse_port;
       Luv.UDP.bind sock addr |> or_raise
     | `UdpV4 | `UdpV6 -> ()
     end;
