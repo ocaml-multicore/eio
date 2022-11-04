@@ -6,6 +6,9 @@
 
 open Eio.Std
 
+type Eio.Exn.Backend.t += Unix_error of Unix.error * string * string
+(** Wrapper for embedding {!Unix.Unix_error} errors. *)
+
 type unix_fd = <
   unix_fd : [`Peek | `Take] -> Unix.file_descr;
 >

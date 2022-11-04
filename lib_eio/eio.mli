@@ -251,6 +251,8 @@ end
 
 (** {1 Errors and Debugging} *)
 
+exception Io of Exn.err * Exn.context
+
 val traceln :
   ?__POS__:string * int * int * int ->
   ('a, Format.formatter, unit, unit) format4 -> 'a
@@ -273,7 +275,7 @@ val traceln :
     ]}
     @param __POS__ Display [__POS__] as the location of the [traceln] call. *)
 
-(** Reporting multiple failures at once. *)
+(** Eio exceptions. *)
 module Exn = Eio__core.Exn
 
 (** {1 Provider API for OS schedulers} *)

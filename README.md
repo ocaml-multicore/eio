@@ -24,12 +24,12 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Cancellation](#cancellation)
 * [Racing](#racing)
 * [Switches](#switches)
-* [Design Note: Results vs Exceptions](#design-note-results-vs-exceptions)
 * [Performance](#performance)
 * [Networking](#networking)
 * [Design Note: Capabilities](#design-note-capabilities)
 * [Buffered Reading and Parsing](#buffered-reading-and-parsing)
 * [Buffered Writing](#buffered-writing)
+* [Error Handling](#error-handling)
 * [Filesystem Access](#filesystem-access)
 * [Time](#time)
 * [Multicore Support](#multicore-support)
@@ -364,18 +364,6 @@ Every switch also creates a new cancellation context.
 You can use `Switch.fail` to mark the switch as failed and cancel all fibers within it.
 The exception (or exceptions) passed to `fail` will be raised by `run` when the fibers have exited.
 
-## Design Note: Results vs Exceptions
-
-The OCaml standard library uses exceptions to report errors in most cases.
-Many libraries instead use the `result` type, which has the advantage of tracking the possible errors in the type system.
-However, using `result` is slower, as it requires more allocations, and explicit code to propagate errors.
-
-As part of the effects work, OCaml is expected to gain a [typed effects][] extension to the type system,
-allowing it to track both effects and exceptions statically.
-In anticipation of this, the Eio library prefers to use exceptions in most cases,
-reserving the use of `result` for cases where the caller is likely to want to handle the problem immediately
-rather than propagate it.
-
 ## Performance
 
 As mentioned above, Eio allows you to supply your own implementations of its abstract interfaces.
@@ -707,6 +695,97 @@ let send_response socket =
 
 Now the first two writes were combined and sent together.
 
+## Error Handling
+
+Errors interacting with the outside world are indicated by the `Eio.Io (err, context)` exception.
+This is roughly equivalent to the `Unix.Unix_error` exception from the OCaml standard library.
+
+The `err` field describes the error using nested error codes,
+allowing you to match on either specific errors or whole classes of errors at once.
+For example:
+
+```ocaml
+let test r =
+  try Eio.Buf_read.line r
+  with
+  | Eio.Io (Eio.Net.E Connection_reset Eio_luv.Luv_error _, _) -> "Luv connection reset"
+  | Eio.Io (Eio.Net.E Connection_reset _, _) -> "Connection reset"
+  | Eio.Io (Eio.Net.E _, _) -> "Some network error"
+  | Eio.Io _ -> "Some I/O error"
+```
+
+For portable code, you will want to avoid matching backend-specific errors, so you would avoid the first case.
+The `Eio.Io` type is extensible, so libraries can also add additional top-level error types if needed.
+
+`Io` errors also allow adding extra context information to the error.
+For example, this HTTP GET function adds the URL to any IO error:
+
+```ocaml
+# let get ~net ~host ~path =
+    try
+      Eio.Net.with_tcp_connect net ~host ~service:"http" @@ fun _flow ->
+      "..."
+    with Eio.Io _ as ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      Eio.Exn.reraise_with_context ex bt "fetching http://%s/%s" host path;;
+val get : net:#Eio.Net.t -> host:string -> path:string -> string = <fun>
+```
+
+If we test it using a mock network that returns a timeout,
+we get a useful error message telling us the IP address and port of the failed attempt,
+extended with the hostname we used to get that,
+and then extended again by our `get` function with the full URL:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let net = Eio_mock.Net.make "mocknet" in
+  Eio_mock.Net.on_getaddrinfo net [`Return [`Tcp (Eio.Net.Ipaddr.V4.loopback, 80)]];
+  Eio_mock.Net.on_connect net [`Raise (Eio.Net.err (Connection_failure Timeout))];
+  get ~net ~host:"example.com" ~path:"index.html";;
++mocknet: getaddrinfo ~service:http example.com
++mocknet: connect to tcp:127.0.0.1:80
+Exception:
+Eio.Io Net Connection_failure Timeout,
+  connecting to tcp:127.0.0.1:80,
+  connecting to "example.com":http,
+  fetching http://example.com/index.html
+```
+
+To get more detailed information, you can enable backtraces by setting `OCAMLRUNPARAM=b`
+or by calling `Printexc.record_backtrace true`, as usual.
+
+When writing MDX tests that depend on getting the exact error output,
+it can be annoying to have the full backend-specific error displayed:
+
+<!-- $MDX non-deterministic=command -->
+```ocaml
+# Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  Switch.run @@ fun sw ->
+  Eio.Net.connect ~sw net (`Tcp (Eio.Net.Ipaddr.V4.loopback, 1234));;
+Exception:
+Eio.Io Net Connection_failure Refused Eio_luv.Luv_error(ECONNREFUSED) (* connection refused *),
+  connecting to tcp:127.0.0.1:1234
+```
+
+If we ran this using e.g. the Linux io_uring backend, the `Luv_error` part would change.
+To avoid this problem, you can use `Eio.Exn.Backend.show` to hide the backend-specific part of errors:
+
+```ocaml
+# Eio.Exn.Backend.show := false;;
+- : unit = ()
+
+# Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  Switch.run @@ fun sw ->
+  Eio.Net.connect ~sw net (`Tcp (Eio.Net.Ipaddr.V4.loopback, 1234));;
+Exception:
+Eio.Io Net Connection_failure Refused _,
+  connecting to tcp:127.0.0.1:1234
+```
+
+We'll leave it like that for the rest of this file,
+so the examples can be tested automatically by MDX.
 
 ## Filesystem Access
 
@@ -756,13 +835,13 @@ Access to `cwd` only grants access to that sub-tree:
 ```ocaml
 let try_save path data =
   match Eio.Path.save ~create:(`Exclusive 0o600) path data with
-  | () -> traceln "save %a -> ok" Eio.Path.pp path
-  | exception ex -> traceln "save %a -> %a" Eio.Path.pp path Fmt.exn ex
+  | () -> traceln "save %a : ok" Eio.Path.pp path
+  | exception ex -> traceln "%a" Eio.Exn.pp ex
 
 let try_mkdir path =
   match Eio.Path.mkdir path ~perm:0o700 with
-  | () -> traceln "mkdir %a -> ok" Eio.Path.pp path
-  | exception ex -> traceln "mkdir %a -> %a" Eio.Path.pp path Fmt.exn ex
+  | () -> traceln "mkdir %a : ok" Eio.Path.pp path
+  | exception ex -> traceln "%a" Eio.Exn.pp ex
 ```
 
 ```ocaml
@@ -771,9 +850,9 @@ let try_mkdir path =
   try_mkdir (cwd / "dir1");
   try_mkdir (cwd / "../dir2");
   try_mkdir (cwd / "/tmp/dir3");;
-+mkdir <cwd:dir1> -> ok
-+mkdir <cwd:../dir2> -> Eio__Fs.Permission_denied("../dir2", _)
-+mkdir <cwd:/tmp/dir3> -> Eio__Fs.Permission_denied("/tmp/dir3", _)
++mkdir <cwd:dir1> : ok
++Eio.Io Fs Permission_denied _, creating directory <cwd:../dir2>
++Eio.Io Fs Permission_denied _, creating directory <cwd:/tmp/dir3>
 - : unit = ()
 ```
 
@@ -788,9 +867,9 @@ The checks also apply to following symlinks:
   try_save (cwd / "dir1/file1") "A";
   try_save (cwd / "link-to-dir1/file2") "B";
   try_save (cwd / "link-to-tmp/file3") "C";;
-+save <cwd:dir1/file1> -> ok
-+save <cwd:link-to-dir1/file2> -> ok
-+save <cwd:link-to-tmp/file3> -> Eio__Fs.Permission_denied("link-to-tmp/file3", _)
++save <cwd:dir1/file1> : ok
++save <cwd:link-to-dir1/file2> : ok
++Eio.Io Fs Permission_denied _, opening <cwd:link-to-tmp/file3>
 - : unit = ()
 ```
 
@@ -802,8 +881,8 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
   Eio.Path.with_open_dir (cwd / "dir1") @@ fun dir1 ->
   try_save (dir1 / "file4") "D";
   try_save (dir1 / "../file5") "E";;
-+save <dir1:file4> -> ok
-+save <dir1:../file5> -> Eio__Fs.Permission_denied("../file5", _)
++save <dir1:file4> : ok
++Eio.Io Fs Permission_denied _, opening <dir1:../file5>
 - : unit = ()
 ```
 
@@ -1446,7 +1525,6 @@ Some background about the effects system can be found in:
 [Lwt_eio]: https://github.com/ocaml-multicore/lwt_eio
 [mirage-trace-viewer]: https://github.com/talex5/mirage-trace-viewer
 [structured concurrency]: https://en.wikipedia.org/wiki/Structured_concurrency
-[typed effects]: https://www.janestreet.com/tech-talks/effective-programming/
 [capability-based security]: https://en.wikipedia.org/wiki/Object-capability_model
 [Emily]: https://www.hpl.hp.com/techreports/2006/HPL-2006-116.pdf
 [gemini-eio]: https://gitlab.com/talex5/gemini-eio
