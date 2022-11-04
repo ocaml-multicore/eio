@@ -195,7 +195,7 @@ let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#liste
 let connect ~sw (t:#t) = t#connect ~sw
 
 let datagram_socket ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:#t) addr =
-  let addr = (addr :> [ Sockaddr.datagram | `UdpV4 | `UdpV6]) in 
+  let addr = (addr :> [Sockaddr.datagram | `UdpV4 | `UdpV6]) in 
   t#datagram_socket ~reuse_addr ~reuse_port ~sw addr
 
 let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname

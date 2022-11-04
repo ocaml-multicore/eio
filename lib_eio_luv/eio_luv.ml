@@ -870,21 +870,19 @@ let net = object
       let sock = Stream.connect_pipe ~sw path in
       (socket sock :> < Eio.Flow.two_way; Eio.Flow.close >)
 
-  method datagram_socket ~reuse_addr ~reuse_port ~sw = function
-    | (`Udp (host, port)) as saddr ->
-      let domain = socket_domain_of saddr in
-      let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise in
-      let dg_sock = Handle.of_luv ~sw sock in
+  method datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
+    let domain = socket_domain_of saddr in
+    let sock = Luv.UDP.init ~domain ~loop:(get_loop ()) () |> or_raise in
+    let dg_sock = Handle.of_luv ~sw sock in
+    begin match saddr with
+    | `Udp (host, port) ->
       let addr = luv_addr_of_eio host port in
       luv_reuse_addr sock reuse_addr;
       luv_reuse_port sock reuse_port;
-      Luv.UDP.bind sock addr |> or_raise;
-      udp_socket dg_sock
-    | (`UdpV4 | `UdpV6) as s ->
-      let domain = socket_domain_of s in
-      let sock = Luv.UDP.init ~domain ~loop:(get_loop()) () |> or_raise in
-      let dg_sock = Handle.of_luv ~sw sock in
-      udp_socket dg_sock
+      Luv.UDP.bind sock addr |> or_raise
+    | `UdpV4 | `UdpV6 -> ()
+    end;
+    udp_socket dg_sock
 
   method getaddrinfo = Low_level.getaddrinfo
 
