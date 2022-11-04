@@ -1185,13 +1185,13 @@ let net = object
     Low_level.connect sock addr;
     (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
 
-  method datagram_socket ~sw = function
+  method datagram_socket ~reuse_addr ~reuse_port ~sw = function
     | (`Udp (host, port)) as saddr ->
       let host = Eio_unix.Ipaddr.to_unix host in
       let addr = Unix.ADDR_INET (host, port) in
       let sock_unix = Unix.socket (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
-      Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
-      Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
+      Eio_unix.reuse_addr sock_unix reuse_addr;
+      Eio_unix.reuse_port sock_unix reuse_port;
       let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
       Unix.bind sock_unix addr;
       udp_socket sock

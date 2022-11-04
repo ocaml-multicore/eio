@@ -181,7 +181,9 @@ class virtual t = object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
   method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
   method virtual datagram_socket :
-    sw:Switch.t
+       reuse_addr:bool
+    -> reuse_port:bool
+    -> sw:Switch.t
     -> [Sockaddr.datagram | `UdpV4 | `UdpV6]
     -> <datagram_socket; Flow.close>
 
@@ -192,11 +194,9 @@ end
 let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw
 let connect ~sw (t:#t) = t#connect ~sw
 
-type udp_socket = [ Sockaddr.datagram | `UdpV4 | `UdpV6]
-
-let datagram_socket ~sw (t:#t) addr =
-  let addr = (addr :> udp_socket) in 
-  t#datagram_socket ~sw addr
+let datagram_socket ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:#t) addr =
+  let addr = (addr :> [ Sockaddr.datagram | `UdpV4 | `UdpV6]) in 
+  t#datagram_socket ~reuse_addr ~reuse_port ~sw addr
 
 let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname
 

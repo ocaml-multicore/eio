@@ -105,7 +105,9 @@ class virtual t : object
   method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
   method virtual connect : sw:Switch.t -> Sockaddr.stream -> <stream_socket; Flow.close>
   method virtual datagram_socket :
-       sw:Switch.t
+       reuse_addr:bool
+    -> reuse_port:bool
+    -> sw:Switch.t
     -> [Sockaddr.datagram | `UdpV4 | `UdpV6]
     -> <datagram_socket; Flow.close>
 
@@ -192,7 +194,9 @@ val accept_sub :
 (** {2 Datagram Sockets} *)
 
 val datagram_socket :
-     sw:Switch.t
+     ?reuse_addr:bool
+  -> ?reuse_port:bool
+  -> sw:Switch.t
   -> #t
   -> [< Sockaddr.datagram | `UdpV4 | `UdpV6]
   -> <datagram_socket; Flow.close>
@@ -202,7 +206,10 @@ val datagram_socket :
       [`UdpV4] and [`UdpV6] represents IPv4 and IPv6
       datagram client sockets where the OS assigns the next available socket address and port
       automatically. [`Udp ..] can be used to create both listening server socket and client 
-      socket. *)
+      socket.
+
+      @param reuse_addr Set the {!Unix.SO_REUSEADDR} socket option.
+      @param reuse_port Set the {!Unix.SO_REUSEPORT} socket option. *)
 
 val send : #datagram_socket -> Sockaddr.datagram -> Cstruct.t -> unit
 (** [send sock addr buf] sends the data in [buf] to the address [addr] using the 

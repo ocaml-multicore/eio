@@ -68,3 +68,6 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
   run_in_systhread (fun () ->
     let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
     (ni_hostname, ni_service))
+
+let reuse_addr sock v = if v then Unix.setsockopt sock Unix.SO_REUSEADDR true
+let reuse_port sock v = if v then Unix.setsockopt sock Unix.SO_REUSEPORT true;
