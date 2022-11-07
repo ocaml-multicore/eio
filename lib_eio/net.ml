@@ -156,12 +156,36 @@ module Sockaddr = struct
       Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
+module Sockopt = struct
+  type 'a t =
+    | IPV6_ONLY   : bool t
+    | ACCEPTCONN  : bool t
+    | BROADCAST   : bool t
+    | DEBUG       : bool t
+    | DONTROUTE   : bool t
+    | KEEPALIVE   : bool t
+    | LINGER      : int option t
+    | OOBINLINE   : bool t
+    | RCVBUF      : int t
+    | RCVLOWAT    : int t
+    | RCVTIMEO    : float t
+    | REUSEADDR   : bool t
+    | REUSEPORT   : bool t
+    | SNDBUF      : int t
+    | SNDLOWAT    : int t
+    | SNDTIMEO    : float t
+    | TYPE        : int t
+    | TCP_NODELAY : bool t
+end
+
 class virtual socket = object (_ : #Generic.t)
   method probe _ = None
+  method virtual setsockopt : 'a. 'a Sockopt.t -> 'a -> unit
 end
 
 class virtual stream_socket = object
   inherit Flow.two_way
+  method virtual setsockopt : 'a. 'a Sockopt.t -> 'a -> unit
 end
 
 class virtual listening_socket = object

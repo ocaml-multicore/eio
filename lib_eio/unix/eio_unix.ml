@@ -18,7 +18,7 @@ type socket = <
 module Private = struct
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
 
-  type _ Effect.t += 
+  type _ Effect.t +=
     | Await_readable : Unix.file_descr -> unit Effect.t
     | Await_writable : Unix.file_descr -> unit Effect.t
     | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
@@ -75,3 +75,24 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
   run_in_systhread (fun () ->
     let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
     (ni_hostname, ni_service))
+
+let setsockopt (type a) fd (opt: a Eio.Net.Sockopt.t) (v: a) =
+  match opt with
+  | IPV6_ONLY   -> Unix.(setsockopt fd IPV6_ONLY v)
+  | ACCEPTCONN  -> Unix.(setsockopt fd SO_ACCEPTCONN v)
+  | BROADCAST   -> Unix.(setsockopt fd SO_BROADCAST v)
+  | DEBUG       -> Unix.(setsockopt fd SO_DEBUG v)
+  | DONTROUTE   -> Unix.(setsockopt fd SO_DONTROUTE v)
+  | KEEPALIVE   -> Unix.(setsockopt fd SO_KEEPALIVE v)
+  | LINGER      -> Unix.(setsockopt_optint fd SO_LINGER v)
+  | OOBINLINE   -> Unix.(setsockopt fd SO_OOBINLINE v)
+  | RCVBUF      -> Unix.(setsockopt_int fd SO_RCVBUF v)
+  | RCVLOWAT    -> Unix.(setsockopt_int fd SO_RCVLOWAT v)
+  | RCVTIMEO    -> Unix.(setsockopt_float fd SO_RCVTIMEO v)
+  | REUSEADDR   -> Unix.(setsockopt fd SO_REUSEADDR v)
+  | REUSEPORT   -> Unix.(setsockopt fd SO_REUSEPORT v)
+  | SNDBUF      -> Unix.(setsockopt_int fd SO_SNDBUF v)
+  | SNDLOWAT    -> Unix.(setsockopt_int fd SO_SNDLOWAT v)
+  | SNDTIMEO    -> Unix.(setsockopt_float fd SO_SNDTIMEO v)
+  | TYPE        -> Unix.(setsockopt_int fd SO_TYPE v)
+  | TCP_NODELAY -> Unix.(setsockopt fd TCP_NODELAY v)

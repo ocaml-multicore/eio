@@ -125,9 +125,16 @@ module Net : sig
     on_getnameinfo : (string * string) Handler.t;
   >
 
+  type stream_socket = <
+    Flow.t;
+    Eio.Net.stream_socket; 
+    on_setsockopt: unit Handler.t;
+  >
+
   type listening_socket = <
     Eio.Net.listening_socket;
-    on_accept : (Flow.t * Eio.Net.Sockaddr.stream) Handler.t;
+    on_accept : (stream_socket * Eio.Net.Sockaddr.stream) Handler.t;
+    on_setsockopt: unit Handler.t;
   >
 
   val make : string -> t
@@ -149,9 +156,12 @@ module Net : sig
   val listening_socket : string -> listening_socket
   (** [listening_socket label] can be configured to provide mock connections. *)
 
+  val stream_socket : string -> stream_socket
+  (** [stream_socket label] is a mock [stream_socket]. *)
+
   val on_accept :
     listening_socket ->
-    (Flow.t * Eio.Net.Sockaddr.stream) Handler.actions ->
+    (stream_socket * Eio.Net.Sockaddr.stream) Handler.actions ->
     unit
   (** [on_accept socket actions] configures how to respond when the server calls "accept". *)
 end

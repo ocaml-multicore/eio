@@ -106,3 +106,5 @@ module Ctf = Ctf_unix
 
 val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
 (** [getnameinfo sockaddr] returns domain name and service for [sockaddr]. *)
+
+val setsockopt : Unix.file_descr -> 'a Eio.Net.Sockopt.t -> 'a -> unit

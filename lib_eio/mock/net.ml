@@ -71,17 +71,51 @@ let on_getaddrinfo (t:t) actions = Handler.seq t#on_getaddrinfo actions
 
 let on_getnameinfo (t:t) actions = Handler.seq t#on_getnameinfo actions
 
+type stream_socket = <
+  Flow.t;
+  Eio.Net.stream_socket; 
+  on_setsockopt: unit Handler.t;
+>
+
 type listening_socket = <
   Eio.Net.listening_socket;
-  on_accept : (Flow.t * Eio.Net.Sockaddr.stream) Handler.t;
+  on_accept : (stream_socket * Eio.Net.Sockaddr.stream) Handler.t;
+  on_setsockopt: unit Handler.t;
 >
+
+let setsockopt (type a) label handler (opt: a Eio.Net.Sockopt.t) (x : a) : unit =
+  let traceln (pp : a Fmt.t) (x: a) s = 
+    traceln "%s: setsockopt %s %a" label s pp x 
+  in
+  (match opt with
+   | IPV6_ONLY   -> traceln Fmt.bool x "IPV6_ONLY"
+   | ACCEPTCONN  -> traceln Fmt.bool x "SO_ACCEPTCONN"
+   | BROADCAST   -> traceln Fmt.bool x "SO_BROADCAST"
+   | DEBUG       -> traceln Fmt.bool x "SO_DEBUG"
+   | DONTROUTE   -> traceln Fmt.bool x "SO_DONTROUTE"
+   | KEEPALIVE   -> traceln Fmt.bool x "SO_KEEPALIVE"
+   | LINGER      -> traceln Fmt.(option int) x "SO_LINGER"
+   | OOBINLINE   -> traceln Fmt.bool x "SO_OOBINLINE"
+   | RCVBUF      -> traceln Fmt.int x "SO_RCVBUF"
+   | RCVLOWAT    -> traceln Fmt.int x "SO_RCVLOWAT"
+   | REUSEADDR   -> traceln Fmt.bool x "SO_REUSEADDR"
+   | REUSEPORT   -> traceln Fmt.bool x "SO_REUSEPORT"
+   | SNDBUF      -> traceln Fmt.int x "SO_SNDBUF"
+   | SNDLOWAT    -> traceln Fmt.int x "SO_SNDLOWAT"
+   | RCVTIMEO    -> traceln Fmt.float x "SO_RCVTIMEO"
+   | SNDTIMEO    -> traceln Fmt.float x "SO_SNDTIMEO"
+   | TYPE        -> traceln Fmt.int x "SO_TYPE"
+   | TCP_NODELAY -> traceln Fmt.bool x "TCP_NODELAY"
+  );
+  Handler.run handler
 
 let listening_socket label =
   let on_accept = Handler.make (`Raise (Failure "Mock accept handler not configured")) in
-  object
+  object (self)
     inherit Eio.Net.listening_socket
 
     method on_accept = on_accept
+    method on_setsockopt = Handler.make (`Raise (Failure "Mock setsockopt handler not configured")) 
 
     method accept ~sw =
       let socket, addr = Handler.run on_accept in
@@ -91,8 +125,20 @@ let listening_socket label =
 
     method close =
       traceln "%s: closed" label
+
+    method setsockopt = (setsockopt label self#on_setsockopt)
   end
 
+let stream_socket label : stream_socket = object (self)
+  inherit Flow.t label
+
+  method on_setsockopt = Handler.make (`Raise (Failure "Mock setsockopt handler not configured"))
+  method setsockopt: type a. a Eio.Net.Sockopt.t -> a -> unit =
+    fun opt x -> setsockopt label self#on_setsockopt opt x
+end
+
 let on_accept (l:listening_socket) actions =
-  let as_accept_pair x = (x :> Flow.t * Eio.Net.Sockaddr.stream) in
+  let as_accept_pair x = (x :> stream_socket * Eio.Net.Sockaddr.stream) in
   Handler.seq l#on_accept (List.map (Action.map as_accept_pair) actions)
+
+let on_setsockopt (l:listening_socket) actions = Handler.seq l#on_setsockopt actions

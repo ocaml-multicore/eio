@@ -91,10 +91,37 @@ module Sockaddr : sig
   val pp : Format.formatter -> [< t] -> unit
 end
 
+(** {2 Socket Options} *)
+
+module Sockopt : sig
+  type 'a t =
+    | IPV6_ONLY   : bool t  (** Forbid binding an IPv6 socket to an IPv4 address *)
+    | ACCEPTCONN  : bool t  (** Report whether socket listening is enabled *)
+    | BROADCAST   : bool t  (** Permit sending of broadcast messages *)
+    | DEBUG       : bool t  (** Record debugging information *)
+    | DONTROUTE   : bool t  (** Bypass the standard routing algorithms *)
+    | KEEPALIVE   : bool t  (** Keep connection active *)
+    | LINGER      : int option t (** Whether to linger on closed connections
+                                    that have data present, and for how long
+                                    (in seconds) *)
+    | OOBINLINE   : bool t  (** Leave out-of-band data in line *)
+    | RCVBUF      : int t   (** Size of received buffer *)
+    | RCVLOWAT    : int t   (** Minimum number of bytes to process for input operations *)
+    | RCVTIMEO    : float t (** Timeout for input operations *)
+    | REUSEADDR   : bool t  (** Allow reuse of local addresses for bind *)
+    | REUSEPORT   : bool t  (** Allow reuse of address and port bindings *)
+    | SNDBUF      : int t   (** Size of send buffer *)
+    | SNDLOWAT    : int t   (** Minimum number of bytes to process for output operations *)
+    | SNDTIMEO    : float t (** Timeout for output operations *)
+    | TYPE        : int t   (** Report the socket type *)
+    | TCP_NODELAY : bool t  (** Control the Nagle algorithm for TCP sockets *)
+end
+
 (** {2 Provider Interfaces} *)
 
 class virtual socket : object
   inherit Generic.t
+   method virtual setsockopt : 'a Sockopt.t -> 'a -> unit
 end
 
 class virtual stream_socket : object
@@ -252,6 +279,12 @@ val getnameinfo : #t -> Sockaddr.t -> (string * string)
 (** [getnameinfo t sockaddr] is [(hostname, service)] corresponding to [sockaddr]. [hostname] is the
     registered domain name represented by [sockaddr]. [service] is the IANA specified textual name of the
     port specified in [sockaddr], e.g. 'ftp', 'http', 'https', etc. *)
+
+(** {2 Socket} *)
+
+val setsockopt : #socket -> 'a Sockopt.t -> 'a -> unit
+(** [setsockopt s opt v] configures socket [s] with socket option and value [opt]
+    and [v] respectively. *)
 
 (** {2 Closing} *)
 val close : <close: unit; ..> -> unit

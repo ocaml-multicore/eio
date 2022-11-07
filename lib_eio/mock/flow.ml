@@ -5,15 +5,6 @@ type copy_method = [
   | `Read_source_buffer
 ]
 
-type t = <
-  Eio.Flow.two_way;
-  Eio.Flow.close;
-  on_read : string Handler.t;
-  on_copy_bytes : int Handler.t;
-  set_copy_method : copy_method -> unit;
-  attach_to_switch : Switch.t -> unit;
->
-
 let pp_default f s =
   let rec aux i =
     let nl =
@@ -34,7 +25,7 @@ let rec takev len = function
   | x :: _ when Cstruct.length x >= len -> [Cstruct.sub x 0 len]
   | x :: xs -> x :: takev (len - Cstruct.length x) xs
 
-let make ?(pp=pp_default) label =
+class t ?(pp=pp_default) label =
   let on_read = Handler.make (`Raise End_of_file) in
   let on_copy_bytes = Handler.make (`Return 4096) in
   let copy_method = ref `Read_into in
@@ -89,7 +80,7 @@ let make ?(pp=pp_default) label =
         if not (List.exists try_rsb (Eio.Flow.read_methods src)) then
           Fmt.failwith "Source does not offer Read_source_buffer optimisation"
 
-    method set_copy_method m =
+    method set_copy_method (m: copy_method) =
       copy_method := m
 
     method shutdown cmd =
@@ -110,7 +101,9 @@ let make ?(pp=pp_default) label =
       traceln "%s: closed" label
   end
 
-let on_read (t:t) = Handler.seq t#on_read
-let on_copy_bytes (t:t) = Handler.seq t#on_copy_bytes
-let set_copy_method (t:t) = t#set_copy_method
-let attach_to_switch (t:t) = t#attach_to_switch
+let make ?(pp=pp_default) label = new t ~pp label
+
+let on_read (t:#t) = Handler.seq t#on_read
+let on_copy_bytes (t:#t) = Handler.seq t#on_copy_bytes
+let set_copy_method (t:#t) = t#set_copy_method
+let attach_to_switch (t:#t) = t#attach_to_switch
