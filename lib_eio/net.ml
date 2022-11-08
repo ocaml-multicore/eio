@@ -67,7 +67,7 @@ module Ipaddr = struct
         let elide = min elide zeros in
         let parts = if zeros = 0 then acc else zeros :: acc in
         ((if elide < -1 then Some elide else None), List.rev parts)
-          
+
       in
       loop 0 0 [] t
 
@@ -245,7 +245,7 @@ let connect ~sw (t:#t) addr =
     Exn.reraise_with_context ex bt "connecting to %a" Sockaddr.pp addr
 
 let datagram_socket ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:#t) addr =
-  let addr = (addr :> [Sockaddr.datagram | `UdpV4 | `UdpV6]) in 
+  let addr = (addr :> [Sockaddr.datagram | `UdpV4 | `UdpV6]) in
   t#datagram_socket ~reuse_addr ~reuse_port ~sw addr
 
 let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname
@@ -291,3 +291,5 @@ let with_tcp_connect ?(timeout=Time.Timeout.none) ~host ~service t f =
   | exception (Exn.Io _ as ex) ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "connecting to %S:%s" host service
+
+let setsockopt (s:#socket) = s#setsockopt

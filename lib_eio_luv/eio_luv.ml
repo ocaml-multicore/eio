@@ -727,8 +727,14 @@ end
 let source fd = (flow fd :> source)
 let sink   fd = (flow fd :> sink)
 
-let socket sock = object
-  inherit Eio.Flow.two_way as super
+class socket f sock = object
+  inherit Eio.Net.socket
+  method setsockopt = Eio_unix.setsockopt (f `Peek sock |> Option.get)
+end
+
+let stream_socket sock = object
+  inherit socket (Stream.to_unix_opt) sock
+  inherit! Eio.Net.stream_socket as super
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
     | Eio_unix.Private.Unix_file_descr op -> Stream.to_unix_opt op sock
@@ -767,7 +773,8 @@ let socket sock = object
 end
 
 class virtual ['a] listening_socket ~backlog sock = object (self)
-  inherit Eio.Net.listening_socket as super
+  inherit socket Stream.to_unix_opt sock
+  inherit! Eio.Net.listening_socket as super
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
     | Eio_unix.Private.Unix_file_descr op -> Stream.to_unix_opt op sock
@@ -789,7 +796,7 @@ class virtual ['a] listening_socket ~backlog sock = object (self)
       raise (wrap_error e)
     | Ok () ->
       Switch.on_release sw (fun () -> Handle.ensure_closed client);
-      let flow = (socket client :> <Eio.Flow.two_way; Eio.Flow.close>) in
+      let flow = (stream_socket client :> <Eio.Net.stream_socket; Eio.Flow.close>) in
       let client_addr = self#get_client_addr client in
       flow, client_addr
 
@@ -853,7 +860,8 @@ module Udp = struct
 end
 
 let udp_socket endp = object
-  inherit Eio.Net.datagram_socket
+  inherit socket Handle.to_unix_opt endp
+  inherit! Eio.Net.datagram_socket
 
   method close = Handle.close endp
 
@@ -918,10 +926,10 @@ let net = object
   method connect ~sw = function
     | `Tcp (host, port) ->
       let sock = Stream.connect_tcp ~sw (luv_addr_of_eio host port) in
-      (socket sock :> < Eio.Flow.two_way; Eio.Flow.close >)
+      (stream_socket sock :> < Eio.Net.stream_socket; Eio.Flow.close >)
     | `Unix path ->
       let sock = Stream.connect_pipe ~sw path in
-      (socket sock :> < Eio.Flow.two_way; Eio.Flow.close >)
+      (stream_socket sock :> < Eio.Net.stream_socket; Eio.Flow.close >)
 
   method datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
     let domain = socket_domain_of saddr in
@@ -1245,7 +1253,7 @@ let rec run : type a. (_ -> a) -> a = fun main ->
               let sock = Luv.TCP.init ~loop () |> or_raise in
               let handle = Handle.of_luv ~sw ~close_unix sock in
               Luv.TCP.open_ sock fd |> or_raise;
-              (socket handle :> Eio_unix.socket)
+              (stream_socket handle :> Eio_unix.socket)
             with
             | sock -> continue k sock
             | exception (Eio.Io _ as ex) -> discontinue k ex
@@ -1265,7 +1273,7 @@ let rec run : type a. (_ -> a) -> a = fun main ->
                 let sock = Luv.TCP.init ~loop () |> or_raise in
                 Luv.TCP.open_ sock x |> or_raise;
                 let h = Handle.of_luv ~sw ~close_unix:true sock in
-                (socket h :> Eio_unix.socket)
+                (stream_socket h :> Eio_unix.socket)
               in
               (wrap a, wrap b)
             with
