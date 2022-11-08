@@ -437,7 +437,7 @@ We can test it using a mock network:
 ```ocaml
 # Eio_main.run @@ fun _env ->
   let net = Eio_mock.Net.make "mocknet" in
-  let socket = Eio_mock.Flow.make "socket" in
+  let socket = Eio_mock.Net.stream_socket "socket" in
   Eio_mock.Net.on_connect net [`Return socket];
   run_client ~net ~addr:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 8080));; 
 +Connecting to server...
@@ -473,7 +473,7 @@ This can also be tested on its own using a mock network:
 # Eio_main.run @@ fun _env ->
   let listening_socket = Eio_mock.Net.listening_socket "tcp/80" in
   let mock_addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 37568) in
-  let connection = Eio_mock.Flow.make "connection" in
+  let connection = Eio_mock.Net.stream_socket "connection" in
   Eio_mock.Net.on_accept listening_socket [`Return (connection, mock_addr)];
   Eio_mock.Flow.on_read connection [
     `Return "(packet 1)";

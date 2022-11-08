@@ -89,27 +89,27 @@ module Flow : sig
     | `Read_source_buffer       (** Use the {!Eio.Flow.Read_source_buffer} optimisation. *)
   ]
 
-  type t = <
-    Eio.Flow.two_way;
-    Eio.Flow.close;
-    on_read : string Handler.t;
-    on_copy_bytes : int Handler.t;
-    set_copy_method : copy_method -> unit;
-    attach_to_switch : Eio.Switch.t -> unit;
-  >
+  class virtual t : ?pp:string Fmt.t -> string -> object
+    inherit Eio.Flow.two_way
+    inherit Eio.Flow.close
+    method on_read : string Handler.t
+    method on_copy_bytes : int Handler.t
+    method set_copy_method : copy_method -> unit
+    method attach_to_switch : Eio.Switch.t -> unit
+  end
 
   val make : ?pp:string Fmt.t -> string -> t
   (** [make label] is a mock Eio flow.
       It can be used as a source, sink, or two-way flow.
       @param pp Printer to use to display the data. *)
 
-  val on_read : t -> string Handler.actions -> unit
+  val on_read : #t -> string Handler.actions -> unit
   (** [on_read t actions] configures the values to return from the mock's [read] function. *)
 
-  val on_copy_bytes : t -> int Handler.actions -> unit
+  val on_copy_bytes : #t -> int Handler.actions -> unit
   (** [on_copy_bytes t actions] configures the number of bytes to copy in each iteration. *)
 
-  val set_copy_method : t -> copy_method -> unit
+  val set_copy_method : #t -> copy_method -> unit
   (** [set_copy_method t m] configures [t] to use the given method to read from
       a source during a copy operation. *)
 end

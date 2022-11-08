@@ -50,7 +50,7 @@ The server handles a connection:
   let net = Eio_mock.Net.make "mocknet" in
   let listening_socket = Eio_mock.Net.listening_socket "tcp/80" in
   Eio_mock.Net.on_listen net [`Return listening_socket];
-  let connection = Eio_mock.Flow.make "connection" in
+  let connection = Eio_mock.Net.stream_socket "connection" in
   let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 37568) in
   Eio_mock.Net.on_accept listening_socket [`Return (connection, addr)];
   Eio_mock.Flow.on_read connection [`Return "foo"; `Return "bar"];
