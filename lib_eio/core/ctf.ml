@@ -28,11 +28,10 @@ end
 
 type id = int
 
-let last_id = ref 0
+let next_id = Atomic.make 1
 
 let mint_id () =
-  incr last_id;
-  !last_id
+  Atomic.fetch_and_add next_id 1
 
 type hiatus_reason =
   | Wait_for_work
