@@ -138,10 +138,11 @@ let run_internal t fn =
     (* Success. *)
     v
   | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
     (* Main function failed.
        Turn the switch off to cancel any running fibers, if it's not off already. *)
     dec_fibers t;
-    fail t ex;
+    fail ~bt t ex;
     await_idle t;
     Ctf.note_read t.id;
     maybe_raise_exs t;
