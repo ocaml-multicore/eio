@@ -11,7 +11,7 @@ type t
 val create : unit -> t
 (** [create ()] is a fresh empty queue. *)
 
-val add : t -> float -> unit Suspended.t -> Key.t
+val add : t -> Mtime.t -> unit Suspended.t -> Key.t
 (** [add t time thread] adds a new event, due at [time], and returns its ID.
     You must use {!Eio.Private.Fiber_context.set_cancel_fn} on [thread] before
     calling {!pop}.
@@ -20,7 +20,7 @@ val add : t -> float -> unit Suspended.t -> Key.t
 val remove : t -> Key.t -> unit
 (** [remove t key] removes an event previously added with [add]. *)
 
-val pop : t -> now:float -> [`Due of unit Suspended.t | `Wait_until of float | `Nothing]
+val pop : t -> now:Mtime.t -> [`Due of unit Suspended.t | `Wait_until of Mtime.t | `Nothing]
 (** [pop ~now t] removes and returns the earliest thread due by [now].
     It also clears the thread's cancel function.
     If no thread is due yet, it returns the time the earliest thread becomes due. *)

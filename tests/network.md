@@ -685,8 +685,8 @@ First attempt times out:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  let clock = Eio_mock.Clock.make () in
-  let timeout = Eio.Time.Timeout.of_s clock 10. in
+  let clock = Eio_mock.Clock.Mono.make () in
+  let timeout = Eio.Time.Timeout.seconds clock 10. in
   Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
   let mock_flow = Eio_mock.Flow.make "flow" in
   Eio_mock.Net.on_connect net [`Run Fiber.await_cancel; `Return mock_flow];
@@ -698,7 +698,7 @@ First attempt times out:
        )
     )
     (fun () ->
-       Eio_mock.Clock.advance clock
+       Eio_mock.Clock.Mono.advance clock
      );;
 +mock-net: getaddrinfo ~service:http www.example.com
 +mock-net: connect to tcp:127.0.0.1:80
@@ -715,8 +715,8 @@ Both attempts time out:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  let clock = Eio_mock.Clock.make () in
-  let timeout = Eio.Time.Timeout.of_s clock 10. in
+  let clock = Eio_mock.Clock.Mono.make () in
+  let timeout = Eio.Time.Timeout.seconds clock 10. in
   Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
   Eio_mock.Net.on_connect net [`Run Fiber.await_cancel; `Run Fiber.await_cancel];
   Fiber.both
@@ -726,10 +726,10 @@ Both attempts time out:
        )
     )
     (fun () ->
-       Eio_mock.Clock.advance clock;
+       Eio_mock.Clock.Mono.advance clock;
        Fiber.yield ();
        Fiber.yield ();
-       Eio_mock.Clock.advance clock
+       Eio_mock.Clock.Mono.advance clock
      );;
 +mock-net: getaddrinfo ~service:http www.example.com
 +mock-net: connect to tcp:127.0.0.1:80

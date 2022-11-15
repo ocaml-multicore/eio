@@ -14,7 +14,7 @@ module Private = struct
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t
     | Await_writable : Unix.file_descr -> unit Effect.t
-    | Get_system_clock : Eio.Time.clock Effect.t
+    | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
     | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> socket Effect.t
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int -> (socket * socket) Effect.t
     | Pipe : Eio.Switch.t -> (<Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>) Effect.t
@@ -24,7 +24,7 @@ let await_readable fd = Effect.perform (Private.Await_readable fd)
 let await_writable fd = Effect.perform (Private.Await_writable fd)
 
 let sleep d =
-  Eio.Time.sleep (Effect.perform Private.Get_system_clock) d
+  Eio.Time.Mono.sleep (Effect.perform Private.Get_monotonic_clock) d
 
 let run_in_systhread fn =
   let f fiber enqueue =

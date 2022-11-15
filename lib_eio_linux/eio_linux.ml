@@ -542,7 +542,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
   | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
     (* This is not a fair scheduler: timers always run before all other IO *)
-    let now = Unix.gettimeofday () in
+    let now = Mtime_clock.now () in
     match Zzz.pop ~now sleep_q with
     | `Due k ->
       Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
@@ -557,7 +557,11 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
         ignore (Uring.submit uring : int);
         let timeout =
           match next_due with
-          | `Wait_until time -> Some (time -. now)
+          | `Wait_until time ->
+            let time = Mtime.to_uint64_ns time in
+            let now = Mtime.to_uint64_ns now in
+            let diff_ns = Int64.sub time now |> Int64.to_float in
+            Some (diff_ns /. 1e9)
           | `Nothing -> None
         in
         Log.debug (fun l -> l "@[<v2>scheduler out of jobs, next timeout %s:@,%a@]"
@@ -672,7 +676,7 @@ module Low_level = struct
     Log.debug (fun l -> l "noop returned");
     if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
 
-  type _ Effect.t += Sleep_until : float -> unit Effect.t
+  type _ Effect.t += Sleep_until : Mtime.t -> unit Effect.t
   let sleep_until d =
     Effect.perform (Sleep_until d)
 
@@ -1213,6 +1217,7 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
+  mono_clock : Eio.Time.Mono.t;
   fs : Eio.Fs.dir Eio.Path.t;
   cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
@@ -1237,11 +1242,24 @@ let domain_mgr ~run_event_loop = object (self)
       )
 end
 
+let mono_clock = object
+  inherit Eio.Time.Mono.t
+
+  method now = Mtime_clock.now ()
+
+  method sleep_until = Low_level.sleep_until
+end
+
 let clock = object
   inherit Eio.Time.clock
 
   method now = Unix.gettimeofday ()
-  method sleep_until = Low_level.sleep_until
+
+  method sleep_until time =
+    (* todo: use the realtime clock directly instead of converting to monotonic time.
+       That is needed to handle adjustments to the system clock correctly. *)
+    let d = time -. Unix.gettimeofday () in
+    Eio.Time.Mono.sleep mono_clock d
 end
 
 class dir ~label (fd : dir_fd) = object
@@ -1326,6 +1344,7 @@ let stdenv ~run_event_loop =
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
+    method mono_clock = mono_clock
     method fs = (fs :> Eio.Fs.dir Eio.Path.t)
     method cwd = (cwd :> Eio.Fs.dir Eio.Path.t)
     method secure_random = secure_random
@@ -1473,7 +1492,7 @@ let rec run : type a.
                   );
                 schedule st
             )
-          | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
+          | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
           | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
               let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
               continue k (flow fd :> Eio_unix.socket)

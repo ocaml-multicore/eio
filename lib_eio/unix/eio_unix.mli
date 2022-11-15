@@ -59,7 +59,7 @@ end
 val sleep : float -> unit
 (** [sleep d] sleeps for [d] seconds, allowing other fibers to run.
     This is can be useful for debugging (e.g. to introduce delays to trigger a race condition)
-    without having to plumb {!Eio.Stdenv.clock} through your code.
+    without having to plumb {!Eio.Stdenv.mono_clock} through your code.
     It can also be used in programs that don't care about tracking determinism. *)
 
 val run_in_systhread : (unit -> 'a) -> 'a
@@ -90,7 +90,7 @@ module Private : sig
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
-    | Get_system_clock : Eio.Time.clock Effect.t             (** See {!sleep} *)
+    | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
     | Socket_of_fd : Switch.t * bool * Unix.file_descr ->
         socket Effect.t                                      (** See {!FD.as_socket} *)
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int ->

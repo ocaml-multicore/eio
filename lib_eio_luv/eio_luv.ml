@@ -576,8 +576,7 @@ module Low_level = struct
 
   module Poll = Poll
 
-  let sleep_until due =
-    let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
+  let sleep_ms delay =
     enter @@ fun st k ->
     let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in
     Fiber_context.set_cancel_fn k.fiber (fun ex ->
@@ -588,6 +587,10 @@ module Low_level = struct
     Luv.Timer.start timer delay (fun () ->
         if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread st k ()
       ) |> or_raise
+
+  let sleep_until due =
+    let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
+    sleep_ms delay
 
   (* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
   let getaddrinfo ~service node =
@@ -906,6 +909,7 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
+  mono_clock : Eio.Time.Mono.t;
   fs : Eio.Fs.dir Eio.Path.t;
   cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
@@ -954,6 +958,22 @@ let clock = object
 
   method now = Unix.gettimeofday ()
   method sleep_until = sleep_until
+end
+
+let mono_clock = object
+  inherit Eio.Time.Mono.t
+
+  method now = Mtime_clock.now ()
+
+  method sleep_until time =
+    let now = Mtime.to_uint64_ns (Mtime_clock.now ()) in
+    let time = Mtime.to_uint64_ns time in
+    if Int64.unsigned_compare now time >= 0 then Fiber.yield ()
+    else (
+      let delay_ns = Int64.sub time now |> Int64.to_float in
+      let delay_ms = delay_ns /. 1e6 |> ceil |> truncate |> max 0 in
+      Low_level.sleep_ms delay_ms
+    )
 end
 
 type _ Eio.Generic.ty += Dir_resolve_new : (string -> string) Eio.Generic.ty
@@ -1088,6 +1108,7 @@ let stdenv ~run_event_loop =
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
+    method mono_clock = mono_clock
     method fs = (fs :> Eio.Fs.dir), "."
     method cwd = (cwd :> Eio.Fs.dir), "."
     method secure_random = secure_random
@@ -1171,7 +1192,7 @@ let rec run : type a. (_ -> a) -> a = fun main ->
               let k = { Suspended.k; fiber } in
               Poll.await_writable st k fd
           )
-        | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
+        | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
         | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
             try
               let fd = Low_level.Stream.of_unix fd in

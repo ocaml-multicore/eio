@@ -65,6 +65,7 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
+  mono_clock : Eio.Time.Mono.t;
   fs : Eio.Fs.dir Eio.Path.t;
   cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
@@ -107,7 +108,7 @@ module Low_level : sig
 
   (** {1 Time functions} *)
 
-  val sleep_until : float -> unit
+  val sleep_until : Mtime.t -> unit
   (** [sleep_until time] blocks until the current time is [time]. *)
 
   (** {1 Fixed-buffer memory allocation functions}

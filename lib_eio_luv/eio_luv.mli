@@ -132,6 +132,7 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
+  mono_clock : Eio.Time.Mono.t;
   fs : Eio.Fs.dir Eio.Path.t;
   cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;

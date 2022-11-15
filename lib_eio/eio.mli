@@ -179,6 +179,7 @@ module Stdenv : sig
     net : Net.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
+    mono_clock : Time.Mono.t;
     fs : Fs.dir Path.t;
     cwd : Fs.dir Path.t;
     secure_random : Flow.source;
@@ -232,7 +233,10 @@ module Stdenv : sig
   *)
 
   val clock : <clock : #Time.clock as 'a; ..> -> 'a
-  (** [clock t] is the system clock. *)
+  (** [clock t] is the system clock (used to get the current time and date). *)
+
+  val mono_clock : <mono_clock : #Time.Mono.t as 'a; ..> -> 'a
+  (** [mono_clock t] is a monotonic clock (used for measuring intervals). *)
 
   (** {1 Randomness} *)
 
