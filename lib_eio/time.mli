@@ -57,7 +57,7 @@ module Timeout : sig
   type t
 
   val of_s : #clock -> float -> t
-  (** [of_s clock duration] is a timeout of [duration] seconds, as measured by [clock]. *)
+  [@@deprecated "Use [seconds] instead, with a monotonic clock"]
 
   val v : #Mono.t -> Mtime.Span.t -> t
   (** [v clock duration] is a timeout of [duration], as measured by [clock].
