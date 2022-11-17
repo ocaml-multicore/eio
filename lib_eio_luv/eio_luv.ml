@@ -245,10 +245,6 @@ let enqueue_at_head t k v =
   Lf_queue.push_head t.run_q (Thread (fun () -> Suspended.continue k v));
   Luv.Async.send t.async |> or_raise
 
-let get_loop () =
-  enter_unchecked @@ fun t k ->
-  Suspended.continue k t.loop
-
 let unix_fstat fd =
   let ust = Unix.LargeFile.fstat fd in
   let st_kind : Eio.File.Stat.kind =
@@ -281,6 +277,10 @@ module Low_level = struct
 
   exception Luv_error = Luv_error
   let or_raise = or_raise
+
+  let get_loop () =
+    enter_unchecked @@ fun t k ->
+    Suspended.continue k t.loop
 
   let await fn =
     Effect.perform (Await fn)
