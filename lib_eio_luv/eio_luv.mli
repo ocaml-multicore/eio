@@ -12,6 +12,13 @@ module Low_level : sig
 
   exception Luv_error of Luv.Error.t
 
+  val get_loop : unit -> Luv.Loop.t
+  (** [get_loop ()] returns the current fiber's event loop.
+
+      When using the {!Luv} API directly, you {b must} pass this to any Luv function
+      that accepts a loop as an optional argument in order to use the resource with Eio.
+      The wrapper functions in this file all do this for you. *)
+
   val or_raise : 'a or_error -> 'a
   (** [or_raise (Error e)] raises [Luv_error e]. *)
 
@@ -108,12 +115,19 @@ module Low_level : sig
 
     val to_luv : 'a t -> 'a Luv.Handle.t
     (** [to_luv t] returns the wrapped handle.
+
         This allows unsafe access to the handle.
         @raise Invalid_arg if [t] is closed. *)
 
     val of_luv : ?close_unix:bool -> sw:Switch.t -> 'a Luv.Handle.t -> 'a t
     (** [of_luv ~sw h] wraps [h] as an open handle.
-        This is unsafe if [h] is closed directly (before or after wrapping it).
+
+        You {b must} pass the loop (from {!get_loop}) to any Luv function
+        that accepts one as an optional argument
+        in order to use the resource with the correct event loop.
+
+        This function is unsafe if [h] is closed directly (before or after wrapping it).
+
         @param sw The handle is closed when [sw] is released, if not closed manually first.
         @param close_unix if [true] (the default), calling [close] also closes [fd]. *)
   end
