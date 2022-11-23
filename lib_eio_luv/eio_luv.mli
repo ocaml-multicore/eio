@@ -131,6 +131,70 @@ module Low_level : sig
         @param sw The handle is closed when [sw] is released, if not closed manually first.
         @param close_unix if [true] (the default), calling [close] also closes [fd]. *)
   end
+
+  module Stream : sig
+    type 'a t = [`Stream of 'a] Handle.t
+
+    val read_into : [< `Pipe | `TCP | `TTY ] t -> Luv.Buffer.t -> int
+    (** [read_into handle buf] reads some bytes from [handle] into [buf] returning the number
+        of bytes read.
+        @raise End_of_file if there is no more data to read *)
+
+    val write : [ `Stream of [< `Pipe | `TCP | `TTY ] ] Handle.t -> Luv.Buffer.t list -> unit
+    (** [write handle bufs] writes the contents of [bufs] to [handle]. *)
+  end
+
+  module Pipe : sig
+    type t = [`Pipe] Stream.t
+    (** A pipe *)
+
+    val init : ?for_handle_passing:bool -> sw:Switch.t -> unit -> t
+    (** Wraps {!Luv.Pipe.init}*)
+  end
+
+  module Process : sig
+    type t
+    (** A process *)
+
+    val pid : t -> int
+    (** [pid t] returns the process id of [t]. *)
+
+    val to_parent_pipe :
+      ?readable_in_child:bool ->
+      ?writable_in_child:bool ->
+      ?overlapped:bool ->
+      fd:int ->
+      parent_pipe:Pipe.t ->
+      unit ->
+      Luv.Process.redirection
+    (** Wraps {!Luv.Process.to_parent_pipe}*)
+
+    val await_exit : t -> int * int64
+    (** [await_exit t] waits for the process [t] to finish.
+
+        It returns [(exit_status, term_signal)], see {!Luv.Process.spawn} for
+        more details on these values. *)
+
+    val has_exited : t -> bool
+    (** [has_exited t] checks if the process [t] has exited or not. *)
+
+    val send_signal : t -> int -> unit
+    (** A wrapper for {!Luv.Process.kill}. *)
+
+    val spawn :
+      ?cwd:string ->
+      ?env:(string * string) list ->
+      ?uid:int ->
+      ?gid:int ->
+      ?redirect:Luv.Process.redirection list ->
+      sw:Switch.t ->
+      string ->
+      string list -> t
+    (** Wraps {!Luv.Process.spawn}.
+
+        The process will be stopped when the switch is released if
+        it has not already exited.*)
+  end
 end
 
 (** {1 Eio API} *)
