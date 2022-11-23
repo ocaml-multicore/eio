@@ -131,6 +131,18 @@ module Low_level : sig
         @param sw The handle is closed when [sw] is released, if not closed manually first.
         @param close_unix if [true] (the default), calling [close] also closes [fd]. *)
   end
+
+  module Stream : sig
+    type 'a t = [`Stream of 'a] Handle.t
+
+    val read_into : [< `Pipe | `TCP | `TTY ] t -> Luv.Buffer.t -> int
+    (** [read_into handle buf] reads some bytes from [handle] into [buf] returning the number
+        of bytes read.
+        @raise End_of_file if there is no more data to read *)
+
+    val write : [ `Stream of [< `Pipe | `TCP | `TTY ] ] Handle.t -> Luv.Buffer.t list -> unit
+    (** [write handle bufs] writes the contents of [bufs] to [handle]. *)
+  end
 end
 
 (** {1 Eio API} *)
