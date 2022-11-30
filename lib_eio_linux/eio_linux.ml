@@ -858,6 +858,25 @@ module Low_level = struct
 
   external eio_getdents : Unix.file_descr -> string list = "caml_eio_getdents"
 
+  (* keep in sync with eio_stubs.c *)
+  type gai_error =
+    | EAI_ADDRFAMILY
+    | EAI_AGAIN
+    | EAI_BADFLAGS
+    | EAI_BADHINTS
+    | EAI_FAIL
+    | EAI_FAMILY
+    | EAI_MEMORY
+    | EAI_NODATA
+    | EAI_NONAME
+    | EAI_SERVICE
+    | EAI_SOCKTYPE
+    | EAI_SYSTEM
+
+  external eio_getaddrinfo : string -> string -> Unix.getaddrinfo_option list ->
+    (Unix.addr_info list, gai_error) result
+    = "caml_eio_getaddrinfo"
+
   let getrandom { Cstruct.buffer; off; len } =
     let rec loop n =
       if n = len then
