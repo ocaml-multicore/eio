@@ -238,8 +238,10 @@ CAMLprim value caml_eio_getaddrinfo(value vnode, value vserv, value vopts)
     for (i = 0; i < (sizeof(gai_errors) / sizeof(int)); i++)
       if (gai_errors[i] == retcode)
         break;
-    if (i == (sizeof(gai_errors) / sizeof(int)))
+    if (i == (sizeof(gai_errors) / sizeof(int))) {
+      errno = EINVAL;
       uerror("invalid gai_error", Nothing);
+    }
     vret = caml_alloc_small(1, 1); /* 1 = Error */
     Field(vret, 0) = Val_int(i);
   }
