@@ -667,16 +667,16 @@ For example, consider sending an HTTP response without buffering:
 
 ```ocaml
 let send_response socket =
-  Eio.Flow.copy_string "200 OK\r\n" socket;
+  Eio.Flow.copy_string "HTTP/1.1 200 OK\r\n" socket;
   Eio.Flow.copy_string "\r\n" socket;
-  Fiber.yield ();       (* Simulate waiting for the body *)
+  Fiber.yield ();       (* Simulate delayed generation of body *)
   Eio.Flow.copy_string "Body data" socket
 ```
 
 ```ocaml
 # Eio_main.run @@ fun _ ->
   send_response (Eio_mock.Flow.make "socket");;
-+socket: wrote "200 OK\r\n"
++socket: wrote "HTTP/1.1 200 OK\r\n"
 +socket: wrote "\r\n"
 +socket: wrote "Body data"
 - : unit = ()
@@ -690,16 +690,16 @@ module Write = Eio.Buf_write
 
 let send_response socket =
   Write.with_flow socket @@ fun w ->
-  Write.string w "200 OK\r\n";
+  Write.string w "HTTP/1.1 200 OK\r\n";
   Write.string w "\r\n";
-  Fiber.yield ();       (* Simulate waiting for the body *)
+  Fiber.yield ();       (* Simulate delayed generation of body *)
   Write.string w "Body data"
 ```
 
 ```ocaml
 # Eio_main.run @@ fun _ ->
   send_response (Eio_mock.Flow.make "socket");;
-+socket: wrote "200 OK\r\n"
++socket: wrote "HTTP/1.1 200 OK\r\n"
 +              "\r\n"
 +socket: wrote "Body data"
 - : unit = ()
