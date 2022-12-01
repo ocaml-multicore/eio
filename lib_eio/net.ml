@@ -209,6 +209,7 @@ type getaddrinfo_error =
   | EAI_MEMORY
   | EAI_NODATA
   | EAI_NONAME
+  | EAI_PROTOCOL
   | EAI_SERVICE
   | EAI_SOCKTYPE
   | EAI_SYSTEM
