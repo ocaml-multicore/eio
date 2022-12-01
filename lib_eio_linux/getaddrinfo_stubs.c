@@ -90,21 +90,6 @@ static int gai_errors[] = {
 };
 
 #define nmemb_gai_errors (sizeof(gai_errors) / sizeof(int))
-#if 0
-CAMLprim value caml_eio_gai_strerror(value verr)
-{
-  CAMLparam1(verr);
-  int err = Int_val(verr);
-  const char *s;
-
-  if (err < 0 || err >= nmemb_gai_errors)
-    s = "Invalid getaddrinfo error code";
-  else
-    s = gai_strerror(gai_errors[err]);
-
-  CAMLreturn(caml_copy_string(s));
-}
-#endif
 
 CAMLprim value caml_eio_getaddrinfo(value vnode, value vserv, value vopts)
 {
