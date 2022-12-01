@@ -739,6 +739,16 @@ Both attempts time out:
 Exception: Eio__Net.Connection_failure Eio__Time.Timeout.
 ```
 
+## getaddrinfo
+
+getaddrinfo raises instead of returning an empty list:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Net.getaddrinfo env#net "el.dud.er.in.no";;
+Exception: Eio__Net.Getaddrinfo_error Eio__Net.EAI_NONAME.
+```
+
 ## read/write on SOCK_DGRAM
 
 TODO: This is wrong; see https://github.com/ocaml-multicore/eio/issues/342
