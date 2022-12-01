@@ -546,6 +546,12 @@ Connection refused:
 ## Getaddrinfo
 
 ```ocaml
+let guard_getaddrinfo f =
+  try f ()
+  with Eio.Net.Getaddrinfo_error _ -> [];
+```
+
+```ocaml
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo_stream env#net "127.0.0.1";;
 - : Eio.Net.Sockaddr.stream list = [`Tcp ("\127\000\000\001", 0)]
@@ -572,6 +578,7 @@ Connection refused:
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
+  guard_getaddrinfo @@ fun () ->
   Eio.Net.getaddrinfo ~service:"http" env#net "127.0.0.1";;
 - : Eio.Net.Sockaddr.t list =
 [`Tcp ("\127\000\000\001", 80); `Udp ("\127\000\000\001", 80)]
@@ -580,6 +587,7 @@ Connection refused:
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
+  guard_getaddrinfo @@ fun () ->
   Eio.Net.getaddrinfo ~service:"ftp" env#net "127.0.0.1";;
 - : Eio.Net.Sockaddr.t list =
 [`Tcp ("\127\000\000\001", 21); `Udp ("\127\000\000\001", 21)]
@@ -588,11 +596,23 @@ Connection refused:
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
+  guard_getaddrinfo @@ fun () ->
   Eio.Net.getaddrinfo ~service:"https" env#net "google.com";;
 - : Eio.Net.Sockaddr.t list =
 [`Tcp ("ь:тн", 443); `Udp ("ь:тн", 443);
  `Tcp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443);
  `Udp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443)]
+```
+
+getaddrinfo raises instead of returning an empty list:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  try
+    Eio.Net.getaddrinfo env#net "el.dud.er.in.no" |> ignore;
+    traceln "getaddrinfo did not raise as expected"
+  with Eio.Net.Getaddrinfo_error _ -> ();;
+- : unit = ()
 ```
 
 ## getnameinfo
