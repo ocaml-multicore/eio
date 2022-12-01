@@ -225,7 +225,7 @@ let getaddrinfo_error_to_string = function
   | EAI_MEMORY     -> "memory allocation failure"
   | EAI_NODATA     -> "no address associated with name"
   | EAI_NONAME     -> "name or service is not known"
-    (* XXX Add PROTOCOL *)
+  | EAI_PROTOCOL   -> "resolved protocol is unknown"
   | EAI_SERVICE    -> "service not supported for ai_socktype"
   | EAI_SOCKTYPE   -> "ai_socktype not supported"
   | EAI_SYSTEM     -> "system error"

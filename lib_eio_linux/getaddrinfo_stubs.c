@@ -63,16 +63,20 @@ static value convert_addrinfo(struct addrinfo * a)
 /* glibc doesn't define a bunch of EAI_, so fake one since code gets copied around */
 
 #ifndef EAI_ADDRFAMILY
-#define EAI_ADDRFAMILY -3000
+#define EAI_ADDRFAMILY (-3000)
 #endif /* EAI_ADDRFAMILY */
 
 #ifndef EAI_BADHINTS
-#define EAI_BADHINTS -3013
+#define EAI_BADHINTS (-3013)
 #endif /* EAI_BADHINTS */
 
 #ifndef EAI_NODATA
-#define EAI_NODATA -3007
+#define EAI_NODATA (-3007)
 #endif /* EAI_NODATA */
+
+#ifndef EAI_PROTOCOL
+#define EAI_PROTOCOL (-3014)
+#endif /* EAI_PROTOCOL */
 
 static int gai_errors[] = {
   EAI_ADDRFAMILY,
@@ -84,6 +88,7 @@ static int gai_errors[] = {
   EAI_MEMORY,
   EAI_NODATA,
   EAI_NONAME,
+  EAI_PROTOCOL,
   EAI_SERVICE,
   EAI_SOCKTYPE,
   EAI_SYSTEM
