@@ -254,5 +254,4 @@ module Low_level : sig
   val eio_getaddrinfo : string -> string -> Unix.getaddrinfo_option list ->
     (Unix.addr_info list, Eio.Net.getaddrinfo_error) result
 
-
 end
