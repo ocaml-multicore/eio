@@ -26,14 +26,7 @@
 #include <caml/unixsupport.h>
 #include <caml/socketaddr.h>
 
-static value caml_unix_cst_to_constr(int n, int *tbl, int size, int deflt)
-{
-  int i;
-  for (i = 0; i < size; i++)
-    if (n == tbl[i]) return Val_int(i);
-  return Val_int(deflt);
-}
-
+extern value caml_unix_cst_to_constr(int n, int * tbl, int size, int deflt);
 extern int caml_unix_socket_domain_table[]; /* from socket.c */
 extern int caml_unix_socket_type_table[];   /* from socket.c */
 
