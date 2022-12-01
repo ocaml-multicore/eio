@@ -215,6 +215,21 @@ type getaddrinfo_error =
 
 exception Getaddrinfo_error of getaddrinfo_error
 
+let getaddrinfo_error_to_string = function
+  | EAI_ADDRFAMILY -> "address family for name not supported"
+  | EAI_AGAIN      -> "temporary failure in name resolution"
+  | EAI_BADFLAGS   -> "invalid value for ai_flags"
+  | EAI_BADHINTS   -> "invalid value for hints"
+  | EAI_FAIL       -> "non-recoverable failure in name resolution"
+  | EAI_FAMILY     -> "ai_family not supported"
+  | EAI_MEMORY     -> "memory allocation failure"
+  | EAI_NODATA     -> "no address associated with name"
+  | EAI_NONAME     -> "name or service is not known"
+    (* XXX Add PROTOCOL *)
+  | EAI_SERVICE    -> "service not supported for ai_socktype"
+  | EAI_SOCKTYPE   -> "ai_socktype not supported"
+  | EAI_SYSTEM     -> "system error"
+
 let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname
 
 let getaddrinfo_stream ?service t hostname =
