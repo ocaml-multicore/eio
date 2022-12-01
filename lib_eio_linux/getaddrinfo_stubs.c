@@ -96,7 +96,7 @@ static int gai_errors[] = {
   EAI_PROTOCOL,
   EAI_SERVICE,
   EAI_SOCKTYPE,
-  EAI_SYSTEM
+  EAI_SYSTEM /* NOTE: must be last */
 };
 
 #define nmemb_gai_errors (sizeof(gai_errors) / sizeof(int))
@@ -174,9 +174,10 @@ CAMLprim value caml_eio_getaddrinfo(value vnode, value vserv, value vopts)
     for (i = 0; i < nmemb_gai_errors; i++)
       if (gai_errors[i] == retcode)
         break;
+    /* Paranoia keeps the world spinning */
     if (i == nmemb_gai_errors) {
       errno = EINVAL;
-      uerror("invalid gai_error", Nothing);
+      i = gai_errors[nmemb_gai_errors - 1]; /* EAI_SYSTEM */
     }
     vret = caml_alloc_small(1, 1); /* 1 = Error */
     Field(vret, 0) = Val_int(i);
