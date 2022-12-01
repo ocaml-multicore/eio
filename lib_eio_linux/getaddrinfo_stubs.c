@@ -26,7 +26,7 @@
 #include <caml/unixsupport.h>
 #include <caml/socketaddr.h>
 
-extern value caml_unix_cst_to_constr(int n, int * tbl, int size, int deflt);
+extern value caml_unix_cst_to_constr(int, int *, int, int);
 extern int caml_unix_socket_domain_table[]; /* from socket.c */
 extern int caml_unix_socket_type_table[];   /* from socket.c */
 
@@ -44,9 +44,9 @@ static value convert_addrinfo(struct addrinfo * a)
   vcanonname = caml_copy_string(a->ai_canonname == NULL ? "" : a->ai_canonname);
   vres = caml_alloc_small(5, 0);
   Field(vres, 0) =
-   caml_unix_cst_to_constr(a->ai_family, caml_unix_socket_domain_table, 3, 0);
+    caml_unix_cst_to_constr(a->ai_family, caml_unix_socket_domain_table, 3, 0);
   Field(vres, 1) =
-   caml_unix_cst_to_constr(a->ai_socktype, caml_unix_socket_type_table, 4, 0);
+    caml_unix_cst_to_constr(a->ai_socktype, caml_unix_socket_type_table, 4, 0);
   Field(vres, 2) = Val_int(a->ai_protocol);
   Field(vres, 3) = vaddr;
   Field(vres, 4) = vcanonname;
@@ -97,7 +97,7 @@ static int gai_errors[] = {
 CAMLprim value caml_eio_getaddrinfo(value vnode, value vserv, value vopts)
 {
   CAMLparam3(vnode, vserv, vopts);
-  CAMLlocal3(vres, v, vret);
+  CAMLlocal4(vres, v, e, vret);
   char * node, * serv;
   struct addrinfo hints;
   struct addrinfo * res, * r;
@@ -155,8 +155,9 @@ CAMLprim value caml_eio_getaddrinfo(value vnode, value vserv, value vopts)
   vres = Val_emptylist;
   if (retcode == 0) {
     for (r = res; r != NULL; r = r->ai_next) {
+      e = convert_addrinfo(r);
       v = caml_alloc_small(2, Tag_cons);
-      Field(v, 0) = convert_addrinfo(r);
+      Field(v, 0) = e;
       Field(v, 1) = vres;
       vres = v;
     }
