@@ -669,8 +669,8 @@ module Low_level = struct
     | Error `EAI_MEMORY     -> r EAI_MEMORY
     | Error `EAI_NODATA     -> r EAI_NODATA
     | Error `EAI_NONAME     -> r EAI_NONAME
-    | Error `EAI_OVERFLOW   -> r EAI_FAIL (* note *)
-    | Error `EAI_PROTOCOL   -> r EAI_FAIL (* note *)
+    | Error `EAI_OVERFLOW   -> r EAI_OVERFLOW
+    | Error `EAI_PROTOCOL   -> r EAI_PROTOCOL
     | Error `EAI_SERVICE    -> r EAI_SERVICE
     | Error `EAI_SOCKTYPE   -> r EAI_SOCKTYPE
     | Error e -> raise (Luv_error e)

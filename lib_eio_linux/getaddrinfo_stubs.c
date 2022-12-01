@@ -74,6 +74,10 @@ static value convert_addrinfo(struct addrinfo * a)
 #define EAI_NODATA (-3007)
 #endif /* EAI_NODATA */
 
+#ifndef EAI_OVERFLOW
+#define EAI_OVERFLOW (-3009)
+#endif /* EAI_OVERFLOW */
+
 #ifndef EAI_PROTOCOL
 #define EAI_PROTOCOL (-3014)
 #endif /* EAI_PROTOCOL */
@@ -88,6 +92,7 @@ static int gai_errors[] = {
   EAI_MEMORY,
   EAI_NODATA,
   EAI_NONAME,
+  EAI_OVERFLOW,
   EAI_PROTOCOL,
   EAI_SERVICE,
   EAI_SOCKTYPE,

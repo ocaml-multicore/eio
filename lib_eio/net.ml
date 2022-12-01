@@ -209,6 +209,7 @@ type getaddrinfo_error =
   | EAI_MEMORY
   | EAI_NODATA
   | EAI_NONAME
+  | EAI_OVERFLOW
   | EAI_PROTOCOL
   | EAI_SERVICE
   | EAI_SOCKTYPE
@@ -226,6 +227,7 @@ let getaddrinfo_error_to_string = function
   | EAI_MEMORY     -> "memory allocation failure"
   | EAI_NODATA     -> "no address associated with name"
   | EAI_NONAME     -> "name or service is not known"
+  | EAI_OVERFLOW   -> "argument buffer overflow"
   | EAI_PROTOCOL   -> "resolved protocol is unknown"
   | EAI_SERVICE    -> "service not supported for ai_socktype"
   | EAI_SOCKTYPE   -> "ai_socktype not supported"
