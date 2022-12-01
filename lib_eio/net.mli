@@ -222,6 +222,23 @@ val recv : #datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
 
 (** {2 DNS queries} *)
 
+(* keep in sync with C stubs *)
+type getaddrinfo_error =
+  | EAI_ADDRFAMILY
+  | EAI_AGAIN
+  | EAI_BADFLAGS
+  | EAI_BADHINTS
+  | EAI_FAIL
+  | EAI_FAMILY
+  | EAI_MEMORY
+  | EAI_NODATA
+  | EAI_NONAME
+  | EAI_SERVICE
+  | EAI_SOCKTYPE
+  | EAI_SYSTEM
+
+exception Getaddrinfo_error of getaddrinfo_error
+
 val getaddrinfo: ?service:string -> #t -> string -> Sockaddr.t list
 (** [getaddrinfo ?service t node] returns a list of IP addresses for [node]. [node] is either a domain name or
     an IP address.

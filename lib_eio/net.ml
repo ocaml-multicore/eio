@@ -198,6 +198,23 @@ let datagram_socket ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:#t) addr =
   let addr = (addr :> [Sockaddr.datagram | `UdpV4 | `UdpV6]) in 
   t#datagram_socket ~reuse_addr ~reuse_port ~sw addr
 
+(* keep in sync with C stubs *)
+type getaddrinfo_error =
+  | EAI_ADDRFAMILY
+  | EAI_AGAIN
+  | EAI_BADFLAGS
+  | EAI_BADHINTS
+  | EAI_FAIL
+  | EAI_FAMILY
+  | EAI_MEMORY
+  | EAI_NODATA
+  | EAI_NONAME
+  | EAI_SERVICE
+  | EAI_SOCKTYPE
+  | EAI_SYSTEM
+
+exception Getaddrinfo_error of getaddrinfo_error
+
 let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname
 
 let getaddrinfo_stream ?service t hostname =

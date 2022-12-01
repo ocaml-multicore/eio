@@ -251,21 +251,8 @@ module Low_level : sig
   (** [getaddrinfo host] returns a list of IP addresses for [host]. [host] is either a domain name or
       an ipaddress. *)
 
-  type gai_error =
-    | EAI_ADDRFAMILY
-    | EAI_AGAIN
-    | EAI_BADFLAGS
-    | EAI_BADHINTS
-    | EAI_FAIL
-    | EAI_FAMILY
-    | EAI_MEMORY
-    | EAI_NODATA
-    | EAI_NONAME
-    | EAI_SERVICE
-    | EAI_SOCKTYPE
-    | EAI_SYSTEM
-
-  val eio_getaddrinfo : string -> string -> Unix.getaddrinfo_option list -> (Unix.addr_info list, gai_error) result
+  val eio_getaddrinfo : string -> string -> Unix.getaddrinfo_option list ->
+    (Unix.addr_info list, Eio.Net.getaddrinfo_error) result
 
 
 end

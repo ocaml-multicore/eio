@@ -654,14 +654,25 @@ module Low_level = struct
       | _ -> None
     in
     let request = Luv.DNS.Addr_info.Request.make () in
+    let r e = raise (Eio.Net.Getaddrinfo_error e) in
     match (await_with_cancel ~request
              (fun loop -> Luv.DNS.getaddrinfo ~loop ~request ~service ~node ()))
     with
     | Ok nl -> List.filter_map to_eio_sockaddr_t nl
-    | Error `EAI_ADDRFAMILY | Error `EAI_AGAIN | Error `EAI_BADFLAGS | Error `EAI_BADHINTS
-    | Error `EAI_CANCELED   | Error `EAI_FAIL  | Error `EAI_FAMILY   | Error `EAI_MEMORY
-    | Error `EAI_NODATA     | Error `EAI_NONAME| Error `EAI_OVERFLOW | Error `EAI_PROTOCOL
-    | Error `EAI_SERVICE    | Error `EAI_SOCKTYPE -> []
+    | Error `EAI_ADDRFAMILY -> r EAI_ADDRFAMILY
+    | Error `EAI_AGAIN      -> r EAI_AGAIN
+    | Error `EAI_BADFLAGS   -> r EAI_BADFLAGS
+    | Error `EAI_BADHINTS   -> r EAI_BADHINTS
+    | Error `EAI_CANCELED   -> r EAI_FAIL (* note *)
+    | Error `EAI_FAIL       -> r EAI_FAIL
+    | Error `EAI_FAMILY     -> r EAI_FAMILY
+    | Error `EAI_MEMORY     -> r EAI_MEMORY
+    | Error `EAI_NODATA     -> r EAI_NODATA
+    | Error `EAI_NONAME     -> r EAI_NONAME
+    | Error `EAI_OVERFLOW   -> r EAI_FAIL (* note *)
+    | Error `EAI_PROTOCOL   -> r EAI_FAIL (* note *)
+    | Error `EAI_SERVICE    -> r EAI_SERVICE
+    | Error `EAI_SOCKTYPE   -> r EAI_SOCKTYPE
     | Error e -> raise (Luv_error e)
 end
 
