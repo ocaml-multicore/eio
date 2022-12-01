@@ -1,6 +1,5 @@
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/socket.h>
 #include <sys/eventfd.h>
 #include <sys/random.h>
 #include <sys/syscall.h>
@@ -9,7 +8,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <netdb.h>
+
 
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
@@ -17,7 +16,6 @@
 #include <caml/signals.h>
 #include <caml/unixsupport.h>
 #include <caml/bigarray.h>
-#include <caml/socketaddr.h>
 
 // Make sure we have enough space for at least one entry.
 #define DIRENT_BUF_SIZE (PATH_MAX + sizeof(struct dirent64))
