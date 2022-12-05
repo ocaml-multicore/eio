@@ -5,10 +5,30 @@ module Unix_perm = File.Unix_perm [@@deprecated "Moved to File.Unix_perm"]
 
 type path = string
 
-exception Already_exists of path * exn
-exception Not_found of path * exn
-exception Permission_denied of path * exn
-exception File_too_large of path * exn
+type error =
+  | Already_exists of Exn.Backend.t
+  | Not_found of Exn.Backend.t
+  | Permission_denied of Exn.Backend.t
+  | File_too_large
+
+type Exn.err += E of error
+
+let err e =
+  Exn.create (E e)
+
+let () =
+  Exn.register_pp (fun f -> function
+      | E e ->
+        Fmt.string f "Fs ";
+        begin match e with
+          | Already_exists e -> Fmt.pf f "Already_exists %a" Exn.Backend.pp e
+          | Not_found e -> Fmt.pf f "Not_found %a" Exn.Backend.pp e
+          | Permission_denied e -> Fmt.pf f "Permission_denied %a" Exn.Backend.pp e
+          | File_too_large -> Fmt.pf f "File_too_large"
+        end;
+        true
+      | _ -> false
+    )
 
 (** When to create a new file. *)
 type create = [

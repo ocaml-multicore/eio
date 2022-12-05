@@ -33,13 +33,22 @@ type amount = Exactly of int | Upto of int
 
 let system_thread = Ctf.mint_id ()
 
-let wrap_errors path fn =
-  try fn () with
-  | Unix.Unix_error(Unix.EEXIST, _, _) as ex -> raise @@ Eio.Fs.Already_exists (path, ex)
-  | Unix.Unix_error(Unix.ENOENT, _, _) as ex -> raise @@ Eio.Fs.Not_found (path, ex)
-  | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Fs.Permission_denied (path, ex)
-  | Eio.Fs.Permission_denied _         as ex -> raise @@ Eio.Fs.Permission_denied (path, ex)
-  | Eio.Fs.Not_found _                 as ex -> raise @@ Eio.Fs.Not_found (path, ex)
+let unclassified_error e = Eio.Exn.create (Eio.Exn.X e)
+
+let wrap_error code name arg =
+  let ex = Eio_unix.Unix_error (code, name, arg) in
+  match code with
+  | ECONNREFUSED -> Eio.Net.err (Connection_failure (Refused ex))
+  | ECONNRESET | EPIPE -> Eio.Net.err (Connection_reset ex)
+  | _ -> unclassified_error ex
+
+let wrap_error_fs code name arg =
+  let e = Eio_unix.Unix_error (code, name, arg) in
+  match code with
+  | Unix.EEXIST -> Eio.Fs.err (Already_exists e)
+  | Unix.ENOENT -> Eio.Fs.err (Not_found e)
+  | Unix.EXDEV -> Eio.Fs.err (Permission_denied e)
+  | _ -> wrap_error code name arg
 
 type _ Effect.t += Close : Unix.file_descr -> int Effect.t
 
@@ -72,7 +81,7 @@ module FD = struct
       let res = Effect.perform (Close fd) in
       Log.debug (fun l -> l "close: woken up");
       if res < 0 then
-        raise (Unix.Unix_error (Uring.error_of_errno res, "close", string_of_int (Obj.magic fd : int)))
+        raise (wrap_error (Uring.error_of_errno res) "close" (string_of_int (Obj.magic fd : int)))
     )
 
   let ensure_closed t =
@@ -113,31 +122,33 @@ module FD = struct
 
   let fstat t =
     (* todo: use uring  *)
-    let ust = Unix.LargeFile.fstat (get_exn "fstat" t) in
-    let st_kind : Eio.File.Stat.kind =
-      match ust.st_kind with
-      | Unix.S_REG  -> `Regular_file
-      | Unix.S_DIR  -> `Directory
-      | Unix.S_CHR  -> `Character_special
-      | Unix.S_BLK  -> `Block_device
-      | Unix.S_LNK  -> `Symbolic_link
-      | Unix.S_FIFO -> `Fifo
-      | Unix.S_SOCK -> `Socket
-    in
-    Eio.File.Stat.{
-      dev     = ust.st_dev   |> Int64.of_int;
-      ino     = ust.st_ino   |> Int64.of_int;
-      kind    = st_kind;
-      perm    = ust.st_perm;
-      nlink   = ust.st_nlink |> Int64.of_int;
-      uid     = ust.st_uid   |> Int64.of_int;
-      gid     = ust.st_gid   |> Int64.of_int;
-      rdev    = ust.st_rdev  |> Int64.of_int;
-      size    = ust.st_size  |> Optint.Int63.of_int64;
-      atime   = ust.st_atime;
-      mtime   = ust.st_mtime;
-      ctime   = ust.st_ctime;
-    }
+    try
+      let ust = Unix.LargeFile.fstat (get_exn "fstat" t) in
+      let st_kind : Eio.File.Stat.kind =
+        match ust.st_kind with
+        | Unix.S_REG  -> `Regular_file
+        | Unix.S_DIR  -> `Directory
+        | Unix.S_CHR  -> `Character_special
+        | Unix.S_BLK  -> `Block_device
+        | Unix.S_LNK  -> `Symbolic_link
+        | Unix.S_FIFO -> `Fifo
+        | Unix.S_SOCK -> `Socket
+      in
+      Eio.File.Stat.{
+        dev     = ust.st_dev   |> Int64.of_int;
+        ino     = ust.st_ino   |> Int64.of_int;
+        kind    = st_kind;
+        perm    = ust.st_perm;
+        nlink   = ust.st_nlink |> Int64.of_int;
+        uid     = ust.st_uid   |> Int64.of_int;
+        gid     = ust.st_gid   |> Int64.of_int;
+        rdev    = ust.st_rdev  |> Int64.of_int;
+        size    = ust.st_size  |> Optint.Int63.of_int64;
+        atime   = ust.st_atime;
+        mtime   = ust.st_mtime;
+        ctime   = ust.st_ctime;
+      }
+    with Unix.Unix_error (code, name, arg) -> raise @@ wrap_error_fs code name arg
 end
 
 type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
@@ -253,7 +264,7 @@ let cancel job =
   ) else if res = -114 then (
     Log.debug (fun f -> f "Cancel returned EALREADY - operation cancelled while already in progress")
   ) else if res <> 0 then (
-    raise (Unix.Unix_error (Uring.error_of_errno res, "cancel", ""))
+    raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno res, "cancel", "")))
   )
 
 (* Cancellation
@@ -674,7 +685,7 @@ module Low_level = struct
   let noop () =
     let result = enter enqueue_noop in
     Log.debug (fun l -> l "noop returned");
-    if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
+    if result <> 0 then raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno result, "noop", "")))
 
   type _ Effect.t += Sleep_until : Mtime.t -> unit Effect.t
   let sleep_until d =
@@ -682,22 +693,18 @@ module Low_level = struct
 
   type _ Effect.t += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
 
-  let wrap_connection_failed = function
-    | Unix.Unix_error ((ECONNRESET | EPIPE), _, _) as ex -> Eio.Net.Connection_reset ex
-    | ex -> ex
-
   let read_exactly ?file_offset fd buf len =
     let res = Effect.perform (ERead (file_offset, fd, buf, Exactly len)) in
     Log.debug (fun l -> l "read_exactly: woken up after read");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "read_exactly", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "read_exactly" ""
     )
 
   let read_upto ?file_offset fd buf len =
     let res = Effect.perform (ERead (file_offset, fd, buf, Upto len)) in
     Log.debug (fun l -> l "read_upto: woken up after read");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "read_upto", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "read_upto" ""
     ) else (
       res
     )
@@ -706,7 +713,7 @@ module Low_level = struct
     let res = enter (enqueue_readv (file_offset, fd, bufs)) in
     Log.debug (fun l -> l "readv: woken up after read");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "readv", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "readv" ""
     ) else if res = 0 then (
       raise End_of_file
     ) else (
@@ -717,7 +724,7 @@ module Low_level = struct
     let res = enter (enqueue_writev (file_offset, fd, bufs)) in
     Log.debug (fun l -> l "writev: woken up after write");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "writev", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "writev" ""
     ) else (
       res
     )
@@ -740,14 +747,14 @@ module Low_level = struct
     let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollin + pollerr))) in
     Log.debug (fun l -> l "await_readable: woken up");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
+      raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno res, "await_readable", "")))
     )
 
   let await_writable fd =
     let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollout + pollerr))) in
     Log.debug (fun l -> l "await_writable: woken up");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
+      raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno res, "await_writable", "")))
     )
 
   type _ Effect.t += EWrite : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
@@ -756,7 +763,7 @@ module Low_level = struct
     let res = Effect.perform (EWrite (file_offset, fd, buf, Exactly len)) in
     Log.debug (fun l -> l "write: woken up after write");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "write", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "write" ""
     )
 
   type _ Effect.t += Alloc : Uring.Region.chunk option Effect.t
@@ -773,21 +780,25 @@ module Low_level = struct
     Log.debug (fun l -> l "splice returned");
     if res > 0 then res
     else if res = 0 then raise End_of_file
-    else raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "splice", "")))
+    else raise @@ wrap_error (Uring.error_of_errno res) "splice" ""
 
   let connect fd addr =
     let res = enter (enqueue_connect fd addr) in
     Log.debug (fun l -> l "connect returned");
     if res < 0 then (
-      let ex = Unix.Unix_error (Uring.error_of_errno res, "connect", "") in
-      raise (Eio.Net.Connection_failure ex)
+      let ex =
+        match addr with
+        | ADDR_UNIX _ -> wrap_error_fs (Uring.error_of_errno res) "connect" ""
+        | ADDR_INET _ -> wrap_error (Uring.error_of_errno res) "connect" ""
+      in
+      raise ex
     )
 
   let send_msg fd ?(fds=[]) ?dst buf =
     let res = enter (enqueue_send_msg fd ~fds ~dst buf) in
     Log.debug (fun l -> l "send_msg returned");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "send_msg", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "send_msg" ""
     )
 
   let recv_msg fd buf =
@@ -796,7 +807,7 @@ module Low_level = struct
     let res = enter (enqueue_recv_msg fd msghdr) in
     Log.debug (fun l -> l "recv_msg returned");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "recv_msg" ""
     );
     addr, res
 
@@ -806,7 +817,7 @@ module Low_level = struct
     let res = enter (enqueue_recv_msg fd msghdr) in
     Log.debug (fun l -> l "recv_msg returned");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "recv_msg" ""
     );
     let fds =
       Uring.Msghdr.get_fds msghdr
@@ -822,17 +833,12 @@ module Low_level = struct
     | None ->
       fallback ()
 
-  let openfile ~sw path flags mode =
-    let fd = Unix.openfile path flags mode in
-    FD.of_unix ~sw ~seekable:(FD.is_seekable fd) ~close_unix:true fd
-
   let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
-    wrap_errors path @@ fun () ->
     let res = enter (enqueue_openat2 (access, flags, perm, resolve, dir, path)) in
     Log.debug (fun l -> l "openat2 returned");
     if res < 0 then (
       Switch.check sw;    (* If cancelled, report that instead. *)
-      raise @@ Unix.Unix_error (Uring.error_of_errno res, "openat2", "")
+      raise @@ wrap_error_fs (Uring.error_of_errno res) "openat2" ""
     );
     let fd : Unix.file_descr = Obj.magic res in
     let seekable =
@@ -877,7 +883,6 @@ module Low_level = struct
           match dir with
           | FD d when dir_path = "." -> d
           | _ ->
-            wrap_errors path @@ fun () ->
             openat ~sw ~seekable:false dir dir_path
               ~access:`R
               ~flags:Uring.Open_flags.(cloexec + path + directory)
@@ -889,26 +894,27 @@ module Low_level = struct
   let mkdir_beneath ~perm dir path =
     (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
     with_parent_dir dir path @@ fun parent leaf ->
-    wrap_errors path @@ fun () ->
-    eio_mkdirat (FD.get_exn "mkdirat" parent) leaf perm
+    try eio_mkdirat (FD.get_exn "mkdirat" parent) leaf perm
+    with Unix.Unix_error (code, name, arg) -> raise @@ wrap_error_fs code name arg
 
   let unlink ~rmdir dir path =
     (* [unlink] is really an operation on [path]'s parent. Get a reference to that first: *)
     with_parent_dir dir path @@ fun parent leaf ->
-    wrap_errors path @@ fun () ->
     let res = enter (enqueue_unlink (rmdir, parent, leaf)) in
-    if res <> 0 then raise @@ Unix.Unix_error (Uring.error_of_errno res, "unlinkat", "")
+    if res <> 0 then raise @@ wrap_error_fs (Uring.error_of_errno res) "unlinkat" ""
 
   let rename old_dir old_path new_dir new_path =
     with_parent_dir old_dir old_path @@ fun old_parent old_leaf ->
     with_parent_dir new_dir new_path @@ fun new_parent new_leaf ->
-    wrap_errors old_path @@ fun () ->
-    eio_renameat
-      (FD.get_exn "renameat-old" old_parent) old_leaf
-      (FD.get_exn "renameat-new" new_parent) new_leaf
+    try
+      eio_renameat
+        (FD.get_exn "renameat-old" old_parent) old_leaf
+        (FD.get_exn "renameat-new" new_parent) new_leaf
+    with Unix.Unix_error (code, name, arg) -> raise @@ wrap_error_fs code name arg
 
   let shutdown socket command =
-    Unix.shutdown (FD.get_exn "shutdown" socket) command
+    try Unix.shutdown (FD.get_exn "shutdown" socket) command
+    with Unix.Unix_error (code, name, arg) -> raise @@ wrap_error code name arg
 
   let accept ~sw fd =
     Ctf.label "accept";
@@ -916,7 +922,7 @@ module Low_level = struct
     let res = enter (enqueue_accept fd client_addr) in
     Log.debug (fun l -> l "accept returned");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "accept", ""))
+      raise @@ wrap_error (Uring.error_of_errno res) "accept" ""
     ) else (
       let unix : Unix.file_descr = Obj.magic res in
       let client = FD.of_unix ~sw ~seekable:false ~close_unix:true unix in
@@ -997,8 +1003,7 @@ let _fast_copy_try_splice src dst =
     done
   with
   | End_of_file -> ()
-  | Unix.Unix_error (Unix.EAGAIN, "splice", _) -> fast_copy src dst
-  | Unix.Unix_error (Unix.EINVAL, "splice", _) -> fast_copy src dst
+  | Eio.Exn.Io (Eio.Exn.X Eio_unix.Unix_error ((EAGAIN | EINVAL), "splice", _), _) -> fast_copy src dst
 
 (* XXX workaround for issue #319, PR #327 *)
 let fast_copy_try_splice src dst = fast_copy src dst
@@ -1153,6 +1158,7 @@ let net = object
           | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
           | _ -> ()
           | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+          | exception Unix.Unix_error (code, name, arg) -> raise @@ wrap_error code name arg
         );
         Unix.SOCK_STREAM, Unix.ADDR_UNIX path
       | `Tcp (host, port)  ->

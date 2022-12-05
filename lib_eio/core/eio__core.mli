@@ -358,19 +358,112 @@ end
 module Exn : sig
   type with_bt = exn * Printexc.raw_backtrace
 
-  exception Multiple of exn list
-  (** Raised if multiple fibers fail, to report all the exceptions. *)
+  type err = ..
+  (** Describes the particular error that occurred.
+
+      They are typically nested (e.g. [Fs (Permission_denied (Unix_error ...))])
+      so that you can match e.g. all IO errors, all file-system errors, all
+      permission denied errors, etc.
+
+      If you extend this, use {!register_pp} to add a printer for the new error. *)
+
+  type context
+  (** Extra information attached to an IO error.
+      This provides contextual information about what caused the error. *)
+
+  exception Io of err * context
+  (** A general purpose IO exception.
+
+      This is used for most errors interacting with the outside world,
+      and is similar to {!Unix.Unix_error}, but more general.
+      An unknown [Io] error should typically be reported to the user, but does
+      not generally indicate a bug in the program. *)
+
+  type err += Multiple_io of (err * context * Printexc.raw_backtrace) list
+  (** Error code used when multiple IO errors occur.
+
+      This is useful if you want to catch and report all IO errors. *)
+
+  val create : err -> exn
+  (** [create err] is an {!Io} exception with an empty context. *)
+
+  val add_context : exn -> ('a, Format.formatter, unit, exn) format4 -> 'a
+  (** [add_context ex msg] returns a new exception with [msg] added to [ex]'s context,
+      if [ex] is an {!Io} exception.
+
+      If [ex] is not an [Io] exception, this function just returns the original exception. *)
+
+  val reraise_with_context : exn -> Printexc.raw_backtrace -> ('a, Format.formatter, unit, 'b) format4 -> 'a
+  (** [reraise_with_context ex bt msg] raises [ex] extended with additional information [msg].
+
+      [ex] should be an {!Io} exception (if not, is re-raised unmodified).
+
+      Example:
+      {[
+         try connect addr
+         with Eio.Io _ as ex ->
+           let bt = Printexc.get_raw_backtrace () in
+           reraise_with_context ex bt "connecting to %S" addr
+      ]}
+
+      You must get the backtrace before calling any other function
+      in the exception handler to prevent corruption of the backtrace. *)
+
+  val register_pp : (Format.formatter -> err -> bool) -> unit
+  (** [register_pp pp] adds [pp] as a pretty-printer of errors.
+
+      [pp f err] should format [err] using [f], if possible.
+      It should return [true] on success, or [false] if it didn't
+      recognise [err]. *)
+
+  val pp : exn Fmt.t
+  (** [pp] is a formatter for exceptions.
+
+      This is similar to {!Fmt.exn}, but can do a better job on {!Io} exceptions
+      because it can format them directly without having to convert to a string first. *)
+
+  (** Extensible backend-specific exceptions. *)
+  module Backend : sig
+    type t = ..
+
+    val show : bool ref
+    (** Controls the behaviour of {!pp}. *)
+
+    val register_pp : (Format.formatter -> t -> bool) -> unit
+    (** [register_pp pp] adds [pp] as a pretty-printer of backend errors.
+
+        [pp f err] should format [err] using [f], if possible.
+        It should return [true] on success, or [false] if it didn't
+        recognise [err]. *)
+
+    val pp : t Fmt.t
+    (** [pp] behaves like {!pp} except that if display of backend errors has been turned off
+        (with {!show}) then it just prints a place-holder.
+
+        This is useful for formatting the backend-specific part of exceptions,
+        which should be hidden in expect-style testing that needs to work on multiple backends. *)
+  end
+
+  type err += X of Backend.t
+  (** A top-level code for backend errors that don't yet have a cross-platform classification in Eio.
+
+      You should avoid matching on these (in portable code). Instead, request a proper Eio code for them. *)
+
+  exception Multiple of with_bt list
+  (** Raised if multiple fibers fail, to report all the exceptions.
+
+      This usually indicates a bug in the program.
+
+      Note: If multiple {b IO} errors occur, then you will get [Io (Multiple_io _, _)] instead of this. *)
 
   val combine : with_bt -> with_bt -> with_bt
   (** [combine x y] returns a single exception and backtrace to use to represent two errors.
 
-      Only one of the backtraces will be kept.
       The resulting exception is typically just [Multiple [y; x]],
       but various heuristics are used to simplify the result:
       - Combining with a {!Cancel.Cancelled} exception does nothing, as these don't need to be reported.
         The result is only [Cancelled] if there is no other exception available.
-      - If [x] is a [Multiple] exception then [y] is added to it, to avoid nested [Multiple] exceptions.
-      - Duplicate exceptions are removed (using physical equality of the exception). *)
+      - If both errors are [Io] errors, then the result is [Io (Multiple_io _)]. *)
 end
 
 (** @canonical Eio.Cancel *)

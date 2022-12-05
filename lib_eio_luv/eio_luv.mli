@@ -7,10 +7,13 @@
 
 open Eio.Std
 
+type Eio.Exn.Backend.t +=
+  | Luv_error of Luv.Error.t
+  | Outside_sandbox of string * string
+  | Absolute_path
+
 module Low_level : sig
   type 'a or_error = ('a, Luv.Error.t) result
-
-  exception Luv_error of Luv.Error.t
 
   val get_loop : unit -> Luv.Loop.t
   (** [get_loop ()] returns the current fiber's event loop.
@@ -20,7 +23,7 @@ module Low_level : sig
       The wrapper functions in this file all do this for you. *)
 
   val or_raise : 'a or_error -> 'a
-  (** [or_raise (Error e)] raises [Luv_error e]. *)
+  (** [or_raise (Error e)] raises [Eio.Exn.Io] with [e]. *)
 
   val await_with_cancel :
     request:[< `File | `Addr_info | `Name_info | `Random | `Thread_pool ] Luv.Request.t ->

@@ -11,8 +11,21 @@
       ]}
 *)
 
-exception Connection_reset of exn
-exception Connection_failure of exn
+type connection_failure =
+  | Refused of Exn.Backend.t
+  | No_matching_addresses
+  | Timeout
+
+type error =
+  | Connection_reset of Exn.Backend.t
+    (** This is a wrapper for epipe, econnreset and similar errors.
+        It indicates that the flow has failed, and data may have been lost. *)
+  | Connection_failure of connection_failure
+
+type Exn.err += E of error
+
+val err : error -> exn
+(** [err e] is [Eio.Exn.create (Net e)] *)
 
 (** IP addresses. *)
 module Ipaddr : sig
@@ -120,9 +133,7 @@ end
 val connect : sw:Switch.t -> #t -> Sockaddr.stream -> <stream_socket; Flow.close>
 (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
-    The new socket will be closed when [sw] finishes, unless closed manually first.
-
-    @raise Connection_failure if connection couldn't be established. *)
+    The new socket will be closed when [sw] finishes, unless closed manually first. *)
 
 val with_tcp_connect :
   ?timeout:Time.Timeout.t ->

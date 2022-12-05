@@ -56,3 +56,5 @@ module Stdenv = struct
   let cwd (t : <cwd : #Fs.dir Path.t; ..>) = t#cwd
   let debug (t : <debug : 'a; ..>) = t#debug
 end
+
+exception Io = Exn.Io

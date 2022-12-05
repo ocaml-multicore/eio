@@ -1,8 +1,29 @@
-exception Connection_reset of exn
-(** This is a wrapper for EPIPE, ECONNRESET and similar errors.
-    It indicates that the flow has failed, and data may have been lost. *)
+type connection_failure =
+  | Refused of Exn.Backend.t
+  | No_matching_addresses
+  | Timeout
 
-exception Connection_failure of exn
+type error =
+  | Connection_reset of Exn.Backend.t
+  | Connection_failure of connection_failure
+
+type Exn.err += E of error
+
+let err e = Exn.create (E e)
+
+let () =
+  Exn.register_pp (fun f -> function
+      | E e ->
+        Fmt.string f "Net ";
+        begin match e with
+          | Connection_reset e -> Fmt.pf f "Connection_reset %a" Exn.Backend.pp e
+          | Connection_failure Refused e -> Fmt.pf f "Connection_failure Refused %a" Exn.Backend.pp e
+          | Connection_failure Timeout -> Fmt.pf f "Connection_failure Timeout"
+          | Connection_failure No_matching_addresses -> Fmt.pf f "Connection_failure No_matching_addresses"
+        end;
+        true
+      | _ -> false
+    )
 
 module Ipaddr = struct
   type 'a t = string   (* = [Unix.inet_addr], but avoid a Unix dependency here *)
@@ -161,7 +182,7 @@ let accept_fork ~sw (t : #listening_socket) ~on_error handle =
            | x -> Flow.close flow; x
            | exception ex ->
              Flow.close flow;
-             on_error ex
+             on_error (Exn.add_context ex "handling connection from %a" Sockaddr.pp addr)
          )
     )
 
@@ -192,7 +213,12 @@ class virtual t = object
 end
 
 let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw
-let connect ~sw (t:#t) = t#connect ~sw
+
+let connect ~sw (t:#t) addr =
+  try t#connect ~sw addr
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "connecting to %a" Sockaddr.pp addr
 
 let datagram_socket ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:#t) addr =
   let addr = (addr :> [Sockaddr.datagram | `UdpV4 | `UdpV6]) in 
@@ -220,21 +246,24 @@ let close = Flow.close
 
 let with_tcp_connect ?(timeout=Time.Timeout.none) ~host ~service t f =
   Switch.run @@ fun sw ->
-  let rec aux = function
-    | [] -> raise (Connection_failure (Failure (Fmt.str "No TCP addresses for %S" host)))
-    | addr :: addrs ->
-      match Time.Timeout.run_exn timeout (fun () -> connect ~sw t addr) with
-      | conn -> f conn
-      | exception (Time.Timeout | Connection_failure _) when addrs <> [] ->
-        aux addrs
-      | exception (Connection_failure _ as ex) ->
-        raise ex
-      | exception (Time.Timeout as ex) ->
-        raise (Connection_failure ex)
-  in
-  getaddrinfo_stream ~service t host
-  |> List.filter_map (function
-      | `Tcp _ as x -> Some x
-      | `Unix _ -> None
-    )
-  |> aux
+  match
+    let rec aux = function
+      | [] -> raise @@ err (Connection_failure No_matching_addresses)
+      | addr :: addrs ->
+        try Time.Timeout.run_exn timeout (fun () -> connect ~sw t addr) with
+        | Time.Timeout | Exn.Io _ when addrs <> [] ->
+          aux addrs
+        | Time.Timeout ->
+          raise @@ err (Connection_failure Timeout)
+    in
+    getaddrinfo_stream ~service t host
+    |> List.filter_map (function
+        | `Tcp _ as x -> Some x
+        | `Unix _ -> None
+      )
+    |> aux
+  with
+  | conn -> f conn
+  | exception (Exn.Io _ as ex) ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "connecting to %S:%s" host service

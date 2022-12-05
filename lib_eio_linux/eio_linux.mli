@@ -136,9 +136,6 @@ module Low_level : sig
 
   (** {1 File manipulation functions} *)
 
-  val openfile : sw:Switch.t -> string -> Unix.open_flag list -> int -> FD.t
-  (** Like {!Unix.open_file}. *)
-
   val openat2 :
     sw:Switch.t ->
     ?seekable:bool ->

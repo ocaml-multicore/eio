@@ -105,9 +105,8 @@ Exception: Failure "Failed".
         (fun () -> Eio.Cancel.protect Fiber.yield; failwith "Failed 2")
     );;
 Exception: Multiple exceptions:
-Failure("Failed 1")
-and
-Failure("Failed 2")
+- Failure("Failed 1")
+- Failure("Failed 2")
 ```
 
 The switch is already turned off when we try to fork. The new fiber doesn't start:
@@ -328,9 +327,8 @@ A release operation itself fails:
 +release 2
 +release 1
 Exception: Multiple exceptions:
-Failure("failure 3")
-and
-Failure("failure 1")
+- Failure("failure 3")
+- Failure("failure 1")
 ```
 
 Attaching a release handler to a finished switch from a cancelled context:
@@ -343,9 +341,8 @@ Attaching a release handler to a finished switch from a cancelled context:
 +release 1
 Exception:
 Multiple exceptions:
-Failure("Parent cancelled too!")
-and
-Invalid_argument("Switch finished!")
+- Failure("Parent cancelled too!")
+- Invalid_argument("Switch finished!")
 ```
 
 Using switch from inside release handler:
@@ -390,11 +387,9 @@ All release hooks run, even if some fail, and all errors are reported:
   );;
 Exception:
 Multiple exceptions:
-Stdlib.Exit
-and
-Failure("cancel1 failed")
-and
-Failure("cancel2 failed")
+- Stdlib.Exit
+- Failure("cancel1 failed")
+- Failure("cancel2 failed")
 ```
 
 # Errors during cleanup are reported during cancellation
@@ -408,7 +403,6 @@ Failure("cancel2 failed")
   );;
 Exception:
 Multiple exceptions:
-Failure("simulated error")
-and
-Failure("cleanup failed")
+- Failure("simulated error")
+- Failure("cleanup failed")
 ```

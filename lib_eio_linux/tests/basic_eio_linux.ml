@@ -13,7 +13,14 @@ let () =
   setup_log (Some Logs.Debug);
   Eio_linux.run @@ fun _stdenv ->
   Switch.run @@ fun sw ->
-  let fd = Unix.handle_unix_error (openfile ~sw "test.txt" Unix.[O_RDONLY]) 0 in
+  let fd =
+    openat2 "test.txt"
+      ~sw
+      ~access:`R
+      ~perm:0
+      ~flags:Uring.Open_flags.empty
+      ~resolve:Uring.Resolve.empty
+in
   let buf = alloc_fixed_or_wait () in
   let _ = read_exactly fd buf 5 in
   print_endline (Uring.Region.to_string ~len:5 buf);

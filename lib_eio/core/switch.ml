@@ -167,6 +167,14 @@ let run_in t fn =
   | ()           -> Cancel.move_fiber_to old_cc ctx;
   | exception ex -> Cancel.move_fiber_to old_cc ctx; raise ex
 
+exception Release_error of string * exn
+
+let () =
+  Printexc.register_printer (function
+      | Release_error (msg, ex) -> Some (Fmt.str "@[<v2>%s@,while handling %a@]" msg Exn.pp ex)
+      | _ -> None
+    )
+
 let on_release_full t fn =
   if Domain.self () = t.cancel.domain then (
     match t.cancel.state with
@@ -174,11 +182,15 @@ let on_release_full t fn =
     | Finished ->
       match Cancel.protect fn with
       | () -> invalid_arg "Switch finished!"
-      | exception ex -> raise (Exn.Multiple [ex; Invalid_argument "Switch finished!"])
+      | exception ex ->
+        let bt = Printexc.get_raw_backtrace () in
+        Printexc.raise_with_backtrace (Release_error ("Switch finished!", ex)) bt
   ) else (
     match Cancel.protect fn with
     | () -> invalid_arg "Switch accessed from wrong domain!"
-    | exception ex -> raise (Exn.Multiple [ex; Invalid_argument "Switch accessed from wrong domain!"])
+    | exception ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      Printexc.raise_with_backtrace (Release_error ("Switch accessed from wrong domain!", ex)) bt
   )
 
 let on_release t fn =

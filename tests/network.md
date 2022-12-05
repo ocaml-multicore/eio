@@ -22,6 +22,8 @@ let read_all flow =
   Buffer.contents b
 
 exception Graceful_shutdown
+
+let () = Eio.Exn.Backend.show := false
 ```
 
 ## Test cases
@@ -493,7 +495,9 @@ ECONNRESET:
   try
     Eio.Flow.read_exact a (Cstruct.create 1);
     assert false
-  with Eio.Net.Connection_reset _ | End_of_file -> traceln "Connection failed (good)";;
+  with
+  | Eio.Io (Eio.Net.E Connection_reset _, _)
+  | End_of_file -> traceln "Connection failed (good)";;
 +Connection failed (good)
 - : unit = ()
 ```
@@ -508,7 +512,7 @@ EPIPE:
   try
     Eio.Flow.copy_string "foo" a;
     assert false
-  with Eio.Net.Connection_reset _ -> traceln "Connection failed (good)";;
+  with Eio.Io (Eio.Net.E Connection_reset _, _) -> traceln "Connection failed (good)";;
 +Connection failed (good)
 - : unit = ()
 ```
@@ -518,13 +522,9 @@ Connection refused:
 ```ocaml
 # Eio_main.run @@ fun env ->
   Switch.run @@ fun sw ->
-  try
-    ignore (Eio.Net.connect ~sw env#net (`Unix "idontexist.sock"));
-    assert false
-  with Eio.Net.Connection_failure _ ->
-    traceln "Connection failure";;
-+Connection failure
-- : unit = ()
+  Eio.Net.connect ~sw env#net (`Unix "idontexist.sock");;
+Exception: Eio.Io Fs Not_found _,
+  connecting to unix:idontexist.sock
 ```
 
 ## Shutdown
@@ -610,7 +610,7 @@ Connection refused:
 let net = Eio_mock.Net.make "mock-net"
 let addr1 = `Tcp (Eio.Net.Ipaddr.V4.loopback, 80)
 let addr2 = `Tcp (Eio.Net.Ipaddr.of_raw "\001\002\003\004", 8080)
-let connection_failure = Eio.Net.Connection_failure (Failure "Simulated connection failure")
+let connection_failure = Eio.Net.err (Connection_failure (Refused Eio_mock.Simulated_failure))
 ```
 
 No usable addresses:
@@ -621,8 +621,8 @@ No usable addresses:
   Eio.Net.with_tcp_connect ~host:"www.example.com" ~service:"http" net (fun _ -> assert false);;
 +mock-net: getaddrinfo ~service:http www.example.com
 Exception:
-Eio__Net.Connection_failure
- (Failure "No TCP addresses for \"www.example.com\"").
+Eio.Io Net Connection_failure No_matching_addresses,
+  connecting to "www.example.com":http
 ```
 
 First address works:
@@ -678,7 +678,9 @@ Both addresses fail:
 +mock-net: connect to tcp:127.0.0.1:80
 +mock-net: connect to tcp:1.2.3.4:8080
 Exception:
-Eio__Net.Connection_failure (Failure "Simulated connection failure").
+Eio.Io Net Connection_failure Refused _,
+  connecting to tcp:1.2.3.4:8080,
+  connecting to "www.example.com":http
 ```
 
 First attempt times out:
@@ -736,7 +738,9 @@ Both attempts time out:
 +mock time is now 10
 +mock-net: connect to tcp:1.2.3.4:8080
 +mock time is now 20
-Exception: Eio__Net.Connection_failure Eio__Time.Timeout.
+Exception:
+Eio.Io Net Connection_failure Timeout,
+  connecting to "www.example.com":http
 ```
 
 ## read/write on SOCK_DGRAM

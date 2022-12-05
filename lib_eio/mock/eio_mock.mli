@@ -165,3 +165,8 @@ module Clock = Clock
     to avoid a dependency on eio_main. *)
 
 module Backend = Backend
+
+(** {2 Mock errors} *)
+
+type Eio.Exn.Backend.t += Simulated_failure
+(** A fake error code you can use for simulated faults. *)
