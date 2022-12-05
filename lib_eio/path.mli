@@ -101,7 +101,11 @@ val with_open_dir : _ t -> (<dir; Flow.close> t -> 'a) -> 'a
     it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
 val read_dir : _ t -> string list
-(** [read_dir t] reads directory entries for [t]. The entries are sorted using {! String.compare}.*)
+(** [read_dir t] reads directory entries for [t].
+
+    The entries are sorted using {! String.compare}.
+
+    Note: The special Unix entries "." and ".." are not included in the results. *)
 
 (** {1 Other} *)
 
