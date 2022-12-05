@@ -33,6 +33,8 @@ type amount = Exactly of int | Upto of int
 
 let system_thread = Ctf.mint_id ()
 
+let signal_pipe_key = Domain.DLS.new_key @@ fun () -> None
+
 let wrap_errors path fn =
   try fn () with
   | Unix.Unix_error(Unix.EEXIST, _, _) as ex -> raise @@ Eio.Fs.Already_exists (path, ex)
@@ -189,9 +191,6 @@ type t = {
      when writing to or closing [eventfd]. *)
   eventfd : FD.t;
   eventfd_mutex : Mutex.t;
-
-  (* We use the old trick of writing to a pipe from the signal handler *)
-  signal_pipe : Unix.file_descr * Unix.file_descr;
 
   (* If [false], the main thread will check [run_q] before sleeping again
      (possibly because an event has been or will be sent to [eventfd]).
@@ -980,19 +979,22 @@ module Signal = struct
           Sys.set_signal signum Sys.Signal_default;
         Atomic.set sigmap.(signum) nl)
 
-  let subscribe signum box pipe =
-    with_signal (fun () ->
-        let ol = Atomic.get sigmap.(signum) in
-        let first = ol = [] in
-        Atomic.set sigmap.(signum) (box :: ol);
-        if first then
-          Sys.set_signal signum
-            (Sys.Signal_handle
-               (fun _sysnum ->
-                  let b = Bytes.create 1 in
-                  Bytes.set_uint8  b 0 signum;
-                  let n = Unix.single_write (snd pipe) b 0 1 in
-                  assert (n = 1))))
+  let subscribe signum box =
+    match Domain.DLS.get signal_pipe_key with
+    | None -> ()
+    | Some pipe ->
+      with_signal (fun () ->
+          let ol = Atomic.get sigmap.(signum) in
+          let first = ol = [] in
+          Atomic.set sigmap.(signum) (box :: ol);
+          if first then
+            Sys.set_signal signum
+              (Sys.Signal_handle
+                 (fun _sysnum ->
+                    let b = Bytes.create 1 in
+                    Bytes.set_uint8  b 0 signum;
+                    let n = Unix.single_write (snd pipe) b 0 1 in
+                    assert (n = 1))))
 
   let publish signum =
     List.iter
@@ -1454,10 +1456,7 @@ let rec run : type a.
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
   let eventfd = FD.placeholder ~seekable:false ~close_unix:false in
-  let signal_pipe = Unix.pipe ~cloexec:true () in
-  Unix.set_nonblock (snd signal_pipe); (* We can't block inside a signal handler *)
-  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; signal_pipe;
-             need_wakeup = Atomic.make false; sleep_q }
+  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q }
   in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~new_fiber:fiber fn =
@@ -1567,7 +1566,7 @@ let rec run : type a.
               continue k (r, w)
             )
           | Eio.Signal.Private.Subscribe (signum, box) -> Some (fun k ->
-              continue k (Signal.subscribe signum box st.signal_pipe))
+              continue k (Signal.subscribe signum box))
           | Eio.Signal.Private.Unsubscribe (signum, box) -> Some (fun k ->
               continue k (Signal.unsubscribe signum box))
           | Eio.Signal.Private.Publish signum -> Some (fun k ->
@@ -1596,9 +1595,12 @@ let rec run : type a.
     let new_fiber = Fiber_context.make_root () in
     fork ~new_fiber (fun () ->
         Switch.run_protected (fun sw ->
+            let signal_pipe = Unix.pipe ~cloexec:true () in
+            Domain.DLS.set signal_pipe_key (Some signal_pipe);
+            Unix.set_nonblock (snd signal_pipe); (* We can't block inside a signal handler *)
             let signal_in, signal_out =
-              FD.of_unix ~sw ~seekable:false ~close_unix:true (fst st.signal_pipe),
-              FD.of_unix ~sw ~seekable:false ~close_unix:true (snd st.signal_pipe)
+              FD.of_unix ~sw ~seekable:false ~close_unix:false (fst signal_pipe),
+              FD.of_unix ~sw ~seekable:false ~close_unix:false (snd signal_pipe)
             in
             let eventfd = eio_eventfd 0 in
             st.eventfd.fd <- `Open eventfd;
@@ -1607,8 +1609,11 @@ let rec run : type a.
                 FD.close st.eventfd;
                 Mutex.unlock st.eventfd_mutex;
                 Unix.close eventfd;
+                Domain.DLS.set signal_pipe_key None;
                 FD.close signal_in;
                 FD.close signal_out;
+                Unix.close (fst signal_pipe);
+                Unix.close (snd signal_pipe);
               );
             Log.debug (fun f -> f "Monitoring eventfd %a" FD.pp st.eventfd);
             Log.debug (fun f -> f "Monitoring signal_in %a (signal_out %a)"
