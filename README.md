@@ -3,6 +3,8 @@
 # Eio -- Effects-Based Parallel IO for OCaml
 
 Eio provides an effects-based direct-style IO stack for OCaml 5.0.
+For example, you can use Eio to read and write files, make network connections,
+or perform CPU-intensive calculations, running multiple operations at the same time.
 It aims to be easy to use, secure, well documented, and fast.
 A generic cross-platform API is implemented by optimised backends for different platforms.
 Eio replaces existing concurrency libraries such as Lwt
@@ -177,6 +179,8 @@ Note that:
 
 - `Eio_main.run` automatically calls the appropriate run function for your platform.
   For example, on Linux this will call `Eio_linux.run`. For non-portable code you can use the platform-specific library directly.
+
+This example can also be built using dune; see [examples/hello](./examples/hello/).
 
 ## Testing with Mocks
 
@@ -515,6 +519,8 @@ let main ~net ~addr =
 +Server received: "Hello from client"
 - : unit = ()
 ```
+
+See [examples/net](./examples/net/) for a more complete example.
 
 ## Design Note: Capabilities
 
