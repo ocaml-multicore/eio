@@ -80,26 +80,11 @@ and we hope that Eio will be that API.
 
 ## Current Status
 
-Platform support:
-
-- Unix and macos: should be fully working using the libuv backend.
-- Linux: can additionally use io_uring for better performance on recent kernels.
-- Windows: should be mostly working - see [#125](https://github.com/ocaml-multicore/eio/issues/125) for remaining tasks.
-- MirageOS: waiting for [ocaml-freestanding](https://github.com/mirage/ocaml-freestanding) to be updated to OCaml 5.0.
-- Browsers: waiting for [js_of_ocaml](https://github.com/ocsigen/js_of_ocaml/issues/1088) to be updated to OCaml 5.0.
-
-Feature status:
-
-- Concurrency primitives: Fibers, cancellation, promises, streams and semaphores are all working.
-- Multicore support: Working.
-- Networking: Clients and servers using TCP, UDP and Unix domain sockets work.
-- File-systems: Can create files and directories, load, save, parse, etc. Most other operations missing.
-- Spawning sub-processes: Not implemented yet (see [#330](https://github.com/ocaml-multicore/eio/pull/330)).
+See [Eio 1.0 progress tracking](https://github.com/ocaml-multicore/eio/issues/388) for the current status.
+Please try porting your programs to use Eio and submit PRs or open issues when you find problems.
+Remember that you can always fall back to using Lwt libraries to provide missing features if necessary.
 
 See [Awesome Multicore OCaml][] for links to work migrating other projects to Eio.
-
-If you'd like to help out, please try porting your program to use Eio and submit PRs or open issues when you find problems.
-Remember that you can always fall back to using Lwt libraries to provide missing features if necessary.
 
 ## Structure of the Code
 
