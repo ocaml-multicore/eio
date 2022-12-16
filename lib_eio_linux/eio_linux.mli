@@ -249,3 +249,5 @@ module Low_level : sig
       an ipaddress. *)
 
 end
+
+val src : Logs.src
