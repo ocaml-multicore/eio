@@ -96,17 +96,17 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 
 ## Getting OCaml 5.0
 
-You'll need OCaml 5.0.0~rc1.
+You'll need OCaml 5.0.0 or later.
 You can either install it yourself or build the included [Dockerfile](./Dockerfile).
 
 To install it yourself:
 
 1. Make sure you have opam 2.1 or later (run `opam --version` to check).
 
-2. Use opam to install OCaml 5.0.0~rc1:
+2. Use opam to install OCaml 5.0.0:
 
    ```
-   opam switch create 5.0.0~rc1
+   opam switch create 5.0.0
    ```
 
 ## Getting Eio
