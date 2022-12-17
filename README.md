@@ -302,6 +302,11 @@ If you want to make an operation non-cancellable, wrap it with `Cancel.protect`
 - : unit = ()
 ```
 
+Note: using `Fiber.first` to ensure that *exactly one* of two actions is performed is not reliable.
+There is usually a possibility that both actions succeed at the same time (and one result is thrown away).
+For example, if you ask Eio read from two sockets with `io_uring`
+then the kernel may have already performed both reads by the time it tells Eio about the first one.
+
 ## Switches
 
 A [switch][Eio.Switch] is used to group fibers together, so they can be waited on together.
