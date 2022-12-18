@@ -465,7 +465,7 @@ let rec await_batch t =
           );
         t.wake_writer <- (fun () ->
             (* Our caller has already set [wake_writer <- ignore]. *)
-            ignore (Fiber_context.clear_cancel_fn ctx : bool);
+            Fiber_context.clear_cancel_fn ctx;
             enqueue (Ok ())
           );
       );

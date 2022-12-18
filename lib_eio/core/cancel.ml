@@ -9,12 +9,11 @@ type state =
 (* There is a tree of cancellation contexts for each domain.
    A fiber is always in exactly one context, but can move to a new child and back (see [sub]).
    While a fiber is performing a cancellable operation, it sets a cancel function.
-   When a context is cancelled, we attempt to call and remove each fiber's cancellation function, if any.
-   Cancelling always happens from the fiber's own domain, but the cancellation function may be removed
-   from another domain as soon as an operation is known to have succeeded.
-   An operation may either finish normally or be cancelled;
-   whoever manages to clear the cancellation function is responsible for resuming the continuation.
-   If cancelled, this is done by calling the cancellation function. *)
+   When a context is cancelled, we call each fiber's cancellation function (first replacing it with [ignore]).
+   Cancelling always happens from the fiber's own domain.
+   An operation may either finish normally or be cancelled (not both).
+   If a function can succeed in a separate domain,
+   the user's cancel function is responsible for ensuring that this is done atomically. *)
 type t = {
   mutable state : state;
   children : t Lwt_dllist.t;
@@ -26,7 +25,7 @@ and fiber_context = {
   tid : Ctf.id;
   mutable cancel_context : t;
   mutable cancel_node : fiber_context Lwt_dllist.node option; (* Our entry in [cancel_context.fibers] *)
-  cancel_fn : (exn -> unit) option Atomic.t;
+  mutable cancel_fn : exn -> unit;  (* Encourage the current operation to finish *)
   mutable vars : Hmap.t;
 }
 
@@ -126,20 +125,19 @@ let protect fn =
      We also do not check the parent context, to make sure the caller has a chance to handle the result. *)
   fn ()
 
-let rec cancel_internal t ex acc_fns =
-  let collect_cancel_fn fiber acc =
-    match Atomic.exchange fiber.cancel_fn None with
-    | None -> acc        (* The operation succeeded and so can't be cancelled now *)
-    | Some cancel_fn -> cancel_fn :: acc
-  in
+(* Mark the cancellation tree rooted at [t] as Cancelling (stopping at protected sub-contexts),
+   and return a list of all fibers in the newly-cancelling contexts. Since modifying the cancellation
+   tree can only be done from our domain, this is effectively an atomic operation. Once it returns,
+   new (non-protected) fibers cannot be added to any of the cancelling contexts. *)
+let rec cancel_internal t ex acc_fibers =
   match t.state with
   | Finished -> invalid_arg "Cancellation context finished!"
-  | Cancelling _ -> acc_fns
+  | Cancelling _ -> acc_fibers
   | On ->
     let bt = Printexc.get_raw_backtrace () in
     t.state <- Cancelling (ex, bt);
-    let acc_fns = Lwt_dllist.fold_r collect_cancel_fn t.fibers acc_fns in
-    Lwt_dllist.fold_r (cancel_child ex) t.children acc_fns
+    let acc_fibers = Lwt_dllist.fold_r List.cons t.fibers acc_fibers in
+    Lwt_dllist.fold_r (cancel_child ex) t.children acc_fibers
 and cancel_child ex t acc =
   if t.protected then acc
   else cancel_internal t ex acc
@@ -149,17 +147,19 @@ let check_our_domain t =
 
 let cancel t ex =
   check_our_domain t;
-  let fns = cancel_internal t ex [] in
+  let fibers = cancel_internal t ex [] in
   let cex = Cancelled ex in
   let rec aux = function
     | [] -> []
-    | fn :: fns ->
+    | x :: xs ->
+      let fn = x.cancel_fn in
+      x.cancel_fn <- ignore;
       match fn cex with
-      | () -> aux fns
-      | exception ex2 -> ex2 :: aux fns
+      | () -> aux xs
+      | exception ex2 -> ex2 :: aux xs
   in
-  if fns <> [] then (
-    match protect (fun () -> aux fns) with
+  if fibers <> [] then (
+    match aux fibers with
     | [] -> ()
     | exns -> raise (Cancel_hook_failed exns)
   )
@@ -188,16 +188,15 @@ module Fiber_context = struct
   let get_error t = get_error t.cancel_context
 
   let set_cancel_fn t fn =
-    (* if Atomic.exchange t.cancel_fn (Some fn) <> None then failwith "Fiber already has a cancel function!" *)
-    Atomic.set t.cancel_fn (Some fn)
+    t.cancel_fn <- fn
 
   let clear_cancel_fn t =
-    Atomic.exchange t.cancel_fn None <> None
+    t.cancel_fn <- ignore
 
   let make ~cc ~vars =
     let tid = Ctf.mint_id () in
     Ctf.note_created tid Ctf.Task;
-    let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = Atomic.make None; vars } in
+    let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = ignore; vars } in
     t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibers);
     t
 
