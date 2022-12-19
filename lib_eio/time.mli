@@ -8,7 +8,7 @@ class virtual clock : object
 end
 
 val now : #clock -> float
-(** [now t] is the current time according to [t]. *)
+(** [now t] is the current time since 00:00:00 GMT, Jan. 1, 1970 - in seconds - according to [t]. *)
 
 val sleep_until : #clock -> float -> unit
 (** [sleep_until t time] waits until the given time is reached. *)
