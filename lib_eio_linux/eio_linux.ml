@@ -176,6 +176,7 @@ type rw_req = {
 type io_job =
   | Read : rw_req -> io_job
   | Job_no_cancel : int Suspended.t -> io_job
+  | Cancel_job : io_job
   | Job : int Suspended.t -> io_job     (* A negative result indicates error, and may report cancellation *)
   | Write : rw_req -> io_job
   | Job_fn : 'a Suspended.t * (int -> [`Exit_scheduler]) -> io_job
@@ -238,33 +239,19 @@ let enqueue_failed_thread st k ex =
 let enqueue_at_head st k x =
   Lf_queue.push_head st.run_q (Thread (k, x))
 
-type _ Effect.t += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
 type _ Effect.t += Enter : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
+type _ Effect.t += Cancel : io_job Uring.job -> unit Effect.t
 let enter fn = Effect.perform (Enter fn)
 
 (* Cancellations always come from the same domain, so no need to send wake events here. *)
-let rec enqueue_cancel job st action =
+let rec enqueue_cancel job st =
   Log.debug (fun l -> l "cancel: submitting call");
   Ctf.label "cancel";
-  match Uring.cancel st.uring job (Job_no_cancel action) with
-  | None -> Queue.push (fun st -> enqueue_cancel job st action) st.io_q
+  match Uring.cancel st.uring job Cancel_job with
+  | None -> Queue.push (fun st -> enqueue_cancel job st) st.io_q
   | Some _ -> ()
-  | exception Invalid_argument _ ->
-    (* The job is invalid, meaning that it completed after we removed the fiber's cancel function
-       but before calling it. *)
-    Log.debug (fun l -> l "cancel: job was already complete");
-    enqueue_thread st action 0
 
-let cancel job =
-  let res = Effect.perform (Enter_unchecked (enqueue_cancel job)) in
-  Log.debug (fun l -> l "cancel returned");
-  if res = -2 then (
-    Log.debug (fun f -> f "Cancel returned ENOENT - operation completed before cancel took effect")
-  ) else if res = -114 then (
-    Log.debug (fun f -> f "Cancel returned EALREADY - operation cancelled while already in progress")
-  ) else if res <> 0 then (
-    raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno res, "cancel", "")))
-  )
+let cancel job = Effect.perform (Cancel job)
 
 (* Cancellation
 
@@ -274,17 +261,15 @@ let cancel job =
    1. We submit an operation, getting back a uring job (needed for cancellation).
    2. We set the cancellation function. The function uses the uring job to cancel.
 
-   The cancellation function owns the uring job.
-
-   When the job completes, we remove the cancellation function from the fiber.
-   The function must have been set by this point because we don't poll for
-   completions until the above steps have finished.
+   When the job completes, we clear the cancellation function. The function
+   must have been set by this point because we don't poll for completions until
+   the above steps have finished.
 
    If the context is cancelled while the operation is running, the function will get removed and called,
-   which will submit a cancellation request to uring.
-   If the operation completes before Linux processes the cancellation, we get [ENOENT], which we ignore.
+   which will submit a cancellation request to uring. We know the job is still valid at this point because
+   we clear the cancel function when it completes.
 
-   If the context is cancelled before starting then we discontinue the fiber. *)
+   If the operation completes before Linux processes the cancellation, we get [ENOENT], which we ignore. *)
 
 (* [with_cancel_hook ~action st fn] calls [fn] to create a job,
    then sets the fiber's cancel function to cancel it.
@@ -299,11 +284,6 @@ let with_cancel_hook ~action st fn =
     | Some job ->
       Fiber_context.set_cancel_fn action.fiber (fun _ -> cancel job);
       false
-
-let clear_cancel (action : _ Suspended.t) =
-  (* It doesn't matter whether the operation was cancelled or not;
-     there's nothing we need to do with the job now. *)
-  ignore (Fiber_context.clear_cancel_fn action.fiber : bool)
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
   match FD.get "submit_rw_req" fd with
@@ -548,8 +528,12 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* Wakeup any paused fibers *)
   match Lf_queue.pop run_q with
   | None -> assert false    (* We should always have an IO job, at least *)
-  | Some Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
-  | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
+  | Some Thread (k, v) ->   (* We already have a runnable task *)
+    Fiber_context.clear_cancel_fn k.fiber;
+    Suspended.continue k v
+  | Some Failed_thread (k, ex) ->
+    Fiber_context.clear_cancel_fn k.fiber;
+    Suspended.discontinue k ex
   | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
     (* This is not a fair scheduler: timers always run before all other IO *)
     let now = Mtime_clock.now () in
@@ -617,14 +601,12 @@ and handle_complete st ~runnable result =
   match runnable with
   | Read req ->
     Log.debug (fun l -> l "read returned");
-    clear_cancel req.action;
     complete_rw_req st req result
   | Write req ->
     Log.debug (fun l -> l "write returned");
-    clear_cancel req.action;
     complete_rw_req st req result
   | Job k ->
-    clear_cancel k;
+    Fiber_context.clear_cancel_fn k.fiber;
     if result >= 0 then Suspended.continue k result
     else (
       match Fiber_context.get_error k.fiber with
@@ -635,8 +617,18 @@ and handle_complete st ~runnable result =
     )
   | Job_no_cancel k ->
     Suspended.continue k result
+  | Cancel_job ->
+    Log.debug (fun l -> l "cancel returned");
+    if result = -2 then (
+      Log.debug (fun f -> f "Cancel returned ENOENT - operation completed before cancel took effect")
+    ) else if result = -114 then (
+      Log.debug (fun f -> f "Cancel returned EALREADY - operation cancelled while already in progress")
+    ) else if result <> 0 then (
+      Log.warn (fun f -> f "Cancel returned unexpected error: %s" (Unix.error_message (Uring.error_of_errno result)))
+    );
+    schedule st
   | Job_fn (k, f) ->
-    clear_cancel k;
+    Fiber_context.clear_cancel_fn k.fiber;
     (* Should we only do this on error, to avoid losing the return value?
        We already do that with rw jobs. *)
     begin match Fiber_context.get_error k.fiber with
@@ -644,6 +636,7 @@ and handle_complete st ~runnable result =
       | Some e -> Suspended.discontinue k e
     end
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
+  Fiber_context.clear_cancel_fn action.fiber;
   match res, len with
   | 0, _ -> Suspended.discontinue action End_of_file
   | e, _ when e < 0 ->
@@ -1264,7 +1257,7 @@ type stdenv = <
   debug : Eio.Debug.t;
 >
 
-let domain_mgr ~run_event_loop = object (self)
+let domain_mgr ~run_event_loop = object
   inherit Eio.Domain_manager.t
 
   method run_raw fn =
@@ -1275,11 +1268,20 @@ let domain_mgr ~run_event_loop = object (self)
     Domain.join (Option.get !domain)
 
   method run fn =
-    self#run_raw (fun () ->
-        let result = ref None in
-        run_event_loop (fun _ -> result := Some (fn ()));
-        Option.get !result
-      )
+    let domain = ref None in
+    enter (fun t k ->
+        let cancelled, set_cancelled = Promise.create () in
+        Fiber_context.set_cancel_fn k.fiber (Promise.resolve set_cancelled);
+        domain := Some (Domain.spawn (fun () ->
+            Fun.protect
+              (fun () ->
+                 let result = ref None in
+                 run_event_loop (fun _ -> result := Some (fn ~cancelled));
+                 Option.get !result
+              )
+              ~finally:(fun () -> enqueue_thread t k ())))
+      );
+    Domain.join (Option.get !domain)
 end
 
 let mono_clock = object
@@ -1464,11 +1466,6 @@ let rec run : type a.
                 fn st k;
                 schedule st
             )
-          | Enter_unchecked fn -> Some (fun k ->
-              let k = { Suspended.k; fiber } in
-              fn st k;
-              schedule st
-            )
           | Low_level.ERead args -> Some (fun k ->
               let k = { Suspended.k; fiber } in
               enqueue_read st k args;
@@ -1477,6 +1474,10 @@ let rec run : type a.
               let k = { Suspended.k; fiber } in
               enqueue_close st k fd;
               schedule st
+            )
+          | Cancel job -> Some (fun k ->
+              enqueue_cancel job st;
+              continue k ()
             )
           | Low_level.EWrite args -> Some (fun k ->
               let k = { Suspended.k; fiber } in

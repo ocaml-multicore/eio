@@ -105,6 +105,9 @@ module Suspended = struct
   let continue_result t = function
     | Ok x -> continue t x
     | Error x -> discontinue t x
+
+  let set_cancel_fn t fn = Fiber_context.set_cancel_fn t.fiber fn
+  let clear_cancel_fn t = Fiber_context.clear_cancel_fn t.fiber
 end
 
 type runnable =
@@ -136,15 +139,15 @@ let enter fn = Effect.perform (Enter fn)
 let enter_unchecked fn = Effect.perform (Enter_unchecked fn)
 
 let enqueue_thread t k v =
-  Lf_queue.push t.run_q (Thread (fun () -> Suspended.continue k v));
+  Lf_queue.push t.run_q (Thread (fun () -> Suspended.clear_cancel_fn k; Suspended.continue k v));
   Luv.Async.send t.async |> or_raise
 
 let enqueue_result_thread t k r =
-  Lf_queue.push t.run_q (Thread (fun () -> Suspended.continue_result k r));
+  Lf_queue.push t.run_q (Thread (fun () -> Suspended.clear_cancel_fn k; Suspended.continue_result k r));
   Luv.Async.send t.async |> or_raise
 
 let enqueue_failed_thread t k ex =
-  Lf_queue.push t.run_q (Thread (fun () -> Suspended.discontinue k ex));
+  Lf_queue.push t.run_q (Thread (fun () -> Suspended.clear_cancel_fn k; Suspended.discontinue k ex));
   Luv.Async.send t.async |> or_raise
 
 module Poll : sig
@@ -175,9 +178,9 @@ end = struct
     in
     loop (Lwt_dllist.take_opt_r q)
 
-  let enqueue_and_remove t fn (k : unit Suspended.t) v =
-    if Fiber_context.clear_cancel_fn k.fiber then
-      fn t k v
+  let enqueue_and_remove t fn k v =
+    Suspended.clear_cancel_fn k;
+    fn t k v
 
   let rec poll_callback t events r =
     begin match r with
@@ -296,20 +299,20 @@ module Low_level = struct
   let await_with_cancel ~request fn =
     enter (fun st k ->
         let cancel_reason = ref None in
-        Eio.Private.Fiber_context.set_cancel_fn k.fiber (fun ex ->
+        Suspended.set_cancel_fn k (fun ex ->
             cancel_reason := Some ex;
             match Luv.Request.cancel request with
             | Ok () -> ()
             | Error e -> Log.debug (fun f -> f "Cancel failed: %s" (Luv.Error.strerror e))
           );
-        fn st.loop (fun v ->
-            if Eio.Private.Fiber_context.clear_cancel_fn k.fiber then (
+        fn st.loop (fun result ->
+            match result, !cancel_reason with
+            | Error _, Some cex ->
+              (* If we got an error and we were cancelling, report the cancellation as the reason *)
+              enqueue_failed_thread st k cex
+            | v, _ ->
+              Suspended.clear_cancel_fn k;
               enqueue_thread st k v
-            ) else (
-              (* Cancellations always come from the same domain, so we can be sure
-                 that [cancel_reason] is set by now. *)
-              enqueue_failed_thread st k (Option.get !cancel_reason)
-            )
           )
       )
 
@@ -507,13 +510,14 @@ module Low_level = struct
 
     let rec read_into (sock:'a t) buf =
       let r = enter (fun t k ->
-          Fiber_context.set_cancel_fn k.fiber (fun ex ->
+          Suspended.set_cancel_fn k (fun ex ->
               Luv.Stream.read_stop (Handle.get "read_into:cancel" sock) |> or_raise;
               enqueue_failed_thread t k ex
             );
           Luv.Stream.read_start (Handle.get "read_start" sock) ~allocate:(fun _ -> buf) (fun r ->
+              Suspended.clear_cancel_fn k;
               Luv.Stream.read_stop (Handle.get "read_stop" sock) |> or_raise;
-              if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread t k r
+              enqueue_thread t k r
             )
         ) in
       match r with
@@ -558,7 +562,7 @@ module Low_level = struct
       let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise in
       enter (fun st k ->
           Luv.TCP.connect sock addr (fun v ->
-              ignore (Fiber_context.clear_cancel_fn k.fiber : bool);
+              Suspended.clear_cancel_fn k;
               match v with
               | Ok () -> enqueue_thread st k ()
               | Error e ->
@@ -629,13 +633,14 @@ module Low_level = struct
   let sleep_ms delay =
     enter @@ fun st k ->
     let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in
-    Fiber_context.set_cancel_fn k.fiber (fun ex ->
+    Suspended.set_cancel_fn k (fun ex ->
         Luv.Timer.stop timer |> or_raise;
         Luv.Handle.close timer (fun () -> ());
         enqueue_failed_thread st k ex
       );
     Luv.Timer.start timer delay (fun () ->
-        if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread st k ()
+        Suspended.clear_cancel_fn k;
+        enqueue_thread st k ()
       ) |> or_raise
 
   let sleep_until due =
@@ -825,18 +830,20 @@ module Udp = struct
      in case C programs wish to handle the allocated buffer in some way. *)
   let recv (sock:'a t) buf =
     let r = enter (fun t k ->
-        Fiber_context.set_cancel_fn k.fiber (fun ex ->
+        Suspended.set_cancel_fn k (fun ex ->
             Luv.UDP.recv_stop (Handle.get "recv_into:cancel" sock) |> or_raise;
             enqueue_failed_thread t k ex
           );
         Luv.UDP.recv_start (Handle.get "recv_start" sock) ~allocate:(fun _ -> buf) (function
           | Ok (_, None, _) -> ()
           | Ok (buf, Some addr, flags) ->
+            Suspended.clear_cancel_fn k;
             Luv.UDP.recv_stop (Handle.get "recv_stop" sock) |> or_raise;
-            if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread t k (Ok (buf, addr, flags))
+            enqueue_thread t k (Ok (buf, addr, flags))
           | Error _ as err ->
+            Suspended.clear_cancel_fn k;
             Luv.UDP.recv_stop (Handle.get "recv_stop" sock) |> or_raise;
-            if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread t k err
+            enqueue_thread t k err
           )
       ) in
     match r with
@@ -966,10 +973,8 @@ type stdenv = <
   debug : Eio.Debug.t;
 >
 
-let domain_mgr ~run_event_loop = object (self)
-  inherit Eio.Domain_manager.t
-
-  method run_raw (type a) fn =
+let domain_mgr ~run_event_loop =
+  let run_raw (type a) ~pre_spawn fn =
     let domain_k : (unit Domain.t * a Suspended.t) option ref = ref None in
     let result = ref None in
     let async = Luv.Async.init ~loop:(get_loop ()) (fun async ->
@@ -979,10 +984,12 @@ let domain_mgr ~run_event_loop = object (self)
         Log.debug (fun f -> f "Spawned domain finished (joining)");
         Domain.join domain;
         Luv.Handle.close async @@ fun () ->
+        Suspended.clear_cancel_fn k;
         Suspended.continue_result k (Option.get !result)
       ) |> or_raise
     in
     enter @@ fun _st k ->
+    pre_spawn k;
     let d = Domain.spawn (fun () ->
         result := Some (match fn () with
             | v -> Ok v
@@ -992,16 +999,24 @@ let domain_mgr ~run_event_loop = object (self)
         Luv.Async.send async |> or_raise
       ) in
     domain_k := Some (d, k)
+  in
+  object
+    inherit Eio.Domain_manager.t
 
-  method run fn =
-    self#run_raw (fun () ->
-        let result = ref None in
-        run_event_loop (fun _ ->
-            result := Some (fn ())
-          );
-        Option.get !result
-      )
-end
+    method run_raw fn =
+      run_raw ~pre_spawn:ignore fn
+
+    method run fn =
+      let cancelled, set_cancelled = Promise.create () in
+      let pre_spawn k = Suspended.set_cancel_fn k (Promise.resolve set_cancelled) in
+      run_raw ~pre_spawn @@ (fun () ->
+          let result = ref None in
+          run_event_loop (fun _ ->
+              result := Some (fn ~cancelled)
+            );
+          Option.get !result
+        )
+  end
 
 let clock = object
   inherit Eio.Time.clock

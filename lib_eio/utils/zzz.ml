@@ -34,12 +34,8 @@ let remove t id =
 let pop t ~now =
   match Q.min t.sleep_queue with
   | Some (_, { Job.time; thread }) when time <= now ->
-    if Eio.Private.Fiber_context.clear_cancel_fn thread.fiber then (
-      t.sleep_queue <- Option.get (Q.rest t.sleep_queue);
-      `Due thread
-    ) else (
-      (* This shouldn't happen, since any cancellation will happen in the same domain as the [pop]. *)
-      assert false
-    )
+    Eio.Private.Fiber_context.clear_cancel_fn thread.fiber;
+    t.sleep_queue <- Option.get (Q.rest t.sleep_queue);
+    `Due thread
   | Some (_, { Job.time; _ }) -> `Wait_until time
   | None -> `Nothing

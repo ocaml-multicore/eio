@@ -4,6 +4,7 @@ all:
 	dune build @runtest @all
 
 bench:
+	dune exec -- ./bench/bench_condition.exe
 	dune exec -- ./bench/bench_buf_read.exe
 	dune exec -- ./bench/bench_mutex.exe
 	dune exec -- ./bench/bench_yield.exe

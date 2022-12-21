@@ -493,7 +493,8 @@ module Cancel : sig
       Ideally this should be done any time you have caught an exception and are planning to ignore it,
       although if you forget then the next IO operation will typically abort anyway.
 
-      Quick clean-up actions (such as releasing a mutex or deleting a temporary file) are OK,
+      When handling a [Cancelled] exception, quick clean-up actions
+      (such as releasing a mutex or deleting a temporary file) are OK,
       but operations that may block should be avoided.
       For example, a network connection should simply be closed,
       without attempting to send a goodbye message.
@@ -585,36 +586,31 @@ module Private : sig
         or it may be cancelled.
         If it is cancelled then the registered cancellation function is called.
         This function will always be called from the fiber's own domain, but care must be taken
-        if the operation is being completed by another domain at the same time.
+        if the operation could be completed by another domain at the same time.
 
         Consider the case of {!Stream.take}, which can be fulfilled by a {!Stream.add} from another domain.
         We want to ensure that either the item is removed from the stream and returned to the waiting fiber,
         or that the operation is cancelled and the item is not removed from the stream.
 
-        Therefore, cancelling and completing both attempt to clear the cancel function atomically,
+        Therefore, cancelling and completing both need to update an atomic value (with {!Atomic.compare_and_set})
         so that only one can succeed. The case where [Stream.take] succeeds before cancellation:
 
         + A fiber calls [Suspend] and is suspended.
           The callback sets a cancel function and registers a waiter on the stream.
-        + When another domain has an item, it removes the cancel function (making the [take] uncancellable)
+        + When another domain has an item, it marks the atomic as finished (making the [take] uncancellable)
           and begins resuming the fiber with the new item.
-        + If the taking fiber is cancelled after this, the cancellation will be ignored and the operation
+        + If the taking fiber is cancelled after this, the cancellation must be ignored and the operation
           will complete successfully. Future operations will fail immediately, however.
 
         The case of cancellation winning the race:
 
         + A fiber calls [Suspend] and is suspended.
           The callback sets a cancel function and registers a waiter on the stream.
-        + The taking fiber is cancelled. Its cancellation function is called, which starts removing the waiter.
+        + The taking fiber is cancelled. Its cancellation function is called,
+          which updates the atomic and starts removing the waiter.
         + If another domain tries to provide an item to the waiter as this is happening,
-          it will try to clear the cancel function and fail.
+          it will try to update the atomic too and fail.
           The item will be given to the next waiter instead.
-
-        Note that there is a mutex around the list of waiters, so the taking domain
-        can't finish removing the waiter and start another operation while the adding
-        domain is trying to resume it.
-        In future, we may want to make this lock-free by using a fresh atomic
-        to hold the cancel function for each operation.
 
         Note: A fiber will only have a cancel function set while it is suspended. *)
 
@@ -624,19 +620,40 @@ module Private : sig
     val set_cancel_fn : t -> (exn -> unit) -> unit
     (** [set_cancel_fn t fn] sets [fn] as the fiber's cancel function.
 
-        If the cancellation context is cancelled, the function is removed and called.
-        When the operation completes, you must call {!clear_cancel_fn} to remove it. *)
+        If [t]'s cancellation context is cancelled, the function is called.
+        It should attempt to make the current operation finish quickly, either with
+        a successful result or by raising the given exception.
 
-    val clear_cancel_fn : t -> bool
-    (** [clear_cancel_fn t] removes the function previously set with {!set_cancel_fn}, if any.
+        Just before being called, the fiber's cancel function is replaced with [ignore]
+        so that [fn] cannot be called twice.
 
-        Returns [true] if this call removed the function, or [false] if there wasn't one.
-        This operation is atomic and thread-safe.
-        An operation that completes in another domain must use this to indicate that the operation is
-        finished (can no longer be cancelled) before enqueuing the result. If it returns [false],
-        the operation was cancelled first and the canceller has called (or is calling) the function.
-        If it returns [true], the caller is responsible for any resources owned by the function,
-        such as the continuation. *)
+        On success, the cancel function is cleared automatically when {!Suspend.enter} returns,
+        but for single-domain operations you may like to call {!clear_cancel_fn}
+        manually to remove it earlier.
+
+        [fn] will be called from [t]'s domain (from the fiber that called [cancel]).
+
+        [fn] must not switch fibers. If it did, this could happen:
+
+        + Another suspended fiber in the same cancellation context resumes before
+          its cancel function is called.
+        + It enters a protected block and starts a new operation.
+        + [fn] returns.
+        + We cancel the protected operation. *)
+
+    val clear_cancel_fn : t -> unit
+    (** [clear_cancel_fn t] is [set_cancel_fn t ignore].
+
+        This must only be called from the fiber's own domain.
+
+        For single-domain operations, it can be useful to call this manually as soon as
+        the operation succeeds (i.e. when the fiber is added to the run-queue)
+        to prevent the cancel function from being called.
+
+        For operations where another domain may resume the fiber, your cancel function
+        will need to cope with being called after the operation has succeeded. In that
+        case you should not call [clear_cancel_fn]. The backend will do it automatically
+        just before resuming your fiber. *)
 
     val get_error : t -> exn option
     (** [get_error t] is [Cancel.get_error (cancellation_context t)] *)
