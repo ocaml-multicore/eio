@@ -113,17 +113,19 @@ let rec loop () =
 ### Timeouts
 
 ```ocaml
-# run @@ fun ~clock ->
+# Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.mono_clock env in
   Eio.Time.Timeout.(run_exn none) (fun () -> ());
-  let t = Eio.Time.Timeout.of_s clock 0.0001 in
+  let t = Eio.Time.Timeout.seconds clock 0.0001 in
   Eio.Time.Timeout.run_exn t (fun () -> Fiber.await_cancel ());;
 Exception: Eio__Time.Timeout.
 ```
 
 ```ocaml
-# run @@ fun ~clock ->
+# Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.mono_clock env in
   let show d =
-    let t = Eio.Time.Timeout.of_s clock d in
+    let t = Eio.Time.Timeout.seconds clock d in
     traceln "%g -> %a" d Eio.Time.Timeout.pp t
   in
   show 0.000000001;

@@ -27,34 +27,39 @@ module Lf_queue = Eio_utils.Lf_queue
 (* SIGPIPE makes no sense in a modern application. *)
 let () = Sys.(set_signal sigpipe Signal_ignore)
 
-exception Luv_error of Luv.Error.t
+type Eio.Exn.Backend.t +=
+  | Luv_error of Luv.Error.t
+  | Outside_sandbox of string * string
+  | Absolute_path
+
+let unclassified_error e = Eio.Exn.create (Eio.Exn.X e)
 
 let () =
-  Printexc.register_printer @@ function
-  | Luv_error e -> Some (Printf.sprintf "Eio_luv.Luv_error(%s) (* %s *)" (Luv.Error.err_name e) (Luv.Error.strerror e))
-  | _ -> None
+  Eio.Exn.Backend.register_pp (fun f -> function
+      | Luv_error e -> Fmt.pf f "Eio_luv.Luv_error(%s) (* %s *)" (Luv.Error.err_name e) (Luv.Error.strerror e); true
+      | Outside_sandbox (path, dir) -> Fmt.pf f "Outside_sandbox (%S, %S)" path dir; true
+      | Absolute_path -> Fmt.pf f "Absolute_path"; true
+      | _ -> false
+    )
 
-let wrap_error ~path e =
-  let ex = Luv_error e in
-  match e with
-  | `EEXIST -> Eio.Fs.Already_exists (path, ex)
-  | `ENOENT -> Eio.Fs.Not_found (path, ex)
-  | _ -> ex
+let wrap_error = function
+  | `ECONNREFUSED as e -> Eio.Net.err (Connection_failure (Refused (Luv_error e)))
+  | `ECONNRESET | `EPIPE as e -> Eio.Net.err (Connection_reset (Luv_error e))
+  | e -> unclassified_error (Luv_error e)
 
-let wrap_flow_error e =
-  let ex = Luv_error e in
+let wrap_error_fs e =
   match e with
-  | `ECONNRESET
-  | `EPIPE -> Eio.Net.Connection_reset ex
-  | _ -> ex
+  | `EEXIST -> Eio.Fs.err (Already_exists (Luv_error e))
+  | `ENOENT -> Eio.Fs.err (Not_found (Luv_error e))
+  | e -> wrap_error e
 
 let or_raise = function
   | Ok x -> x
-  | Error e -> raise (Luv_error e)
+  | Error e -> raise (wrap_error e)
 
-let or_raise_path path = function
+let or_raise_fs = function
   | Ok x -> x
-  | Error e -> raise (wrap_error ~path e)
+  | Error e -> raise (wrap_error_fs e)
 
 (* Luv can't handle buffers with more than 2^32-1 bytes, limit it to
    31bit so we can also make sure 32bit archs don't overflow.
@@ -100,6 +105,9 @@ module Suspended = struct
   let continue_result t = function
     | Ok x -> continue t x
     | Error x -> discontinue t x
+
+  let set_cancel_fn t fn = Fiber_context.set_cancel_fn t.fiber fn
+  let clear_cancel_fn t = Fiber_context.clear_cancel_fn t.fiber
 end
 
 type runnable =
@@ -131,15 +139,15 @@ let enter fn = Effect.perform (Enter fn)
 let enter_unchecked fn = Effect.perform (Enter_unchecked fn)
 
 let enqueue_thread t k v =
-  Lf_queue.push t.run_q (Thread (fun () -> Suspended.continue k v));
+  Lf_queue.push t.run_q (Thread (fun () -> Suspended.clear_cancel_fn k; Suspended.continue k v));
   Luv.Async.send t.async |> or_raise
 
 let enqueue_result_thread t k r =
-  Lf_queue.push t.run_q (Thread (fun () -> Suspended.continue_result k r));
+  Lf_queue.push t.run_q (Thread (fun () -> Suspended.clear_cancel_fn k; Suspended.continue_result k r));
   Luv.Async.send t.async |> or_raise
 
 let enqueue_failed_thread t k ex =
-  Lf_queue.push t.run_q (Thread (fun () -> Suspended.discontinue k ex));
+  Lf_queue.push t.run_q (Thread (fun () -> Suspended.clear_cancel_fn k; Suspended.discontinue k ex));
   Luv.Async.send t.async |> or_raise
 
 module Poll : sig
@@ -170,9 +178,9 @@ end = struct
     in
     loop (Lwt_dllist.take_opt_r q)
 
-  let enqueue_and_remove t fn (k : unit Suspended.t) v =
-    if Fiber_context.clear_cancel_fn k.fiber then
-      fn t k v
+  let enqueue_and_remove t fn k v =
+    Suspended.clear_cancel_fn k;
+    fn t k v
 
   let rec poll_callback t events r =
     begin match r with
@@ -180,8 +188,9 @@ end = struct
         if List.mem `READABLE es then apply_all events.read (fun k -> enqueue_and_remove t enqueue_thread k ());
         if List.mem `WRITABLE es then apply_all events.write (fun k -> enqueue_and_remove t enqueue_thread k ());
       | Error e ->
-        apply_all events.read (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e));
-        apply_all events.write (fun k -> enqueue_and_remove t enqueue_failed_thread k (Luv_error e))
+        let e = unclassified_error (Luv_error e) in
+        apply_all events.read (fun k -> enqueue_and_remove t enqueue_failed_thread k e);
+        apply_all events.write (fun k -> enqueue_and_remove t enqueue_failed_thread k e)
     end;
     update t events
   and update t events =
@@ -245,10 +254,6 @@ let enqueue_at_head t k v =
   Lf_queue.push_head t.run_q (Thread (fun () -> Suspended.continue k v));
   Luv.Async.send t.async |> or_raise
 
-let get_loop () =
-  enter_unchecked @@ fun t k ->
-  Suspended.continue k t.loop
-
 let unix_fstat fd =
   let ust = Unix.LargeFile.fstat fd in
   let st_kind : Eio.File.Stat.kind =
@@ -279,8 +284,11 @@ let unix_fstat fd =
 module Low_level = struct
   type 'a or_error = ('a, Luv.Error.t) result
 
-  exception Luv_error = Luv_error
   let or_raise = or_raise
+
+  let get_loop () =
+    enter_unchecked @@ fun t k ->
+    Suspended.continue k t.loop
 
   let await fn =
     Effect.perform (Await fn)
@@ -291,20 +299,20 @@ module Low_level = struct
   let await_with_cancel ~request fn =
     enter (fun st k ->
         let cancel_reason = ref None in
-        Eio.Private.Fiber_context.set_cancel_fn k.fiber (fun ex ->
+        Suspended.set_cancel_fn k (fun ex ->
             cancel_reason := Some ex;
             match Luv.Request.cancel request with
             | Ok () -> ()
             | Error e -> Log.debug (fun f -> f "Cancel failed: %s" (Luv.Error.strerror e))
           );
-        fn st.loop (fun v ->
-            if Eio.Private.Fiber_context.clear_cancel_fn k.fiber then (
+        fn st.loop (fun result ->
+            match result, !cancel_reason with
+            | Error _, Some cex ->
+              (* If we got an error and we were cancelling, report the cancellation as the reason *)
+              enqueue_failed_thread st k cex
+            | v, _ ->
+              Suspended.clear_cancel_fn k;
               enqueue_thread st k v
-            ) else (
-              (* Cancellations always come from the same domain, so we can be sure
-                 that [cancel_reason] is set by now. *)
-              enqueue_failed_thread st k (Option.get !cancel_reason)
-            )
           )
       )
 
@@ -333,7 +341,7 @@ module Low_level = struct
         begin match Luv.Handle.fileno fd with
           | Ok fd -> Poll.cancel_all t (Luv_unix.Os_fd.Fd.to_unix fd)
           | Error `EBADF -> ()  (* We don't have a Unix FD yet, so we can't be watching it. *)
-          | Error e -> raise (Luv_error e)
+          | Error e -> raise (unclassified_error (Luv_error e))
         end;
         Luv.Handle.close fd (enqueue_thread t k)
       )
@@ -494,7 +502,7 @@ module Low_level = struct
       match await_with_cancel ~request (fun loop -> Luv.Random.random ~loop ~request buf) with
       | Ok x -> x
       | Error `EINTR -> fill buf
-      | Error x -> raise (Luv_error x)
+      | Error x -> raise @@ wrap_error x
   end
 
   module Stream = struct
@@ -502,13 +510,14 @@ module Low_level = struct
 
     let rec read_into (sock:'a t) buf =
       let r = enter (fun t k ->
-          Fiber_context.set_cancel_fn k.fiber (fun ex ->
+          Suspended.set_cancel_fn k (fun ex ->
               Luv.Stream.read_stop (Handle.get "read_into:cancel" sock) |> or_raise;
               enqueue_failed_thread t k ex
             );
           Luv.Stream.read_start (Handle.get "read_start" sock) ~allocate:(fun _ -> buf) (fun r ->
+              Suspended.clear_cancel_fn k;
               Luv.Stream.read_stop (Handle.get "read_stop" sock) |> or_raise;
-              if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread t k r
+              enqueue_thread t k r
             )
         ) in
       match r with
@@ -517,7 +526,7 @@ module Low_level = struct
         if len > 0 then len
         else read_into sock buf       (* Luv uses a zero-length read to mean EINTR! *)
       | Error `EOF -> raise End_of_file
-      | Error x -> raise (wrap_flow_error x)
+      | Error x -> raise (wrap_error x)
 
     let rec skip_empty = function
       | empty :: xs when Luv.Buffer.size empty = 0 -> skip_empty xs
@@ -532,7 +541,7 @@ module Low_level = struct
           )
       in
       match err with
-      | Error e -> raise (wrap_flow_error e)
+      | Error e -> raise (wrap_error e)
       | Ok () ->
         match Luv.Buffer.drop bufs n |> skip_empty with
         | [] -> ()
@@ -547,20 +556,20 @@ module Low_level = struct
       let sock = Luv.Pipe.init ~loop:(get_loop ()) () |> or_raise |> Handle.of_luv ~sw in
       match await (fun _loop _fiber -> Luv.Pipe.connect (Handle.get "connect" sock) path) with
       | Ok () -> sock
-      | Error e -> raise (Eio.Net.Connection_failure (Luv_error e))
+      | Error e -> raise @@ wrap_error_fs e
 
     let connect_tcp ~sw addr =
       let sock = Luv.TCP.init ~loop:(get_loop ()) () |> or_raise in
       enter (fun st k ->
           Luv.TCP.connect sock addr (fun v ->
-              ignore (Fiber_context.clear_cancel_fn k.fiber : bool);
+              Suspended.clear_cancel_fn k;
               match v with
               | Ok () -> enqueue_thread st k ()
               | Error e ->
                 Luv.Handle.close sock ignore;
                 match Fiber_context.get_error k.fiber with
                 | Some ex -> enqueue_failed_thread st k ex
-                | None -> enqueue_failed_thread st k (Eio.Net.Connection_failure (Luv_error e))
+                | None -> enqueue_failed_thread st k (wrap_error e)
             );
           Fiber_context.set_cancel_fn k.fiber (fun _ex ->
               match Luv.Handle.fileno sock with
@@ -574,20 +583,69 @@ module Low_level = struct
       Handle.of_luv ~sw sock
   end
 
+  module Pipe = struct
+    type t = [`Stream of [`Pipe]] Handle.t
+
+    let init ?for_handle_passing ~sw () =
+      Luv.Pipe.init ~loop:(get_loop ()) ?for_handle_passing ()
+      |> or_raise
+      |> Handle.of_luv ~close_unix:true ~sw
+  end
+
+  module Process = struct
+    type t = {
+      proc : Luv.Process.t;
+      status : (int * int64) Promise.t;
+    }
+
+    let pid t = Luv.Process.pid t.proc
+
+    let to_parent_pipe ?readable_in_child ?writable_in_child ?overlapped ~fd ~parent_pipe () =
+      let parent_pipe = Handle.to_luv parent_pipe in
+      Luv.Process.to_parent_pipe ?readable_in_child ?writable_in_child ?overlapped ~fd ~parent_pipe ()
+
+    let await_exit t = Promise.await t.status
+
+    let has_exited t = Promise.is_resolved t.status
+
+    let send_signal t i = Luv.Process.kill t.proc i |> or_raise
+
+    let spawn ?cwd ?env ?uid ?gid ?(redirect=[]) ~sw cmd args =
+      let status, set_status = Promise.create () in
+      let hook = ref None in
+      let on_exit _ ~exit_status ~term_signal =
+        Option.iter Switch.remove_hook !hook;
+        Promise.resolve set_status (term_signal, exit_status)
+      in
+      let proc = Luv.Process.spawn ?environment:env ?uid ?gid ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise in
+      if not (Promise.is_resolved status) then (
+        let h = Switch.on_release_cancellable sw (fun () ->
+            Luv.Process.kill proc Luv.Signal.sigkill |> or_raise;
+            ignore (Promise.await status)
+          ) in
+        hook := Some h
+      );
+    { proc; status }
+  end
+
   module Poll = Poll
 
-  let sleep_until due =
-    let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
+  let sleep_ms delay =
     enter @@ fun st k ->
     let timer = Luv.Timer.init ~loop:st.loop () |> or_raise in
-    Fiber_context.set_cancel_fn k.fiber (fun ex ->
+    Suspended.set_cancel_fn k (fun ex ->
         Luv.Timer.stop timer |> or_raise;
         Luv.Handle.close timer (fun () -> ());
         enqueue_failed_thread st k ex
       );
     Luv.Timer.start timer delay (fun () ->
-        if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread st k ()
+        Suspended.clear_cancel_fn k;
+        enqueue_thread st k ()
       ) |> or_raise
+
+  let sleep_until due =
+    let delay = 1000. *. (due -. Unix.gettimeofday ()) |> ceil |> truncate |> max 0 in
+    sleep_ms delay
 
   (* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
   let getaddrinfo ~service node =
@@ -733,7 +791,7 @@ class virtual ['a] listening_socket ~backlog sock = object (self)
     match Luv.Stream.accept ~server:(Handle.get "accept" sock) ~client:(Handle.get "accept" client) with
     | Error e ->
       Handle.close client;
-      raise (Luv_error e)
+      raise (wrap_error e)
     | Ok () ->
       Switch.on_release sw (fun () -> Handle.ensure_closed client);
       let flow = (socket client :> <Eio.Flow.two_way; Eio.Flow.close>) in
@@ -772,31 +830,33 @@ module Udp = struct
      in case C programs wish to handle the allocated buffer in some way. *)
   let recv (sock:'a t) buf =
     let r = enter (fun t k ->
-        Fiber_context.set_cancel_fn k.fiber (fun ex ->
+        Suspended.set_cancel_fn k (fun ex ->
             Luv.UDP.recv_stop (Handle.get "recv_into:cancel" sock) |> or_raise;
             enqueue_failed_thread t k ex
           );
         Luv.UDP.recv_start (Handle.get "recv_start" sock) ~allocate:(fun _ -> buf) (function
           | Ok (_, None, _) -> ()
           | Ok (buf, Some addr, flags) ->
+            Suspended.clear_cancel_fn k;
             Luv.UDP.recv_stop (Handle.get "recv_stop" sock) |> or_raise;
-            if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread t k (Ok (buf, addr, flags))
+            enqueue_thread t k (Ok (buf, addr, flags))
           | Error _ as err ->
+            Suspended.clear_cancel_fn k;
             Luv.UDP.recv_stop (Handle.get "recv_stop" sock) |> or_raise;
-            if Fiber_context.clear_cancel_fn k.fiber then enqueue_thread t k err
+            enqueue_thread t k err
           )
       ) in
     match r with
     | Ok (buf', sockaddr, _recv_flags) ->
       `Udp (luv_ip_addr_to_eio sockaddr), Luv.Buffer.size buf'
-    | Error x -> raise (wrap_flow_error x)
+    | Error e -> raise (wrap_error e)
 
   let send t buf = function
   | `Udp (host, port) ->
     let bufs = cstructv_to_luv [ buf ] in
     match await (fun _loop _fiber -> Luv.UDP.send (Handle.get "send" t) bufs (luv_addr_of_eio host port)) with
     | Ok () -> ()
-    | Error e -> raise (wrap_flow_error e)
+    | Error e -> raise (wrap_error e)
 end
 
 let udp_socket endp = object
@@ -908,16 +968,15 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
+  mono_clock : Eio.Time.Mono.t;
   fs : Eio.Fs.dir Eio.Path.t;
   cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
   debug : Eio.Debug.t;
 >
 
-let domain_mgr ~run_event_loop = object (self)
-  inherit Eio.Domain_manager.t
-
-  method run_raw (type a) fn =
+let domain_mgr ~run_event_loop =
+  let run_raw (type a) ~pre_spawn fn =
     let domain_k : (unit Domain.t * a Suspended.t) option ref = ref None in
     let result = ref None in
     let async = Luv.Async.init ~loop:(get_loop ()) (fun async ->
@@ -927,10 +986,12 @@ let domain_mgr ~run_event_loop = object (self)
         Log.debug (fun f -> f "Spawned domain finished (joining)");
         Domain.join domain;
         Luv.Handle.close async @@ fun () ->
+        Suspended.clear_cancel_fn k;
         Suspended.continue_result k (Option.get !result)
       ) |> or_raise
     in
     enter @@ fun _st k ->
+    pre_spawn k;
     let d = Domain.spawn (fun () ->
         result := Some (match fn () with
             | v -> Ok v
@@ -940,22 +1001,46 @@ let domain_mgr ~run_event_loop = object (self)
         Luv.Async.send async |> or_raise
       ) in
     domain_k := Some (d, k)
+  in
+  object
+    inherit Eio.Domain_manager.t
 
-  method run fn =
-    self#run_raw (fun () ->
-        let result = ref None in
-        run_event_loop (fun _ ->
-            result := Some (fn ())
-          );
-        Option.get !result
-      )
-end
+    method run_raw fn =
+      run_raw ~pre_spawn:ignore fn
+
+    method run fn =
+      let cancelled, set_cancelled = Promise.create () in
+      let pre_spawn k = Suspended.set_cancel_fn k (Promise.resolve set_cancelled) in
+      run_raw ~pre_spawn @@ (fun () ->
+          let result = ref None in
+          run_event_loop (fun _ ->
+              result := Some (fn ~cancelled)
+            );
+          Option.get !result
+        )
+  end
 
 let clock = object
   inherit Eio.Time.clock
 
   method now = Unix.gettimeofday ()
   method sleep_until = sleep_until
+end
+
+let mono_clock = object
+  inherit Eio.Time.Mono.t
+
+  method now = Mtime_clock.now ()
+
+  method sleep_until time =
+    let now = Mtime.to_uint64_ns (Mtime_clock.now ()) in
+    let time = Mtime.to_uint64_ns time in
+    if Int64.unsigned_compare now time >= 0 then Fiber.yield ()
+    else (
+      let delay_ns = Int64.sub time now |> Int64.to_float in
+      let delay_ms = delay_ns /. 1e6 |> ceil |> truncate |> max 0 in
+      Low_level.sleep_ms delay_ms
+    )
 end
 
 type _ Eio.Generic.ty += Dir_resolve_new : (string -> string) Eio.Generic.ty
@@ -975,36 +1060,32 @@ class dir ~label (dir_path : string) = object (self)
 
   (* Resolve a relative path to an absolute one, with no symlinks.
      @raise Eio.Fs.Permission_denied if it's outside of [dir_path]. *)
-  method private resolve ?display_path path =
+  method private resolve path =
     if closed then Fmt.invalid_arg "Attempt to use closed directory %S" dir_path;
-    let display_path = Option.value display_path ~default:path in
     if Filename.is_relative path then (
-      let dir_path = File.realpath dir_path |> or_raise_path dir_path in
-      let full = File.realpath (Filename.concat dir_path path) |> or_raise_path path in
+      let dir_path = File.realpath dir_path |> or_raise_fs in
+      let full = File.realpath (Filename.concat dir_path path) |> or_raise_fs in
       let prefix_len = String.length dir_path + 1 in
       if String.length full >= prefix_len && String.sub full 0 prefix_len = dir_path ^ Filename.dir_sep then
         full
       else if full = dir_path then
         full
       else
-        raise (Eio.Fs.Permission_denied (display_path, Failure (Fmt.str "Path %S is outside of sandbox %S" full dir_path)))
+        raise @@ Eio.Fs.err (Permission_denied (Outside_sandbox (full, dir_path)))
     ) else (
-      raise (Eio.Fs.Permission_denied (display_path, Failure (Fmt.str "Path %S is absolute" path)))
+      raise @@ Eio.Fs.err (Permission_denied Absolute_path)
     )
 
   (* We want to create [path]. Check that the parent is in the sandbox. *)
   method private resolve_new path =
     let dir, leaf = Filename.dirname path, Filename.basename path in
     if leaf = ".." then Fmt.failwith "New path %S ends in '..'!" path
-    else match self#resolve dir with
-      | dir -> Filename.concat dir leaf
-      | exception Eio.Fs.Not_found (dir, ex) ->
-        raise (Eio.Fs.Not_found (Filename.concat dir leaf, ex))
-      | exception Eio.Fs.Permission_denied (dir, ex) ->
-        raise (Eio.Fs.Permission_denied (Filename.concat dir leaf, ex))
+    else
+      let dir = self#resolve dir in
+      Filename.concat dir leaf
 
   method open_in ~sw path =
-    let fd = File.open_ ~sw (self#resolve path) [`NOFOLLOW; `RDONLY] |> or_raise_path path in
+    let fd = File.open_ ~sw (self#resolve path) [`NOFOLLOW; `RDONLY] |> or_raise_fs in
     (flow fd :> <Eio.File.ro; Eio.Flow.close>)
 
   method open_out ~sw ~append ~create path =
@@ -1021,7 +1102,7 @@ class dir ~label (dir_path : string) = object (self)
       if create = `Never then self#resolve path
       else self#resolve_new path
     in
-    let fd = File.open_ ~sw real_path flags ~mode:[`NUMERIC mode] |> or_raise_path path in
+    let fd = File.open_ ~sw real_path flags ~mode:[`NUMERIC mode] |> or_raise_fs in
     (flow fd :> <Eio.File.rw; Eio.Flow.close>)
 
   method open_dir ~sw path =
@@ -1034,25 +1115,25 @@ class dir ~label (dir_path : string) = object (self)
   (* libuv doesn't seem to provide a race-free way to do this. *)
   method mkdir ~perm path =
     let real_path = self#resolve_new path in
-    File.mkdir ~mode:[`NUMERIC perm] real_path |> or_raise_path path
+    File.mkdir ~mode:[`NUMERIC perm] real_path |> or_raise_fs
 
   (* libuv doesn't seem to provide a race-free way to do this. *)
   method unlink path =
     let dir_path = Filename.dirname path in
     let leaf = Filename.basename path in
-    let real_dir_path = self#resolve ~display_path:path dir_path in
-    File.unlink (Filename.concat real_dir_path leaf) |> or_raise_path path
+    let real_dir_path = self#resolve dir_path in
+    File.unlink (Filename.concat real_dir_path leaf) |> or_raise_fs
 
   (* libuv doesn't seem to provide a race-free way to do this. *)
   method rmdir path =
     let dir_path = Filename.dirname path in
     let leaf = Filename.basename path in
-    let real_dir_path = self#resolve ~display_path:path dir_path in
-    File.rmdir (Filename.concat real_dir_path leaf) |> or_raise_path path
+    let real_dir_path = self#resolve dir_path in
+    File.rmdir (Filename.concat real_dir_path leaf) |> or_raise_fs
 
   method read_dir path =
     let path = self#resolve path in
-    File.readdir path |> or_raise_path path
+    File.readdir path |> or_raise_fs
 
   method rename old_path new_dir new_path =
     match dir_resolve_new new_dir with
@@ -1060,7 +1141,7 @@ class dir ~label (dir_path : string) = object (self)
     | Some new_resolve_new ->
       let old_path = self#resolve old_path in
       let new_path = new_resolve_new new_path in
-      File.rename old_path new_path |> or_raise_path old_path
+      File.rename old_path new_path |> or_raise_fs
 
   method close = closed <- true
 
@@ -1072,7 +1153,7 @@ let fs = object
   inherit dir ~label:"fs" "."
 
   (* No checks *)
-  method! private resolve ?display_path:_ path = path
+  method! private resolve path = path
 end
 
 let cwd = object
@@ -1090,6 +1171,7 @@ let stdenv ~run_event_loop =
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
+    method mono_clock = mono_clock
     method fs = (fs :> Eio.Fs.dir), "."
     method cwd = (cwd :> Eio.Fs.dir), "."
     method secure_random = secure_random
@@ -1173,19 +1255,20 @@ let rec run : type a. (_ -> a) -> a = fun main ->
               let k = { Suspended.k; fiber } in
               Poll.await_writable st k fd
           )
-        | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
+        | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
         | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
-            try
+            match
               let fd = Low_level.Stream.of_unix fd in
               let sock = Luv.TCP.init ~loop () |> or_raise in
               let handle = Handle.of_luv ~sw ~close_unix sock in
               Luv.TCP.open_ sock fd |> or_raise;
-              continue k (socket handle :> Eio_unix.socket)
-            with Luv_error _ as ex ->
-              discontinue k ex
+              (socket handle :> Eio_unix.socket)
+            with
+            | sock -> continue k sock
+            | exception (Eio.Io _ as ex) -> discontinue k ex
           )
         | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
-            try
+            match
               if domain <> Unix.PF_UNIX then failwith "Only PF_UNIX sockets are supported by libuv";
               let ty =
                 match ty with
@@ -1201,9 +1284,10 @@ let rec run : type a. (_ -> a) -> a = fun main ->
                 let h = Handle.of_luv ~sw ~close_unix:true sock in
                 (socket h :> Eio_unix.socket)
               in
-              continue k (wrap a, wrap b)
-            with Luv_error _ as ex ->
-              discontinue k ex
+              (wrap a, wrap b)
+            with
+            | x -> continue k x
+            | exception (Eio.Io _ as ex) -> discontinue k ex
           )
           | Eio_unix.Private.Pipe sw -> Some (fun k ->
             let r, w = Luv.Pipe.pipe ~read_flags:[] ~write_flags:[] () |> or_raise in

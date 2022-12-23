@@ -1,20 +1,14 @@
-open Effect
-
 class virtual t = object
-  method virtual run : 'a. (unit -> 'a) -> 'a
+  method virtual run : 'a. (cancelled:exn Promise.t -> 'a) -> 'a
   method virtual run_raw : 'a. (unit -> 'a) -> 'a
 end
 
 let run_raw (t : #t) = t#run_raw
 
 let run (t : #t) fn =
-  let ctx = perform Private.Effects.Get_context in
-  Cancel.check (Private.Fiber_context.cancellation_context ctx);
-  let cancelled, set_cancelled = Promise.create () in
-  Private.Fiber_context.set_cancel_fn ctx (Promise.resolve set_cancelled);
+  t#run @@ fun ~cancelled ->
   (* If the spawning fiber is cancelled, [cancelled] gets set to the exception. *)
-  match
-    t#run @@ fun () ->
+  try
     Fiber.first
       (fun () ->
          match Promise.await cancelled with
@@ -22,15 +16,10 @@ let run (t : #t) fn =
          | ex -> raise ex (* Shouldn't happen *)
       )
       fn
-  with
-  | x ->
-    ignore (Private.Fiber_context.clear_cancel_fn ctx : bool);
-    x
-  | exception ex ->
-    ignore (Private.Fiber_context.clear_cancel_fn ctx : bool);
+  with ex ->
     match Promise.peek cancelled with
     | Some (Cancel.Cancelled ex2 as cex) when ex == ex2 ->
-      (* We unwrapped the exception above to avoid a double cancelled exception.
+      (* We unwrapped the exception above to avoid [fn] seeing a double cancelled exception.
          But this means that the top-level reported the original exception,
          which isn't what we want. *)
       raise cex

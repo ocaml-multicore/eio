@@ -28,9 +28,23 @@ let copy_file infd outfd insize block_size =
 let run_cp block_size queue_depth infile outfile () =
   Eio_linux.run ~queue_depth ~n_blocks:queue_depth ~block_size @@ fun _stdenv ->
   Switch.run @@ fun sw ->
-  let open Unix in
-  let infd = U.openfile ~sw infile [O_RDONLY] 0 in
-  let outfd = U.openfile ~sw outfile [O_WRONLY; O_CREAT; O_TRUNC] 0o644 in
+  let infd =
+    U.openat2 infile
+      ~sw ~seekable:true
+      ~access:`R
+      ~flags:Uring.Open_flags.empty
+      ~perm:0
+      ~resolve:Uring.Resolve.empty
+  in
+  let outfd =
+    U.openat2 outfile
+      ~sw
+      ~seekable:true
+      ~access:`RW
+      ~flags:Uring.Open_flags.(creat + trunc)
+      ~resolve:Uring.Resolve.empty
+      ~perm:0o644
+  in
   let insize = (U.fstat infd).size in
   Logs.debug (fun l -> l "eurcp: %s -> %s size %a queue %d bs %d"
                  infile

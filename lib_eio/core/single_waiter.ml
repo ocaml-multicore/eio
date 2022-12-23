@@ -15,11 +15,7 @@ let await t id =
       enqueue (Error ex)
     );
   t.wake <- (fun x ->
-      let cleared = Cancel.Fiber_context.clear_cancel_fn ctx in
-      (* We're not attempting to be thread-safe, so the cancel function can
-         only be cleared from the same domain. In that case, [wake] will have
-         been reset before switching to another fiber. *)
-      assert cleared;
+      Cancel.Fiber_context.clear_cancel_fn ctx;
       t.wake <- ignore;
       Ctf.note_read ~reader:id ctx.tid;
       enqueue x

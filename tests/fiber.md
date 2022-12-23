@@ -75,9 +75,8 @@ Both crash - report both:
     (fun () -> failwith "a crashed")
     (fun () -> failwith "b crashed");;
 Exception: Multiple exceptions:
-Failure("a crashed")
-and
-Failure("b crashed")
+- Failure("a crashed")
+- Failure("b crashed")
 ```
 
 Cancelled before it can crash:

@@ -1,6 +1,6 @@
 type 'a waiter = {
+  finished : bool Atomic.t;
   enqueue : ('a, exn) result -> unit;
-  ctx : Cancel.Fiber_context.t;
 }
 
 type 'a t = 'a waiter Lwt_dllist.t
@@ -17,8 +17,8 @@ let add_waiter t cb =
 
 (* Wake a waiter with the result.
    Returns [false] if the waiter got cancelled while we were trying to wake it. *)
-let wake { enqueue; ctx } r =
-  if Cancel.Fiber_context.clear_cancel_fn ctx then (enqueue (Ok r); true)
+let wake { enqueue; finished } r =
+  if Atomic.compare_and_set finished false true then (enqueue (Ok r); true)
   else false (* [cancel] gets called and we enqueue an error *)
 
 let wake_all (t:_ t) v =
@@ -45,16 +45,19 @@ let await_internal ~mutex (t:'a t) id (ctx:Cancel.fiber_context) enqueue =
     enqueue (Error ex)
   | None ->
     let resolved_waiter = ref Hook.null in
+    let finished = Atomic.make false in
     let enqueue x =
       Ctf.note_read ~reader:id ctx.tid;
       enqueue x
     in
     let cancel ex =
-      Hook.remove !resolved_waiter;
-      enqueue (Error ex)
+      if Atomic.compare_and_set finished false true then (
+        Hook.remove !resolved_waiter;
+        enqueue (Error ex)
+      )
     in
     Cancel.Fiber_context.set_cancel_fn ctx cancel;
-    let waiter = { enqueue; ctx } in
+    let waiter = { enqueue; finished } in
     match mutex with
     | None ->
       resolved_waiter := add_waiter t waiter

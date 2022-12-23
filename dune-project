@@ -26,7 +26,7 @@
   (hmap (>= 0.8.1))
   (astring (and (>= 0.8.5) :with-test))
   (crowbar (and (>= 0.2) :with-test))
-  (mtime (>= 1.2.0))
+  (mtime (>= 2.0.0))
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name eio_linux)

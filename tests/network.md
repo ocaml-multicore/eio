@@ -22,6 +22,8 @@ let read_all flow =
   Buffer.contents b
 
 exception Graceful_shutdown
+
+let () = Eio.Exn.Backend.show := false
 ```
 
 ## Test cases
@@ -401,70 +403,6 @@ If the fork itself fails, we still close the connection:
 Exception: Failure "Simulated error".
 ```
 
-## Cancelling multiple jobs
-
-We start two jobs and cancel both. Cancellation happens in series. By the time the second job's cancel function is called, it has already finished.
-
-```ocaml
-(* Accepts a connection when cancelled.
-   The cancellation doesn't finish until the client operation has succeeded. *)
-let mock_cancellable ~sw ~server ~set_client_ready =
-  Eio.Private.Suspend.enter (fun ctx enqueue ->
-    Eio.Private.Fiber_context.set_cancel_fn ctx (fun ex ->
-      try
-        traceln "Cancelled. Accepting connection...";
-        let _flow, _addr = Eio.Net.accept ~sw server in
-        (* Can't trace here because client might resume first *)
-        (* traceln "Accepted connection."; *)
-        let p, r = Promise.create () in
-        Promise.resolve set_client_ready (Promise.resolve r);
-        Promise.await p;
-        (* The client successfully connected. We now allow this cancel
-           function to complete, which will cause the connect operation's
-           cancel function to be called next. *)
-        enqueue (Error ex)
-      with ex ->
-        traceln "Cancel function failed!";
-        enqueue (Error ex)
-    )
-  )
-```
-
-```ocaml
-# Eio_main.run @@ fun env ->
-  (* Logs.set_reporter (Logs_fmt.reporter ()); *)
-  (* Logs.set_level (Some Logs.Debug); *)
-  let net = env#net in
-  Switch.run @@ fun sw ->
-  let client_ready, set_client_ready = Promise.create () in
-  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
-  Fiber.all [
-    (fun () ->
-       (* Start an operation that will be cancelled first, to add a delay. *)
-       mock_cancellable ~sw ~server ~set_client_ready
-     );
-    (fun () ->
-       (* Start a connect operation. It won't be accepted until the previous
-          fiber is cancelled. *)
-       match Eio.Net.connect ~sw net addr with
-       | _flow ->
-         traceln "Client connected";
-         Eio.Cancel.protect (fun () -> Promise.await client_ready ())
-       | exception ex ->
-         traceln "Failed: %a" Fmt.exn ex;
-         Eio.Cancel.protect (fun () -> Promise.await client_ready ())
-    );
-    (fun () ->
-       (* Cancel both fibers. Cancelling the first allows the second to complete,
-          even though it's also cancelled. *)
-       failwith "Simulated error"
-    );
-  ];;
-+Cancelled. Accepting connection...
-+Client connected
-Exception: Failure "Simulated error".
-```
-
 ## Socketpair
 
 ```ocaml
@@ -493,7 +431,9 @@ ECONNRESET:
   try
     Eio.Flow.read_exact a (Cstruct.create 1);
     assert false
-  with Eio.Net.Connection_reset _ | End_of_file -> traceln "Connection failed (good)";;
+  with
+  | Eio.Io (Eio.Net.E Connection_reset _, _)
+  | End_of_file -> traceln "Connection failed (good)";;
 +Connection failed (good)
 - : unit = ()
 ```
@@ -508,7 +448,7 @@ EPIPE:
   try
     Eio.Flow.copy_string "foo" a;
     assert false
-  with Eio.Net.Connection_reset _ -> traceln "Connection failed (good)";;
+  with Eio.Io (Eio.Net.E Connection_reset _, _) -> traceln "Connection failed (good)";;
 +Connection failed (good)
 - : unit = ()
 ```
@@ -518,13 +458,9 @@ Connection refused:
 ```ocaml
 # Eio_main.run @@ fun env ->
   Switch.run @@ fun sw ->
-  try
-    ignore (Eio.Net.connect ~sw env#net (`Unix "idontexist.sock"));
-    assert false
-  with Eio.Net.Connection_failure _ ->
-    traceln "Connection failure";;
-+Connection failure
-- : unit = ()
+  Eio.Net.connect ~sw env#net (`Unix "idontexist.sock");;
+Exception: Eio.Io Fs Not_found _,
+  connecting to unix:idontexist.sock
 ```
 
 ## Shutdown
@@ -610,7 +546,7 @@ Connection refused:
 let net = Eio_mock.Net.make "mock-net"
 let addr1 = `Tcp (Eio.Net.Ipaddr.V4.loopback, 80)
 let addr2 = `Tcp (Eio.Net.Ipaddr.of_raw "\001\002\003\004", 8080)
-let connection_failure = Eio.Net.Connection_failure (Failure "Simulated connection failure")
+let connection_failure = Eio.Net.err (Connection_failure (Refused Eio_mock.Simulated_failure))
 ```
 
 No usable addresses:
@@ -621,8 +557,8 @@ No usable addresses:
   Eio.Net.with_tcp_connect ~host:"www.example.com" ~service:"http" net (fun _ -> assert false);;
 +mock-net: getaddrinfo ~service:http www.example.com
 Exception:
-Eio__Net.Connection_failure
- (Failure "No TCP addresses for \"www.example.com\"").
+Eio.Io Net Connection_failure No_matching_addresses,
+  connecting to "www.example.com":http
 ```
 
 First address works:
@@ -678,15 +614,17 @@ Both addresses fail:
 +mock-net: connect to tcp:127.0.0.1:80
 +mock-net: connect to tcp:1.2.3.4:8080
 Exception:
-Eio__Net.Connection_failure (Failure "Simulated connection failure").
+Eio.Io Net Connection_failure Refused _,
+  connecting to tcp:1.2.3.4:8080,
+  connecting to "www.example.com":http
 ```
 
 First attempt times out:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  let clock = Eio_mock.Clock.make () in
-  let timeout = Eio.Time.Timeout.of_s clock 10. in
+  let clock = Eio_mock.Clock.Mono.make () in
+  let timeout = Eio.Time.Timeout.seconds clock 10. in
   Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
   let mock_flow = Eio_mock.Flow.make "flow" in
   Eio_mock.Net.on_connect net [`Run Fiber.await_cancel; `Return mock_flow];
@@ -698,7 +636,7 @@ First attempt times out:
        )
     )
     (fun () ->
-       Eio_mock.Clock.advance clock
+       Eio_mock.Clock.Mono.advance clock
      );;
 +mock-net: getaddrinfo ~service:http www.example.com
 +mock-net: connect to tcp:127.0.0.1:80
@@ -715,8 +653,8 @@ Both attempts time out:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  let clock = Eio_mock.Clock.make () in
-  let timeout = Eio.Time.Timeout.of_s clock 10. in
+  let clock = Eio_mock.Clock.Mono.make () in
+  let timeout = Eio.Time.Timeout.seconds clock 10. in
   Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
   Eio_mock.Net.on_connect net [`Run Fiber.await_cancel; `Run Fiber.await_cancel];
   Fiber.both
@@ -726,17 +664,19 @@ Both attempts time out:
        )
     )
     (fun () ->
-       Eio_mock.Clock.advance clock;
+       Eio_mock.Clock.Mono.advance clock;
        Fiber.yield ();
        Fiber.yield ();
-       Eio_mock.Clock.advance clock
+       Eio_mock.Clock.Mono.advance clock
      );;
 +mock-net: getaddrinfo ~service:http www.example.com
 +mock-net: connect to tcp:127.0.0.1:80
 +mock time is now 10
 +mock-net: connect to tcp:1.2.3.4:8080
 +mock time is now 20
-Exception: Eio__Net.Connection_failure Eio__Time.Timeout.
+Exception:
+Eio.Io Net Connection_failure Timeout,
+  connecting to "www.example.com":http
 ```
 
 ## read/write on SOCK_DGRAM

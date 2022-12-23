@@ -1,3 +1,69 @@
+## v0.7
+
+API changes:
+
+- Unify IO errors as `Eio.Io` (@talex5 #378).  
+  This makes it easy to catch and log all IO errors if desired.
+  The exception payload gives the type and can be used for matching specific errors.
+  It also allows attaching extra information to exceptions, and various functions were updated to do this.
+
+- Add `Time.Mono` for monotonic clocks (@bikallem @talex5 #338).  
+  Using the system clock for timeouts, etc can fail if the system time is changed during the wait.
+
+- Allow datagram sockets to be created without a source address (@bikallem @haesbaert #360).  
+  The kernel will allocate an address in this case.
+  You can also now control the `reuse_addr` and `reuse_port` options.
+
+- Add `File.stat` and improve `Path.load` (@haesbaert @talex5 #339).  
+  `Path.load` now uses the file size as the initial buffer size.
+
+- Add `Eio_unix.pipe` (@patricoferris #350).  
+  This replaces `Eio_linux.pipe`.
+
+- Avoid short reads from `getrandom(2)` (@haesbaert #344).  
+  Guards against buggy user code that might not handle this correctly.
+
+- Rename `Flow.read` to `Flow.single_read` (@talex5 #353).  
+  This is a low-level function and it is easy to use it incorrectly by ignoring the possibility of short reads.
+
+Bug fixes:
+
+- Eio_luv: Fix non-tail-recursive continue (@talex5 #378).  
+  Affects the `Socket_of_fd` and `Socketpair` effects.
+
+- Eio_linux: UDP sockets were not created close-on-exec (@talex5 #360).
+
+- Eio_linux: work around io_uring non-blocking bug (@haesbaert #327 #355).  
+  The proper fix should be in Linux 6.1.
+
+- `Eio_mock.Backend`: preserve backtraces from `main` (@talex5 #349).
+
+- Don't lose backtrace in `Switch.run_internal` (@talex5 #369).
+
+Documentation:
+
+- Use a proper HTTP response in the README example (@talex5 #377).
+
+- Document that read_dir excludes "." and ".." (@talex5 #379).
+
+- Warn about both operations succeeding in `Fiber.first` (@talex5 #358, reported by @iitalics).
+
+- Update README for OCaml 5.0.0~beta2 (@talex5 #375).
+
+Backend-specific changes:
+
+- Eio_luv: add low-level process support (@patricoferris #359).  
+  A future release will add Eio_linux support and a cross-platform API for this.
+
+- Expose `Eio_luv.Low_level.Stream.write` (@patricoferris #359).
+
+- Expose `Eio_luv.Low_level.get_loop` (@talex5 #371).  
+  This is needed if you want to create resources directly and then use them with Eio_luv.
+
+- `Eio_linux.Low_level.openfile` is gone (@talex5 #378).  
+  It was just left-over test code.
+
+
 ## v0.6
 
 Changes:

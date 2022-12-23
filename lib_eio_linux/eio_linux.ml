@@ -33,13 +33,22 @@ type amount = Exactly of int | Upto of int
 
 let system_thread = Ctf.mint_id ()
 
-let wrap_errors path fn =
-  try fn () with
-  | Unix.Unix_error(Unix.EEXIST, _, _) as ex -> raise @@ Eio.Fs.Already_exists (path, ex)
-  | Unix.Unix_error(Unix.ENOENT, _, _) as ex -> raise @@ Eio.Fs.Not_found (path, ex)
-  | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Fs.Permission_denied (path, ex)
-  | Eio.Fs.Permission_denied _         as ex -> raise @@ Eio.Fs.Permission_denied (path, ex)
-  | Eio.Fs.Not_found _                 as ex -> raise @@ Eio.Fs.Not_found (path, ex)
+let unclassified_error e = Eio.Exn.create (Eio.Exn.X e)
+
+let wrap_error code name arg =
+  let ex = Eio_unix.Unix_error (code, name, arg) in
+  match code with
+  | ECONNREFUSED -> Eio.Net.err (Connection_failure (Refused ex))
+  | ECONNRESET | EPIPE -> Eio.Net.err (Connection_reset ex)
+  | _ -> unclassified_error ex
+
+let wrap_error_fs code name arg =
+  let e = Eio_unix.Unix_error (code, name, arg) in
+  match code with
+  | Unix.EEXIST -> Eio.Fs.err (Already_exists e)
+  | Unix.ENOENT -> Eio.Fs.err (Not_found e)
+  | Unix.EXDEV -> Eio.Fs.err (Permission_denied e)
+  | _ -> wrap_error code name arg
 
 type _ Effect.t += Close : Unix.file_descr -> int Effect.t
 
@@ -72,7 +81,7 @@ module FD = struct
       let res = Effect.perform (Close fd) in
       Log.debug (fun l -> l "close: woken up");
       if res < 0 then
-        raise (Unix.Unix_error (Uring.error_of_errno res, "close", string_of_int (Obj.magic fd : int)))
+        raise (wrap_error (Uring.error_of_errno res) "close" (string_of_int (Obj.magic fd : int)))
     )
 
   let ensure_closed t =
@@ -113,31 +122,33 @@ module FD = struct
 
   let fstat t =
     (* todo: use uring  *)
-    let ust = Unix.LargeFile.fstat (get_exn "fstat" t) in
-    let st_kind : Eio.File.Stat.kind =
-      match ust.st_kind with
-      | Unix.S_REG  -> `Regular_file
-      | Unix.S_DIR  -> `Directory
-      | Unix.S_CHR  -> `Character_special
-      | Unix.S_BLK  -> `Block_device
-      | Unix.S_LNK  -> `Symbolic_link
-      | Unix.S_FIFO -> `Fifo
-      | Unix.S_SOCK -> `Socket
-    in
-    Eio.File.Stat.{
-      dev     = ust.st_dev   |> Int64.of_int;
-      ino     = ust.st_ino   |> Int64.of_int;
-      kind    = st_kind;
-      perm    = ust.st_perm;
-      nlink   = ust.st_nlink |> Int64.of_int;
-      uid     = ust.st_uid   |> Int64.of_int;
-      gid     = ust.st_gid   |> Int64.of_int;
-      rdev    = ust.st_rdev  |> Int64.of_int;
-      size    = ust.st_size  |> Optint.Int63.of_int64;
-      atime   = ust.st_atime;
-      mtime   = ust.st_mtime;
-      ctime   = ust.st_ctime;
-    }
+    try
+      let ust = Unix.LargeFile.fstat (get_exn "fstat" t) in
+      let st_kind : Eio.File.Stat.kind =
+        match ust.st_kind with
+        | Unix.S_REG  -> `Regular_file
+        | Unix.S_DIR  -> `Directory
+        | Unix.S_CHR  -> `Character_special
+        | Unix.S_BLK  -> `Block_device
+        | Unix.S_LNK  -> `Symbolic_link
+        | Unix.S_FIFO -> `Fifo
+        | Unix.S_SOCK -> `Socket
+      in
+      Eio.File.Stat.{
+        dev     = ust.st_dev   |> Int64.of_int;
+        ino     = ust.st_ino   |> Int64.of_int;
+        kind    = st_kind;
+        perm    = ust.st_perm;
+        nlink   = ust.st_nlink |> Int64.of_int;
+        uid     = ust.st_uid   |> Int64.of_int;
+        gid     = ust.st_gid   |> Int64.of_int;
+        rdev    = ust.st_rdev  |> Int64.of_int;
+        size    = ust.st_size  |> Optint.Int63.of_int64;
+        atime   = ust.st_atime;
+        mtime   = ust.st_mtime;
+        ctime   = ust.st_ctime;
+      }
+    with Unix.Unix_error (code, name, arg) -> raise @@ wrap_error_fs code name arg
 end
 
 type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
@@ -165,6 +176,7 @@ type rw_req = {
 type io_job =
   | Read : rw_req -> io_job
   | Job_no_cancel : int Suspended.t -> io_job
+  | Cancel_job : io_job
   | Job : int Suspended.t -> io_job     (* A negative result indicates error, and may report cancellation *)
   | Write : rw_req -> io_job
   | Job_fn : 'a Suspended.t * (int -> [`Exit_scheduler]) -> io_job
@@ -185,10 +197,8 @@ type t = {
   run_q : runnable Lf_queue.t;
 
   (* When adding to [run_q] from another domain, this domain may be sleeping and so won't see the event.
-     In that case, [need_wakeup = true] and you must signal using [eventfd]. You must hold [eventfd_mutex]
-     when writing to or closing [eventfd]. *)
+     In that case, [need_wakeup = true] and you must signal using [eventfd]. *)
   eventfd : FD.t;
-  eventfd_mutex : Mutex.t;
 
   (* If [false], the main thread will check [run_q] before sleeping again
      (possibly because an event has been or will be sent to [eventfd]).
@@ -205,21 +215,22 @@ let wake_buffer =
   Bytes.set_int64_ne b 0 1L;
   b
 
+(* This can be called from any systhread (including ones not running Eio),
+   and also from signal handlers or GC finalizers. It must not take any locks. *)
 let wakeup t =
-  Mutex.lock t.eventfd_mutex;
-  match
-    Log.debug (fun f -> f "Sending wakeup on eventfd %a" FD.pp t.eventfd);
-    Atomic.set t.need_wakeup false; (* [t] will check [run_q] after getting the event below *)
-    let sent = Unix.single_write (FD.get_exn "wakeup" t.eventfd) wake_buffer 0 8 in
+  Atomic.set t.need_wakeup false; (* [t] will check [run_q] after getting the event below *)
+  match t.eventfd.fd with
+  | `Closed -> ()       (* Domain has shut down (presumably after handling the event) *)
+  | `Open fd ->
+    let sent = Unix.single_write fd wake_buffer 0 8 in
     assert (sent = 8)
-  with
-  | ()           -> Mutex.unlock t.eventfd_mutex
-  | exception ex -> Mutex.unlock t.eventfd_mutex; raise ex
 
+(* Safe to call from anywhere (other systhreads, domains, signal handlers, GC finalizers) *)
 let enqueue_thread st k x =
   Lf_queue.push st.run_q (Thread (k, x));
   if Atomic.get st.need_wakeup then wakeup st
 
+(* Safe to call from anywhere (other systhreads, domains, signal handlers, GC finalizers) *)
 let enqueue_failed_thread st k ex =
   Lf_queue.push st.run_q (Failed_thread (k, ex));
   if Atomic.get st.need_wakeup then wakeup st
@@ -228,33 +239,19 @@ let enqueue_failed_thread st k ex =
 let enqueue_at_head st k x =
   Lf_queue.push_head st.run_q (Thread (k, x))
 
-type _ Effect.t += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
 type _ Effect.t += Enter : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
+type _ Effect.t += Cancel : io_job Uring.job -> unit Effect.t
 let enter fn = Effect.perform (Enter fn)
 
 (* Cancellations always come from the same domain, so no need to send wake events here. *)
-let rec enqueue_cancel job st action =
+let rec enqueue_cancel job st =
   Log.debug (fun l -> l "cancel: submitting call");
   Ctf.label "cancel";
-  match Uring.cancel st.uring job (Job_no_cancel action) with
-  | None -> Queue.push (fun st -> enqueue_cancel job st action) st.io_q
+  match Uring.cancel st.uring job Cancel_job with
+  | None -> Queue.push (fun st -> enqueue_cancel job st) st.io_q
   | Some _ -> ()
-  | exception Invalid_argument _ ->
-    (* The job is invalid, meaning that it completed after we removed the fiber's cancel function
-       but before calling it. *)
-    Log.debug (fun l -> l "cancel: job was already complete");
-    enqueue_thread st action 0
 
-let cancel job =
-  let res = Effect.perform (Enter_unchecked (enqueue_cancel job)) in
-  Log.debug (fun l -> l "cancel returned");
-  if res = -2 then (
-    Log.debug (fun f -> f "Cancel returned ENOENT - operation completed before cancel took effect")
-  ) else if res = -114 then (
-    Log.debug (fun f -> f "Cancel returned EALREADY - operation cancelled while already in progress")
-  ) else if res <> 0 then (
-    raise (Unix.Unix_error (Uring.error_of_errno res, "cancel", ""))
-  )
+let cancel job = Effect.perform (Cancel job)
 
 (* Cancellation
 
@@ -264,17 +261,15 @@ let cancel job =
    1. We submit an operation, getting back a uring job (needed for cancellation).
    2. We set the cancellation function. The function uses the uring job to cancel.
 
-   The cancellation function owns the uring job.
-
-   When the job completes, we remove the cancellation function from the fiber.
-   The function must have been set by this point because we don't poll for
-   completions until the above steps have finished.
+   When the job completes, we clear the cancellation function. The function
+   must have been set by this point because we don't poll for completions until
+   the above steps have finished.
 
    If the context is cancelled while the operation is running, the function will get removed and called,
-   which will submit a cancellation request to uring.
-   If the operation completes before Linux processes the cancellation, we get [ENOENT], which we ignore.
+   which will submit a cancellation request to uring. We know the job is still valid at this point because
+   we clear the cancel function when it completes.
 
-   If the context is cancelled before starting then we discontinue the fiber. *)
+   If the operation completes before Linux processes the cancellation, we get [ENOENT], which we ignore. *)
 
 (* [with_cancel_hook ~action st fn] calls [fn] to create a job,
    then sets the fiber's cancel function to cancel it.
@@ -289,11 +284,6 @@ let with_cancel_hook ~action st fn =
     | Some job ->
       Fiber_context.set_cancel_fn action.fiber (fun _ -> cancel job);
       false
-
-let clear_cancel (action : _ Suspended.t) =
-  (* It doesn't matter whether the operation was cancelled or not;
-     there's nothing we need to do with the job now. *)
-  ignore (Fiber_context.clear_cancel_fn action.fiber : bool)
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
   match FD.get "submit_rw_req" fd with
@@ -538,11 +528,15 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   (* Wakeup any paused fibers *)
   match Lf_queue.pop run_q with
   | None -> assert false    (* We should always have an IO job, at least *)
-  | Some Thread (k, v) -> Suspended.continue k v               (* We already have a runnable task *)
-  | Some Failed_thread (k, ex) -> Suspended.discontinue k ex
+  | Some Thread (k, v) ->   (* We already have a runnable task *)
+    Fiber_context.clear_cancel_fn k.fiber;
+    Suspended.continue k v
+  | Some Failed_thread (k, ex) ->
+    Fiber_context.clear_cancel_fn k.fiber;
+    Suspended.discontinue k ex
   | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
     (* This is not a fair scheduler: timers always run before all other IO *)
-    let now = Unix.gettimeofday () in
+    let now = Mtime_clock.now () in
     match Zzz.pop ~now sleep_q with
     | `Due k ->
       Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
@@ -557,7 +551,11 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
         ignore (Uring.submit uring : int);
         let timeout =
           match next_due with
-          | `Wait_until time -> Some (time -. now)
+          | `Wait_until time ->
+            let time = Mtime.to_uint64_ns time in
+            let now = Mtime.to_uint64_ns now in
+            let diff_ns = Int64.sub time now |> Int64.to_float in
+            Some (diff_ns /. 1e9)
           | `Nothing -> None
         in
         Log.debug (fun l -> l "@[<v2>scheduler out of jobs, next timeout %s:@,%a@]"
@@ -603,14 +601,12 @@ and handle_complete st ~runnable result =
   match runnable with
   | Read req ->
     Log.debug (fun l -> l "read returned");
-    clear_cancel req.action;
     complete_rw_req st req result
   | Write req ->
     Log.debug (fun l -> l "write returned");
-    clear_cancel req.action;
     complete_rw_req st req result
   | Job k ->
-    clear_cancel k;
+    Fiber_context.clear_cancel_fn k.fiber;
     if result >= 0 then Suspended.continue k result
     else (
       match Fiber_context.get_error k.fiber with
@@ -621,8 +617,18 @@ and handle_complete st ~runnable result =
     )
   | Job_no_cancel k ->
     Suspended.continue k result
+  | Cancel_job ->
+    Log.debug (fun l -> l "cancel returned");
+    if result = -2 then (
+      Log.debug (fun f -> f "Cancel returned ENOENT - operation completed before cancel took effect")
+    ) else if result = -114 then (
+      Log.debug (fun f -> f "Cancel returned EALREADY - operation cancelled while already in progress")
+    ) else if result <> 0 then (
+      Log.warn (fun f -> f "Cancel returned unexpected error: %s" (Unix.error_message (Uring.error_of_errno result)))
+    );
+    schedule st
   | Job_fn (k, f) ->
-    clear_cancel k;
+    Fiber_context.clear_cancel_fn k.fiber;
     (* Should we only do this on error, to avoid losing the return value?
        We already do that with rw jobs. *)
     begin match Fiber_context.get_error k.fiber with
@@ -630,6 +636,7 @@ and handle_complete st ~runnable result =
       | Some e -> Suspended.discontinue k e
     end
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
+  Fiber_context.clear_cancel_fn action.fiber;
   match res, len with
   | 0, _ -> Suspended.discontinue action End_of_file
   | e, _ when e < 0 ->
@@ -670,30 +677,26 @@ module Low_level = struct
   let noop () =
     let result = enter enqueue_noop in
     Log.debug (fun l -> l "noop returned");
-    if result <> 0 then raise (Unix.Unix_error (Uring.error_of_errno result, "noop", ""))
+    if result <> 0 then raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno result, "noop", "")))
 
-  type _ Effect.t += Sleep_until : float -> unit Effect.t
+  type _ Effect.t += Sleep_until : Mtime.t -> unit Effect.t
   let sleep_until d =
     Effect.perform (Sleep_until d)
 
   type _ Effect.t += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
 
-  let wrap_connection_failed = function
-    | Unix.Unix_error ((ECONNRESET | EPIPE), _, _) as ex -> Eio.Net.Connection_reset ex
-    | ex -> ex
-
   let read_exactly ?file_offset fd buf len =
     let res = Effect.perform (ERead (file_offset, fd, buf, Exactly len)) in
     Log.debug (fun l -> l "read_exactly: woken up after read");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "read_exactly", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "read_exactly" ""
     )
 
   let read_upto ?file_offset fd buf len =
     let res = Effect.perform (ERead (file_offset, fd, buf, Upto len)) in
     Log.debug (fun l -> l "read_upto: woken up after read");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "read_upto", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "read_upto" ""
     ) else (
       res
     )
@@ -702,7 +705,7 @@ module Low_level = struct
     let res = enter (enqueue_readv (file_offset, fd, bufs)) in
     Log.debug (fun l -> l "readv: woken up after read");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "readv", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "readv" ""
     ) else if res = 0 then (
       raise End_of_file
     ) else (
@@ -713,7 +716,7 @@ module Low_level = struct
     let res = enter (enqueue_writev (file_offset, fd, bufs)) in
     Log.debug (fun l -> l "writev: woken up after write");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "writev", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "writev" ""
     ) else (
       res
     )
@@ -736,14 +739,14 @@ module Low_level = struct
     let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollin + pollerr))) in
     Log.debug (fun l -> l "await_readable: woken up");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
+      raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno res, "await_readable", "")))
     )
 
   let await_writable fd =
     let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollout + pollerr))) in
     Log.debug (fun l -> l "await_writable: woken up");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
+      raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno res, "await_writable", "")))
     )
 
   type _ Effect.t += EWrite : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
@@ -752,7 +755,7 @@ module Low_level = struct
     let res = Effect.perform (EWrite (file_offset, fd, buf, Exactly len)) in
     Log.debug (fun l -> l "write: woken up after write");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "write", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "write" ""
     )
 
   type _ Effect.t += Alloc : Uring.Region.chunk option Effect.t
@@ -769,21 +772,25 @@ module Low_level = struct
     Log.debug (fun l -> l "splice returned");
     if res > 0 then res
     else if res = 0 then raise End_of_file
-    else raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "splice", "")))
+    else raise @@ wrap_error (Uring.error_of_errno res) "splice" ""
 
   let connect fd addr =
     let res = enter (enqueue_connect fd addr) in
     Log.debug (fun l -> l "connect returned");
     if res < 0 then (
-      let ex = Unix.Unix_error (Uring.error_of_errno res, "connect", "") in
-      raise (Eio.Net.Connection_failure ex)
+      let ex =
+        match addr with
+        | ADDR_UNIX _ -> wrap_error_fs (Uring.error_of_errno res) "connect" ""
+        | ADDR_INET _ -> wrap_error (Uring.error_of_errno res) "connect" ""
+      in
+      raise ex
     )
 
   let send_msg fd ?(fds=[]) ?dst buf =
     let res = enter (enqueue_send_msg fd ~fds ~dst buf) in
     Log.debug (fun l -> l "send_msg returned");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "send_msg", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "send_msg" ""
     )
 
   let recv_msg fd buf =
@@ -792,7 +799,7 @@ module Low_level = struct
     let res = enter (enqueue_recv_msg fd msghdr) in
     Log.debug (fun l -> l "recv_msg returned");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "recv_msg" ""
     );
     addr, res
 
@@ -802,7 +809,7 @@ module Low_level = struct
     let res = enter (enqueue_recv_msg fd msghdr) in
     Log.debug (fun l -> l "recv_msg returned");
     if res < 0 then (
-      raise (wrap_connection_failed (Unix.Unix_error (Uring.error_of_errno res, "recv_msg", "")))
+      raise @@ wrap_error (Uring.error_of_errno res) "recv_msg" ""
     );
     let fds =
       Uring.Msghdr.get_fds msghdr
@@ -818,17 +825,12 @@ module Low_level = struct
     | None ->
       fallback ()
 
-  let openfile ~sw path flags mode =
-    let fd = Unix.openfile path flags mode in
-    FD.of_unix ~sw ~seekable:(FD.is_seekable fd) ~close_unix:true fd
-
   let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
-    wrap_errors path @@ fun () ->
     let res = enter (enqueue_openat2 (access, flags, perm, resolve, dir, path)) in
     Log.debug (fun l -> l "openat2 returned");
     if res < 0 then (
       Switch.check sw;    (* If cancelled, report that instead. *)
-      raise @@ Unix.Unix_error (Uring.error_of_errno res, "openat2", "")
+      raise @@ wrap_error_fs (Uring.error_of_errno res) "openat2" ""
     );
     let fd : Unix.file_descr = Obj.magic res in
     let seekable =
@@ -873,7 +875,6 @@ module Low_level = struct
           match dir with
           | FD d when dir_path = "." -> d
           | _ ->
-            wrap_errors path @@ fun () ->
             openat ~sw ~seekable:false dir dir_path
               ~access:`R
               ~flags:Uring.Open_flags.(cloexec + path + directory)
@@ -885,26 +886,27 @@ module Low_level = struct
   let mkdir_beneath ~perm dir path =
     (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
     with_parent_dir dir path @@ fun parent leaf ->
-    wrap_errors path @@ fun () ->
-    eio_mkdirat (FD.get_exn "mkdirat" parent) leaf perm
+    try eio_mkdirat (FD.get_exn "mkdirat" parent) leaf perm
+    with Unix.Unix_error (code, name, arg) -> raise @@ wrap_error_fs code name arg
 
   let unlink ~rmdir dir path =
     (* [unlink] is really an operation on [path]'s parent. Get a reference to that first: *)
     with_parent_dir dir path @@ fun parent leaf ->
-    wrap_errors path @@ fun () ->
     let res = enter (enqueue_unlink (rmdir, parent, leaf)) in
-    if res <> 0 then raise @@ Unix.Unix_error (Uring.error_of_errno res, "unlinkat", "")
+    if res <> 0 then raise @@ wrap_error_fs (Uring.error_of_errno res) "unlinkat" ""
 
   let rename old_dir old_path new_dir new_path =
     with_parent_dir old_dir old_path @@ fun old_parent old_leaf ->
     with_parent_dir new_dir new_path @@ fun new_parent new_leaf ->
-    wrap_errors old_path @@ fun () ->
-    eio_renameat
-      (FD.get_exn "renameat-old" old_parent) old_leaf
-      (FD.get_exn "renameat-new" new_parent) new_leaf
+    try
+      eio_renameat
+        (FD.get_exn "renameat-old" old_parent) old_leaf
+        (FD.get_exn "renameat-new" new_parent) new_leaf
+    with Unix.Unix_error (code, name, arg) -> raise @@ wrap_error_fs code name arg
 
   let shutdown socket command =
-    Unix.shutdown (FD.get_exn "shutdown" socket) command
+    try Unix.shutdown (FD.get_exn "shutdown" socket) command
+    with Unix.Unix_error (code, name, arg) -> raise @@ wrap_error code name arg
 
   let accept ~sw fd =
     Ctf.label "accept";
@@ -912,7 +914,7 @@ module Low_level = struct
     let res = enter (enqueue_accept fd client_addr) in
     Log.debug (fun l -> l "accept returned");
     if res < 0 then (
-      raise (Unix.Unix_error (Uring.error_of_errno res, "accept", ""))
+      raise @@ wrap_error (Uring.error_of_errno res) "accept" ""
     ) else (
       let unix : Unix.file_descr = Obj.magic res in
       let client = FD.of_unix ~sw ~seekable:false ~close_unix:true unix in
@@ -954,7 +956,42 @@ module Low_level = struct
     |> List.filter_map to_eio_sockaddr_t
 end
 
-external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
+module EventFD_pool : sig
+  (* We need to write to event FDs from signal handlers and GC finalizers.
+     This means we can't take a lock, which means we can't easily prevent
+     the owning domain from closing the FD while we're writing to it
+     (which could result in us writing to an unreleaded file if the FD
+     got reused). To avoid that, we never close event FDs but just return them
+     to a free pool.
+
+     The case where this matters is:
+
+     1. Some other systhread calls [wakeup].
+     2  [wakeup] adds an item to the run-queue and sees it needs to send a wake-up event.
+     3. The domain wakes up for some other reason, handles the event, then shuts down.
+     4. The original systhread writes to the eventfd.
+  *)
+
+  val get : unit -> Unix.file_descr
+  (* Take the next free eventfd from the pool, or create a new one if the pool's empty.
+     You might get a few spurious events from it as other threads are shutting down,
+     so you must be able to cope with that. *)
+
+  val put : Unix.file_descr -> unit
+  (* [put fd] adds [fd] to the free pool. *)
+end = struct
+  external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
+
+  let free = Lf_queue.create ()
+
+  let get () =
+    match Lf_queue.pop free with
+    | Some fd -> fd
+    | None -> eio_eventfd 0
+
+  let put fd =
+    Lf_queue.push free fd
+end
 
 type has_fd = < fd : FD.t >
 type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
@@ -993,8 +1030,7 @@ let _fast_copy_try_splice src dst =
     done
   with
   | End_of_file -> ()
-  | Unix.Unix_error (Unix.EAGAIN, "splice", _) -> fast_copy src dst
-  | Unix.Unix_error (Unix.EINVAL, "splice", _) -> fast_copy src dst
+  | Eio.Exn.Io (Eio.Exn.X Eio_unix.Unix_error ((EAGAIN | EINVAL), "splice", _), _) -> fast_copy src dst
 
 (* XXX workaround for issue #319, PR #327 *)
 let fast_copy_try_splice src dst = fast_copy src dst
@@ -1151,6 +1187,7 @@ let net = object
           | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
           | _ -> ()
           | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+          | exception Unix.Unix_error (code, name, arg) -> raise @@ wrap_error code name arg
         );
         Unix.SOCK_STREAM, Unix.ADDR_UNIX path
       | `Tcp (host, port)  ->
@@ -1215,13 +1252,14 @@ type stdenv = <
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
+  mono_clock : Eio.Time.Mono.t;
   fs : Eio.Fs.dir Eio.Path.t;
   cwd : Eio.Fs.dir Eio.Path.t;
   secure_random : Eio.Flow.source;
   debug : Eio.Debug.t;
 >
 
-let domain_mgr ~run_event_loop = object (self)
+let domain_mgr ~run_event_loop = object
   inherit Eio.Domain_manager.t
 
   method run_raw fn =
@@ -1232,18 +1270,40 @@ let domain_mgr ~run_event_loop = object (self)
     Domain.join (Option.get !domain)
 
   method run fn =
-    self#run_raw (fun () ->
-        let result = ref None in
-        run_event_loop (fun _ -> result := Some (fn ()));
-        Option.get !result
-      )
+    let domain = ref None in
+    enter (fun t k ->
+        let cancelled, set_cancelled = Promise.create () in
+        Fiber_context.set_cancel_fn k.fiber (Promise.resolve set_cancelled);
+        domain := Some (Domain.spawn (fun () ->
+            Fun.protect
+              (fun () ->
+                 let result = ref None in
+                 run_event_loop (fun _ -> result := Some (fn ~cancelled));
+                 Option.get !result
+              )
+              ~finally:(fun () -> enqueue_thread t k ())))
+      );
+    Domain.join (Option.get !domain)
+end
+
+let mono_clock = object
+  inherit Eio.Time.Mono.t
+
+  method now = Mtime_clock.now ()
+
+  method sleep_until = Low_level.sleep_until
 end
 
 let clock = object
   inherit Eio.Time.clock
 
   method now = Unix.gettimeofday ()
-  method sleep_until = Low_level.sleep_until
+
+  method sleep_until time =
+    (* todo: use the realtime clock directly instead of converting to monotonic time.
+       That is needed to handle adjustments to the system clock correctly. *)
+    let d = time -. Unix.gettimeofday () in
+    Eio.Time.Mono.sleep mono_clock d
 end
 
 class dir ~label (fd : dir_fd) = object
@@ -1328,6 +1388,7 @@ let stdenv ~run_event_loop =
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
+    method mono_clock = mono_clock
     method fs = (fs :> Eio.Fs.dir Eio.Path.t)
     method cwd = (cwd :> Eio.Fs.dir Eio.Path.t)
     method secure_random = secure_random
@@ -1382,12 +1443,11 @@ let rec run : type a.
   in
   let run_q = Lf_queue.create () in
   Lf_queue.push run_q IO;
-  let eventfd_mutex = Mutex.create () in
   let sleep_q = Zzz.create () in
   let io_q = Queue.create () in
   let mem_q = Queue.create () in
   let eventfd = FD.placeholder ~seekable:false ~close_unix:false in
-  let st = { mem; uring; run_q; eventfd_mutex; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q } in
+  let st = { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q } in
   Log.debug (fun l -> l "starting main thread");
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
@@ -1408,11 +1468,6 @@ let rec run : type a.
                 fn st k;
                 schedule st
             )
-          | Enter_unchecked fn -> Some (fun k ->
-              let k = { Suspended.k; fiber } in
-              fn st k;
-              schedule st
-            )
           | Low_level.ERead args -> Some (fun k ->
               let k = { Suspended.k; fiber } in
               enqueue_read st k args;
@@ -1421,6 +1476,10 @@ let rec run : type a.
               let k = { Suspended.k; fiber } in
               enqueue_close st k fd;
               schedule st
+            )
+          | Cancel job -> Some (fun k ->
+              enqueue_cancel job st;
+              continue k ()
             )
           | Low_level.EWrite args -> Some (fun k ->
               let k = { Suspended.k; fiber } in
@@ -1475,7 +1534,7 @@ let rec run : type a.
                   );
                 schedule st
             )
-          | Eio_unix.Private.Get_system_clock -> Some (fun k -> continue k clock)
+          | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
           | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
               let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
               continue k (flow fd :> Eio_unix.socket)
@@ -1519,13 +1578,11 @@ let rec run : type a.
     let new_fiber = Fiber_context.make_root () in
     fork ~new_fiber (fun () ->
         Switch.run_protected (fun sw ->
-            let fd = eio_eventfd 0 in
+            let fd = EventFD_pool.get () in
             st.eventfd.fd <- `Open fd;
             Switch.on_release sw (fun () ->
-                Mutex.lock st.eventfd_mutex;
-                FD.close st.eventfd;
-                Mutex.unlock st.eventfd_mutex;
-                Unix.close fd
+                let unix = FD.to_unix `Take st.eventfd in
+                EventFD_pool.put unix
               );
             Log.debug (fun f -> f "Monitoring eventfd %a" FD.pp st.eventfd);
             result := Some (

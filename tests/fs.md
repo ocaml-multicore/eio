@@ -10,13 +10,7 @@
 
 module Path = Eio.Path
 
-let () =
-  Printexc.register_printer (function
-    | Eio.Fs.Permission_denied (path, _) -> Some (Fmt.str "Eio.Fs.Permission_denied (%S, _)" path)
-    | Eio.Fs.Already_exists (path, _)    -> Some (Fmt.str "Eio.Fs.Already_exists (%S, _)" path)
-    | Eio.Fs.Not_found (path, _)         -> Some (Fmt.str "Eio.Fs.Not_found (%S, _)" path)
-    | _ -> None
-  )
+let () = Eio.Exn.Backend.show := false
 
 open Eio.Std
 
@@ -29,37 +23,37 @@ let run (fn : Eio.Stdenv.t -> unit) =
 let try_read_file path =
   match Path.load path with
   | s -> traceln "read %a -> %S" Path.pp path s
-  | exception ex -> traceln "read %a -> %a" Path.pp path Fmt.exn ex
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
 let try_write_file ~create ?append path content =
   match Path.save ~create ?append path content with
   | () -> traceln "write %a -> ok" Path.pp path
-  | exception ex -> traceln "write %a -> %a" Path.pp path Fmt.exn ex
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
 let try_mkdir path =
   match Path.mkdir path ~perm:0o700 with
   | () -> traceln "mkdir %a -> ok" Path.pp path
-  | exception ex -> traceln "mkdir %a -> %a" Path.pp path Fmt.exn ex
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
 let try_rename p1 p2 =
   match Path.rename p1 p2 with
   | () -> traceln "rename %a to %a -> ok" Path.pp p1 Path.pp p2
-  | exception ex -> traceln "rename %a to %a -> %a" Path.pp p1 Path.pp p2 Fmt.exn ex
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
 let try_read_dir path =
   match Path.read_dir path with
   | names -> traceln "read_dir %a -> %a" Path.pp path Fmt.Dump.(list string) names
-  | exception ex -> traceln "read_dir %a -> %a" Path.pp path Fmt.exn ex
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
 let try_unlink path =
   match Path.unlink path with
   | () -> traceln "unlink %a -> ok" Path.pp path
-  | exception ex -> traceln "unlink %a -> %a" Path.pp path Fmt.exn ex
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
 let try_rmdir path =
   match Path.rmdir path with
   | () -> traceln "rmdir %a -> ok" Path.pp path
-  | exception ex -> traceln "rmdir %a -> %a" Path.pp path Fmt.exn ex
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
 let chdir path =
   traceln "chdir %S" path;
@@ -97,7 +91,8 @@ Trying to use cwd to access a file outside of that subtree fails:
   let cwd = Eio.Stdenv.cwd env in
   Path.save ~create:(`Exclusive 0o666) (cwd / "../test-file") "my-data";
   failwith "Should have failed";;
-Exception: Eio.Fs.Permission_denied ("../test-file", _)
+Exception: Eio.Io Fs Permission_denied _,
+  opening <cwd:../test-file>
 ```
 
 Trying to use cwd to access an absolute path fails:
@@ -106,7 +101,8 @@ Trying to use cwd to access an absolute path fails:
   let cwd = Eio.Stdenv.cwd env in
   Path.save ~create:(`Exclusive 0o666) (cwd / "/tmp/test-file") "my-data";
   failwith "Should have failed";;
-Exception: Eio.Fs.Permission_denied ("/tmp/test-file", _)
+Exception: Eio.Io Fs Permission_denied _,
+  opening <cwd:/tmp/test-file>
 ```
 
 # Creation modes
@@ -118,7 +114,8 @@ Exclusive create fails if already exists:
   Path.save ~create:(`Exclusive 0o666) (cwd / "test-file") "first-write";
   Path.save ~create:(`Exclusive 0o666) (cwd / "test-file") "first-write";
   failwith "Should have failed";;
-Exception: Eio.Fs.Already_exists ("test-file", _)
+Exception: Eio.Io Fs Already_exists _,
+  opening <cwd:test-file>
 ```
 
 If-missing create succeeds if already exists:
@@ -154,7 +151,8 @@ Error if no create and doesn't exist:
   let test_file = (cwd / "test-file") in
   Path.save ~create:`Never test_file "1st-write-original";
   traceln "Got %S" @@ Path.load test_file;;
-Exception: Eio.Fs.Not_found ("test-file", _)
+Exception: Eio.Io Fs Not_found _,
+  opening <cwd:test-file>
 ```
 
 Appending to an existing file:
@@ -206,10 +204,10 @@ Creating directories with nesting, symlinks, etc:
   ();;
 +mkdir <cwd:subdir> -> ok
 +mkdir <cwd:to-subdir/nested> -> ok
-+mkdir <cwd:to-root/tmp/foo> -> Eio.Fs.Permission_denied ("to-root/tmp/foo", _)
-+mkdir <cwd:../foo> -> Eio.Fs.Permission_denied ("../foo", _)
-+mkdir <cwd:to-subdir> -> Eio.Fs.Already_exists ("to-subdir", _)
-+mkdir <cwd:dangle/foo> -> Eio.Fs.Not_found ("dangle/foo", _)
++Eio.Io Fs Permission_denied _, creating directory <cwd:to-root/tmp/foo>
++Eio.Io Fs Permission_denied _, creating directory <cwd:../foo>
++Eio.Io Fs Already_exists _, creating directory <cwd:to-subdir>
++Eio.Io Fs Not_found _, creating directory <cwd:dangle/foo>
 - : unit = ()
 ```
 
@@ -236,11 +234,11 @@ You can remove a file using unlink:
 +read <cwd:subdir/file2> -> "data2"
 +unlink <cwd:file> -> ok
 +unlink <cwd:subdir/file2> -> ok
-+read <cwd:file> -> Eio.Fs.Not_found ("file", _)
-+read <cwd:subdir/file2> -> Eio.Fs.Not_found ("subdir/file2", _)
++Eio.Io Fs Not_found _, opening <cwd:file>
++Eio.Io Fs Not_found _, opening <cwd:subdir/file2>
 +write <cwd:subdir/file2> -> ok
 +unlink <cwd:to-subdir/file2> -> ok
-+read <cwd:subdir/file2> -> Eio.Fs.Not_found ("subdir/file2", _)
++Eio.Io Fs Not_found _, opening <cwd:subdir/file2>
 - : unit = ()
 ```
 
@@ -254,10 +252,10 @@ Removing something that doesn't exist or is out of scope:
   try_unlink (cwd / "../foo");
   try_unlink (cwd / "to-subdir/foo");
   try_unlink (cwd / "to-root/foo");;
-+unlink <cwd:missing> -> Eio.Fs.Not_found ("missing", _)
-+unlink <cwd:../foo> -> Eio.Fs.Permission_denied ("../foo", _)
-+unlink <cwd:to-subdir/foo> -> Eio.Fs.Not_found ("to-subdir/foo", _)
-+unlink <cwd:to-root/foo> -> Eio.Fs.Permission_denied ("to-root/foo", _)
++Eio.Io Fs Not_found _, removing file <cwd:missing>
++Eio.Io Fs Permission_denied _, removing file <cwd:../foo>
++Eio.Io Fs Not_found _, removing file <cwd:to-subdir/foo>
++Eio.Io Fs Permission_denied _, removing file <cwd:to-root/foo>
 - : unit = ()
 ```
 
@@ -286,11 +284,11 @@ Similar to `unlink`, but works on directories:
 +read_dir <cwd:subdir/d2> -> []
 +rmdir <cwd:d1> -> ok
 +rmdir <cwd:subdir/d2> -> ok
-+read_dir <cwd:d1> -> Eio.Fs.Not_found ("d1", _)
-+read_dir <cwd:subdir/d2> -> Eio.Fs.Not_found ("subdir/d2", _)
++Eio.Io Fs Not_found _, reading directory <cwd:d1>
++Eio.Io Fs Not_found _, reading directory <cwd:subdir/d2>
 +mkdir <cwd:subdir/d3> -> ok
 +rmdir <cwd:to-subdir/d3> -> ok
-+read_dir <cwd:subdir/d3> -> Eio.Fs.Not_found ("subdir/d3", _)
++Eio.Io Fs Not_found _, reading directory <cwd:subdir/d3>
 - : unit = ()
 ```
 
@@ -304,10 +302,10 @@ Removing something that doesn't exist or is out of scope:
   try_rmdir (cwd / "../foo");
   try_rmdir (cwd / "to-subdir/foo");
   try_rmdir (cwd / "to-root/foo");;
-+rmdir <cwd:missing> -> Eio.Fs.Not_found ("missing", _)
-+rmdir <cwd:../foo> -> Eio.Fs.Permission_denied ("../foo", _)
-+rmdir <cwd:to-subdir/foo> -> Eio.Fs.Not_found ("to-subdir/foo", _)
-+rmdir <cwd:to-root/foo> -> Eio.Fs.Permission_denied ("to-root/foo", _)
++Eio.Io Fs Not_found _, removing directory <cwd:missing>
++Eio.Io Fs Permission_denied _, removing directory <cwd:../foo>
++Eio.Io Fs Not_found _, removing directory <cwd:to-subdir/foo>
++Eio.Io Fs Permission_denied _, removing directory <cwd:to-root/foo>
 - : unit = ()
 ```
 
@@ -324,7 +322,7 @@ Create a sandbox, write a file with it, then read it from outside:
   try_mkdir (subdir / "../new-sandbox");
   traceln "Got %S" @@ Path.load (cwd / "sandbox/test-file");;
 +mkdir <cwd:sandbox> -> ok
-+mkdir <sandbox:../new-sandbox> -> Eio.Fs.Permission_denied ("../new-sandbox", _)
++Eio.Io Fs Permission_denied _, creating directory <sandbox:../new-sandbox>
 +Got "data"
 - : unit = ()
 ```
@@ -349,8 +347,8 @@ Using `cwd` we can't access the parent, but using `fs` we can:
   Unix.rmdir "outside-cwd";;
 +mkdir <cwd:fs-test> -> ok
 +chdir "fs-test"
-+mkdir <cwd:../outside-cwd> -> Eio.Fs.Permission_denied ("../outside-cwd", _)
-+write <cwd:../test-file> -> Eio.Fs.Permission_denied ("../test-file", _)
++Eio.Io Fs Permission_denied _, creating directory <cwd:../outside-cwd>
++Eio.Io Fs Permission_denied _, opening <cwd:../test-file>
 +mkdir <fs:../outside-cwd> -> ok
 +write <fs:../test-file> -> ok
 +chdir ".."
@@ -373,8 +371,8 @@ Reading directory entries under `cwd` and outside of `cwd`.
 +mkdir <readdir:test-1> -> ok
 +mkdir <readdir:test-2> -> ok
 +read_dir <readdir:.> -> ["test-1"; "test-2"]
-+read_dir <readdir:..> -> Eio.Fs.Permission_denied ("..", _)
-+read_dir <readdir:test-3> -> Eio.Fs.Not_found ("test-3", _)
++Eio.Io Fs Permission_denied _, reading directory <readdir:..>
++Eio.Io Fs Not_found _, reading directory <readdir:test-3>
 - : unit = ()
 ```
 
@@ -391,7 +389,8 @@ Can use `fs` to access absolute paths:
   Path.with_open_in (cwd / Filename.null) (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));;;
 +Read "/dev/null" and got ""
 +Trying with cwd instead fails:
-Exception: Eio.Fs.Permission_denied ("/dev/null", _)
+Exception: Eio.Io Fs Permission_denied _,
+  opening <cwd:/dev/null>
 ```
 
 ## Streamling lines
@@ -481,7 +480,7 @@ Confined:
 +read <cwd:dir/bar> -> "FOO"
 +rename <dir:bar> to <cwd:foo> -> ok
 +read <cwd:foo> -> "FOO"
-+rename <cwd:../foo> to <cwd:foo> -> Eio.Fs.Permission_denied ("../foo", _)
++Eio.Io Fs Permission_denied _, renaming <cwd:../foo> to <cwd:foo>
 - : unit = ()
 ```
 
@@ -491,7 +490,7 @@ Unconfined:
 # run @@ fun env -> try_rename env#fs;;
 +mkdir <fs:tmp> -> ok
 +rename <fs:tmp> to <fs:dir> -> ok
-+write <fs:foo> -> Eio.Fs.Already_exists ("foo", _)
++Eio.Io Fs Already_exists _, opening <fs:foo>
 +rename <fs:foo> to <fs:dir/bar> -> ok
 +read <fs:dir/bar> -> "FOO"
 +rename <dir:bar> to <fs:foo> -> ok

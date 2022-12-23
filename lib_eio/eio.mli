@@ -89,8 +89,11 @@ module Domain_manager : sig
   class virtual t : object
     method virtual run_raw : 'a. (unit -> 'a) -> 'a
 
-    method virtual run : 'a. (unit -> 'a) -> 'a
-    (** Note: cancellation is handled by the {!run} wrapper function, not the object. *)
+    method virtual run : 'a. (cancelled:exn Promise.t -> 'a) -> 'a
+    (** [t#run fn] runs [fn ~cancelled] in a new domain.
+
+        If the calling fiber is cancelled, [cancelled] becomes resolved to the {!Cancel.Cancelled} exception.
+        [fn] should cancel itself in this case. *)
   end
 
   val run : #t -> (unit -> 'a) -> 'a
@@ -179,6 +182,7 @@ module Stdenv : sig
     net : Net.t;
     domain_mgr : Domain_manager.t;
     clock : Time.clock;
+    mono_clock : Time.Mono.t;
     fs : Fs.dir Path.t;
     cwd : Fs.dir Path.t;
     secure_random : Flow.source;
@@ -232,7 +236,10 @@ module Stdenv : sig
   *)
 
   val clock : <clock : #Time.clock as 'a; ..> -> 'a
-  (** [clock t] is the system clock. *)
+  (** [clock t] is the system clock (used to get the current time and date). *)
+
+  val mono_clock : <mono_clock : #Time.Mono.t as 'a; ..> -> 'a
+  (** [mono_clock t] is a monotonic clock (used for measuring intervals). *)
 
   (** {1 Randomness} *)
 
@@ -246,6 +253,8 @@ module Stdenv : sig
 end
 
 (** {1 Errors and Debugging} *)
+
+exception Io of Exn.err * Exn.context
 
 val traceln :
   ?__POS__:string * int * int * int ->
@@ -269,7 +278,7 @@ val traceln :
     ]}
     @param __POS__ Display [__POS__] as the location of the [traceln] call. *)
 
-(** Reporting multiple failures at once. *)
+(** Eio exceptions. *)
 module Exn = Eio__core.Exn
 
 (** {1 Provider API for OS schedulers} *)

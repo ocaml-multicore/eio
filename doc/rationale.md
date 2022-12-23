@@ -151,3 +151,22 @@ or add extra convenience functions without forcing every implementor to add them
 
 Note that the use of objects in Eio is not motivated by the use of the "Object Capabilities" security model.
 Despite the name, that is not specific to objects at all.
+
+## Results vs Exceptions
+
+The OCaml standard library uses exceptions to report errors in most cases.
+Many libraries instead use the `result` type, which has the advantage of tracking the possible errors in the type system.
+However, using `result` is slower, as it requires more allocations, and explicit code to propagate errors.
+
+As part of the effects work, OCaml is expected to gain a [typed effects][] extension to the type system,
+allowing it to track both effects and exceptions statically.
+In anticipation of this, the Eio library prefers to use exceptions in most cases,
+reserving the use of `result` for cases where the caller is likely to want to handle the problem immediately
+rather than propagate it.
+
+In additional, while result types work well
+for functions with a small number of known errors which can be handled at the call-site,
+they work poorly for IO errors where there are typically a large and unknown set of possible errors
+(depending on the backend).
+
+[typed effects]: https://www.janestreet.com/tech-talks/effective-programming/

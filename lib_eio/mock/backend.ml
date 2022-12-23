@@ -36,10 +36,15 @@ let run main =
           | Eio.Private.Effects.Suspend f -> Some (fun k ->
               (* Ask [f] to register whatever callbacks are needed to resume the fiber.
                  e.g. it might register a callback with a promise, for when that's resolved. *)
-              f fiber (function
+              f fiber (fun result ->
                   (* The fiber is ready to run again. Add it to the queue. *)
-                  | Ok v -> Lf_queue.push t.run_q (fun () -> Effect.Deep.continue k v)
-                  | Error ex -> Lf_queue.push t.run_q (fun () -> Effect.Deep.discontinue k ex)
+                  Lf_queue.push t.run_q (fun () ->
+                      (* Resume the fiber. *)
+                      Fiber_context.clear_cancel_fn fiber;
+                      match result with
+                      | Ok v -> Effect.Deep.continue k v
+                      | Error ex -> Effect.Deep.discontinue k ex
+                    )
                 );
               (* Switch to the next runnable fiber while this one's blocked. *)
               schedule t

@@ -358,19 +358,112 @@ end
 module Exn : sig
   type with_bt = exn * Printexc.raw_backtrace
 
-  exception Multiple of exn list
-  (** Raised if multiple fibers fail, to report all the exceptions. *)
+  type err = ..
+  (** Describes the particular error that occurred.
+
+      They are typically nested (e.g. [Fs (Permission_denied (Unix_error ...))])
+      so that you can match e.g. all IO errors, all file-system errors, all
+      permission denied errors, etc.
+
+      If you extend this, use {!register_pp} to add a printer for the new error. *)
+
+  type context
+  (** Extra information attached to an IO error.
+      This provides contextual information about what caused the error. *)
+
+  exception Io of err * context
+  (** A general purpose IO exception.
+
+      This is used for most errors interacting with the outside world,
+      and is similar to {!Unix.Unix_error}, but more general.
+      An unknown [Io] error should typically be reported to the user, but does
+      not generally indicate a bug in the program. *)
+
+  type err += Multiple_io of (err * context * Printexc.raw_backtrace) list
+  (** Error code used when multiple IO errors occur.
+
+      This is useful if you want to catch and report all IO errors. *)
+
+  val create : err -> exn
+  (** [create err] is an {!Io} exception with an empty context. *)
+
+  val add_context : exn -> ('a, Format.formatter, unit, exn) format4 -> 'a
+  (** [add_context ex msg] returns a new exception with [msg] added to [ex]'s context,
+      if [ex] is an {!Io} exception.
+
+      If [ex] is not an [Io] exception, this function just returns the original exception. *)
+
+  val reraise_with_context : exn -> Printexc.raw_backtrace -> ('a, Format.formatter, unit, 'b) format4 -> 'a
+  (** [reraise_with_context ex bt msg] raises [ex] extended with additional information [msg].
+
+      [ex] should be an {!Io} exception (if not, is re-raised unmodified).
+
+      Example:
+      {[
+         try connect addr
+         with Eio.Io _ as ex ->
+           let bt = Printexc.get_raw_backtrace () in
+           reraise_with_context ex bt "connecting to %S" addr
+      ]}
+
+      You must get the backtrace before calling any other function
+      in the exception handler to prevent corruption of the backtrace. *)
+
+  val register_pp : (Format.formatter -> err -> bool) -> unit
+  (** [register_pp pp] adds [pp] as a pretty-printer of errors.
+
+      [pp f err] should format [err] using [f], if possible.
+      It should return [true] on success, or [false] if it didn't
+      recognise [err]. *)
+
+  val pp : exn Fmt.t
+  (** [pp] is a formatter for exceptions.
+
+      This is similar to {!Fmt.exn}, but can do a better job on {!Io} exceptions
+      because it can format them directly without having to convert to a string first. *)
+
+  (** Extensible backend-specific exceptions. *)
+  module Backend : sig
+    type t = ..
+
+    val show : bool ref
+    (** Controls the behaviour of {!pp}. *)
+
+    val register_pp : (Format.formatter -> t -> bool) -> unit
+    (** [register_pp pp] adds [pp] as a pretty-printer of backend errors.
+
+        [pp f err] should format [err] using [f], if possible.
+        It should return [true] on success, or [false] if it didn't
+        recognise [err]. *)
+
+    val pp : t Fmt.t
+    (** [pp] behaves like {!pp} except that if display of backend errors has been turned off
+        (with {!show}) then it just prints a place-holder.
+
+        This is useful for formatting the backend-specific part of exceptions,
+        which should be hidden in expect-style testing that needs to work on multiple backends. *)
+  end
+
+  type err += X of Backend.t
+  (** A top-level code for backend errors that don't yet have a cross-platform classification in Eio.
+
+      You should avoid matching on these (in portable code). Instead, request a proper Eio code for them. *)
+
+  exception Multiple of with_bt list
+  (** Raised if multiple fibers fail, to report all the exceptions.
+
+      This usually indicates a bug in the program.
+
+      Note: If multiple {b IO} errors occur, then you will get [Io (Multiple_io _, _)] instead of this. *)
 
   val combine : with_bt -> with_bt -> with_bt
   (** [combine x y] returns a single exception and backtrace to use to represent two errors.
 
-      Only one of the backtraces will be kept.
       The resulting exception is typically just [Multiple [y; x]],
       but various heuristics are used to simplify the result:
       - Combining with a {!Cancel.Cancelled} exception does nothing, as these don't need to be reported.
         The result is only [Cancelled] if there is no other exception available.
-      - If [x] is a [Multiple] exception then [y] is added to it, to avoid nested [Multiple] exceptions.
-      - Duplicate exceptions are removed (using physical equality of the exception). *)
+      - If both errors are [Io] errors, then the result is [Io (Multiple_io _)]. *)
 end
 
 (** @canonical Eio.Cancel *)
@@ -400,7 +493,8 @@ module Cancel : sig
       Ideally this should be done any time you have caught an exception and are planning to ignore it,
       although if you forget then the next IO operation will typically abort anyway.
 
-      Quick clean-up actions (such as releasing a mutex or deleting a temporary file) are OK,
+      When handling a [Cancelled] exception, quick clean-up actions
+      (such as releasing a mutex or deleting a temporary file) are OK,
       but operations that may block should be avoided.
       For example, a network connection should simply be closed,
       without attempting to send a goodbye message.
@@ -492,36 +586,31 @@ module Private : sig
         or it may be cancelled.
         If it is cancelled then the registered cancellation function is called.
         This function will always be called from the fiber's own domain, but care must be taken
-        if the operation is being completed by another domain at the same time.
+        if the operation could be completed by another domain at the same time.
 
         Consider the case of {!Stream.take}, which can be fulfilled by a {!Stream.add} from another domain.
         We want to ensure that either the item is removed from the stream and returned to the waiting fiber,
         or that the operation is cancelled and the item is not removed from the stream.
 
-        Therefore, cancelling and completing both attempt to clear the cancel function atomically,
+        Therefore, cancelling and completing both need to update an atomic value (with {!Atomic.compare_and_set})
         so that only one can succeed. The case where [Stream.take] succeeds before cancellation:
 
         + A fiber calls [Suspend] and is suspended.
           The callback sets a cancel function and registers a waiter on the stream.
-        + When another domain has an item, it removes the cancel function (making the [take] uncancellable)
+        + When another domain has an item, it marks the atomic as finished (making the [take] uncancellable)
           and begins resuming the fiber with the new item.
-        + If the taking fiber is cancelled after this, the cancellation will be ignored and the operation
+        + If the taking fiber is cancelled after this, the cancellation must be ignored and the operation
           will complete successfully. Future operations will fail immediately, however.
 
         The case of cancellation winning the race:
 
         + A fiber calls [Suspend] and is suspended.
           The callback sets a cancel function and registers a waiter on the stream.
-        + The taking fiber is cancelled. Its cancellation function is called, which starts removing the waiter.
+        + The taking fiber is cancelled. Its cancellation function is called,
+          which updates the atomic and starts removing the waiter.
         + If another domain tries to provide an item to the waiter as this is happening,
-          it will try to clear the cancel function and fail.
+          it will try to update the atomic too and fail.
           The item will be given to the next waiter instead.
-
-        Note that there is a mutex around the list of waiters, so the taking domain
-        can't finish removing the waiter and start another operation while the adding
-        domain is trying to resume it.
-        In future, we may want to make this lock-free by using a fresh atomic
-        to hold the cancel function for each operation.
 
         Note: A fiber will only have a cancel function set while it is suspended. *)
 
@@ -531,19 +620,40 @@ module Private : sig
     val set_cancel_fn : t -> (exn -> unit) -> unit
     (** [set_cancel_fn t fn] sets [fn] as the fiber's cancel function.
 
-        If the cancellation context is cancelled, the function is removed and called.
-        When the operation completes, you must call {!clear_cancel_fn} to remove it. *)
+        If [t]'s cancellation context is cancelled, the function is called.
+        It should attempt to make the current operation finish quickly, either with
+        a successful result or by raising the given exception.
 
-    val clear_cancel_fn : t -> bool
-    (** [clear_cancel_fn t] removes the function previously set with {!set_cancel_fn}, if any.
+        Just before being called, the fiber's cancel function is replaced with [ignore]
+        so that [fn] cannot be called twice.
 
-        Returns [true] if this call removed the function, or [false] if there wasn't one.
-        This operation is atomic and thread-safe.
-        An operation that completes in another domain must use this to indicate that the operation is
-        finished (can no longer be cancelled) before enqueuing the result. If it returns [false],
-        the operation was cancelled first and the canceller has called (or is calling) the function.
-        If it returns [true], the caller is responsible for any resources owned by the function,
-        such as the continuation. *)
+        On success, the cancel function is cleared automatically when {!Suspend.enter} returns,
+        but for single-domain operations you may like to call {!clear_cancel_fn}
+        manually to remove it earlier.
+
+        [fn] will be called from [t]'s domain (from the fiber that called [cancel]).
+
+        [fn] must not switch fibers. If it did, this could happen:
+
+        + Another suspended fiber in the same cancellation context resumes before
+          its cancel function is called.
+        + It enters a protected block and starts a new operation.
+        + [fn] returns.
+        + We cancel the protected operation. *)
+
+    val clear_cancel_fn : t -> unit
+    (** [clear_cancel_fn t] is [set_cancel_fn t ignore].
+
+        This must only be called from the fiber's own domain.
+
+        For single-domain operations, it can be useful to call this manually as soon as
+        the operation succeeds (i.e. when the fiber is added to the run-queue)
+        to prevent the cancel function from being called.
+
+        For operations where another domain may resume the fiber, your cancel function
+        will need to cope with being called after the operation has succeeded. In that
+        case you should not call [clear_cancel_fn]. The backend will do it automatically
+        just before resuming your fiber. *)
 
     val get_error : t -> exn option
     (** [get_error t] is [Cancel.get_error (cancellation_context t)] *)
