@@ -1,55 +1,42 @@
-type state =
-  | Free of int
-  | Waiting of unit Waiters.t
-
 type t = {
   id : Ctf.id;
-  mutex : Mutex.t;
-  mutable state : state;
+  state : Sem_state.t;
 }
 
 let make n =
-  if n < 0 then raise (Invalid_argument "n < 0");
   let id = Ctf.mint_id () in
   Ctf.note_created id Ctf.Semaphore;
   {
     id;
-    mutex = Mutex.create ();
-    state = Free n;
+    state = Sem_state.create n;
   }
 
 let release t =
-  Mutex.lock t.mutex;
   Ctf.note_signal t.id;
-  match t.state with
-  | Free x when x = max_int -> Mutex.unlock t.mutex; raise (Sys_error "semaphore would overflow max_int!")
-  | Free x -> t.state <- Free (succ x); Mutex.unlock t.mutex
-  | Waiting q ->
-    begin match Waiters.wake_one q () with
-      | `Ok -> ()
-      | `Queue_empty -> t.state <- Free 1
-    end;
-    Mutex.unlock t.mutex
+  Sem_state.release t.state
 
-let rec acquire t =
-  Mutex.lock t.mutex;
-  match t.state with
-  | Waiting q ->
-    Ctf.note_try_read t.id;
-    Waiters.await ~mutex:(Some t.mutex) q t.id
-  | Free 0 ->
-    t.state <- Waiting (Waiters.create ());
-    Mutex.unlock t.mutex;
-    acquire t
-  | Free n ->
-    Ctf.note_read t.id;
-    t.state <- Free (pred n);
-    Mutex.unlock t.mutex
+let acquire t =
+  if not (Sem_state.acquire t.state) then (
+    (* No free resources.
+       We must wait until one of the existing users increments the counter and resumes us.
+       It's OK if they resume before we suspend; we'll just pick up the token they left. *)
+    Suspend.enter_unchecked (fun ctx enqueue ->
+        match Sem_state.suspend t.state (fun () -> enqueue (Ok ())) with
+        | None -> ()   (* Already resumed *)
+        | Some request ->
+          Ctf.note_try_read t.id;
+          match Fiber_context.get_error ctx with
+          | Some ex ->
+            if Sem_state.cancel request then enqueue (Error ex);
+            (* else already resumed *)
+          | None ->
+            Fiber_context.set_cancel_fn ctx (fun ex ->
+                if Sem_state.cancel request then enqueue (Error ex)
+                (* else already resumed *)
+              )
+      )
+  );
+  Ctf.note_read t.id
 
 let get_value t =
-  Mutex.lock t.mutex;
-  let s = t.state in
-  Mutex.unlock t.mutex;
-  match s with
-  | Free n -> n
-  | Waiting _ -> 0
+  max 0 (Atomic.get t.state.state)
