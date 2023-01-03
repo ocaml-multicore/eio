@@ -143,6 +143,92 @@ let as_flow t =
 let get t i =
   Bigarray.Array1.get t.buf (t.pos + i)
 
+module BE = struct
+  let uint16 t = 
+    ensure t 2;
+    let data = Bigstringaf.get_int16_be t.buf t.pos in
+    consume t 2;
+    data
+
+  let uint32 t = 
+    ensure t 4;
+    let data = Bigstringaf.get_int32_be t.buf t.pos in
+    consume t 4;
+    data
+
+  let uint48 t = 
+    ensure t 6;
+    let upper_32 = Bigstringaf.get_int32_be t.buf t.pos |> Int64.of_int32 |> Int64.logand 0xffffffffL in
+    let lower_16 = Bigstringaf.get_int16_be t.buf (t.pos + 4) |> Int64.of_int in
+    consume t 6;
+    Int64.(
+      logor 
+        (lower_16)
+        (shift_left upper_32 16) 
+    )
+
+  let uint64 t =
+    ensure t 8;
+    let data = Bigstringaf.get_int64_be t.buf t.pos in
+    consume t 8;
+    data
+
+  let float t =
+    ensure t 4;
+    let data = Bigstringaf.unsafe_get_int32_be t.buf t.pos in
+    consume t 4;
+    Int32.float_of_bits data
+
+  let double t =
+    ensure t 8;
+    let data = Bigstringaf.unsafe_get_int64_be t.buf t.pos in
+    consume t 8;
+    Int64.float_of_bits data
+end
+
+module LE = struct
+  let uint16 t = 
+    ensure t 2;
+    let data = Bigstringaf.get_int16_le t.buf t.pos in
+    consume t 2;
+    data
+
+  let uint32 t = 
+    ensure t 4;
+    let data = Bigstringaf.get_int32_le t.buf t.pos in
+    consume t 4;
+    data
+
+  let uint48 t = 
+    ensure t 6;
+    let lower_32 = Bigstringaf.get_int32_le t.buf t.pos |> Int64.of_int32 |> Int64.logand 0xffffffffL in
+    let upper_16 = Bigstringaf.get_int16_le t.buf (t.pos + 4) |> Int64.of_int in
+    consume t 6;
+    Int64.(
+      logor 
+        (shift_left upper_16 32)
+        lower_32
+    )
+
+  let uint64 t =
+    ensure t 8;
+    let data = Bigstringaf.get_int64_le t.buf t.pos in
+    consume t 8;
+    data
+
+  let float t =
+    ensure t 4;
+    let data = Bigstringaf.unsafe_get_int32_le t.buf t.pos in
+    consume t 4;
+    Int32.float_of_bits data
+
+  let double t =
+    ensure t 8;
+    let data = Bigstringaf.unsafe_get_int64_le t.buf t.pos in
+    consume t 8;
+    Int64.float_of_bits data
+end
+
 let char c t =
   ensure t 1;
   let c2 = get t 0 in

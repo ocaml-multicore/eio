@@ -107,6 +107,48 @@ val string : string -> unit parser
 
     @raise Failure if [s] is not a prefix of the stream. *)
 
+(** Big endian parsers *)
+module BE : sig
+  val uint16 : int parser
+  (** [uint16] parses the next 2 bytes as the lower 16 bits of an [int] in big-endian byte order *)
+
+  val uint32 : int32 parser
+  (** [uint32] parses the next 4 bytes as an [int32] in big-endian byte order *)
+
+  val uint48 : int64 parser
+  (** [uint48] parses the next 6 bytes as a 48-bit unsigned big-endian integer *)
+
+  val uint64 : int64 parser
+  (** [uint64] parses the next 8 bytes as an [int64] in big-endian byte order *)
+
+  val float : float parser
+  (** [float] parses the next 4 bytes as a [float] in big-endian byte order *)
+
+  val double : float parser
+  (** [double] parses the next 8 bytes as a [float] in big-endian byte order *)
+end
+
+(** Little endian parsers *)
+module LE : sig
+  val uint16 : int parser
+  (** [uint16] parses the next 2 bytes as the lower 16 bits of an [int] in little-endian byte order *)
+
+  val uint32 : int32 parser
+  (** [uint32] parses the next 4 bytes as an [int32] in little-endian byte order *)
+
+  val uint48 : int64 parser
+  (** [uint48] parses the next 6 bytes as a 48-bit unsigned big-endian integer *)
+
+  val uint64 : int64 parser
+  (** [uint64] parses the next 8 bytes as an [int64] in little-endian byte order *)
+
+  val float : float parser
+  (** [float] parses the next 4 bytes as a [float] in little-endian byte order *)
+
+  val double : float parser
+  (** [double] parses the next 8 bytes as a [float] in little-endian byte order *)
+end
+
 val take : int -> string parser
 (** [take n] takes exactly [n] bytes from the input. *)
 
