@@ -113,6 +113,32 @@ let await p =
 - : unit = ()
 ```
 
+Cancellation while waiting:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Fiber.first
+    (fun () ->
+       await ((=) 0);
+       assert false;
+    )
+    (fun () -> ());
+  Fiber.both
+    (fun () ->
+       traceln "x = %d" !x;
+       await ((=) 0);
+       traceln "x = %d" !x
+    )
+    (fun () ->
+       set 5;
+       Fiber.yield ();
+       set 0;
+    );;
++x = 42
++x = 0
+- : unit = ()
+```
+
 ## Use with mutex
 
 ```ocaml

@@ -18,5 +18,8 @@ test_luv:
 	rm -rf _build
 	EIO_BACKEND=luv dune runtest
 
+dscheck:
+	dune exec -- ./lib_eio/tests/dscheck/test_cells.exe
+
 docker:
 	docker build -t eio .

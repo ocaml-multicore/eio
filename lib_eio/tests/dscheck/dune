@@ -1,0 +1,11 @@
+; We copy cells.ml here so we can build it using TracedAtomic instead of the default one.
+(copy_files# (files ../../core/cells.ml))
+
+(executable
+  (name test_cells)
+  (libraries dscheck optint fmt))
+
+(rule
+  (alias dscheck)
+  (package eio)
+  (action (run %{exe:test_cells.exe})))
