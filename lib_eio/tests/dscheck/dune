@@ -1,11 +1,17 @@
 ; We copy cells.ml here so we can build it using TracedAtomic instead of the default one.
 (copy_files# (files ../../core/cells.ml))
+(copy_files# (files ../../sem_state.ml))
 
-(executable
-  (name test_cells)
+(executables
+  (names test_cells test_semaphore)
   (libraries dscheck optint fmt))
 
 (rule
   (alias dscheck)
   (package eio)
   (action (run %{exe:test_cells.exe})))
+
+(rule
+  (alias dscheck)
+  (package eio)
+  (action (run %{exe:test_semaphore.exe})))
