@@ -14,9 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-let src = Logs.Src.create "eio_luv" ~doc:"Eio backend using luv"
-module Log = (val Logs.src_log src : Logs.LOG)
-
 open Eio.Std
 
 module Ctf = Eio.Private.Ctf
@@ -301,9 +298,7 @@ module Low_level = struct
         let cancel_reason = ref None in
         Suspended.set_cancel_fn k (fun ex ->
             cancel_reason := Some ex;
-            match Luv.Request.cancel request with
-            | Ok () -> ()
-            | Error e -> Log.debug (fun f -> f "Cancel failed: %s" (Luv.Error.strerror e))
+            ignore (Luv.Request.cancel request : _ result);
           );
         fn st.loop (fun result ->
             match result, !cancel_reason with
@@ -981,7 +976,6 @@ let domain_mgr ~run_event_loop =
         (* This is called in the parent domain after returning to the mainloop,
            so [domain_k] must be set by then. *)
         let domain, k = Option.get !domain_k in
-        Log.debug (fun f -> f "Spawned domain finished (joining)");
         Domain.join domain;
         Luv.Handle.close async @@ fun () ->
         Suspended.clear_cancel_fn k;
@@ -995,7 +989,6 @@ let domain_mgr ~run_event_loop =
             | v -> Ok v
             | exception ex -> Error ex
           );
-        Log.debug (fun f -> f "Sending finished notification");
         Luv.Async.send async |> or_raise
       ) in
     domain_k := Some (d, k)
@@ -1194,7 +1187,6 @@ let rec wakeup ~async ~io_queued run_q =
   | None -> ()
 
 let rec run : type a. (_ -> a) -> a = fun main ->
-  Log.debug (fun l -> l "starting run");
   let loop = Luv.Loop.init () |> or_raise in
   let run_q = Lf_queue.create () in
   let io_queued = ref false in
