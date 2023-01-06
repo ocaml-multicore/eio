@@ -49,7 +49,6 @@
   (luv (>= 0.5.11))
   (luv_unix (>= 0.5.0))
   (mdx (and (>= 1.10.0) :with-test))
-  (logs (>= 0.7.0))
   (fmt (>= 0.8.9))))
 (package
  (name eio_main)
