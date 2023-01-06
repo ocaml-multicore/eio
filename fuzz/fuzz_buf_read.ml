@@ -62,7 +62,7 @@ module Model = struct
     | Some (line, rest) ->
       if String.length line >= max_size then raise Buffer_limit_exceeded;
       t := rest;
-      if String.ends_with ~suffix:"\r" line then String.sub line 0 (String.length line - 2)
+      if String.ends_with ~suffix:"\r" line then String.sub line 0 (String.length line - 1)
       else line
     | None when !t = "" -> raise End_of_file
     | None when String.length !t >= max_size -> raise Buffer_limit_exceeded
