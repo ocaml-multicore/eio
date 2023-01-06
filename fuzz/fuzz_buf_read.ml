@@ -136,6 +136,64 @@ module Model = struct
     match line t with
     | line -> line :: lines t
     | exception End_of_file -> []
+
+  module BE = struct
+    let uint16 t = String.get_uint16_be (take 2 t) 0
+
+    let uint32 t = String.get_int32_be (take 4 t) 0
+
+    let uint48 t =
+      let s = take 6 t in
+      let upper_16 = String.get_uint16_be s 0 |> Int64.of_int in
+      let middle_16 = String.get_uint16_be s 2 |> Int64.of_int in
+      let lower_16 = String.get_uint16_be s 4 |> Int64.of_int in
+      Int64.(
+        add 
+          (shift_left upper_16 32)
+        (add
+          (shift_left middle_16 16)
+          (lower_16))
+      )
+
+    let uint64 t = String.get_int64_be (take 8 t) 0
+
+    let float t =
+      Int32.float_of_bits (
+        String.get_int32_be (take 4 t) 0)
+
+    let double t =
+      Int64.float_of_bits (
+        String.get_int64_be (take 8 t) 0)
+  end
+
+  module LE = struct
+    let uint16 t = String.get_uint16_le (take 2 t) 0
+
+    let uint32 t = String.get_int32_le (take 4 t) 0
+
+    let uint48 t =
+      let s = take 6 t in
+      let lower_16 = String.get_uint16_le s 0 |> Int64.of_int in
+      let middle_16 = String.get_uint16_le s 2 |> Int64.of_int in
+      let upper_16 = String.get_uint16_le s 4 |> Int64.of_int in
+      Int64.(
+        add 
+          (shift_left upper_16 32)
+        (add
+          (shift_left middle_16 16)
+          (lower_16))
+      )
+
+    let uint64 t = String.get_int64_le (take 8 t) 0
+
+    let float t =
+      Int32.float_of_bits (
+        String.get_int32_le (take 4 t) 0)
+
+    let double t =
+      Int64.float_of_bits (
+        String.get_int64_le (take 8 t) 0)
+  end
 end
 
 type op = Op : 'a Crowbar.printer * 'a Buf_read.parser * (Model.t -> 'a) -> op
@@ -162,6 +220,18 @@ let op =
     "skip", Crowbar.(map [int]) (fun n -> Op (unit, Buf_read.skip n, Model.skip n));
     "end_of_input", Crowbar.const @@ Op (unit, Buf_read.end_of_input, Model.end_of_input);
     "lines", Crowbar.const @@ Op (Fmt.Dump.(list string), (Buf_read.(map List.of_seq lines)), Model.lines);
+    "be_uint16", Crowbar.const @@ Op (Fmt.int, (Buf_read.BE.uint16), Model.BE.uint16);
+    "be_uint32", Crowbar.const @@ Op (Fmt.int32, (Buf_read.BE.uint32), Model.BE.uint32);
+    "be_uint48", Crowbar.const @@ Op (Fmt.int64, (Buf_read.BE.uint48), Model.BE.uint48);
+    "be_uint64", Crowbar.const @@ Op (Fmt.int64, (Buf_read.BE.uint64), Model.BE.uint64);
+    "be_float", Crowbar.const @@ Op (Fmt.float, (Buf_read.BE.float), Model.BE.float);
+    "be_double", Crowbar.const @@ Op (Fmt.float, (Buf_read.BE.double), Model.BE.double);
+    "le_uint16", Crowbar.const @@ Op (Fmt.int, (Buf_read.LE.uint16), Model.LE.uint16);
+    "le_uint32", Crowbar.const @@ Op (Fmt.int32, (Buf_read.LE.uint32), Model.LE.uint32);
+    "le_uint48", Crowbar.const @@ Op (Fmt.int64, (Buf_read.LE.uint48), Model.LE.uint48);
+    "le_uint64", Crowbar.const @@ Op (Fmt.int64, (Buf_read.LE.uint64), Model.LE.uint64);
+    "le_float", Crowbar.const @@ Op (Fmt.float, (Buf_read.LE.float), Model.LE.float);
+    "le_double", Crowbar.const @@ Op (Fmt.float, (Buf_read.LE.double), Model.LE.double);
   ]
 
 let catch f x =
