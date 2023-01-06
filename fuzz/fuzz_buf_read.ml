@@ -2,7 +2,21 @@
    It runs random operations on both the model and the real buffer and
    checks they always give the same result. *)
 
-open Astring
+module String = struct
+  include String
+
+  let rec find ?(start=0) p t =
+    if start = String.length t then None
+    else if p t.[start] then Some start
+    else find ~start:(succ start) p t
+
+  let drop t n = String.sub t n (String.length t - n)
+
+  let cut ~sep t =
+    match String.index_opt t sep with
+    | None -> None
+    | Some i -> Some (String.sub t 0 i, drop t (i + 1))
+end
 
 let debug = false
 
@@ -27,7 +41,7 @@ let mock_flow next = object (self)
     | x :: xs ->
       let len = min (Cstruct.length buf) (String.length x) in
       Cstruct.blit_from_string x 0 buf 0 len;
-      let x' = String.with_index_range x ~first:len in
+      let x' = String.drop x len in
       next <- (if x' = "" then xs else x' :: xs);
       len
 end
@@ -35,7 +49,7 @@ end
 module Model = struct
   type t = string ref
 
-  let of_chunks chunks = ref (String.concat chunks)
+  let of_chunks chunks = ref (String.concat "" chunks)
 
   let take_all t =
     let old = !t in
@@ -44,11 +58,11 @@ module Model = struct
     old
 
   let line t =
-    match String.cut ~sep:"\n" !t with
+    match String.cut ~sep:'\n' !t with
     | Some (line, rest) ->
       if String.length line >= max_size then raise Buffer_limit_exceeded;
       t := rest;
-      if String.is_suffix ~affix:"\r" line then String.with_index_range line ~last:(String.length line - 2)
+      if String.ends_with ~suffix:"\r" line then String.sub line 0 (String.length line - 2)
       else line
     | None when !t = "" -> raise End_of_file
     | None when String.length !t >= max_size -> raise Buffer_limit_exceeded
@@ -58,13 +72,16 @@ module Model = struct
     match !t with
     | "" -> raise End_of_file
     | s ->
-      t := String.with_index_range s ~first:1;
-      String.get_head s
+      t := String.drop s 1;
+      s.[0]
 
-  let peek_char t = String.head !t
+  let peek_char t =
+    match !t with
+    | "" -> None
+    | s -> Some (s.[0])
 
   let consume t n =
-    t := String.with_index_range !t ~first:n
+    t := String.drop !t n
 
   let char c t =
     match peek_char t with
@@ -75,17 +92,18 @@ module Model = struct
   let string s t =
     if debug then Fmt.pr "string %S@." s;
     let len_t = String.length !t in
-    if not (String.is_prefix ~affix:(String.with_range s ~len:len_t) !t) then failwith "string";
+    let prefix = String.sub s 0 (min len_t (String.length s)) in
+    if not (String.starts_with ~prefix !t) then failwith "string";
     if String.length s > max_size then raise Buffer_limit_exceeded;
-    if String.is_prefix ~affix:s !t then consume t (String.length s)
+    if String.starts_with ~prefix:s !t then consume t (String.length s)
     else raise End_of_file
 
   let take n t =
     if n < 0 then invalid_arg "neg";
     if n > max_size then raise Buffer_limit_exceeded
     else if String.length !t >= n then (
-      let data = String.with_range !t ~len:n in
-      t := String.with_range !t ~first:n;
+      let data = String.sub !t 0 n in
+      t := String.drop !t n;
       data
     ) else raise End_of_file
 
@@ -93,7 +111,7 @@ module Model = struct
     match String.find (Fun.negate p) !t with
     | Some i when i >= max_size -> raise Buffer_limit_exceeded
     | Some i ->
-      let data = String.with_range !t ~len:i in
+      let data = String.sub !t 0 i in
       consume t i;
       data
     | None -> take_all t
