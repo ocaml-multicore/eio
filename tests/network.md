@@ -259,7 +259,7 @@ Extracting file descriptors from Eio objects:
   traceln "Listening socket has Unix FD: %b" (Eio_unix.FD.peek_opt server <> None);
   let have_client, have_server =
     Fiber.pair
-      (fun () -> 
+      (fun () ->
          let flow = Eio.Net.connect ~sw net addr in
          (Eio_unix.FD.peek_opt flow <> None)
       )
@@ -710,3 +710,231 @@ TODO: This is wrong; see https://github.com/ocaml-multicore/eio/issues/342
 - : unit = ()
 ```
 
+
+## run_server
+
+A simple connection handler for testing:
+```ocaml
+let handle_connection flow _addr =
+  let msg = read_all flow in
+  assert (msg = "Hi");
+  Fiber.yield ();
+  Eio.Flow.copy_string "Bye" flow
+```
+
+A mock listening socket that allows acceping `n_clients` clients, each of which writes "Hi",
+and then allows `n_domains` further attempts, none of which ever completes:
+
+```ocaml
+let mock_listener ~n_clients ~n_domains =
+  let make_flow i () =
+    if n_domains > 1 then Fiber.yield ()       (* Load balance *)
+    else Fiber.check ();
+    let flow = Eio_mock.Flow.make ("flow" ^ string_of_int i) in
+    Eio_mock.Flow.on_read flow [`Return "Hi"; `Raise End_of_file];
+    flow, `Tcp (Eio.Net.Ipaddr.V4.loopback, 30000 + i)
+  in
+  let listening_socket = Eio_mock.Net.listening_socket "tcp/80" in
+  Eio_mock.Net.on_accept listening_socket (
+    List.init n_clients (fun i -> `Run (make_flow i)) @
+    List.init n_domains (fun _ -> `Run Fiber.await_cancel)
+  );
+  listening_socket
+```
+
+Start handling the connections, then begin a graceful shutdown,
+allowing the connections to finish and then exiting:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let listening_socket = mock_listener ~n_clients:3 ~n_domains:1 in
+  let stop, set_stop = Promise.create () in
+  Fiber.both
+    (fun () ->
+       Eio.Net.run_server listening_socket handle_connection
+         ~max_connections:10
+         ~on_error:raise
+         ~stop
+    )
+    (fun () ->
+       traceln "Begin graceful shutdown";
+       Promise.resolve set_stop ()
+    );;
++tcp/80: accepted connection from tcp:127.0.0.1:30000
++flow0: read "Hi"
++tcp/80: accepted connection from tcp:127.0.0.1:30001
++flow1: read "Hi"
++tcp/80: accepted connection from tcp:127.0.0.1:30002
++flow2: read "Hi"
++Begin graceful shutdown
++flow0: wrote "Bye"
++flow0: closed
++flow1: wrote "Bye"
++flow1: closed
++flow2: wrote "Bye"
++flow2: closed
+- : unit = ()
+```
+
+Non-graceful shutdown, closing all connections still in progress:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let listening_socket = mock_listener ~n_clients:3 ~n_domains:1 in
+  Fiber.both
+    (fun () ->
+      Eio.Net.run_server listening_socket handle_connection
+        ~max_connections:10
+        ~on_error:raise
+    )
+    (fun () -> failwith "Simulated error");;
++tcp/80: accepted connection from tcp:127.0.0.1:30000
++flow0: read "Hi"
++tcp/80: accepted connection from tcp:127.0.0.1:30001
++flow1: read "Hi"
++tcp/80: accepted connection from tcp:127.0.0.1:30002
++flow2: read "Hi"
++flow0: closed
++flow1: closed
++flow2: closed
+Exception: Failure "Simulated error".
+```
+
+To test support for multiple domains, we just run everything in one domain
+to keep the output deterministic. We override `traceln` to log the (fake)
+domain ID too:
+
+```ocaml
+let with_domain_tracing id fn =
+  let traceln ?__POS__ fmt =
+    Eio.Private.Debug.default_traceln ?__POS__ ("[%d] " ^^ fmt) id
+  in
+  Fiber.with_binding Eio.Private.Debug.v#traceln { traceln } fn
+
+let fake_domain_mgr () = object (_ : #Eio.Domain_manager.t)
+  val mutable next_domain_id = 1
+
+  method run fn =
+    let self = next_domain_id in
+    next_domain_id <- next_domain_id + 1;
+    let cancelled, _ = Promise.create () in
+    with_domain_tracing self (fun () -> fn ~cancelled)
+
+  method run_raw _ = assert false
+end
+```
+
+Handling the connections with 3 domains, with a graceful shutdown:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  with_domain_tracing 0 @@ fun () ->
+  let n_domains = 3 in
+  let listening_socket = mock_listener ~n_clients:10 ~n_domains in
+  let stop, set_stop = Promise.create () in
+  Fiber.both
+    (fun () ->
+      Eio.Net.run_server listening_socket handle_connection
+        ~additional_domains:(fake_domain_mgr (), n_domains - 1)
+        ~max_connections:10
+        ~on_error:raise
+        ~stop
+    )
+    (fun () ->
+      Fiber.yield ();
+      Promise.resolve set_stop ();
+      Fiber.yield ();   (* Allow fibers to receive shutdown request *)
+      traceln "Requested graceful shutdown"
+    );;
++[1] tcp/80: accepted connection from tcp:127.0.0.1:30000
++[1] flow0: read "Hi"
++[2] tcp/80: accepted connection from tcp:127.0.0.1:30001
++[2] flow1: read "Hi"
++[0] tcp/80: accepted connection from tcp:127.0.0.1:30002
++[0] flow2: read "Hi"
++[1] flow0: wrote "Bye"
++[1] flow0: closed
++[1] tcp/80: accepted connection from tcp:127.0.0.1:30003
++[1] flow3: read "Hi"
++[2] flow1: wrote "Bye"
++[2] flow1: closed
++[2] tcp/80: accepted connection from tcp:127.0.0.1:30004
++[2] flow4: read "Hi"
++[0] flow2: wrote "Bye"
++[0] flow2: closed
++[0] tcp/80: accepted connection from tcp:127.0.0.1:30005
++[0] flow5: read "Hi"
++[0] Requested graceful shutdown
++[1] flow3: wrote "Bye"
++[1] flow3: closed
++[2] flow4: wrote "Bye"
++[2] flow4: closed
++[0] flow5: wrote "Bye"
++[0] flow5: closed
+- : unit = ()
+```
+
+Handling the connections with 3 domains, aborting immediately:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  with_domain_tracing 0 @@ fun () ->
+  let n_domains = 3 in
+  let listening_socket = mock_listener ~n_clients:10 ~n_domains in
+  Fiber.both
+    (fun () ->
+      Eio.Net.run_server listening_socket handle_connection
+        ~additional_domains:(fake_domain_mgr (), n_domains - 1)
+        ~max_connections:10
+        ~on_error:raise
+    )
+    (fun () -> Fiber.yield (); failwith "Simulated error");;
++[1] tcp/80: accepted connection from tcp:127.0.0.1:30000
++[1] flow0: read "Hi"
++[2] tcp/80: accepted connection from tcp:127.0.0.1:30001
++[2] flow1: read "Hi"
++[0] tcp/80: accepted connection from tcp:127.0.0.1:30002
++[0] flow2: read "Hi"
++[1] flow0: closed
++[2] flow1: closed
++[0] flow2: closed
+Exception: Failure "Simulated error".
+```
+
+Limiting to 2 concurrent connections:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let listening_socket = mock_listener ~n_clients:10 ~n_domains:1 in
+  let stop, set_stop = Promise.create () in
+  Fiber.both
+    (fun () ->
+      Eio.Net.run_server listening_socket handle_connection
+        ~max_connections:2
+        ~on_error:raise
+        ~stop
+    )
+    (fun () ->
+      for _ = 1 to 2 do Fiber.yield () done;
+      traceln "Begin graceful shutdown";
+      Promise.resolve set_stop ()
+    );;
++tcp/80: accepted connection from tcp:127.0.0.1:30000
++flow0: read "Hi"
++tcp/80: accepted connection from tcp:127.0.0.1:30001
++flow1: read "Hi"
++flow0: wrote "Bye"
++flow0: closed
++flow1: wrote "Bye"
++flow1: closed
++tcp/80: accepted connection from tcp:127.0.0.1:30002
++flow2: read "Hi"
++tcp/80: accepted connection from tcp:127.0.0.1:30003
++flow3: read "Hi"
++Begin graceful shutdown
++flow2: wrote "Bye"
++flow2: closed
++flow3: wrote "Bye"
++flow3: closed
+- : unit = ()
+```
