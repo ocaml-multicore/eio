@@ -182,11 +182,14 @@ val accept :
     The new socket will be closed automatically when [sw] finishes, if not closed earlier.
     If you want to handle multiple connections, consider using {!accept_fork} instead. *)
 
+type connection_handler = stream_socket -> Sockaddr.stream -> unit
+(** [connection_handler] handles incoming connections from a listening socket. *)
+
 val accept_fork :
   sw:Switch.t ->
   #listening_socket ->
   on_error:(exn -> unit) ->
-  (stream_socket -> Sockaddr.stream -> unit) ->
+  connection_handler ->
   unit
 (** [accept_fork socket fn] accepts a connection and handles it in a new fiber.
 

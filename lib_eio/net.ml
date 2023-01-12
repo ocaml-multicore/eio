@@ -170,6 +170,8 @@ class virtual listening_socket = object
   method virtual close : unit
 end
 
+type connection_handler = stream_socket -> Sockaddr.stream -> unit
+
 let accept ~sw (t : #listening_socket) = t#accept ~sw
 
 let accept_fork ~sw (t : #listening_socket) ~on_error handle =
