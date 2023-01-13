@@ -18,7 +18,32 @@
 open Brr
 
 module Fiber_context = Eio.Private.Fiber_context
-module Lf_queue = Eio_utils.Lf_queue
+module Run_queue : sig
+  type 'a t
+  (* A queue that supports pushing to the head of the queue *)
+
+  val create : unit -> 'a t
+
+  val push : 'a t -> 'a -> unit
+  (** [push q v] pushes a new item [v] to the back of the queue [q] *)
+
+  val push_head : 'a t -> 'a -> unit
+  (** [push_head q v] pushes a new item [v] to the head of the queue [q] *)
+
+  val pop : 'a t -> 'a option
+  (** [pop q] pops the next item of the queue if available. *)
+
+end = struct
+  type 'a t = 'a Lwt_dllist.t
+
+  let create () = Lwt_dllist.create ()
+
+  let push q v = ignore (Lwt_dllist.add_r v q : 'a Lwt_dllist.node)
+
+  let push_head q v = ignore (Lwt_dllist.add_l v q : 'a Lwt_dllist.node)
+
+  let pop q = Lwt_dllist.take_opt_l q
+end
 
 module Ctf = Eio.Private.Ctf
 
@@ -66,13 +91,13 @@ type t = {
   (* Suspended fibers waiting to run again.
      [Lf_queue] is like [Stdlib.Queue], but is thread-safe (lock-free) and
      allows pushing items to the head too, which we need. *)
-  mutable run_q : (unit -> unit) Lf_queue.t;
+  mutable run_q : (unit -> unit) Run_queue.t;
   mutable pending_io : int;
   mutable scheduler : Scheduler.t option;
 }
 
 let enqueue_thread t k v =
-  Lf_queue.push t.run_q (fun () -> Suspended.continue k v);
+  Run_queue.push t.run_q (fun () -> Suspended.continue k v);
   t.pending_io <- t.pending_io - 1;
   Option.iter Scheduler.wakeup t.scheduler
 
@@ -87,7 +112,7 @@ let enter_io fn =
 
 (* Resume the next runnable fiber, if any. *)
 let schedule t : unit =
-  match Lf_queue.pop t.run_q with
+  match Run_queue.pop t.run_q with
   | Some f -> f ();
   | None ->
     if t.pending_io = 0 then begin
@@ -113,7 +138,7 @@ let next_event : 'a Brr.Ev.type' -> Brr.Ev.target -> 'a Brr.Ev.t = fun typ targe
 
 (* Largely based on the Eio_mock.Backend event loop. *)
 let run main =
-  let run_q = Lf_queue.create () in
+  let run_q = Run_queue.create () in
   let t = { run_q; pending_io = 0; scheduler = None } in
   let scheduler = Scheduler.v ~schedule t in
   t.scheduler <- Some scheduler;
@@ -129,8 +154,8 @@ let run main =
           match e with
           | Eio.Private.Effects.Suspend f -> Some (fun k ->
               f fiber (function
-                  | Ok v -> Lf_queue.push t.run_q (fun () -> Effect.Deep.continue k v)
-                  | Error ex -> Lf_queue.push t.run_q (fun () -> Effect.Deep.discontinue k ex)
+                  | Ok v -> Run_queue.push t.run_q (fun () -> Effect.Deep.continue k v)
+                  | Error ex -> Run_queue.push t.run_q (fun () -> Effect.Deep.discontinue k ex)
                 );
               schedule t
             )
@@ -139,7 +164,7 @@ let run main =
               schedule t
             )
           | Eio.Private.Effects.Fork (new_fiber, f) -> Some (fun k ->
-              Lf_queue.push_head t.run_q (Effect.Deep.continue k);
+              Run_queue.push_head t.run_q (Effect.Deep.continue k);
               fork ~new_fiber f
             )
           | Eio.Private.Effects.Get_context -> Some (fun k ->
