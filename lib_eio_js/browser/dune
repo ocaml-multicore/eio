@@ -1,4 +1,4 @@
 (library
  (name eio_browser)
  (public_name eio_browser)
- (libraries eio eio.utils brr))
+ (libraries eio brr))
