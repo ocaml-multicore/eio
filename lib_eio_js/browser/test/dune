@@ -1,0 +1,13 @@
+; We compile by hand because dune is a little broken w.r.t to 
+; separate compilation, js_of_ocaml and effects.
+(executable
+ (name index)
+ (modes js)
+ (js_of_ocaml (flags --target-env=nodejs --enable=effects --debug-info --source-map --pretty))
+ (libraries eio_browser))
+
+(rule
+ (alias default)
+ (deps index.html index.bc.js)
+ (targets index.js)
+ (action (copy index.bc.js index.js)))

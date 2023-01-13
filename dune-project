@@ -61,6 +61,16 @@
   (mdx (and (>= 1.10.0) :with-test))
   (fmt (>= 0.8.9))))
 (package
+ (name eio_browser)
+ (synopsis "Eio implementation for the browser")
+ (description "An eio implementation that is compatible with programs running in the browser.")
+ (depends
+  (eio (= :version))
+  (brr (>= 0.0.4))
+  (js_of_ocaml (>= 5.0.1))
+  (logs (>= 0.7.0))
+  (fmt (>= 0.8.9))))
+(package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
  (description "Selects an appropriate Eio backend for the current platform.")
