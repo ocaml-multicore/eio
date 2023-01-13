@@ -72,12 +72,13 @@ module Scheduler = struct
 
   let v ~schedule t =
     let open Brr_io in
-    (* let ev = Brr.Ev.create Message.Ev.message in *)
     let scheduler = El.div [] in
     let el = El.as_target scheduler in
     let listener = Brr.Ev.listen Message.Ev.message (fun _ev -> schedule t) el in
-    let schedule () =
-      Jv.call (El.to_jv scheduler) "dispatchEvent" [| Ev.create Message.Ev.message |> Ev.to_jv |] |> ignore
+    let schedule =
+      let args = [| Ev.create Message.Ev.message |> Ev.to_jv |] in
+      let sched = El.to_jv scheduler in
+      fun () -> Jv.call sched "dispatchEvent" args |> ignore
     in
     { listener; schedule }
 
