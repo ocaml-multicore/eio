@@ -1,13 +1,17 @@
-; We compile by hand because dune is a little broken w.r.t to 
-; separate compilation, js_of_ocaml and effects.
+(library
+ (name eio_test)
+ (modules eio_test)
+ (libraries eio alcotest))
+
 (executable
- (name index)
+ (name test)
+ (modules test)
  (modes js)
- (js_of_ocaml (flags --target-env=nodejs --enable=effects --debug-info --source-map --pretty))
- (libraries eio_browser))
+ (js_of_ocaml (flags --target-env=nodejs --enable=effects --setenv=ALCOTEST_COLOR=always))
+ (libraries alcotest ansi eio_test eio_browser))
 
 (rule
  (alias default)
- (deps index.html index.bc.js)
- (targets index.js)
- (action (copy index.bc.js index.js)))
+ (deps index.html test.bc.js)
+ (targets test.js)
+ (action (copy test.bc.js test.js)))
