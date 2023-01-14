@@ -66,7 +66,9 @@
  (description "An eio implementation that is compatible with programs running in the browser.")
  (depends
   (eio (= :version))
-  (brr (>= 0.0.4))))
+  (brr (>= 0.0.4))
+  (alcotest (and (>= 1.6.0) :with-test))
+  (ansi :with-test)))
 (package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
