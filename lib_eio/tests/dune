@@ -1,3 +1,6 @@
 (mdx
   (package eio)
-  (deps (package eio)))
+  (deps
+    (package eio)
+    (file ./dscheck/fake_sched.ml)
+    (file ./dscheck/fake_sched.mli)))
