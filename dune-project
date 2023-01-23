@@ -1,4 +1,4 @@
-(lang dune 2.9)
+(lang dune 3.0)
 (name eio)
 (formatting disabled)
 (generate_opam_files true)
@@ -58,4 +58,4 @@
   (eio_linux (and (= :version) (= :os "linux")))
   (mdx (and (>= 1.10.0) :with-test))
   (eio_luv (= :version))))
-(using mdx 0.1)
+(using mdx 0.2)
