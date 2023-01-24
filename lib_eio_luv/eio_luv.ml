@@ -1186,7 +1186,7 @@ let rec wakeup ~async ~io_queued run_q =
       Luv.Async.send async |> or_raise
   | None -> ()
 
-let rec run : type a. (_ -> a) -> a = fun main ->
+let rec run2 : type a. (_ -> a) -> a = fun main ->
   let loop = Luv.Loop.init () |> or_raise in
   let run_q = Lf_queue.create () in
   let io_queued = ref false in
@@ -1198,7 +1198,7 @@ let rec run : type a. (_ -> a) -> a = fun main ->
         Luv.Loop.stop loop
     ) |> or_raise in
   let st = { loop; async; run_q; fd_map = Fd_map.empty } in
-  let stdenv = stdenv ~run_event_loop:run in
+  let stdenv = stdenv ~run_event_loop:run2 in
   let rec fork ~new_fiber:fiber fn =
     Ctf.note_switch (Fiber_context.tid fiber);
     let open Effect.Deep in
@@ -1304,3 +1304,33 @@ let rec run : type a. (_ -> a) -> a = fun main ->
   | `Done v -> v
   | `Ex (ex, bt) -> Printexc.raise_with_backtrace ex bt
   | `Running -> failwith "Deadlock detected: no events scheduled but main function hasn't returned"
+
+let start_signal_thread () =
+  let all = List.init 64 (fun x -> x) in
+  let omask = Thread.sigmask SIG_SETMASK all in
+  let inp, outp = Unix.pipe ~cloexec:true () in
+  let tid =
+    Thread.create
+      (fun () ->
+         Thread.sigmask SIG_SETMASK [] |> ignore;
+         let bytes = Bytes.create 1 in
+         let rec loop () =
+           match Unix.read inp bytes 0 1 with
+           | exception Unix.Unix_error (Unix.EINTR, _, _) -> loop ()
+           | 0 -> Unix.close inp
+           | _ -> failwith "signal pipe didn't return EOF or EINTR"
+         in
+         loop ()
+      ) ()
+  in
+  tid, omask, outp
+
+let stop_signal_thread (tid, omask, outp) =
+  Unix.close outp;
+  Thread.join tid;
+  Unix.sigprocmask SIG_SETMASK omask |> ignore
+
+let run main =
+  let sigctx = start_signal_thread () in
+  Fun.protect (fun () -> run2 main)
+    ~finally:(fun () -> stop_signal_thread sigctx)
