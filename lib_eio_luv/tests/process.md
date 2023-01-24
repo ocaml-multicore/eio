@@ -11,12 +11,17 @@ module Process = Eio_luv.Low_level.Process
 A helper function for reading all of the bytes from a handle.
 
 ```ocaml
-let read_all handle buf =
-  let rec read acc =
+let read_all handle =
+  let buf = Luv.Buffer.create 32 in 
+  let acc_buffer = Buffer.create 42 in
+  let rec read () =
     match Eio_luv.Low_level.Stream.read_into handle buf with
-    | i -> read (acc + i)
-    | exception End_of_file -> acc
-  in read 0
+    | i ->
+      Buffer.add_string acc_buffer
+        (Luv.Buffer.to_string (Luv.Buffer.sub buf ~offset:0 ~length:i));
+      read ()
+    | exception End_of_file -> Buffer.contents acc_buffer
+  in read ()
 ```
 
 A simple `echo hello` process redirects to stdout.
@@ -39,14 +44,13 @@ Using a pipe to redirect output to a buffer.
 # Eio_luv.run @@ fun _env ->
   Switch.run @@ fun sw ->
   let parent_pipe = Eio_luv.Low_level.Pipe.init ~sw () in
-  let buf = Luv.Buffer.create 32 in 
   let redirect = Eio_luv.Low_level.Process.[
     to_parent_pipe ~fd:Luv.Process.stdout ~parent_pipe ()
   ] in
   let t = Process.spawn ~sw ~redirect "echo" [ "echo"; "Hello,"; "World!" ] in
-  let read = read_all parent_pipe buf in
+  let result = read_all parent_pipe in
   let _ = Process.await_exit t in
-  Luv.Buffer.to_string (Luv.Buffer.sub buf ~offset:0 ~length:read);;
+  result;;
 - : string = "Hello, World!\n"
 ```
 
