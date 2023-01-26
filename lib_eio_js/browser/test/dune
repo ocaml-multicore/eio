@@ -13,7 +13,7 @@
  (alias runtest)
  (deps test.bc)
  (targets test.bc.js)
- (action (run %{bin:js_of_ocaml} -o %{targets} --enable=effects --setenv=ALCOTEST_COLOR=always +alcotest/runtime.js %{dep:test.bc})))
+ (action (run %{bin:js_of_ocaml} -o %{targets} --enable=effects --setenv=ALCOTEST_COLOR=always %{lib:eio_browser:runtime.js} +alcotest/runtime.js %{dep:test.bc})))
 
 (rule
  (alias runtest)

@@ -76,7 +76,7 @@ module Browser_tests = struct
   let test_multiple_timeouts () =
     let lst = List.init 100 Fun.id in
     let v =
-       Eio_browser.Timeout.sleep ~ms:1; lst
+      Fiber.List.map (fun v -> Eio_browser.Timeout.sleep ~ms:100; v) lst
     in
     Alcotest.(check (list int)) "timeouts" lst v
 

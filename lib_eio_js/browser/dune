@@ -1,4 +1,8 @@
 (library
  (name eio_browser)
  (public_name eio_browser)
+ (foreign_stubs
+   (language c)
+   (names stubs))
+ (js_of_ocaml (javascript_files runtime.js))
  (libraries eio brr))

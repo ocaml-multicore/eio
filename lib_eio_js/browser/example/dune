@@ -10,7 +10,7 @@
  (alias runtest)
  (deps index.bc)
  (targets index.bc.js)
- (action (run %{bin:js_of_ocaml} -o %{targets} --enable=effects %{dep:index.bc})))
+ (action (run %{bin:js_of_ocaml} -o %{targets} --enable=effects %{lib:eio_browser:runtime.js} %{dep:index.bc})))
 
 (rule
  (alias runtest)
