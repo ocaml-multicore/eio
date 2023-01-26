@@ -12,7 +12,7 @@ bench:
 	dune exec -- ./bench/bench_stream.exe
 	dune exec -- ./bench/bench_semaphore.exe
 	dune exec -- ./bench/bench_cancel.exe
-	dune exec -- ./lib_eio_linux/tests/bench_noop.exe
+	if ocamlc -config | grep -q '^system: linux'; then dune exec -- ./lib_eio_linux/tests/bench_noop.exe; fi
 
 test_luv:
 	EIO_BACKEND=luv dune runtest
