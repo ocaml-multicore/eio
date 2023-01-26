@@ -64,106 +64,98 @@ module Suspended = struct
     Effect.Deep.discontinue t.k ex
 end
 
+(* The Javascript backend scheduler is implemented as an event listener.
+   We don't need to worry about multiple domains. Here any time something
+   asynchronously enqueues a task to our queue, it also sends a wakeup event to
+   the event listener which will run the callback calling the scheduler. *)
 module Scheduler = struct
   type t = {
-    listener : Brr.Ev.listener;
-    schedule : (unit -> unit);
+    scheduler : El.t;
+    run_q : (unit -> unit) Run_queue.t;
+    mutable listener : Ev.listener option;
   }
 
-  let v ~schedule t =
+  let v run_q =
+    { scheduler = El.div []; run_q; listener = None }
+
+  let start ~schedule t =
     let open Brr_io in
-    let scheduler = El.div [] in
-    let el = El.as_target scheduler in
-    let listener = Brr.Ev.listen Message.Ev.message (fun _ev -> schedule t) el in
-    let schedule =
-      let args = [| Ev.create Message.Ev.message |> Ev.to_jv |] in
-      let sched = El.to_jv scheduler in
-      fun () -> Jv.call sched "dispatchEvent" args |> ignore
+    let listener =
+      Brr.Ev.listen Message.Ev.message (fun _ev -> schedule t.run_q) (El.as_target t.scheduler)
     in
-    { listener; schedule }
+    t.listener <- Some listener
 
   let stop t =
-    Brr.Ev.unlisten t.listener
+    Option.iter Brr.Ev.unlisten t.listener;
+    t.listener <- None
 
-  let wakeup t = t.schedule ()
+  let wakeup =
+    let open Brr_io in
+    let args = [| Ev.create Message.Ev.message |> Ev.to_jv |] in
+    fun t -> Jv.call (El.to_jv t.scheduler) "dispatchEvent" args |> ignore
+
+  let enqueue_thread t k v =
+    Run_queue.push t.run_q (fun () -> Suspended.continue k v);
+    wakeup t
+
+  let enqueue_failed_thread t k v =
+    Run_queue.push t.run_q (fun () -> Suspended.discontinue k v);
+    wakeup t
 end
 
-type t = {
-  (* Suspended fibers waiting to run again.
-     [Run_queue] is like [Stdlib.Queue], but allows pushing items
-     to the head too, which we need. *)
-  mutable run_q : (unit -> unit) Run_queue.t;
-  mutable pending_io : int;
-  mutable scheduler : Scheduler.t option;
-}
-
-let enqueue_thread t k v =
-  Run_queue.push t.run_q (fun () -> Suspended.continue k v);
-  t.pending_io <- t.pending_io - 1;
-  Option.iter Scheduler.wakeup t.scheduler
-
-let enqueue_failed_thread t k v =
-  Run_queue.push t.run_q (fun () -> Suspended.discontinue k v);
-  t.pending_io <- t.pending_io - 1;
-  Option.iter Scheduler.wakeup t.scheduler
-
-
-type _ Effect.t += Enter_unchecked : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
+type _ Effect.t += Enter_unchecked : (Scheduler.t -> 'a Suspended.t -> unit) -> 'a Effect.t
 let enter_unchecked fn = Effect.perform (Enter_unchecked fn)
 
-let enter_io fn =
-  enter_unchecked @@ fun st k ->
-  st.pending_io <- st.pending_io + 1;
-  fn st k
-
 (* Resume the next runnable fiber, if any. *)
-let schedule t : unit =
-  match Run_queue.pop t.run_q with
-  | Some f -> f ();
-  | None ->
-    if t.pending_io = 0 then begin
-      Option.iter Scheduler.stop t.scheduler
-    end
+let rec schedule run_q : unit =
+  match Run_queue.pop run_q with
+  | Some f ->
+    f ();
+    schedule run_q
+  | None -> ()
 
 module Timeout = struct
   let sleep ~ms =
-    enter_io @@ fun st k ->
-    let timer = ref None in
-    Fiber_context.set_cancel_fn k.fiber (fun exn -> Option.iter G.stop_timer !timer; enqueue_failed_thread st k exn);
+    enter_unchecked @@ fun st k ->
     let id = G.set_timeout ~ms (fun () ->
         Fiber_context.clear_cancel_fn k.fiber;
-        enqueue_thread st k ()
+        Scheduler.enqueue_thread st k ()
       ) in
-    timer := Some id
+    Fiber_context.set_cancel_fn k.fiber (fun exn -> G.stop_timer id; Scheduler.enqueue_failed_thread st k exn);
 end
 
 let await fut =
-  enter_io @@ fun st k ->
+  enter_unchecked @@ fun st k ->
+  (* There is no way to cancel a Javascript promise (which Fut wraps) so we
+     have to leak this memory unfortunately. *)
   let cancelled = ref true in
-  Fiber_context.set_cancel_fn k.fiber (fun exn -> cancelled := true; enqueue_failed_thread st k exn);
+  Fiber_context.set_cancel_fn k.fiber (fun exn -> cancelled := true; Scheduler.enqueue_failed_thread st k exn);
   Fut.await fut (fun v ->
-      Fiber_context.clear_cancel_fn k.fiber;
-      if not !cancelled then enqueue_thread st k v
+      if not !cancelled then begin
+        Fiber_context.clear_cancel_fn k.fiber;
+        Scheduler.enqueue_thread st k v
+      end
     )
 
 let next_event : 'a Brr.Ev.type' -> Brr.Ev.target -> 'a Brr.Ev.t = fun typ target ->
   let opts = Brr.Ev.listen_opts ~once:true () in
   let listen fn = Brr.Ev.listen ~opts typ fn target in
-  enter_io @@ fun st k ->
-  let listener = ref None in
-  Fiber_context.set_cancel_fn k.fiber (fun exn -> Option.iter Ev.unlisten !listener; enqueue_failed_thread st k exn);
-  let v = listen (fun v -> enqueue_thread st k v) in
-  listener := Some v
+  enter_unchecked @@ fun st k ->
+  (* If there is a cancellation of the call to next_event, then unlisten
+     will be called and so enqueue_thread will never be called even
+     if another event arrives. *)
+  let v = listen (fun v -> Fiber_context.clear_cancel_fn k.fiber; Scheduler.enqueue_thread st k v) in
+  Fiber_context.set_cancel_fn k.fiber (fun exn -> Ev.unlisten v; Scheduler.enqueue_failed_thread st k exn)
 
 (* Largely based on the Eio_mock.Backend event loop. *)
 let run main =
   let run_q = Run_queue.create () in
-  let t = { run_q; pending_io = 0; scheduler = None } in
-  let scheduler = Scheduler.v ~schedule t in
-  t.scheduler <- Some scheduler;
+  let scheduler = Scheduler.v run_q in
+  (* Register event listener for wakeup events. *)
+  Scheduler.start ~schedule scheduler;
   let rec fork ~new_fiber:fiber fn =
     Effect.Deep.match_with fn ()
-      { retc = (fun () -> Fiber_context.destroy fiber; schedule t);
+      { retc = (fun () -> Fiber_context.destroy fiber; schedule run_q);
         exnc = (fun ex ->
             let bt = Printexc.get_raw_backtrace () in
             Fiber_context.destroy fiber;
@@ -173,17 +165,17 @@ let run main =
           match e with
           | Eio.Private.Effects.Suspend f -> Some (fun k ->
               f fiber (function
-                  | Ok v -> Run_queue.push t.run_q (fun () -> Effect.Deep.continue k v)
-                  | Error ex -> Run_queue.push t.run_q (fun () -> Effect.Deep.discontinue k ex)
+                  | Ok v -> Run_queue.push run_q (fun () -> Effect.Deep.continue k v)
+                  | Error ex -> Run_queue.push run_q (fun () -> Effect.Deep.discontinue k ex)
                 );
-              schedule t
+              schedule run_q
             )
           | Enter_unchecked fn -> Some (fun k ->
-              fn t { Suspended.k; fiber };
-              schedule t
+              fn scheduler { Suspended.k; fiber };
+              schedule run_q
             )
           | Eio.Private.Effects.Fork (new_fiber, f) -> Some (fun k ->
-              Run_queue.push_head t.run_q (Effect.Deep.continue k);
+              Run_queue.push_head run_q (Effect.Deep.continue k);
               fork ~new_fiber f
             )
           | Eio.Private.Effects.Get_context -> Some (fun k ->
@@ -195,4 +187,4 @@ let run main =
   let new_fiber = Fiber_context.make_root () in
   let result, r = Fut.create () in
   let () = fork ~new_fiber (fun () -> r (main ())) in
-  result
+  Fut.map (fun v -> Scheduler.stop scheduler; v) result
