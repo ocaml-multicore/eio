@@ -35,7 +35,6 @@ let init () =
       d
   in
   let append name s =
-    Brr.Console.log [ s ];
     let s = Ansi.process parser s in
     let p = El.pre [] in
     El.to_jv p |> fun jv ->
@@ -66,9 +65,20 @@ module Browser_tests = struct
     in
     Alcotest.(check string) "fut cancelled" "B" v
 
+  let test_timeout () = Eio_browser.Timeout.sleep ~ms:200
+
+  let test_multiple_timeouts () =
+    let lst = List.init 100 Fun.id in
+    let v =
+       Eio_browser.Timeout.sleep ~ms:1; lst
+    in
+    Alcotest.(check (list int)) "timeouts" lst v
+
   let tests = [
     Alcotest.test_case "timeout cancelled" `Quick test_timeout_cancel;
-    Alcotest.test_case "fut cancelled" `Quick test_fut_cancel
+    Alcotest.test_case "fut cancelled" `Quick test_fut_cancel;
+    Alcotest.test_case "test timeout" `Quick test_timeout;
+    Alcotest.test_case "test multiple timeouts" `Quick test_multiple_timeouts
   ]
 end
 
@@ -76,10 +86,11 @@ end
 let () =
   init ();
   let main =
-    Eio_browser.run @@ fun env ->
-    try Alcotest.run "eio" [
+    Eio_browser.run @@ fun () ->
+    try Alcotest.run ~and_exit:false "eio" [
         "fibers", Eio_test.Fibers.tests;
         "stream", Eio_test.Stream.tests;
+        "promises", Eio_test.Promises.tests;
         "browser", Browser_tests.tests
       ] with Exit -> ()
   in
