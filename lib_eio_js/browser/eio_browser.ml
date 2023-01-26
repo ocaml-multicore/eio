@@ -72,22 +72,18 @@ module Scheduler = struct
   type t = {
     scheduler : El.t;
     run_q : (unit -> unit) Run_queue.t;
-    mutable listener : Ev.listener option;
+    mutable listener : Ev.listener;
   }
 
-  let v run_q =
-    { scheduler = El.div []; run_q; listener = None }
-
-  let start ~schedule t =
+  let v ~schedule run_q =
     let open Brr_io in
+    let scheduler = El.div [] in
     let listener =
-      Brr.Ev.listen Message.Ev.message (fun _ev -> schedule t.run_q) (El.as_target t.scheduler)
+      Brr.Ev.listen Message.Ev.message (fun _ev -> schedule run_q) (El.as_target scheduler)
     in
-    t.listener <- Some listener
+    { scheduler; run_q; listener }
 
-  let stop t =
-    Option.iter Brr.Ev.unlisten t.listener;
-    t.listener <- None
+  let stop t = Brr.Ev.unlisten t.listener
 
   let wakeup =
     let open Brr_io in
@@ -150,9 +146,7 @@ let next_event : 'a Brr.Ev.type' -> Brr.Ev.target -> 'a Brr.Ev.t = fun typ targe
 (* Largely based on the Eio_mock.Backend event loop. *)
 let run main =
   let run_q = Run_queue.create () in
-  let scheduler = Scheduler.v run_q in
-  (* Register event listener for wakeup events. *)
-  Scheduler.start ~schedule scheduler;
+  let scheduler = Scheduler.v ~schedule run_q in
   let rec fork ~new_fiber:fiber fn =
     Effect.Deep.match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; schedule run_q);
