@@ -131,7 +131,7 @@ opam install eio_main utop
 Try out the examples interactively by running `utop` in the shell.
 
 First `require` the `eio_main` library. It's also convenient to open the [Eio.Std][]
-module, as follows. (The leftmost `#` shown below is the Utop prompt, so enter the text after the 
+module, as follows. (The leftmost `#` shown below is the Utop prompt, so enter the text after the
 prompt and return after each line.)
 
 ```ocaml
@@ -414,99 +414,99 @@ Note that not all cases are well-optimised yet, but the idea is for each backend
 ## Networking
 
 Eio provides an API for [networking][Eio.Net].
-Here is a client that connects to address `addr` using network `net` and sends a message:
+Here is a server connection handler that handles an incoming connection by sending the client a message:
+
+```ocaml
+let handle_client flow _addr =
+  traceln "Server: got connection from client";
+  Eio.Flow.copy_string "Hello from server" flow
+```
+
+We can test it using a mock flow:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let flow = Eio_mock.Flow.make "flow" in
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 37568) in
+  handle_client flow addr;;
++Server: got connection from client
++flow: wrote "Hello from server"
+- : unit = ()
+```
+
+Note: `Eio_mock.Backend.run` can be used instead of `Eio_main.run` for tests that don't access the outside environment at all.
+It doesn't support multiple domains, but this allows it to detect deadlocks automatically
+(a multi-domain loop has to assume it might get an event from another domain, and so must keep waiting).
+
+Here is a client that connects to address `addr` using network `net` and reads a message:
 
 ```ocaml
 let run_client ~net ~addr =
-  traceln "Connecting to server...";
+  traceln "Client: connecting to server";
   Switch.run @@ fun sw ->
   let flow = Eio.Net.connect ~sw net addr in
-  Eio.Flow.copy_string "Hello from client" flow
+  let b = Buffer.create 100 in
+  Eio.Flow.copy flow (Eio.Flow.buffer_sink b);
+  traceln "Client: received %S" (Buffer.contents b)
 ```
 
 Note: the `flow` is attached to `sw` and will be closed automatically when it finishes.
 
-We can test it using a mock network:
-
-```ocaml
-# Eio_main.run @@ fun _env ->
-  let net = Eio_mock.Net.make "mocknet" in
-  let socket = Eio_mock.Flow.make "socket" in
-  Eio_mock.Net.on_connect net [`Return socket];
-  run_client ~net ~addr:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 8080));; 
-+Connecting to server...
-+mocknet: connect to tcp:127.0.0.1:8080
-+socket: wrote "Hello from client"
-+socket: closed
-- : unit = ()
-```
-
-Here is a server that listens on `socket` and handles a single connection by reading a message:
-
-```ocaml
-let run_server socket =
-  Switch.run @@ fun sw ->
-  Eio.Net.accept_fork socket ~sw (fun flow _addr ->
-    traceln "Server accepted connection from client";
-    let b = Buffer.create 100 in
-    Eio.Flow.copy flow (Eio.Flow.buffer_sink b);
-    traceln "Server received: %S" (Buffer.contents b)
-  ) ~on_error:(traceln "Error handling connection: %a" Fmt.exn);
-  traceln "(normally we'd loop and accept more connections here)"
-```
-
-Notes:
-
-- `accept_fork` handles the connection in a new fiber.
-- Normally, a server would call `accept_fork` in a loop to handle multiple connections.
-- When the handler passed to `accept_fork` finishes, `flow` is closed automatically.
-
 This can also be tested on its own using a mock network:
 
 ```ocaml
-# Eio_main.run @@ fun _env ->
-  let listening_socket = Eio_mock.Net.listening_socket "tcp/80" in
-  let mock_addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 37568) in
-  let connection = Eio_mock.Flow.make "connection" in
-  Eio_mock.Net.on_accept listening_socket [`Return (connection, mock_addr)];
-  Eio_mock.Flow.on_read connection [
+# Eio_mock.Backend.run @@ fun () ->
+  let net = Eio_mock.Net.make "mocknet" in
+  let flow = Eio_mock.Flow.make "flow" in
+  Eio_mock.Net.on_connect net [`Return flow];
+  Eio_mock.Flow.on_read flow [
     `Return "(packet 1)";
     `Yield_then (`Return "(packet 2)");
     `Raise End_of_file;
   ];
-  run_server listening_socket;;
-+tcp/80: accepted connection from tcp:127.0.0.1:37568
-+Server accepted connection from client
-+connection: read "(packet 1)"
-+(normally we'd loop and accept more connections here)
-+connection: read "(packet 2)"
-+Server received: "(packet 1)(packet 2)"
-+connection: closed
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 8080) in
+  run_client ~net ~addr;;
++Client: connecting to server
++mocknet: connect to tcp:127.0.0.1:8080
++flow: read "(packet 1)"
++flow: read "(packet 2)"
++Client: received "(packet 1)(packet 2)"
++flow: closed
 - : unit = ()
 ```
 
-We can now run them together using the real network (in a single process) using `Fiber.both`:
+`Eio.Net.run_server` runs a loop accepting clients and handling them (concurrently):
+
+```ocaml
+let run_server socket =
+  Eio.Net.run_server socket handle_client
+    ~on_error:(traceln "Error handling connection: %a" Fmt.exn)
+```
+
+Note: when `handle_client` finishes, `run_server` closes the flow automatically.
+
+We can now run the client and server together using the real network (in a single process):
 
 ```ocaml
 let main ~net ~addr =
   Switch.run @@ fun sw ->
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
-  traceln "Server ready...";
-  Fiber.both
-    (fun () -> run_server server)
-    (fun () -> run_client ~net ~addr)
+  Fiber.fork_daemon ~sw (fun () -> run_server server);
+  run_client ~net ~addr
 ```
+
+`Fiber.fork_daemon` creates a new fiber and then cancels it when the switch finishes.
+We need that here because otherwise the server would keep waiting for new connections and
+the test would never finish.
 
 ```ocaml
 # Eio_main.run @@ fun env ->
   main
     ~net:(Eio.Stdenv.net env)
     ~addr:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 8080));;
-+Server ready...
-+Connecting to server...
-+Server accepted connection from client
-+(normally we'd loop and accept more connections here)
-+Server received: "Hello from client"
++Client: connecting to server
++Server: got connection from client
++Client: received "Hello from server"
 - : unit = ()
 ```
 
@@ -555,7 +555,7 @@ Some key features required for a capability system are:
 3. No top-level mutable state.
    In OCaml, if two libraries use a module `Foo` with top-level mutable state, then they could communicate using that
    without first being introduced to each other by the main application code.
-   
+
 4. APIs should make it easy to restrict access.
    For example, having a "directory" should allow access to that sub-tree of the file-system only.
    If the file-system abstraction provides a `get_parent` function then access to any directory is
@@ -629,7 +629,7 @@ open Eio.Buf_read.Syntax
 type message = { src : string; body : string }
 
 let message =
-  let+ src = Eio.Buf_read.(string "FROM:" *> line) 
+  let+ src = Eio.Buf_read.(string "FROM:" *> line)
   and+ body = Eio.Buf_read.take_all in
   { src; body }
 ```
