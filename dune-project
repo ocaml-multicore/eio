@@ -40,7 +40,7 @@
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
   (cmdliner (and (>= 1.1.0) :with-test))
-  (uring (>= 0.4))))
+  (uring (and (>= 0.4) (= :os "linux")))))
 (package
  (name eio_luv)
  (synopsis "Eio implementation using luv (libuv)")
