@@ -6,12 +6,17 @@
 (executable
  (name test)
  (modules test)
- (modes js)
- (js_of_ocaml (flags --target-env=nodejs --enable=effects --setenv=ALCOTEST_COLOR=always))
+ (modes byte)
  (libraries alcotest ansi eio_test eio_browser))
 
 (rule
- (alias default)
+ (alias runtest)
+ (deps test.bc)
+ (targets test.bc.js)
+ (action (run %{bin:js_of_ocaml} -o %{targets} --enable=effects --setenv=ALCOTEST_COLOR=always +alcotest/runtime.js %{dep:test.bc})))
+
+(rule
+ (alias runtest)
  (deps index.html test.bc.js)
  (targets test.js)
  (action (copy test.bc.js test.js)))
