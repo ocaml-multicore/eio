@@ -56,6 +56,12 @@ module Browser_tests = struct
     in
     Alcotest.(check string) "timeout cancelled" "B" v
 
+  let test_fut_await () =
+    let p, r = Fut.create () in
+    Fiber.both
+      (fun () -> Eio_browser.await p)
+      (fun () -> r ())
+
   let test_fut_cancel () =
     let p, _ = Fut.create () in
     let v =
@@ -76,6 +82,7 @@ module Browser_tests = struct
 
   let tests = [
     Alcotest.test_case "timeout cancelled" `Quick test_timeout_cancel;
+    Alcotest.test_case "fut await" `Quick test_fut_await;
     Alcotest.test_case "fut cancelled" `Quick test_fut_cancel;
     Alcotest.test_case "test timeout" `Quick test_timeout;
     Alcotest.test_case "test multiple timeouts" `Quick test_multiple_timeouts
