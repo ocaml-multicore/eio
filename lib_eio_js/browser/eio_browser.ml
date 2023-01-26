@@ -85,10 +85,11 @@ module Scheduler = struct
 
   let stop t = Brr.Ev.unlisten t.listener
 
-  let wakeup =
+  (* A new message must be created for every call. *)
+  let wakeup t =
     let open Brr_io in
     let args = [| Ev.create Message.Ev.message |> Ev.to_jv |] in
-    fun t -> Jv.call (El.to_jv t.scheduler) "dispatchEvent" args |> ignore
+    Jv.call (El.to_jv t.scheduler) "dispatchEvent" args |> ignore
 
   let enqueue_thread t k v =
     Run_queue.push t.run_q (fun () -> Suspended.continue k v);
@@ -124,7 +125,7 @@ let await fut =
   enter_unchecked @@ fun st k ->
   (* There is no way to cancel a Javascript promise (which Fut wraps) so we
      have to leak this memory unfortunately. *)
-  let cancelled = ref true in
+  let cancelled = ref false in
   Fiber_context.set_cancel_fn k.fiber (fun exn -> cancelled := true; Scheduler.enqueue_failed_thread st k exn);
   Fut.await fut (fun v ->
       if not !cancelled then begin
