@@ -32,6 +32,7 @@
  (name eio_linux)
  (synopsis "Eio implementation for Linux using io-uring")
  (description "An eio implementation for Linux using io-uring.")
+ (allow_empty)
  (depends
   (alcotest (and (>= 1.4.0) :with-test))
   (eio (= :version))
