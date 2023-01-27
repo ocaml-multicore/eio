@@ -192,7 +192,8 @@ end = struct
     let m = if Lwt_dllist.is_empty events.read then m else `READABLE :: m in
     if m = [] then (
       Luv.Poll.stop events.handle |> or_raise;
-      t.fd_map <- Fd_map.remove events.fd t.fd_map
+      t.fd_map <- Fd_map.remove events.fd t.fd_map;
+      Luv.Handle.close events.handle (fun () -> ())
     ) else (
       Luv.Poll.start events.handle m (poll_callback t events)
     )
@@ -605,8 +606,9 @@ module Low_level = struct
     let spawn ?cwd ?env ?uid ?gid ?(redirect=[]) ~sw cmd args =
       let status, set_status = Promise.create () in
       let hook = ref None in
-      let on_exit _ ~exit_status ~term_signal =
+      let on_exit proc ~exit_status ~term_signal =
         Option.iter Switch.remove_hook !hook;
+        Luv.Handle.close proc (fun () -> ());
         Promise.resolve set_status (term_signal, exit_status)
       in
       let proc = Luv.Process.spawn ?environment:env ?uid ?gid ~loop:(get_loop ()) ?working_directory:cwd ~redirect ~on_exit cmd args |> or_raise in
@@ -632,6 +634,7 @@ module Low_level = struct
       );
     Luv.Timer.start timer delay (fun () ->
         Suspended.clear_cancel_fn k;
+        Luv.Handle.close timer (fun () -> ());
         enqueue_thread st k ()
       ) |> or_raise
 
@@ -969,7 +972,8 @@ let domain_mgr ~run_event_loop =
   let run_raw (type a) ~pre_spawn fn =
     let domain_k : (unit Domain.t * a Suspended.t) option ref = ref None in
     let result = ref None in
-    let async = Luv.Async.init ~loop:(get_loop ()) (fun async ->
+    enter @@ fun st k ->
+    let async = Luv.Async.init ~loop:st.loop (fun async ->
         (* This is called in the parent domain after returning to the mainloop,
            so [domain_k] must be set by then. *)
         let domain, k = Option.get !domain_k in
@@ -979,7 +983,6 @@ let domain_mgr ~run_event_loop =
         Suspended.continue_result k (Option.get !result)
       ) |> or_raise
     in
-    enter @@ fun _st k ->
     pre_spawn k;
     let d = Domain.spawn (fun () ->
         result := Some (match fn () with
@@ -1292,11 +1295,12 @@ let rec run2 : type a. (_ -> a) -> a = fun main ->
         | v -> main_status := `Done v
         | exception ex -> main_status := `Ex (ex, Printexc.get_raw_backtrace ())
       end;
+      Luv.Handle.close async @@ fun () ->
       Luv.Loop.stop loop
     );
   ignore (Luv.Loop.run ~loop () : bool);
+  Luv.Loop.close loop |> or_raise;
   Lf_queue.close st.run_q;
-  Luv.Handle.close async (fun () -> Luv.Loop.close loop |> or_raise);
   match !main_status with
   | `Done v -> v
   | `Ex (ex, bt) -> Printexc.raise_with_backtrace ex bt
