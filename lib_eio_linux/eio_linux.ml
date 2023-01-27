@@ -26,9 +26,6 @@ module Suspended = Eio_utils.Suspended
 module Zzz = Eio_utils.Zzz
 module Lf_queue = Eio_utils.Lf_queue
 
-(* SIGPIPE makes no sense in a modern application. *)
-let () = Sys.(set_signal sigpipe Signal_ignore)
-
 type amount = Exactly of int | Upto of int
 
 let system_thread = Ctf.mint_id ()
@@ -1553,3 +1550,8 @@ let rec run : type a.
       )
   in
   Option.get !result
+
+let run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
+  (* SIGPIPE makes no sense in a modern application. *)
+  Sys.(set_signal sigpipe Signal_ignore);
+  run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main

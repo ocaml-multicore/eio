@@ -141,3 +141,19 @@ Writing to and reading from a pipe.
 +Got: Hello, world
 - : unit = ()
 ```
+
+Make sure we don't crash on SIGPIPE:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let r, w = Eio_unix.pipe sw in
+  Eio.Flow.close r;
+  try
+    Eio.Flow.copy_string "Test" w;
+    assert false
+  with Eio.Io (Eio.Net.E Connection_reset _, _) ->
+    traceln "Connection_reset (good)"
++Connection_reset (good)
+- : unit = ()
+```
