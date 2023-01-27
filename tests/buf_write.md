@@ -426,3 +426,88 @@ If we don't pass a switch then we can still cancel flushes manually:
 +Aborted
 - : unit = ()
 ```
+
+## Round-trips with Buf_read
+
+```ocaml
+module Read = Eio.Buf_read
+
+let test (x : 'a) (f : Write.t -> 'a -> unit) (g : Read.t -> 'a) =
+  let encoded =
+    let t = Write.create 10 in
+    f t x;
+    Write.serialize_to_string t
+  in
+  let decoded = Read.parse_string_exn g encoded in
+  if x <> decoded then Fmt.failwith "Failed to round-trip: %S" encoded;
+  encoded
+
+let to_hex data =
+  let b = Buffer.create (String.length data * 2) in
+  data |> String.iter (fun c ->
+    Buffer.add_string b (Printf.sprintf "%02x" (Char.code c))
+  );
+  Buffer.contents b
+```
+
+```ocaml
+# test "test" (Write.string ?off:None ?len:None) Read.take_all;;
+- : string = "test"
+
+# test '\253' Write.char Read.any_char |> String.escaped;;
+- : string = "\\253"
+
+# test 0xa5 Write.uint8 Read.uint8 |> to_hex;;
+- : string = "a5"
+```
+
+Big-endian:
+
+```ocaml
+# test 0xa123 Write.BE.uint16 Read.BE.uint16 |> to_hex;;
+- : string = "a123"
+
+# test 0xa1234567l Write.BE.uint32 Read.BE.uint32 |> to_hex;;
+- : string = "a1234567"
+
+# test 0xa1234567890aL Write.BE.uint48 Read.BE.uint48 |> to_hex;;
+- : string = "a1234567890a"
+
+# test 0xa1234567890abcdeL Write.BE.uint64 Read.BE.uint64 |> to_hex;;
+- : string = "a1234567890abcde"
+
+# test 32.25 Write.BE.float Read.BE.float |> to_hex;;
+- : string = "42010000"
+
+# test 32.25 Write.BE.double Read.BE.double |> to_hex;;
+- : string = "4040200000000000"
+```
+
+Little-endian (using `to_hex'` to reverse the output):
+
+```ocaml
+let to_hex' d =
+  let l = String.length d in
+  String.init l (fun i -> d.[l - i - 1])
+  |> to_hex
+```
+
+```ocaml
+# test 0xa123 Write.LE.uint16 Read.LE.uint16 |> to_hex';;
+- : string = "a123"
+
+# test 0xa1234567l Write.LE.uint32 Read.LE.uint32 |> to_hex';;
+- : string = "a1234567"
+
+# test 0xa1234567890aL Write.LE.uint48 Read.LE.uint48 |> to_hex';;
+- : string = "a1234567890a"
+
+# test 0xa1234567890abcdeL Write.LE.uint64 Read.LE.uint64 |> to_hex';;
+- : string = "a1234567890abcde"
+
+# test 32.25 Write.LE.float Read.LE.float |> to_hex';;
+- : string = "42010000"
+
+# test 32.25 Write.LE.double Read.LE.double |> to_hex';;
+- : string = "4040200000000000"
+```
