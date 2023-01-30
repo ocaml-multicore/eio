@@ -21,9 +21,6 @@ module Ctf = Eio.Private.Ctf
 module Fiber_context = Eio.Private.Fiber_context
 module Lf_queue = Eio_utils.Lf_queue
 
-(* SIGPIPE makes no sense in a modern application. *)
-let () = Sys.(set_signal sigpipe Signal_ignore)
-
 type Eio.Exn.Backend.t +=
   | Luv_error of Luv.Error.t
   | Outside_sandbox of string * string
@@ -1331,6 +1328,8 @@ let stop_signal_thread (tid, omask, outp) =
   Unix.sigprocmask SIG_SETMASK omask |> ignore
 
 let run main =
+  (* Unix's SIGPIPE makes no sense in a modern application. *)
+  if Sys.os_type = "Unix" then Sys.(set_signal sigpipe Signal_ignore);
   let sigctx = start_signal_thread () in
   Fun.protect (fun () -> run2 main)
     ~finally:(fun () -> stop_signal_thread sigctx)
