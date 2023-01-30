@@ -19,12 +19,6 @@ let handle_client flow addr =
    We can handle multiple clients at the same time.
    Never returns (but can be cancelled). *)
 let run socket =
-  Switch.run @@ fun sw ->
-  let rec serve () =
-    Eio.Net.accept_fork ~sw socket handle_client
-      ~on_error:(traceln "Error handling connection: %a" Fmt.exn);
-    (* Loop to accept more connections (while the new fiber handles the
-       one we just got): *)
-    serve ()
-  in
-  serve ()
+  Eio.Net.run_server socket handle_client
+    ~on_error:(traceln "Error handling connection: %a" Fmt.exn)
+    ~max_connections:1000
