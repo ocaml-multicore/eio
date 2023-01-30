@@ -244,7 +244,7 @@ module Stdenv : sig
   (** {1 Randomness} *)
 
   val secure_random : <secure_random : #Flow.source as 'a; ..> -> 'a
-  (** [secure_random t] is a source of random bytes suitable for cryptographic purposes. *)
+  (** [secure_random t] is an infinite source of random bytes suitable for cryptographic purposes. *)
 
   (** {1 Debugging} *)
 
