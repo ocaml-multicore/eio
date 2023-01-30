@@ -241,6 +241,8 @@ let any_char t =
   consume t 1;
   c
 
+let uint8 t = Char.code (any_char t)
+
 let peek_char t =
   match ensure t 1 with
   | () -> Some (get t 0)
