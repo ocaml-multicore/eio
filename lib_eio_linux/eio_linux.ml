@@ -941,15 +941,21 @@ module EventFD_pool : sig
 end = struct
   external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
-  let free = Lf_queue.create ()
+  let m = Mutex.create ()
+  let free = Queue.create ()
 
   let get () =
-    match Lf_queue.pop free with
+    Mutex.lock m;
+    let r = Queue.take_opt free in
+    Mutex.unlock m;
+    match r with
     | Some fd -> fd
     | None -> eio_eventfd 0
 
   let put fd =
-    Lf_queue.push free fd
+    Mutex.lock m;
+    Queue.add fd free;
+    Mutex.unlock m
 end
 
 type has_fd = < fd : FD.t >
