@@ -679,6 +679,29 @@ Eio.Io Net Connection_failure Timeout,
   connecting to "www.example.com":http
 ```
 
+## tcp_connect 
+
+Use with user provided `Switch.t`, so that the connection created by `with_tcp_connect` can be used
+after the function returns.
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
+  let mock_flow = Eio_mock.Flow.make "flow" in
+  Eio_mock.Flow.on_read mock_flow [`Return "Hello,there"; `Raise End_of_file]; 
+  Eio_mock.Net.on_connect net [`Return mock_flow];
+  Switch.run @@ fun sw ->
+  let conn = Eio.Net.tcp_connect ~sw ~host:"www.example.com" ~service:"http" net in
+  let buf = Cstruct.create 20 in
+  let got = Eio.Flow.single_read conn buf in
+  got;;
++mock-net: getaddrinfo ~service:http www.example.com
++mock-net: connect to tcp:127.0.0.1:80
++flow: read "Hello,there"
++flow: closed
+- : int = 11
+```
+
 ## read/write on SOCK_DGRAM
 
 TODO: This is wrong; see https://github.com/ocaml-multicore/eio/issues/342

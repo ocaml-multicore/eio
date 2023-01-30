@@ -246,8 +246,7 @@ let getnameinfo (t:#t) sockaddr = t#getnameinfo sockaddr
 
 let close = Flow.close
 
-let with_tcp_connect ?(timeout=Time.Timeout.none) ~host ~service t f =
-  Switch.run @@ fun sw ->
+let tcp_connect ?(timeout=Time.Timeout.none) ~sw ~host ~service t =
   match
     let rec aux = function
       | [] -> raise @@ err (Connection_failure No_matching_addresses)
@@ -265,10 +264,15 @@ let with_tcp_connect ?(timeout=Time.Timeout.none) ~host ~service t f =
       )
     |> aux
   with
-  | conn -> f conn
+  | conn -> conn
   | exception (Exn.Io _ as ex) ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "connecting to %S:%s" host service
+
+let with_tcp_connect ?timeout ~host ~service t f =
+  Switch.run @@ fun sw ->
+  let conn = tcp_connect ?timeout ~sw ~host ~service t in
+  f conn
 
 (* Run a server loop in a single domain. *)
 let run_server_loop ~connections ~on_error ~stop listening_socket connection_handler =

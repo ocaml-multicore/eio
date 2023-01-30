@@ -1,7 +1,6 @@
 (** Example:
     {[
       let addr = `Tcp (Ipaddr.V4.loopback, 8080)
-
       let http_get ~net ~stdout addr =
         Switch.run @@ fun sw ->
         let flow = Net.connect ~sw net addr in
@@ -134,6 +133,27 @@ val connect : sw:Switch.t -> #t -> Sockaddr.stream -> <stream_socket; Flow.close
 (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
     The new socket will be closed when [sw] finishes, unless closed manually first. *)
+
+val tcp_connect :
+  ?timeout:Time.Timeout.t ->
+  sw:Switch.t ->
+  host:string ->
+  service:string ->
+  #t ->
+  <stream_socket; Flow.close>
+(** [tcp_connect ~sw ~host ~service t] is a new tcp connection connected to [host] and [service].
+
+    [host] is either an IP address or a domain name, eg. "www.example.org", "www.ocaml.org" or "127.0.0.1".
+
+    [service] is an IANA recognized service name or port number, eg. "http", "ftp", "8080" etc.
+    See https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml.
+
+    Addresses are tried in the order they are returned by {!getaddrinfo}, until one succeeds.
+
+    @param timeout Limits how long to wait for each connection attempt before moving on to the next.
+                   By default there is no timeout (beyond what the underlying network does).
+
+    @raise Connection_failure A connection couldn't be established for any of the addresses defined for [host]. *)
 
 val with_tcp_connect :
   ?timeout:Time.Timeout.t ->
