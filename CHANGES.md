@@ -1,3 +1,71 @@
+## v0.8
+
+New features:
+
+- Add `Eio.Net.run_server` (@bikallem @talex5 #408).  
+  Runs an accept loop in one or more domains, with cancellation and graceful shutdown,
+  and an optional maximum number of concurrent connections.
+
+- Add `Buf_read.BE` and `LE` parsers (@Cjen1 #399).  
+  Parse numbers in various binary formats.
+
+- Add `Eio.Buf_read.uint8` (@talex5 #418).
+
+Performance:
+
+- Make `Eio.Condition` lock-free (@talex5 #397 #381).  
+  In addition to being faster, this allows using conditions in signal handlers.
+
+- Make `Eio.Semaphore` lock-free (@talex5 @polytypic #398).
+
+- Make `Eio.Stream` lock-free when the capacity is zero (@talex5 #413 #411).
+
+- Make `Eio.Promise` lock-free (@talex5 #401).
+
+Bug fixes:
+
+- eio_linux: call `Uring.submit` as needed (@talex5 @bikallem #428).  
+  Previously, we could fail to submit a job promptly because the SQE queue was full.
+
+- Fix luv signals (@haesbaert #412).  
+  `libuv` automatically retries polling if it gets `EINTR`, without giving OCaml signal handlers a chance to run.
+
+- eio_luv: fix some resource leaks (@talex5 @patricoferris #421).
+
+- eio_luv: fix "unavailable signal" error on Windows (@talex5 #420, reported by @nojb).
+
+- Fix `Buf_write.BE.uint48` and `LE.uint48` (@adatario #418).
+
+Documentation:
+
+- Add example programs (@talex5 #389).
+
+- Update network examples to use `run_server` (@talex5 #417).
+
+- Add a warning to the tutorial about `Fiber.first` (@talex5 #394).
+
+- Clarify the epoch used for `Eio.Time.now` (@bikallem #395).
+
+- Describe `secure_random` as an infinite source (@patricoferris #426).
+
+- Update README for OCaml 5 release (@talex5 #384 #391 #393).
+
+Other changes:
+
+- Delay setting `SIGPIPE` handler until the `run` function is called (@talex5 #420).
+
+- Remove debug-level logging (@talex5 #403).
+
+- eio-luv: improve `process.md` test (@smondet #414).
+
+- Update to Dune 3 (@talex5 #410).
+
+- Remove test dependency on Astring (@talex5 #402 #404).
+
+- Simplify cancellation logic (@talex5 #396).
+
+- time: `Mtime.Spand.to_s` has been deprecated in mtime 2.0.0 (@bikallem #385).
+
 ## v0.7
 
 API changes:
