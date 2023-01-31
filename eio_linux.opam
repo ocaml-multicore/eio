@@ -16,7 +16,7 @@ depends: [
   "logs" {>= "0.7.0"}
   "fmt" {>= "0.8.9"}
   "cmdliner" {>= "1.1.0" & with-test}
-  "uring" {>= "0.4"}
+  "uring" {>= "0.5"}
   "odoc" {with-doc}
 ]
 build: [

@@ -234,11 +234,18 @@ type _ Effect.t += Enter : (t -> 'a Suspended.t -> unit) -> 'a Effect.t
 type _ Effect.t += Cancel : io_job Uring.job -> unit Effect.t
 let enter fn = Effect.perform (Enter fn)
 
+let rec enqueue_job t fn =
+  match fn () with
+  | Some _ as r -> r
+  | None ->
+    if Uring.submit t.uring > 0 then enqueue_job t fn
+    else None
+
 (* Cancellations always come from the same domain, so no need to send wake events here. *)
-let rec enqueue_cancel job st =
+let rec enqueue_cancel job t =
   Ctf.label "cancel";
-  match Uring.cancel st.uring job Cancel_job with
-  | None -> Queue.push (fun st -> enqueue_cancel job st) st.io_q
+  match enqueue_job t (fun () -> Uring.cancel t.uring job Cancel_job) with
+  | None -> Queue.push (fun t -> enqueue_cancel job t) t.io_q
   | Some _ -> ()
 
 let cancel job = Effect.perform (Cancel job)
@@ -261,15 +268,15 @@ let cancel job = Effect.perform (Cancel job)
 
    If the operation completes before Linux processes the cancellation, we get [ENOENT], which we ignore. *)
 
-(* [with_cancel_hook ~action st fn] calls [fn] to create a job,
+(* [with_cancel_hook ~action t fn] calls [fn] to create a job,
    then sets the fiber's cancel function to cancel it.
    If [action] is already cancelled, it schedules [action] to be discontinued.
    @return Whether to retry the operation later, once there is space. *)
-let with_cancel_hook ~action st fn =
+let with_cancel_hook ~action t fn =
   match Fiber_context.get_error action.Suspended.fiber with
-  | Some ex -> enqueue_failed_thread st action ex; false
+  | Some ex -> enqueue_failed_thread t action ex; false
   | None ->
-    match fn () with
+    match enqueue_job t fn with
     | None -> true
     | Some job ->
       Fiber_context.set_cancel_fn action.fiber (fun _ -> cancel job);
@@ -364,11 +371,11 @@ let rec enqueue_poll_add_unix fd poll_mask st action cb =
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_poll_add_unix fd poll_mask st action cb) st.io_q
 
-let rec enqueue_close st action fd =
+let rec enqueue_close t action fd =
   Ctf.label "close";
-  let subm = Uring.close st.uring fd (Job_no_cancel action) in
+  let subm = enqueue_job t (fun () -> Uring.close t.uring fd (Job_no_cancel action)) in
   if subm = None then (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_close st action fd) st.io_q
+    Queue.push (fun t -> enqueue_close t action fd) t.io_q
 
 let enqueue_write st action (file_offset,fd,buf,len) =
   let file_offset =
@@ -483,12 +490,12 @@ let rec enqueue_accept fd client_addr st action =
       Queue.push (fun st -> enqueue_accept fd client_addr st action) st.io_q
     )
 
-let rec enqueue_noop st action =
+let rec enqueue_noop t action =
   Ctf.label "noop";
-  let retry = (Uring.noop st.uring (Job_no_cancel action) = None) in
-  if retry then (
+  let job = enqueue_job t (fun () -> Uring.noop t.uring (Job_no_cancel action)) in
+  if job = None then (
     (* wait until an sqe is available *)
-    Queue.push (fun st -> enqueue_noop st action) st.io_q
+    Queue.push (fun t -> enqueue_noop t action) t.io_q
   )
 
 let submit_pending_io st =

@@ -110,6 +110,21 @@ let test_iovec () =
     );
   Alcotest.(check string) "Transfer correct" "Got [foo] and [bar]" (Cstruct.to_string message)
 
+(* We fill the SQE buffer and need to submit early. *)
+let test_no_sqe () =
+  try
+    Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
+    Switch.run @@ fun sw ->
+    for _ = 1 to 8 do
+      Fiber.fork ~sw (fun () ->
+          let r, _w = Eio_unix.pipe sw in
+          ignore (Eio.Flow.single_read r (Cstruct.create 1) : int);
+          assert false
+        )
+    done;
+    raise Exit
+  with Exit -> ()
+
 let () =
   let open Alcotest in
   run "eio_linux" [
@@ -119,5 +134,6 @@ let () =
       test_case "poll_add"      `Quick test_poll_add;
       test_case "poll_add_busy" `Quick test_poll_add_busy;
       test_case "iovec"         `Quick test_iovec;
+      test_case "no-sqe"        `Quick test_no_sqe;
     ];
   ]
