@@ -107,6 +107,9 @@ val string : string -> unit parser
 
     @raise Failure if [s] is not a prefix of the stream. *)
 
+val uint8 : int parser
+(** [uint8] parses the next byte as an unsigned 8-bit integer. *)
+
 (** Big endian parsers *)
 module BE : sig
   val uint16 : int parser

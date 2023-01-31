@@ -281,10 +281,10 @@ module BE = struct
   let uint48 t i =
     writable_exn t;
     ensure_space t 6;
-    Bigstringaf.unsafe_set_int32_be t.buffer t.write_pos
-      Int64.(to_int32 (shift_right_logical i 4));
-    Bigstringaf.unsafe_set_int16_be t.buffer (t.write_pos + 2)
-      Int64.(to_int i);
+    Bigstringaf.unsafe_set_int16_be t.buffer t.write_pos
+      Int64.(to_int (shift_right_logical i 32));
+    Bigstringaf.unsafe_set_int32_be t.buffer (t.write_pos + 2)
+      Int64.(to_int32 i);
     advance_pos t 6
 
   let uint64 t i =
@@ -325,7 +325,7 @@ module LE = struct
     Bigstringaf.unsafe_set_int16_le t.buffer t.write_pos
       Int64.(to_int i);
     Bigstringaf.unsafe_set_int32_le t.buffer (t.write_pos + 2)
-      Int64.(to_int32 (shift_right_logical i 2));
+      Int64.(to_int32 (shift_right_logical i 16));
     advance_pos t 6
 
   let uint64 t i =
