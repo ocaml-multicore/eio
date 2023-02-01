@@ -20,6 +20,7 @@ depends: [
   "hmap" {>= "0.8.1"}
   "crowbar" {>= "0.2" & with-test}
   "mtime" {>= "2.0.0"}
+  "mdx" {>= "1.10.0" & with-test}
   "alcotest" {>= "1.4.0" & with-test}
   "dscheck" {>= "0.1.0" & with-test}
   "odoc" {with-doc}
