@@ -31,6 +31,8 @@ Waiting for the same file descriptor to become writable does not raise `EEXIST`.
 An example of reading and writing with different file descriptors.
 
 ```ocaml
+# Printexc.record_backtrace true;;
+- : unit = ()
 # with_sockets @@ fun ~sw ((src, src_fd), (dst, dst_fd)) ->
   let message = "hello" in
   let buffer = Buffer.create (String.length message) in
@@ -45,6 +47,9 @@ An example of reading and writing with different file descriptors.
     );
   Buffer.contents buffer;;
 - : string = "hello"
+
+# Printexc.record_backtrace false;;
+- : unit = ()
 ```
 
 Waiting for reading and writing on the same file descriptor.
