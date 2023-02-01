@@ -1,7 +1,11 @@
 (library
  (name eio_linux)
  (public_name eio_linux)
- (enabled_if (= %{system} "linux"))
+ (enabled_if ; See https://github.com/ocaml/dune/issues/4895
+   (or (= %{system} "linux")          ; Linux-x86
+       (= %{system} "linux_eabihf")   ; Linux-arm32
+       (= %{system} "linux_elf")      ; Linux-x86_32
+       (= %{system} "elf")))          ; Linux-ppc64
  (foreign_stubs
   (language c)
   (flags :standard -D_LARGEFILE64_SOURCE)
