@@ -26,6 +26,7 @@
   (hmap (>= 0.8.1))
   (crowbar (and (>= 0.2) :with-test))
   (mtime (>= 2.0.0))
+  (mdx (and (>= 1.10.0) :with-test))
   (alcotest (and (>= 1.4.0) :with-test))
   (dscheck (and (>= 0.1.0) :with-test))))
 (package
