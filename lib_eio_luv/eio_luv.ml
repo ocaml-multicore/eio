@@ -58,7 +58,7 @@ let or_raise_fs = function
 (* Luv can't handle buffers with more than 2^32-1 bytes, limit it to
    31bit so we can also make sure 32bit archs don't overflow.
    See https://github.com/ocaml-multicore/eio/issues/335 *)
-let max_luv_buffer_size = 0x7fffffff
+let max_luv_buffer_size = 0x3fffffff   (* Max signed int on 32-bit OCaml platforms *)
 
 (* Return as much of [buf] as luv can handle. This is suitable if a short read/write is acceptable. *)
 let cstruct_to_luv_truncate buf =
