@@ -15,6 +15,7 @@ depends: [
   "mdx" {>= "1.10.0" & with-test}
   "logs" {>= "0.7.0"}
   "fmt" {>= "0.8.9"}
+  "spawn" {>= "v0.15.1"}
   "cmdliner" {>= "1.1.0" & with-test}
   "uring" {>= "0.5"}
   "odoc" {with-doc}

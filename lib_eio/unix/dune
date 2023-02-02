@@ -1,4 +1,5 @@
 (library
  (name eio_unix)
+ (optional)
  (public_name eio.unix)
  (libraries eio unix threads mtime.clock.os spawn))
