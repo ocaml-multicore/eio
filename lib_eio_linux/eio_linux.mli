@@ -248,4 +248,29 @@ module Low_level : sig
   (** [getaddrinfo host] returns a list of IP addresses for [host]. [host] is either a domain name or
       an ipaddress. *)
 
+  module Process : sig
+    type t
+    (** A subprocess *)
+
+    val spawn :
+      ?env:Spawn.Env.t ->
+      ?cwd:Spawn.Working_dir.t ->
+      ?stdin:Unix.file_descr ->
+      ?stdout:Unix.file_descr ->
+      ?stderr:Unix.file_descr ->
+      sw:Switch.t ->
+      string ->
+      string list ->
+      t
+    (** Spawns a subprocess. By default all of the optional arguments are inherited from the
+        calling process. If the process has not finished when the switch is released, the process
+        will be sent [Sys.sigkill]. *)
+
+    val await_exit : t -> Unix.process_status
+    (** [await_exit t] waits for the process [t] to exit. This blocks the fiber until the process
+        has finished. *)
+
+    val send_signal : t -> int -> unit
+    (** A wrapper for {!Unix.kill}. *)
+  end
 end

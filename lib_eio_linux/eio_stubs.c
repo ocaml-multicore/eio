@@ -99,3 +99,15 @@ CAMLprim value caml_eio_getdents(value v_fd) {
 
   CAMLreturn(result);
 }
+
+static int pidfd_open(pid_t pid, unsigned int flags) {
+  return syscall(__NR_pidfd_open, pid, flags);
+}
+
+CAMLprim value caml_eio_pidfd_open(value v_pid) {
+  CAMLparam1(v_pid);
+  int fd;
+  // Returns a file descriptor for the PID with close-on-exec set.
+  fd = pidfd_open(Int_val(v_pid), 0);
+  CAMLreturn(Val_int(fd));
+}

@@ -77,3 +77,18 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
   run_in_systhread (fun () ->
     let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
     (ni_hostname, ni_service))
+
+module Spawn = struct
+  let resolve_program ~paths prog =
+    if not (Filename.is_relative prog) then Some prog
+    else 
+    let rec loop = function
+      | path :: rest ->
+        let p = Filename.concat path prog in
+        if Sys.file_exists p then Some p else loop rest
+      | [] -> None
+    in
+    loop paths
+  
+  let spawn = Spawn.spawn
+end

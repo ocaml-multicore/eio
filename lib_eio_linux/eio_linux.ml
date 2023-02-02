@@ -896,6 +896,45 @@ module Low_level = struct
     Eio_unix.run_in_systhread @@ fun () ->
     Unix.getaddrinfo node service []
     |> List.filter_map to_eio_sockaddr_t
+
+    module Process = struct
+      external pidfd_open : int -> Unix.file_descr = "caml_eio_pidfd_open" 
+
+      type t = {
+        process : FD.t;
+        pid : int;
+        mutable hook : Switch.hook option;
+        mutable status : Unix.process_status option;
+      }
+
+      let await_exit t =
+        match t.status with
+          | Some status -> status
+          | None ->
+            await_readable t.process;
+            let status = Unix.waitpid [] t.pid |> snd in
+            Option.iter Switch.remove_hook t.hook;
+            t.status <- Some status;
+            status
+      
+      let spawn ?env ?cwd ?stdin ?stdout ?stderr ~sw prog argv =
+        let paths = Option.map (fun v -> String.split_on_char ':' v) (Sys.getenv_opt "PATH") |> Option.value ~default:[ "/usr/bin"; "/usr/local/bin" ] in
+        let prog = match Eio_unix.Spawn.resolve_program ~paths prog with
+          | Some prog -> prog
+          | None -> raise (Eio.Fs.err (Eio.Fs.Not_found (Eio_unix.Unix_error (Unix.ENOENT, "", ""))))
+        in
+        let pid = Eio_unix.Spawn.spawn ?env ?cwd ?stdin ?stdout ?stderr ~prog ~argv () in
+        let fd = pidfd_open pid in
+        let process = FD.of_unix ~sw ~seekable:false ~close_unix:true fd in
+        let t = { process; pid; hook = None; status = None } in
+        let hook = Switch.on_release_cancellable sw (fun () ->
+          Unix.kill pid Sys.sigkill; ignore (await_exit t)
+        ) in
+        t.hook <- Some hook;
+        t
+
+        let send_signal t i = Unix.kill t.pid i
+    end
 end
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
