@@ -1,3 +1,13 @@
+## v0.8.1
+
+Some build fixes:
+
+- Fix build on various architectures (@talex5 #432).
+  - Work around dune `%{system}` bug.
+  - eio_luv: fix `max_luv_buffer_size` on 32-bit platforms.
+
+- Add missing test-dependency on MDX (@talex5 #430).
+
 ## v0.8
 
 New features:
