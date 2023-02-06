@@ -32,7 +32,7 @@
 (package
  (name eio_linux)
  (synopsis "Eio implementation for Linux using io-uring")
- (description "An eio implementation for Linux using io-uring.")
+ (description "An Eio implementation for Linux using io-uring.")
  (depends
   (alcotest (and (>= 1.4.0) :with-test))
   (eio (= :version))
@@ -42,9 +42,18 @@
   (cmdliner (and (>= 1.1.0) :with-test))
   (uring (>= 0.5))))
 (package
+ (name eio_posix)
+ (synopsis "Eio implementation for POSIX systems")
+ (description "An Eio implementation for most Unix-like platforms")
+ (depends
+  (eio (= :version))
+  (iomux (>= 0.2))
+  (mdx (and (>= 1.10.0) :with-test))
+  (fmt (>= 0.8.9))))
+(package
  (name eio_luv)
  (synopsis "Eio implementation using luv (libuv)")
- (description "An eio implementation for most platforms, using luv.")
+ (description "An Eio implementation for most platforms, using luv.")
  (depends
   (eio (= :version))
   (luv (>= 0.5.11))
@@ -56,7 +65,8 @@
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
  (description "Selects an appropriate Eio backend for the current platform.")
  (depends
-  (eio_linux (and (= :version) (= :os "linux")))
   (mdx (and (>= 1.10.0) :with-test))
+  (eio_linux (and (= :version) (= :os "linux")))
+  (eio_posix (and (= :version) (<> :os "windows")))
   (eio_luv (= :version))))
 (using mdx 0.2)

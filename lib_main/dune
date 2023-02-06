@@ -5,6 +5,9 @@
     (select linux_backend.ml from
             (eio_linux -> linux_backend.enabled.ml)
             (          -> linux_backend.disabled.ml))
+    (select posix_backend.ml from
+            (eio_posix -> posix_backend.enabled.ml)
+            (          -> posix_backend.disabled.ml))
     (select luv_backend.ml from
             (eio_luv -> luv_backend.enabled.ml)
             (        -> luv_backend.disabled.ml))
