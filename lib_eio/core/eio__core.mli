@@ -148,6 +148,11 @@ module Promise : sig
       Any threads waiting for the result will be added to the run queue.
       @raise Invalid_argument if [u] is already resolved. *)
 
+  val try_resolve : 'a u -> 'a -> bool
+  (** [try_resolve] is like {!resolve} but returns [false] instead of raising [Invalid_argument].
+
+      Returns [true] on success. *)
+
   val peek : 'a t -> 'a option
   (** [peek t] is [Some v] if the promise has been resolved to [v], or [None] otherwise.
       If the result is [None] then it may change in future, otherwise it won't.
