@@ -2,10 +2,16 @@
 (copy_files# (files ../../core/cells.ml))
 (copy_files# (files ../../sem_state.ml))
 (copy_files# (files ../../sync.ml))
+(copy_files# (files ../../unix/rcfd.ml))
 
 (executables
-  (names test_cells test_semaphore test_sync)
+  (names test_cells test_semaphore test_sync test_rcfd)
   (libraries dscheck optint fmt eio))
+
+(rule
+  (alias dscheck)
+  (package eio)
+  (action (run %{exe:test_rcfd.exe})))
 
 (rule
   (alias dscheck)

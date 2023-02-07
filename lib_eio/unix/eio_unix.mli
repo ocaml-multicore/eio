@@ -100,6 +100,8 @@ module Private : sig
         (socket * socket) Effect.t                           (** See {!socketpair} *)
     | Pipe : Eio.Switch.t -> 
         (<Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>) Effect.t (** See {!pipe} *)
+
+  module Rcfd = Rcfd
 end
 
 module Ctf = Ctf_unix
