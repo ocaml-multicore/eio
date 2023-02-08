@@ -1,5 +1,6 @@
 (*
  * Copyright (C) 2020-2021 Anil Madhavapeddy
+ * Copyright (C) 2023 Thomas Leonard
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,6 +14,8 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
+
+[@@@alert "-unstable"]
 
 let src = Logs.Src.create "eio_linux" ~doc:"Effect-based IO system for Linux/io-uring"
 module Log = (val Logs.src_log src : Logs.LOG)
@@ -111,6 +114,11 @@ module FD = struct
   let uring_file_offset t =
     if t.seekable then Optint.Int63.minus_one else Optint.Int63.zero
 
+  let file_offset t = function
+    | Some x -> `Pos x
+    | None when t.seekable -> `Seekable_current
+    | None -> `Nonseekable_current
+
   let fstat t =
     (* todo: use uring  *)
     try
@@ -155,7 +163,11 @@ let get_dir_fd_opt t = Eio.Generic.probe t Dir_fd
 
 type rw_req = {
   op : [`R|`W];
-  file_offset : Optint.Int63.t;
+  file_offset : [
+    | `Pos of Optint.Int63.t    (* Read from here + cur_off *)
+    | `Seekable_current
+    | `Nonseekable_current
+  ];
   fd : FD.t;
   len : amount;
   buf : Uring.Region.chunk;
@@ -291,6 +303,12 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as re
     let len = match len with Exactly l | Upto l -> l in
     let len = len - cur_off in
     let retry = with_cancel_hook ~action st (fun () ->
+        let file_offset =
+          match file_offset with
+          | `Pos x -> Optint.Int63.add x (Optint.Int63.of_int cur_off)
+          | `Seekable_current -> Optint.Int63.minus_one
+          | `Nonseekable_current -> Optint.Int63.zero
+        in
         match op with
         |`R -> Uring.read_fixed uring ~file_offset fd ~off ~len (Read req)
         |`W -> Uring.write_fixed uring ~file_offset fd ~off ~len (Write req)
@@ -306,11 +324,7 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as re
 let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
 let enqueue_read st action (file_offset,fd,buf,len) =
-  let file_offset =
-    match file_offset with
-    | Some x -> x
-    | None -> FD.uring_file_offset fd
-  in
+  let file_offset = FD.file_offset fd file_offset in
   let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action } in
   Ctf.label "read";
   submit_rw_req st req
@@ -378,11 +392,7 @@ let rec enqueue_close t action fd =
     Queue.push (fun t -> enqueue_close t action fd) t.io_q
 
 let enqueue_write st action (file_offset,fd,buf,len) =
-  let file_offset =
-    match file_offset with
-    | Some x -> x
-    | None -> FD.uring_file_offset fd
-  in
+  let file_offset = FD.file_offset fd file_offset in
   let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action } in
   Ctf.label "write";
   submit_rw_req st req

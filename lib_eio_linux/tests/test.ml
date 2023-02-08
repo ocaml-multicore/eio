@@ -125,6 +125,31 @@ let test_no_sqe () =
     raise Exit
   with Exit -> ()
 
+let test_read_exact () =
+  Eio_linux.run ~queue_depth:4 ~n_blocks:1 @@ fun env ->
+  let ( / ) = Eio.Path.( / ) in
+  let path = env#cwd / "test.data" in
+  let msg = "hello" in
+  Eio.Path.save path ("!" ^ msg) ~create:(`Exclusive 0o600);
+  Switch.run @@ fun sw ->
+  let fd = Eio_linux.Low_level.openat2 ~sw
+    ~access:`R
+    ~flags:Uring.Open_flags.empty
+    ~perm:0
+    ~resolve:Uring.Resolve.empty
+    "test.data"
+  in
+  Eio_linux.Low_level.with_chunk ~fallback:(fun () -> assert false) @@ fun chunk ->
+  (* Try to read one byte too far. If it's not updating the file offset, it will
+     succeed. *)
+  let len = String.length msg + 1 in
+  try
+    Eio_linux.Low_level.read_exactly ~file_offset:Optint.Int63.one fd chunk len;
+    assert false
+  with End_of_file ->
+    let got = Uring.Region.to_string chunk ~len:(String.length msg) in
+    if got <> msg then Fmt.failwith "%S vs %S" got msg
+
 let () =
   let open Alcotest in
   run "eio_linux" [
@@ -134,6 +159,7 @@ let () =
       test_case "poll_add"      `Quick test_poll_add;
       test_case "poll_add_busy" `Quick test_poll_add_busy;
       test_case "iovec"         `Quick test_iovec;
-      test_case "no-sqe"        `Quick test_no_sqe;
+      test_case "no_sqe"        `Quick test_no_sqe;
+      test_case "read_exact"    `Quick test_read_exact;
     ];
   ]
