@@ -1,4 +1,4 @@
 (executables
   (names bench_stream bench_promise bench_semaphore bench_yield bench_cancel bench_mutex
-         bench_buf_read bench_condition)
+         bench_buf_read bench_condition bench_fd)
   (libraries eio_main))
