@@ -1100,7 +1100,7 @@ let net = object
         let host = Eio_unix.Ipaddr.to_unix host in
         Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
     in
-    let sock_unix = Unix.socket (socket_domain_of listen_addr) socket_type 0 in
+    let sock_unix = Unix.socket ~cloexec:true (socket_domain_of listen_addr) socket_type 0 in
     (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
     begin match listen_addr with
       | `Unix path ->
@@ -1125,7 +1125,7 @@ let net = object
         let host = Eio_unix.Ipaddr.to_unix host in
         Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
     in
-    let sock_unix = Unix.socket (socket_domain_of connect_addr) socket_type 0 in
+    let sock_unix = Unix.socket ~cloexec:true (socket_domain_of connect_addr) socket_type 0 in
     let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
     Low_level.connect sock addr;
     (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
