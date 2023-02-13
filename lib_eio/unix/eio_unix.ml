@@ -25,6 +25,8 @@ module Private = struct
     | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> socket Effect.t
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int -> (socket * socket) Effect.t
     | Pipe : Eio.Switch.t -> (<Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>) Effect.t
+
+  module Rcfd = Rcfd
 end
 
 let await_readable fd = Effect.perform (Private.Await_readable fd)

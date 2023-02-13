@@ -19,6 +19,7 @@ test_luv:
 	EIO_BACKEND=luv dune runtest
 
 dscheck:
+	dune exec -- ./lib_eio/tests/dscheck/test_rcfd.exe
 	dune exec -- ./lib_eio/tests/dscheck/test_sync.exe
 	dune exec -- ./lib_eio/tests/dscheck/test_semaphore.exe
 	dune exec -- ./lib_eio/tests/dscheck/test_cells.exe
