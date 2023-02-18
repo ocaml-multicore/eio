@@ -255,9 +255,9 @@ module Low_level : sig
     val spawn :
       ?env:Spawn.Env.t ->
       ?cwd:Spawn.Working_dir.t ->
-      ?stdin:Unix.file_descr ->
-      ?stdout:Unix.file_descr ->
-      ?stderr:Unix.file_descr ->
+      ?stdin:FD.t ->
+      ?stdout:FD.t ->
+      ?stderr:FD.t ->
       sw:Switch.t ->
       string ->
       string list ->

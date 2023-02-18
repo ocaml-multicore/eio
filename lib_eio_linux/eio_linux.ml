@@ -932,6 +932,9 @@ module Low_level = struct
           | Some prog -> prog
           | None -> raise (Eio.Fs.err (Eio.Fs.Not_found (Eio_unix.Unix_error (Unix.ENOENT, "", ""))))
         in
+        let stdin = Option.map (FD.to_unix `Peek) stdin in
+        let stdout = Option.map (FD.to_unix `Peek) stdout in
+        let stderr = Option.map (FD.to_unix `Peek) stderr in
         let pid = Spawn.spawn ?env ?cwd ?stdin ?stdout ?stderr ~prog ~argv () in
         let fd = pidfd_open pid in
         let process = FD.of_unix ~sw ~seekable:false ~close_unix:true fd in

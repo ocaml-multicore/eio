@@ -41,7 +41,7 @@ Using a pipe to redirect output to a buffer.
 # Eio_linux.run @@ fun _env ->
   Switch.run @@ fun sw ->
   let rp, wp = Eio_unix.pipe sw in
-  let w = Eio_unix.FD.peek wp in
+  let w = Eio_linux.get_fd_opt wp |> Option.get in
   let t = Process.spawn ~sw ~stdout:w "echo" [ "echo"; "Hello,"; "World!" ] in
   let _ = Process.await_exit t in
   Flow.close wp;
@@ -56,7 +56,7 @@ Writing to stdin of a process works.
 # Eio_linux.run @@ fun _env ->
   Switch.run @@ fun sw ->
   let rp, wp = Eio_unix.pipe sw in
-  let r = Eio_unix.FD.peek rp in
+  let r = Eio_linux.get_fd_opt rp |> Option.get in
   let t = Process.spawn ~sw ~stdin:r "head" [ "head" ] in
   Flow.copy_string  "Hello!" wp;
   Flow.close wp;
