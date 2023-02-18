@@ -108,23 +108,3 @@ module Ctf = Ctf_unix
 
 val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
 (** [getnameinfo sockaddr] returns domain name and service for [sockaddr]. *)
-
-module Spawn : sig
-  val resolve_program : paths:string list -> string -> string option
-  (** [resolve_program ~paths program_name] will try to resolve the [program_name]
-      in [paths] if it is relative. *)
-
-  val spawn :
-    ?env:Spawn.Env.t ->
-    ?cwd:Spawn.Working_dir.t ->
-    prog:string ->
-    argv:string list ->
-    ?stdin:Unix.file_descr ->
-    ?stdout:Unix.file_descr ->
-    ?stderr:Unix.file_descr ->
-    ?unix_backend:Spawn.Unix_backend.t ->
-    ?setpgid:Spawn.Pgid.t ->
-    unit ->
-    int
-    (** Calls {!Spawn.spawn}. *)
-end

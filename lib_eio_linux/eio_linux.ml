@@ -916,14 +916,23 @@ module Low_level = struct
             Option.iter Switch.remove_hook t.hook;
             t.status <- Some status;
             status
+
+      let resolve_program ~paths prog =
+        if not (Filename.is_implicit prog) then Some prog
+        else
+        let exists path =
+          let p = Filename.concat path prog in
+          if Sys.file_exists p then Some p else None
+        in
+        List.find_map exists paths
       
       let spawn ?env ?cwd ?stdin ?stdout ?stderr ~sw prog argv =
         let paths = Option.map (fun v -> String.split_on_char ':' v) (Sys.getenv_opt "PATH") |> Option.value ~default:[ "/usr/bin"; "/usr/local/bin" ] in
-        let prog = match Eio_unix.Spawn.resolve_program ~paths prog with
+        let prog = match resolve_program ~paths prog with
           | Some prog -> prog
           | None -> raise (Eio.Fs.err (Eio.Fs.Not_found (Eio_unix.Unix_error (Unix.ENOENT, "", ""))))
         in
-        let pid = Eio_unix.Spawn.spawn ?env ?cwd ?stdin ?stdout ?stderr ~prog ~argv () in
+        let pid = Spawn.spawn ?env ?cwd ?stdin ?stdout ?stderr ~prog ~argv () in
         let fd = pidfd_open pid in
         let process = FD.of_unix ~sw ~seekable:false ~close_unix:true fd in
         let t = { process; pid; hook = None; status = None } in
