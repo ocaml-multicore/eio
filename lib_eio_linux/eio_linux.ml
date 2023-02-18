@@ -903,7 +903,7 @@ module Low_level = struct
       type t = {
         process : FD.t;
         pid : int;
-        mutable hook : Switch.hook option;
+        mutable hook : Switch.hook;
         mutable status : Unix.process_status option;
       }
 
@@ -913,7 +913,7 @@ module Low_level = struct
           | None ->
             await_readable t.process;
             let status = Unix.waitpid [] t.pid |> snd in
-            Option.iter Switch.remove_hook t.hook;
+            Switch.remove_hook t.hook;
             t.status <- Some status;
             status
 
@@ -935,11 +935,11 @@ module Low_level = struct
         let pid = Spawn.spawn ?env ?cwd ?stdin ?stdout ?stderr ~prog ~argv () in
         let fd = pidfd_open pid in
         let process = FD.of_unix ~sw ~seekable:false ~close_unix:true fd in
-        let t = { process; pid; hook = None; status = None } in
+        let t = { process; pid; hook = Switch.null_hook; status = None } in
         let hook = Switch.on_release_cancellable sw (fun () ->
           Unix.kill pid Sys.sigkill; ignore (await_exit t)
         ) in
-        t.hook <- Some hook;
+        t.hook <- hook;
         t
 
         let send_signal t i = Unix.kill t.pid i
