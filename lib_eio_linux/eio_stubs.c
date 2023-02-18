@@ -109,5 +109,6 @@ CAMLprim value caml_eio_pidfd_open(value v_pid) {
   int fd;
   // Returns a file descriptor for the PID with close-on-exec set.
   fd = pidfd_open(Int_val(v_pid), 0);
+  if (fd == -1) uerror("pidfd_open", Nothing);
   CAMLreturn(Val_int(fd));
 }
