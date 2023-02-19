@@ -909,7 +909,7 @@ module Low_level = struct
         mutable status : Unix.process_status Promise.t option;
       }
 
-      let await_exit t = match t.status with
+      let wait t = match t.status with
         | Some p -> Promise.await p
         | None ->
           let p, r = Promise.create () in
@@ -944,7 +944,7 @@ module Low_level = struct
         let t = { process; hook = Switch.null_hook; status = None } in
         let hook = Switch.on_release_cancellable sw (fun () ->
           Unix.kill pid Sys.sigkill;
-          ignore (await_exit t)
+          ignore (wait t)
         ) in
         t.hook <- hook;
         t

@@ -176,12 +176,12 @@ static value alloc_process_status(int status)
 
 CAMLprim value caml_eio_pidfd_wait(value v_pidfd) {
   CAMLparam1(v_pidfd);
-  CAMLlocal1(status);
+  CAMLlocal1(v_status);
   int res;
   siginfo_t info;
 
   res = waitid(P_PIDFD, Int_val(v_pidfd), &info, WEXITED);
   if (res == -1) uerror("pidfd_wait", Nothing);
-  status = alloc_process_status(info.si_status);
-  CAMLreturn(status);
+  v_status = alloc_process_status(info.si_status);
+  CAMLreturn(v_status);
 }

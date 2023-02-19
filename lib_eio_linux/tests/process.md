@@ -30,7 +30,7 @@ A simple `echo hello` process redirects to stdout.
 # Eio_linux.run @@ fun _env ->
   Switch.run @@ fun sw ->
   let t = Process.spawn ~sw "echo" [ "echo"; "hello" ] in
-  Process.await_exit t;;
+  Process.wait t;;
 hello
 - : Unix.process_status = Unix.WEXITED 0
 ```
@@ -43,7 +43,7 @@ Using a pipe to redirect output to a buffer.
   let rp, wp = Eio_unix.pipe sw in
   let w = Eio_linux.get_fd_opt wp |> Option.get in
   let t = Process.spawn ~sw ~stdout:w "echo" [ "echo"; "Hello,"; "World!" ] in
-  let _ = Process.await_exit t in
+  let _ = Process.wait t in
   Flow.close wp;
   let result = read_all rp in
   result;;
@@ -60,7 +60,7 @@ Writing to stdin of a process works.
   let t = Process.spawn ~sw ~stdin:r "head" [ "head" ] in
   Flow.copy_string  "Hello!" wp;
   Flow.close wp;
-  Process.await_exit t;;
+  Process.wait t;;
 Hello!
 - : Unix.process_status = Unix.WEXITED 0
 ```
@@ -72,7 +72,7 @@ Stopping a process works.
   Switch.run @@ fun sw ->
   let t = Process.spawn ~sw "sleep" [ "sleep"; "10" ] in
   Process.send_signal t Sys.sigkill;
-  Process.await_exit t;;
+  Process.wait t;;
 - : Unix.process_status = Unix.WSIGNALED (-7)
 ```
 
@@ -84,7 +84,7 @@ Forgetting to wait for a process to finish stops the process.
     Switch.run @@ fun sw ->
     Process.spawn ~sw "sleep" [ "sleep"; "10" ]
   in
-  Process.await_exit proc;;
+  Process.wait proc;;
 - : Unix.process_status = Unix.WSIGNALED (-7)
 ```
 
@@ -98,6 +98,6 @@ Stopping a process interacts nicely with switches.
     Process.send_signal t Sys.sigkill;
     t
   in
-  Process.await_exit proc;;
+  Process.wait proc;;
 - : Unix.process_status = Unix.WSIGNALED (-7)
 ```

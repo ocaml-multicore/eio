@@ -266,8 +266,8 @@ module Low_level : sig
         calling process. If the process has not finished when the switch is released, the process
         will be sent [Sys.sigkill]. *)
 
-    val await_exit : t -> Unix.process_status
-    (** [await_exit t] waits for the process [t] to exit. This blocks the fiber until the process
+    val wait : t -> Unix.process_status
+    (** [wait t] waits for the process [t] to exit. This blocks the fiber until the process
         has finished. *)
 
     val send_signal : t -> int -> unit
