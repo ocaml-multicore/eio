@@ -3,11 +3,14 @@
 #include <sys/eventfd.h>
 #include <sys/random.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
+#include <linux/wait.h>
 #include <limits.h>
 #include <errno.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <signal.h>
 
 
 #include <caml/mlvalues.h>
@@ -100,8 +103,20 @@ CAMLprim value caml_eio_getdents(value v_fd) {
   CAMLreturn(result);
 }
 
+#ifndef __NR_pidfd_open
+#define __NR_pidfd_open 434   /* System call # on most architectures */
+#endif
+
 static int pidfd_open(pid_t pid, unsigned int flags) {
   return syscall(__NR_pidfd_open, pid, flags);
+}
+
+#ifndef __NR_pidfd_send_signal
+#define __NR_pidfd_send_signal 424
+#endif
+
+static int pidfd_send_signal(int pidfd, int sig, siginfo_t *info, unsigned int flags) {
+  return syscall(__NR_pidfd_send_signal, pidfd, sig, info, flags);
 }
 
 CAMLprim value caml_eio_pidfd_open(value v_pid) {
@@ -111,4 +126,62 @@ CAMLprim value caml_eio_pidfd_open(value v_pid) {
   fd = pidfd_open(Int_val(v_pid), 0);
   if (fd == -1) uerror("pidfd_open", Nothing);
   CAMLreturn(Val_int(fd));
+}
+
+CAMLextern int caml_convert_signal_number(int);
+CAMLextern int caml_rev_convert_signal_number(int);
+
+CAMLprim value caml_eio_pidfd_send_signal(value v_pidfd, value v_signal) {
+  CAMLparam1(v_pidfd);
+  int res;
+
+  res = pidfd_send_signal(Int_val(v_pidfd), caml_convert_signal_number(Int_val(v_signal)), NULL, 0);
+  if (res == -1) uerror("pidfd_send_signal", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+// Based on the code in lwt.
+#if !(defined(WIFEXITED) && defined(WEXITSTATUS) && defined(WIFSTOPPED) && \
+      defined(WSTOPSIG) && defined(WTERMSIG))
+/* Assume old-style V7 status word */
+#define WIFEXITED(status) (((status)&0xFF) == 0)
+#define WEXITSTATUS(status) (((status) >> 8) & 0xFF)
+#define WIFSTOPPED(status) (((status)&0xFF) == 0xFF)
+#define WSTOPSIG(status) (((status) >> 8) & 0xFF)
+#define WTERMSIG(status) ((status)&0x3F)
+#endif
+
+#define TAG_WEXITED 0
+#define TAG_WSIGNALED 1
+#define TAG_WSTOPPED 2
+
+static value alloc_process_status(int status)
+{
+    value st;
+
+    if (WIFEXITED(status)) {
+        st = caml_alloc_small(1, TAG_WEXITED);
+        Field(st, 0) = Val_int(WEXITSTATUS(status));
+    } else if (WIFSTOPPED(status)) {
+        st = caml_alloc_small(1, TAG_WSTOPPED);
+        Field(st, 0) =
+            Val_int(caml_rev_convert_signal_number(WSTOPSIG(status)));
+    } else {
+        st = caml_alloc_small(1, TAG_WSIGNALED);
+        Field(st, 0) =
+            Val_int(caml_rev_convert_signal_number(WTERMSIG(status)));
+    }
+    return st;
+}
+
+CAMLprim value caml_eio_pidfd_wait(value v_pidfd) {
+  CAMLparam1(v_pidfd);
+  CAMLlocal1(status);
+  int res;
+  siginfo_t info;
+
+  res = waitid(P_PIDFD, Int_val(v_pidfd), &info, WEXITED);
+  if (res == -1) uerror("pidfd_wait", Nothing);
+  status = alloc_process_status(info.si_status);
+  CAMLreturn(status);
 }
