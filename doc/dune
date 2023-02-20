@@ -1,4 +1,4 @@
 (mdx
   (package eio_main)
-  (deps (package eio_main))
+  (deps (package eio_main) (env_var "EIO_BACKEND"))
   (files multicore.md))

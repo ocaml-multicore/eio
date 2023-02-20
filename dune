@@ -1,5 +1,5 @@
 (mdx
   (package eio_main)
-  (deps (package eio_main))
+  (deps (package eio_main) (env_var "EIO_BACKEND"))
   (preludes doc/prelude.ml)
   (files README.md))
