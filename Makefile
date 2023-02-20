@@ -15,7 +15,6 @@ bench:
 	dune exec -- ./lib_eio_linux/tests/bench_noop.exe
 
 test_luv:
-	rm -rf _build
 	EIO_BACKEND=luv dune runtest
 
 dscheck:

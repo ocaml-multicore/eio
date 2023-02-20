@@ -1,3 +1,5 @@
 (mdx
   (package eio_main)
-  (deps (package eio_main)))
+  (deps
+    (env_var "EIO_BACKEND")
+    (package eio_main)))
