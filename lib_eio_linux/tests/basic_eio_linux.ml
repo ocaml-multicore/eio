@@ -9,6 +9,13 @@ let setup_log level =
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 
+let exec ?stdin ?stdout ?stderr ?cwd ~env ~sw prog args = 
+  let stdin = Option.value ~default:(Eio_linux.get_fd env#stdin) stdin in
+  let stdout = Option.value ~default:(Eio_linux.get_fd env#stdout) stdout in
+  let stderr = Option.value ~default:(Eio_linux.get_fd env#stderr) stderr in
+  let cwd = Option.value ~default:env#cwd cwd in
+  Eio_linux.Low_level.Process.spawn ~sw ~cwd ~stdin ~stderr ~stdout prog args
+
 let () =
   setup_log (Some Logs.Debug);
   Eio_linux.run @@ fun _stdenv ->

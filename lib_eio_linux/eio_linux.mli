@@ -252,18 +252,33 @@ module Low_level : sig
     type t
     (** A subprocess *)
 
+    module Env : sig
+      type t
+      (** Environment variables *)
+
+      val of_list : string list -> t
+      (** Constructs environment variables from a list of strings of the form
+          ["key=value"]. *)
+    end
+
+    module Cwd : sig
+      type t =
+        | Path of Eio.Fs.dir Eio.Path.t
+        | Fd of FD.t
+     (** Working directories for processes. *)
+    end
+
     val spawn :
-      ?env:Spawn.Env.t ->
-      ?cwd:Spawn.Working_dir.t ->
-      ?stdin:FD.t ->
-      ?stdout:FD.t ->
-      ?stderr:FD.t ->
+      ?env:Env.t ->
+      cwd:Cwd.t ->
+      stdin:FD.t ->
+      stdout:FD.t ->
+      stderr:FD.t ->
       sw:Switch.t ->
       string ->
       string list ->
       t
-    (** Spawns a subprocess. By default all of the optional arguments are inherited from the
-        calling process. If the process has not finished when the switch is released, the process
+    (** Spawns a subprocess. If the process has not finished when the switch is released, the process
         will be sent [Sys.sigkill]. *)
 
     val wait : t -> Unix.process_status

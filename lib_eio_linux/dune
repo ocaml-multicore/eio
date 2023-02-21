@@ -9,5 +9,5 @@
  (foreign_stubs
   (language c)
   (flags :standard -D_LARGEFILE64_SOURCE)
-  (names eio_stubs))
- (libraries eio eio.utils eio.unix uring logs fmt spawn))
+  (names eio_stubs eio_spawn_stubs))
+ (libraries eio eio.utils eio.unix uring logs fmt))

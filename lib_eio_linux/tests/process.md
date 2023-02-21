@@ -22,14 +22,21 @@ let read_all fd =
       read ()
     | exception End_of_file -> Buffer.contents acc_buffer
   in read ()
+
+let exec ?stdin ?stdout ?stderr ?cwd ~env ~sw prog args = 
+  let stdin = Option.value ~default:(Eio_linux.get_fd env#stdin) stdin in
+  let stdout = Option.value ~default:(Eio_linux.get_fd env#stdout) stdout in
+  let stderr = Option.value ~default:(Eio_linux.get_fd env#stderr) stderr in
+  let cwd = Option.value ~default:(Process.Cwd.Path env#cwd) cwd in
+  Process.spawn ~sw ~cwd ~stdin ~stderr ~stdout prog args
 ```
 
 A simple `echo hello` process redirects to stdout.
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
   Switch.run @@ fun sw ->
-  let t = Process.spawn ~sw "echo" [ "echo"; "hello" ] in
+  let t = exec ~env ~sw "echo" [ "echo"; "hello" ] in
   Process.wait t;;
 hello
 - : Unix.process_status = Unix.WEXITED 0
@@ -38,11 +45,11 @@ hello
 Using a pipe to redirect output to a buffer.
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
   Switch.run @@ fun sw ->
   let rp, wp = Eio_unix.pipe sw in
   let w = Eio_linux.get_fd_opt wp |> Option.get in
-  let t = Process.spawn ~sw ~stdout:w "echo" [ "echo"; "Hello,"; "World!" ] in
+  let t = exec ~env ~sw ~stdout:w "echo" [ "echo"; "Hello,"; "World!" ] in
   let _ = Process.wait t in
   Flow.close wp;
   let result = read_all rp in
@@ -53,11 +60,11 @@ Using a pipe to redirect output to a buffer.
 Writing to stdin of a process works.
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
   Switch.run @@ fun sw ->
   let rp, wp = Eio_unix.pipe sw in
   let r = Eio_linux.get_fd_opt rp |> Option.get in
-  let t = Process.spawn ~sw ~stdin:r "head" [ "head" ] in
+  let t = exec ~env ~sw ~stdin:r "head" [ "head" ] in
   Flow.copy_string  "Hello!" wp;
   Flow.close wp;
   Process.wait t;;
@@ -68,9 +75,9 @@ Hello!
 Stopping a process works.
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
   Switch.run @@ fun sw ->
-  let t = Process.spawn ~sw "sleep" [ "sleep"; "10" ] in
+  let t = exec ~env ~sw "sleep" [ "sleep"; "10" ] in
   Process.signal t Sys.sigkill;
   Process.wait t;;
 - : Unix.process_status = Unix.WSIGNALED (-7)
@@ -79,10 +86,10 @@ Stopping a process works.
 Forgetting to wait for a process to finish stops the process.
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
   let proc =
     Switch.run @@ fun sw ->
-    Process.spawn ~sw "sleep" [ "sleep"; "10" ]
+    exec ~env ~sw "sleep" [ "sleep"; "10" ]
   in
   Process.wait proc;;
 - : Unix.process_status = Unix.WSIGNALED (-7)
@@ -91,10 +98,10 @@ Forgetting to wait for a process to finish stops the process.
 Stopping a process interacts nicely with switches.
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
   let proc =
     Switch.run @@ fun sw ->
-    let t = Process.spawn ~sw "sleep" [ "sleep"; "10" ] in
+    let t = exec ~env ~sw "sleep" [ "sleep"; "10" ] in
     Process.signal t Sys.sigkill;
     t
   in

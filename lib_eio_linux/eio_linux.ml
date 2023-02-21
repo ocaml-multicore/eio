@@ -903,6 +903,46 @@ module Low_level = struct
 
       external pidfd_wait : Unix.file_descr -> Unix.process_status = "caml_eio_pidfd_wait"
 
+      (* Some parts of the following code are modified from the spawn library. 
+         See the the eio_spawn_stubs.c file for the full license. *)
+      module Env = struct
+        type t = string list
+      
+        let no_null s =
+          if String.contains s '\000' then
+            Printf.ksprintf invalid_arg
+              "Spawn.Env.of_list: NUL bytes are not allowed in the environment but \
+               found one in %S"
+              s
+      
+        let of_list l =
+          List.iter no_null l;
+          l
+      end
+
+      module Cwd = struct
+        type internal =
+          | Path of string
+          | Fd of Unix.file_descr
+
+        type t = 
+          | Path of Eio.Fs.dir Eio.Path.t 
+          | Fd of FD.t
+      end
+
+      external spawn :
+        env:Env.t option
+        -> cwd:Cwd.internal
+        -> prog:string
+        -> argv:string list
+        -> stdin:Unix.file_descr
+        -> stdout:Unix.file_descr
+        -> stderr:Unix.file_descr
+        -> use_vfork:bool
+        -> setpgid:int option
+        -> sigprocmask:(Unix.sigprocmask_command * int list) option
+        -> int = "spawn_unix_byte" "spawn_unix"
+
       type t = {
         process : FD.t;
         mutable hook : Switch.hook;
@@ -929,16 +969,20 @@ module Low_level = struct
         in
         List.find_map exists paths
       
-      let spawn ?env ?cwd ?stdin ?stdout ?stderr ~sw prog argv =
+      let spawn ?env ~cwd ~stdin ~stdout ~stderr ~sw prog argv =
         let paths = Option.map (fun v -> String.split_on_char ':' v) (Sys.getenv_opt "PATH") |> Option.value ~default:[ "/usr/bin"; "/usr/local/bin" ] in
         let prog = match resolve_program ~paths prog with
           | Some prog -> prog
           | None -> raise (Eio.Fs.err (Eio.Fs.Not_found (Eio_unix.Unix_error (Unix.ENOENT, "", ""))))
         in
-        let stdin = Option.map (FD.to_unix `Peek) stdin in
-        let stdout = Option.map (FD.to_unix `Peek) stdout in
-        let stderr = Option.map (FD.to_unix `Peek) stderr in
-        let pid = Spawn.spawn ?env ?cwd ?stdin ?stdout ?stderr ~prog ~argv () in
+        let stdin = FD.to_unix `Peek stdin in
+        let stdout = FD.to_unix `Peek stdout in
+        let stderr = FD.to_unix `Peek stderr in
+        let cwd : Cwd.internal = match cwd with
+          | Cwd.Path p -> Cwd.Path (snd p)
+          | Cwd.Fd fd -> Cwd.Fd (FD.to_unix `Peek fd)
+        in
+        let pid = spawn ~env ~cwd ~stdin ~stdout ~stderr ~prog ~argv ~use_vfork:true ~setpgid:None ~sigprocmask:None in
         let fd = pidfd_open pid in
         let process = FD.of_unix ~sw ~seekable:false ~close_unix:true fd in
         let t = { process; hook = Switch.null_hook; status = None } in
