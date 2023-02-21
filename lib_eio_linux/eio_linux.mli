@@ -270,7 +270,8 @@ module Low_level : sig
     (** [wait t] waits for the process [t] to exit. This blocks the fiber until the process
         has finished. *)
 
-    val send_signal : t -> int -> unit
-    (** A wrapper for {!Unix.kill}. *)
+    val signal : t -> int -> unit
+    (** [signal t s] send a signal [s] to process [t]. For example to stop a process you could use
+        [signal t Sys.sigkill]. *)
   end
 end

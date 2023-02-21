@@ -949,7 +949,7 @@ module Low_level = struct
         t.hook <- hook;
         t
 
-        let send_signal t i = pidfd_send_signal (FD.to_unix `Peek t.process) i
+        let signal t i = pidfd_send_signal (FD.to_unix `Peek t.process) i
     end
 end
 

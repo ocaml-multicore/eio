@@ -71,7 +71,7 @@ Stopping a process works.
 # Eio_linux.run @@ fun _env ->
   Switch.run @@ fun sw ->
   let t = Process.spawn ~sw "sleep" [ "sleep"; "10" ] in
-  Process.send_signal t Sys.sigkill;
+  Process.signal t Sys.sigkill;
   Process.wait t;;
 - : Unix.process_status = Unix.WSIGNALED (-7)
 ```
@@ -95,7 +95,7 @@ Stopping a process interacts nicely with switches.
   let proc =
     Switch.run @@ fun sw ->
     let t = Process.spawn ~sw "sleep" [ "sleep"; "10" ] in
-    Process.send_signal t Sys.sigkill;
+    Process.signal t Sys.sigkill;
     t
   in
   Process.wait proc;;
