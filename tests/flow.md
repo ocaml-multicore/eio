@@ -153,7 +153,7 @@ Make sure we don't crash on SIGPIPE:
     Eio.Flow.copy_string "Test" w;
     assert false
   with Eio.Io (Eio.Net.E Connection_reset _, _) ->
-    traceln "Connection_reset (good)"
+    traceln "Connection_reset (good)";;
 +Connection_reset (good)
 - : unit = ()
 ```

@@ -113,20 +113,13 @@ To install it yourself:
 
 ## Getting Eio
 
-If you want to run the latest development version from Git, run these commands
-(otherwise, skip them and you'll get the latest release from opam):
-
-```
-git clone https://github.com/ocaml-multicore/eio.git
-cd eio
-opam pin -yn .
-```
-
-Either way, install `eio_main` (and `utop` if you want to try it interactively):
+Install `eio_main` (and `utop` if you want to try it interactively):
 
 ```
 opam install eio_main utop
 ```
+
+If you want to install the latest unreleased development version of Eio, see [HACKING.md](./HACKING.md).
 
 ## Running Eio
 
@@ -1698,7 +1691,7 @@ end
 
 - [lib_eio/eio.mli](lib_eio/eio.mli) documents Eio's public API.
 - [doc/rationale.md](doc/rationale.md) describes some of Eio's design tradeoffs in more detail.
-- [lib_eio/mock/backend.ml](lib_eio/mock/backend.ml) is a skeleton Eio backend with no actual IO.
+- [HACKING.md](./HACKING.md) describes how to work with the Eio source code.
 
 Some background about the effects system can be found in:
 
