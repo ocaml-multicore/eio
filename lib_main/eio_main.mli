@@ -19,4 +19,4 @@ val run : (Eio.Stdenv.t -> 'a) -> 'a
 
     On recent-enough versions of Linux, it will use {!Eio_linux.run}.
     You can override this by setting the $EIO_BACKEND environment variable to
-    either "io-uring" or "luv". *)
+    either "linux" or "luv". *)
