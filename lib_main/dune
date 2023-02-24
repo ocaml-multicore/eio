@@ -1,7 +1,11 @@
 (library
   (name eio_main)
   (public_name eio_main)
-  (libraries eio_luv
-             (select eio_main.ml from
-              (eio_linux -> eio_main.linux.ml)
-              (          -> eio_main.default.ml))))
+  (libraries
+    (select linux_backend.ml from
+            (eio_linux -> linux_backend.enabled.ml)
+            (          -> linux_backend.disabled.ml))
+    (select luv_backend.ml from
+            (eio_luv -> luv_backend.enabled.ml)
+            (        -> luv_backend.disabled.ml))
+    ))
