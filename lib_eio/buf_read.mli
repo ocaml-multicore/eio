@@ -172,9 +172,15 @@ val take_while : (char -> bool) -> string parser
     It will return the empty string if there are no matching characters
     (and therefore never raises [End_of_file]). *)
 
+val take_while_bigstring : (char -> bool) -> Cstruct.t parser
+(** [take_while_bigstring f] is like {!val:take_while} but returns [Cstruct.t] instead of [String.t]. *)
+
 val take_while1 : (char -> bool) -> string parser
 (** [take_while1 p] is like [take_while]. However, the parser fails with "take_while1"
     if at least one character of input hasn't been consumed by the parser. *)
+
+val take_while1_bigstring : (char -> bool) -> Cstruct.t parser
+(** [take_while1 f] is like [take_whiel1] but returns [Cstruct.t] instead of [String.t]. *)
 
 val skip_while : (char -> bool) -> unit parser
 (** [skip_while p] skips zero or more bytes for which [p] is [true].

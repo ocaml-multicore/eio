@@ -297,19 +297,23 @@ let count_while p t =
   try aux 0
   with End_of_file -> t.len
 
-let take_while p t =
+let take_while_bigstring p t =
   let len = count_while p t in
-  let data = Cstruct.to_string (Cstruct.of_bigarray t.buf ~off:t.pos ~len) in
+  let data = Cstruct.of_bigarray t.buf ~off:t.pos ~len in
   consume t len;
   data
 
-let take_while1 p t =
+let take_while p t = Cstruct.to_string (take_while_bigstring p t)
+
+let take_while1_bigstring p t =
   let len = count_while p t in
   if len < 1 then Fmt.failwith "take_while1"
   else
-    let data = Cstruct.to_string (Cstruct.of_bigarray t.buf ~off:t.pos ~len) in
+    let data = Cstruct.of_bigarray t.buf ~off:t.pos ~len in
     consume t len;
     data
+
+let take_while1 p t = Cstruct.to_string (take_while1_bigstring p t)
 
 let skip_while p t =
   let rec aux i =
