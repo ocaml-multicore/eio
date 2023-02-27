@@ -1,0 +1,33 @@
+name: Main workflow
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+        ocaml-compiler:
+          - 5.0.x
+        local-packages:
+          - eio eio_luv eio_main
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Use OCaml ${{ matrix.ocaml-compiler }}
+        uses: ocaml/setup-ocaml@v2
+        with:
+          ocaml-compiler: ${{ matrix.ocaml-compiler }}
+          opam-local-packages: ${{ matrix.local-packages }}
+          opam-disable-sandboxing: true
+
+      - run: opam install ${{ matrix.local-packages }} --deps-only --with-test
+      - run: opam install ${{ matrix.local-packages }} --with-test

@@ -375,6 +375,7 @@ Here's a simple implementation of `cat` using the standard OCaml functions:
 
 And here is the equivalent using Eio:
 
+<!-- $MDX non-deterministic=command -->
 ```ocaml
 # let () =
     Eio_main.run @@ fun env ->
