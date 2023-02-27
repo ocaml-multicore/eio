@@ -8,6 +8,7 @@
 
 ```ocaml
 
+module Int63 = Optint.Int63
 module Path = Eio.Path
 
 let () = Eio.Exn.Backend.show := false
@@ -376,6 +377,20 @@ Reading directory entries under `cwd` and outside of `cwd`.
 - : unit = ()
 ```
 
+An error from the underlying directory, not the sandbox:
+
+```ocaml
+# Unix.mkdir "test-no-access" 0;
+- : unit = ()
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_read_dir (cwd / "test-no-access");;
++Eio.Io Fs Permission_denied _, reading directory <cwd:test-no-access>
+- : unit = ()
+# Unix.chmod "test-no-access" 0o700;
+- : unit = ()
+```
+
 Can use `fs` to access absolute paths:
 
 ```ocaml
@@ -510,5 +525,24 @@ Unconfined:
   assert_kind (cwd / "stat_reg") `Regular_file;;
 +mkdir <cwd:stat_subdir> -> ok
 +write <cwd:stat_reg> -> ok
+- : unit = ()
+```
+
+# pread/pwrite
+
+Check reading and writing vectors at arbitrary offsets:
+
+```ocaml
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  let path = cwd / "test.txt" in
+  Path.with_open_out path ~create:(`Exclusive 0o600) @@ fun file ->
+  Eio.Flow.copy_string "+-!" file;
+  Eio.File.pwrite_all file ~file_offset:(Int63.of_int 2) Cstruct.[of_string "abc"; of_string "123"];
+  let buf1 = Cstruct.create 3 in
+  let buf2 = Cstruct.create 4 in
+  Eio.File.pread_exact file ~file_offset:(Int63.of_int 1) [buf1; buf2];
+  traceln" %S/%S" (Cstruct.to_string buf1) (Cstruct.to_string buf2);;
++ "-ab"/"c123"
 - : unit = ()
 ```

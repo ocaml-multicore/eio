@@ -45,6 +45,7 @@ let wrap_error_fs e =
   match e with
   | `EEXIST -> Eio.Fs.err (Already_exists (Luv_error e))
   | `ENOENT -> Eio.Fs.err (Not_found (Luv_error e))
+  | `EPERM | `EACCES -> Eio.Fs.err (Permission_denied (Luv_error e))
   | e -> wrap_error e
 
 let or_raise = function

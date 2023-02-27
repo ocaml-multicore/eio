@@ -47,7 +47,7 @@ let wrap_error_fs code name arg =
   match code with
   | Unix.EEXIST -> Eio.Fs.err (Already_exists e)
   | Unix.ENOENT -> Eio.Fs.err (Not_found e)
-  | Unix.EXDEV -> Eio.Fs.err (Permission_denied e)
+  | Unix.EXDEV | EPERM | EACCES -> Eio.Fs.err (Permission_denied e)
   | _ -> wrap_error code name arg
 
 module FD = struct
