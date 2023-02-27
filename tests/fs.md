@@ -377,6 +377,20 @@ Reading directory entries under `cwd` and outside of `cwd`.
 - : unit = ()
 ```
 
+An error from the underlying directory, not the sandbox:
+
+```ocaml
+# Unix.mkdir "test-no-access" 0;
+- : unit = ()
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_read_dir (cwd / "test-no-access");;
++Eio.Io Fs Permission_denied _, reading directory <cwd:test-no-access>
+- : unit = ()
+# Unix.chmod "test-no-access" 0o700;
+- : unit = ()
+```
+
 Can use `fs` to access absolute paths:
 
 ```ocaml
