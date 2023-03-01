@@ -956,7 +956,7 @@ module Low_level = struct
           t.status <- Some p;
           await_readable t.process;
           Switch.remove_hook t.hook;
-          let status = pidfd_wait (FD.to_unix `Peek t.process) in
+          let status = FD.use_exn "wait" t.process pidfd_wait in
           Promise.resolve r status;
           status
 
@@ -975,13 +975,17 @@ module Low_level = struct
           | Some prog -> prog
           | None -> raise (Eio.Fs.err (Eio.Fs.Not_found (Eio_unix.Unix_error (Unix.ENOENT, "", ""))))
         in
-        let stdin = FD.to_unix `Peek stdin in
-        let stdout = FD.to_unix `Peek stdout in
-        let stderr = FD.to_unix `Peek stderr in
-        let cwd : Cwd.internal = match cwd with
-          | Cwd.Path p -> Cwd.Path (snd p)
-          | Cwd.Fd fd -> Cwd.Fd (FD.to_unix `Peek fd)
+        FD.use_exn "spawn_stdin" stdin @@ fun stdin ->
+        FD.use_exn "spawn_stdout" stdout @@ fun stdout ->
+        FD.use_exn "spawn_stderr" stderr @@ fun stderr ->
+        let with_cwd (fn : (Cwd.internal -> 'a)) : 'a = match cwd with
+          | Cwd.Path p -> 
+            fn (Cwd.Path (snd p))
+          | Cwd.Fd fd -> 
+            FD.use_exn "spawn_cwd" fd @@ fun cwd ->
+            fn (Cwd.Fd cwd)
         in
+        with_cwd @@ fun cwd ->
         let pid = spawn ~env ~cwd ~stdin ~stdout ~stderr ~prog ~argv ~use_vfork:true ~setpgid:None ~sigprocmask:None in
         let fd = pidfd_open pid in
         let process = FD.of_unix ~sw ~seekable:false ~close_unix:true fd in
@@ -993,7 +997,7 @@ module Low_level = struct
         t.hook <- hook;
         t
 
-        let signal t i = pidfd_send_signal (FD.to_unix `Peek t.process) i
+        let signal t i = FD.use_exn "signal" t.process (fun fd -> pidfd_send_signal fd i)
     end
 end
 

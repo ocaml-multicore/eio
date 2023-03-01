@@ -39,7 +39,6 @@
   (mdx (and (>= 1.10.0) :with-test))
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
-  (spawn (>= v0.15.1))
   (cmdliner (and (>= 1.1.0) :with-test))
   (uring (>= 0.5))))
 (package
@@ -59,7 +58,6 @@
   (eio (= :version))
   (luv (>= 0.5.11))
   (luv_unix (>= 0.5.0))
-  (spawn (>= v0.15.1)) ; unnecessary dependency in order to have eio_unix available.
   (mdx (and (>= 1.10.0) :with-test))
   (fmt (>= 0.8.9))))
 (package
