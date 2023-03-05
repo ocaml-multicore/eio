@@ -1,7 +1,9 @@
 #define _FILE_OFFSET_BITS 64
 
 #include <sys/types.h>
+#ifdef __linux__
 #include <sys/random.h>
+#endif
 #include <errno.h>
 #include <sys/uio.h>
 #include <sys/stat.h>
