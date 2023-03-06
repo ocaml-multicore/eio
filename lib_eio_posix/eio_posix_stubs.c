@@ -8,6 +8,7 @@
 #include <sys/uio.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <string.h>
 
 #ifndef __linux__
 # include <stdlib.h>
@@ -168,19 +169,22 @@ CAMLprim value caml_eio_posix_unlinkat(value v_fd, value v_path, value v_dir) {
 
 CAMLprim value caml_eio_posix_renameat(value v_old_fd, value v_old_path, value v_new_fd, value v_new_path) {
   CAMLparam2(v_old_path, v_new_path);
+  int old_path_len = caml_string_length(v_old_path);
+  int new_path_len = caml_string_length(v_new_path);
   char *old_path;
   char *new_path;
   int ret;
   caml_unix_check_path(v_old_path, "renameat-old");
   caml_unix_check_path(v_new_path, "renameat-new");
-  old_path = caml_stat_strdup(String_val(v_old_path));
-  new_path = caml_stat_strdup(String_val(v_new_path));
+  old_path = caml_stat_alloc(old_path_len + new_path_len + 2);
+  new_path = old_path + old_path_len + 1;
+  memcpy(old_path, String_val(v_old_path), old_path_len + 1);
+  memcpy(new_path, String_val(v_new_path), new_path_len + 1);
   caml_enter_blocking_section();
   ret = renameat(Int_val(v_old_fd), old_path,
                  Int_val(v_new_fd), new_path);
   caml_leave_blocking_section();
   caml_stat_free_preserving_errno(old_path);
-  caml_stat_free_preserving_errno(new_path);
   if (ret == -1) uerror("renameat", v_old_path);
   CAMLreturn(Val_unit);
 }
