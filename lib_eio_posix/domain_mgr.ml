@@ -26,27 +26,38 @@ let run_event_loop fn x =
     effc = fun (type a) (e : a Effect.t) : ((a, Sched.exit) continuation -> Sched.exit) option ->
       match e with
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k (Time.mono_clock : Eio.Time.Mono.t))
-      | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
-          Unix.set_nonblock fd;
-          let fd = Fd.of_unix ~sw ~blocking:false ~close_unix fd in
+      | Eio_unix.Private.Socket_of_fd (sw, close_unix, unix_fd) -> Some (fun k ->
+          let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
+          Unix.set_nonblock unix_fd;
           continue k (Flow.of_fd fd :> Eio_unix.socket)
         )
       | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
-          let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
-          Unix.set_nonblock a;
-          Unix.set_nonblock b;
-          let a = Fd.of_unix ~sw ~blocking:false ~close_unix:true a |> Flow.of_fd in
-          let b = Fd.of_unix ~sw ~blocking:false ~close_unix:true b |> Flow.of_fd in
-          continue k ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
+          match
+            let unix_a, unix_b = Unix.socketpair ~cloexec:true domain ty protocol in
+            let a = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_a in
+            let b = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_b in
+            Unix.set_nonblock unix_a;
+            Unix.set_nonblock unix_b;
+            (Flow.of_fd a :> Eio_unix.socket), (Flow.of_fd b :> Eio_unix.socket)
+          with
+          | r -> continue k r
+          | exception Unix.Unix_error (code, name, arg) ->
+              discontinue k (Err.wrap code name arg)
         )
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
-          let r, w = Unix.pipe ~cloexec:true () in
-          Unix.set_nonblock r;
-          Unix.set_nonblock w;
-          let make x = Flow.of_fd (Fd.of_unix ~sw ~blocking:false ~close_unix:true x) in
-          let r = (make r :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
-          let w = (make w :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
-          continue k (r, w)
+          match
+            let unix_r, unix_w = Unix.pipe ~cloexec:true () in
+            let r = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_r in
+            let w = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_w in
+            Unix.set_nonblock unix_r;
+            Unix.set_nonblock unix_w;
+            let source = (Flow.of_fd r :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
+            let sink = (Flow.of_fd w :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
+            (source, sink)
+          with
+          | r -> continue k r
+          | exception Unix.Unix_error (code, name, arg) ->
+            discontinue k (Err.wrap code name arg)
         )
       | _ -> None
   }
