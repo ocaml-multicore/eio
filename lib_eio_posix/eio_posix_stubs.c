@@ -25,6 +25,12 @@
 #define Int63_val(v) (Int64_val(v)) >> 1
 #endif
 
+static void caml_stat_free_preserving_errno(void *ptr) {
+  int saved = errno;
+  caml_stat_free(ptr);
+  errno = saved;
+}
+
 CAMLprim value caml_eio_posix_getrandom(value v_ba, value v_off, value v_len) {
   CAMLparam1(v_ba);
   ssize_t ret;
@@ -126,7 +132,7 @@ CAMLprim value caml_eio_posix_openat(value v_dirfd, value v_pathname, value v_fl
   r = openat(Int_val(v_dirfd), pathname, Int_val(v_flags), Int_val(v_mode));
   caml_leave_blocking_section();
 
-  caml_stat_free(pathname);
+  caml_stat_free_preserving_errno(pathname);
   if (r < 0) uerror("openat", v_pathname);
   CAMLreturn(Val_int(r));
 }
@@ -140,7 +146,7 @@ CAMLprim value caml_eio_posix_mkdirat(value v_fd, value v_path, value v_perm) {
   caml_enter_blocking_section();
   ret = mkdirat(Int_val(v_fd), path, Int_val(v_perm));
   caml_leave_blocking_section();
-  caml_stat_free(path);
+  caml_stat_free_preserving_errno(path);
   if (ret == -1) uerror("mkdirat", v_path);
   CAMLreturn(Val_unit);
 }
@@ -155,7 +161,7 @@ CAMLprim value caml_eio_posix_unlinkat(value v_fd, value v_path, value v_dir) {
   caml_enter_blocking_section();
   ret = unlinkat(Int_val(v_fd), path, flags);
   caml_leave_blocking_section();
-  caml_stat_free(path);
+  caml_stat_free_preserving_errno(path);
   if (ret == -1) uerror("unlinkat", v_path);
   CAMLreturn(Val_unit);
 }
@@ -173,8 +179,8 @@ CAMLprim value caml_eio_posix_renameat(value v_old_fd, value v_old_path, value v
   ret = renameat(Int_val(v_old_fd), old_path,
                  Int_val(v_new_fd), new_path);
   caml_leave_blocking_section();
-  caml_stat_free(old_path);
-  caml_stat_free(new_path);
+  caml_stat_free_preserving_errno(old_path);
+  caml_stat_free_preserving_errno(new_path);
   if (ret == -1) uerror("renameat", v_old_path);
   CAMLreturn(Val_unit);
 }
