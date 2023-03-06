@@ -1,4 +1,4 @@
-[API reference](https://ocaml-multicore.github.io/eio/) | [#eio Matrix chat](https://matrix.to/#/#eio:roscidus.com)
+[API reference][Eio API] | [#eio Matrix chat](https://matrix.to/#/#eio:roscidus.com)
 
 # Eio -- Effects-Based Parallel IO for OCaml
 
@@ -1690,7 +1690,7 @@ end
 
 ## Further Reading
 
-- [lib_eio/eio.mli](lib_eio/eio.mli) documents Eio's public API.
+- [API reference][Eio API]
 - [doc/rationale.md](doc/rationale.md) describes some of Eio's design tradeoffs in more detail.
 - [HACKING.md](./HACKING.md) describes how to work with the Eio source code.
 
@@ -1703,6 +1703,7 @@ Some background about the effects system can be found in:
 - [Concurrent System Programming with Effect Handlers](https://www.repository.cam.ac.uk/bitstream/handle/1810/283239/paper.pdf?sequence=3&isAllowed=y)
 - [Asynchronous effect based IO using effect handlers](https://github.com/kayceesrk/ocaml-aeio)
 
+[Eio API]: https://ocaml-multicore.github.io/eio/
 [Lwt_eio]: https://github.com/ocaml-multicore/lwt_eio
 [mirage-trace-viewer]: https://github.com/talex5/mirage-trace-viewer
 [structured concurrency]: https://en.wikipedia.org/wiki/Structured_concurrency
