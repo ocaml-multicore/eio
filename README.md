@@ -1709,7 +1709,7 @@ Some background about the effects system can be found in:
 [capability-based security]: https://en.wikipedia.org/wiki/Object-capability_model
 [Emily]: https://www.hpl.hp.com/techreports/2006/HPL-2006-116.pdf
 [gemini-eio]: https://gitlab.com/talex5/gemini-eio
-[Awesome Multicore OCaml]: https://github.com/patricoferris/awesome-multicore-ocaml
+[Awesome Multicore OCaml]: https://github.com/ocaml-multicore/awesome-multicore-ocaml
 [Eio]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html
 [Eio.Std]: https://ocaml-multicore.github.io/eio/eio/Eio/Std/index.html
 [Eio.Fiber]: https://ocaml-multicore.github.io/eio/eio/Eio/Fiber/index.html
