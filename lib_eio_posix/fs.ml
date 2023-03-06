@@ -102,7 +102,7 @@ class virtual dir ~label = object (self)
     Err.run (Low_level.unlink ?dirfd ~dir:true) path
 
   method read_dir path =
-    (* todo: need readdirat and with_parent_dir here to avoid races *)
+    (* todo: need fdopendir here to avoid races *)
     let path = self#resolve path in
     Err.run Low_level.readdir path
     |> Array.to_list
