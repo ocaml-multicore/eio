@@ -64,9 +64,10 @@
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
  (description "Selects an appropriate Eio backend for the current platform.")
+ (depopts eio_luv)
  (depends
   (mdx (and (>= 1.10.0) :with-test))
   (eio_linux (and (= :version) (= :os "linux")))
   (eio_posix (and (= :version) (<> :os "windows")))
-  (eio_luv (= :version))))
+  (eio_luv (and (= :version) (or (= :os "windows") :with-test)))))
 (using mdx 0.2)
