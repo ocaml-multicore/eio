@@ -1,4 +1,4 @@
-[API reference](https://ocaml-multicore.github.io/eio/)
+[API reference](https://ocaml-multicore.github.io/eio/) | [#eio Matrix chat](https://matrix.to/#/#eio:roscidus.com)
 
 # Eio -- Effects-Based Parallel IO for OCaml
 
