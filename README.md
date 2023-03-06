@@ -1553,7 +1553,7 @@ See [Dynamic Dispatch](doc/rationale.md#dynamic-dispatch) for more discussion ab
 
 ## Example Applications
 
-- [gemini-eio][] is a simple Gemini browser. It shows how to integrate Eio with `ocaml-tls`, `angstrom`, and `notty`.
+- [gemini-eio][] is a simple Gemini browser. It shows how to integrate Eio with `ocaml-tls` and `notty`.
 - [ocaml-multicore/retro-httpaf-bench](https://github.com/ocaml-multicore/retro-httpaf-bench) includes a simple HTTP server using Eio. It shows how to use Eio with `httpaf`, and how to use multiple domains for increased performance.
 - [Awesome Multicore OCaml][] lists many other projects.
 
