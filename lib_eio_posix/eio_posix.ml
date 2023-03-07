@@ -33,10 +33,13 @@ type stdenv = <
 let run main =
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
+  let stdin = (Flow.of_fd Low_level.Fd.stdin :> <Eio.Flow.source; Eio_unix.unix_fd>) in
+  let stdout = (Flow.of_fd Low_level.Fd.stdout :> <Eio.Flow.sink; Eio_unix.unix_fd>) in
+  let stderr = (Flow.of_fd Low_level.Fd.stderr :> <Eio.Flow.sink; Eio_unix.unix_fd>) in
   Domain_mgr.run_event_loop main @@ object (_ : stdenv)
-    method stdin = (Flow.of_fd Low_level.Fd.stdin :> <Eio.Flow.source; Eio_unix.unix_fd>)
-    method stdout = (Flow.of_fd Low_level.Fd.stdout :> <Eio.Flow.sink; Eio_unix.unix_fd>)
-    method stderr = (Flow.of_fd Low_level.Fd.stderr :> <Eio.Flow.sink; Eio_unix.unix_fd>)
+    method stdin = stdin
+    method stdout = stdout
+    method stderr = stderr
     method debug = Eio.Private.Debug.v
     method clock = Time.clock
     method mono_clock = Time.mono_clock
