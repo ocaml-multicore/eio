@@ -4,15 +4,12 @@
 #ifdef __linux__
 #include <sys/random.h>
 #endif
-#include <errno.h>
 #include <sys/uio.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <string.h>
-
-#ifndef __linux__
-# include <stdlib.h>
-#endif
+#include <stdlib.h>
 
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
