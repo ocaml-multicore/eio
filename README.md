@@ -1,4 +1,4 @@
-[API reference](https://ocaml-multicore.github.io/eio/)
+[API reference][Eio API] | [#eio Matrix chat](https://matrix.to/#/#eio:roscidus.com)
 
 # Eio -- Effects-Based Parallel IO for OCaml
 
@@ -1553,7 +1553,7 @@ See [Dynamic Dispatch](doc/rationale.md#dynamic-dispatch) for more discussion ab
 
 ## Example Applications
 
-- [gemini-eio][] is a simple Gemini browser. It shows how to integrate Eio with `ocaml-tls`, `angstrom`, and `notty`.
+- [gemini-eio][] is a simple Gemini browser. It shows how to integrate Eio with `ocaml-tls` and `notty`.
 - [ocaml-multicore/retro-httpaf-bench](https://github.com/ocaml-multicore/retro-httpaf-bench) includes a simple HTTP server using Eio. It shows how to use Eio with `httpaf`, and how to use multiple domains for increased performance.
 - [Awesome Multicore OCaml][] lists many other projects.
 
@@ -1690,7 +1690,7 @@ end
 
 ## Further Reading
 
-- [lib_eio/eio.mli](lib_eio/eio.mli) documents Eio's public API.
+- [API reference][Eio API]
 - [doc/rationale.md](doc/rationale.md) describes some of Eio's design tradeoffs in more detail.
 - [HACKING.md](./HACKING.md) describes how to work with the Eio source code.
 
@@ -1703,13 +1703,14 @@ Some background about the effects system can be found in:
 - [Concurrent System Programming with Effect Handlers](https://www.repository.cam.ac.uk/bitstream/handle/1810/283239/paper.pdf?sequence=3&isAllowed=y)
 - [Asynchronous effect based IO using effect handlers](https://github.com/kayceesrk/ocaml-aeio)
 
+[Eio API]: https://ocaml-multicore.github.io/eio/
 [Lwt_eio]: https://github.com/ocaml-multicore/lwt_eio
 [mirage-trace-viewer]: https://github.com/talex5/mirage-trace-viewer
 [structured concurrency]: https://en.wikipedia.org/wiki/Structured_concurrency
 [capability-based security]: https://en.wikipedia.org/wiki/Object-capability_model
 [Emily]: https://www.hpl.hp.com/techreports/2006/HPL-2006-116.pdf
 [gemini-eio]: https://gitlab.com/talex5/gemini-eio
-[Awesome Multicore OCaml]: https://github.com/patricoferris/awesome-multicore-ocaml
+[Awesome Multicore OCaml]: https://github.com/ocaml-multicore/awesome-multicore-ocaml
 [Eio]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html
 [Eio.Std]: https://ocaml-multicore.github.io/eio/eio/Eio/Std/index.html
 [Eio.Fiber]: https://ocaml-multicore.github.io/eio/eio/Eio/Fiber/index.html
