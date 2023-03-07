@@ -118,6 +118,18 @@ let update t waiters fd =
   in
   if flags = Poll.Flags.empty then (
     Poll.invalidate_index t.poll fdi;
+    (* Try to find the new maxi, go back on index until we find the next
+       used slot, -1 means none in use. *)
+    let rec lower_maxi = function
+      | -1 -> t.poll_maxi <- -1
+      | index ->
+        if Poll.((get_fd t.poll index) <> invalid_fd) then
+          t.poll_maxi <- index
+        else
+          lower_maxi (pred index)
+    in
+    if fdi = t.poll_maxi then
+      lower_maxi (pred fdi);
     Hashtbl.remove t.fd_map fd
   ) else (
     Poll.set_index t.poll fdi fd flags;
@@ -223,7 +235,7 @@ let with_sched fn =
   in
   let poll = Poll.create () in
   let fd_map = Hashtbl.create 10 in
-  let t = { run_q; poll; poll_maxi = 0; fd_map; eventfd; eventfd_r;
+  let t = { run_q; poll; poll_maxi = (-1); fd_map; eventfd; eventfd_r;
             active_ops = 0; need_wakeup = Atomic.make false; sleep_q } in
   let eventfd_ri = Iomux.Util.fd_of_unix eventfd_r in
   Poll.set_index t.poll eventfd_ri eventfd_r Poll.Flags.pollin;
