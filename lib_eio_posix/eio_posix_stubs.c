@@ -38,7 +38,7 @@ CAMLprim value caml_eio_posix_getrandom(value v_ba, value v_off, value v_len) {
   ssize_t off = (ssize_t)Long_val(v_off);
   ssize_t len = (ssize_t)Long_val(v_len);
   do {
-    void *buf = Caml_ba_data_val(v_ba) + off;
+    void *buf = (uint8_t *)Caml_ba_data_val(v_ba) + off;
     caml_enter_blocking_section();
 #ifdef __linux__
     ret = getrandom(buf, len, 0);
@@ -60,7 +60,7 @@ static void fill_iov(struct iovec *iov, value v_bufs) {
     value v_ba = Field(v_cs, 0);
     value v_off = Field(v_cs, 1);
     value v_len = Field(v_cs, 2);
-    iov[i].iov_base = Caml_ba_data_val(v_ba) + Long_val(v_off);
+    iov[i].iov_base = (uint8_t *)Caml_ba_data_val(v_ba) + Long_val(v_off);
     iov[i].iov_len = Long_val(v_len);
   }
 }
@@ -169,8 +169,8 @@ CAMLprim value caml_eio_posix_unlinkat(value v_fd, value v_path, value v_dir) {
 
 CAMLprim value caml_eio_posix_renameat(value v_old_fd, value v_old_path, value v_new_fd, value v_new_path) {
   CAMLparam2(v_old_path, v_new_path);
-  int old_path_len = caml_string_length(v_old_path);
-  int new_path_len = caml_string_length(v_new_path);
+  size_t old_path_len = caml_string_length(v_old_path);
+  size_t new_path_len = caml_string_length(v_new_path);
   char *old_path;
   char *new_path;
   int ret;
