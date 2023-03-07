@@ -26,7 +26,7 @@ let await_writable fd =
 let rec do_nonblocking ty fn fd =
   try fn fd with
   | Unix.Unix_error (EINTR, _, _) -> do_nonblocking ty fn fd    (* Just in case *)
-  | Unix.Unix_error((EAGAIN | EWOULDBLOCK | EINPROGRESS), _, _) ->
+  | Unix.Unix_error((EAGAIN | EWOULDBLOCK), _, _) ->
     Sched.enter (fun t k ->
         match ty with
         | Read -> Sched.await_readable t k fd
