@@ -1,0 +1,4 @@
+(mdx
+  (package eio_posix)
+  (enabled_if (= %{os_type} "Unix"))
+  (deps (package eio_posix)))

@@ -1,0 +1,13 @@
+(library
+ (name eio_posix)
+ (public_name eio_posix)
+ (enabled_if (= %{os_type} "Unix"))
+ (foreign_stubs
+  (language c)
+  (flags :standard -D_LARGEFILE64_SOURCE)
+  (names eio_posix_stubs))
+ (libraries eio eio.utils eio.unix fmt iomux))
+
+(rule
+ (targets config.ml)
+ (action (run ./include/discover.exe)))

@@ -10,11 +10,13 @@ doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "3.0"}
-  "eio_linux" {= version & os = "linux"}
   "mdx" {>= "1.10.0" & with-test}
-  "eio_luv" {= version}
+  "eio_linux" {= version & os = "linux"}
+  "eio_posix" {= version & os != "windows"}
+  "eio_luv" {= version & os = "windows" | with-test}
   "odoc" {with-doc}
 ]
+depopts: ["eio_luv"]
 build: [
   ["dune" "subst"] {dev}
   [
