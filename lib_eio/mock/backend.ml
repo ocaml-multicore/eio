@@ -10,7 +10,7 @@ type t = {
   (* Suspended fibers waiting to run again.
      [Lf_queue] is like [Stdlib.Queue], but is thread-safe (lock-free) and
      allows pushing items to the head too, which we need. *)
-  mutable run_q : (unit -> exit) Lf_queue.t;
+  run_q : (unit -> exit) Lf_queue.t;
 }
 
 (* Resume the next runnable fiber, if any. *)
