@@ -66,6 +66,7 @@
  (description "An eio implementation that is compatible with programs running in the browser.")
  (depends
   (eio (= :version))
+  (js_of_ocaml-compiler (>= 5.0.1))
   (brr (>= 0.0.4))
   (alcotest (and (>= 1.6.0) :with-test))
   (ansi :with-test)))
