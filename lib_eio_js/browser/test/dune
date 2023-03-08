@@ -12,6 +12,7 @@
 
 (rule
  (alias runtest)
+ (package eio_browser)
  (deps index.html test.bc.js)
  (targets test.js)
  (action (copy test.bc.js test.js)))
