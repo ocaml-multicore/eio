@@ -795,6 +795,10 @@ module Low_level = struct
 
   external eio_getdents : Unix.file_descr -> string list = "caml_eio_getdents"
 
+  external eio_getaddrinfo : string -> string -> Unix.getaddrinfo_option list ->
+    (Unix.addr_info list, Eio.Net.getaddrinfo_error) result
+    = "caml_eio_getaddrinfo"
+
   let getrandom { Cstruct.buffer; off; len } =
     let rec loop n =
       if n = len then
@@ -894,7 +898,9 @@ module Low_level = struct
       | _ -> None
     in
     Eio_unix.run_in_systhread @@ fun () ->
-    Unix.getaddrinfo node service []
+    (match (eio_getaddrinfo node service []) with
+     | Ok l -> l
+     | Error e -> raise (Eio.Net.Getaddrinfo_error e))
     |> List.filter_map to_eio_sockaddr_t
 end
 

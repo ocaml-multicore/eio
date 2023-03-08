@@ -248,4 +248,7 @@ module Low_level : sig
   (** [getaddrinfo host] returns a list of IP addresses for [host]. [host] is either a domain name or
       an ipaddress. *)
 
+  val eio_getaddrinfo : string -> string -> Unix.getaddrinfo_option list ->
+    (Unix.addr_info list, Eio.Net.getaddrinfo_error) result
+
 end

@@ -226,6 +226,41 @@ let datagram_socket ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:#t) addr =
   let addr = (addr :> [Sockaddr.datagram | `UdpV4 | `UdpV6]) in 
   t#datagram_socket ~reuse_addr ~reuse_port ~sw addr
 
+(* keep in sync with C stubs *)
+type getaddrinfo_error =
+  | EAI_ADDRFAMILY
+  | EAI_AGAIN
+  | EAI_BADFLAGS
+  | EAI_BADHINTS
+  | EAI_FAIL
+  | EAI_FAMILY
+  | EAI_MEMORY
+  | EAI_NODATA
+  | EAI_NONAME
+  | EAI_OVERFLOW
+  | EAI_PROTOCOL
+  | EAI_SERVICE
+  | EAI_SOCKTYPE
+  | EAI_SYSTEM
+
+exception Getaddrinfo_error of getaddrinfo_error
+
+let getaddrinfo_error_to_string = function
+  | EAI_ADDRFAMILY -> "address family for name not supported"
+  | EAI_AGAIN      -> "temporary failure in name resolution"
+  | EAI_BADFLAGS   -> "invalid value for ai_flags"
+  | EAI_BADHINTS   -> "invalid value for hints"
+  | EAI_FAIL       -> "non-recoverable failure in name resolution"
+  | EAI_FAMILY     -> "ai_family not supported"
+  | EAI_MEMORY     -> "memory allocation failure"
+  | EAI_NODATA     -> "no address associated with name"
+  | EAI_NONAME     -> "name or service is not known"
+  | EAI_OVERFLOW   -> "argument buffer overflow"
+  | EAI_PROTOCOL   -> "resolved protocol is unknown"
+  | EAI_SERVICE    -> "service not supported for ai_socktype"
+  | EAI_SOCKTYPE   -> "ai_socktype not supported"
+  | EAI_SYSTEM     -> "system error"
+
 let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname
 
 let getaddrinfo_stream ?service t hostname =

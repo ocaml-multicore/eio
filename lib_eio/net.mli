@@ -272,11 +272,40 @@ val recv : #datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
     returned along with the sender address and port. If the [buf] is too small then excess bytes may be discarded
     depending on the type of the socket the message is received from. *)
 
-(** {2 DNS queries} *)
+(** {2 Getaddrinfo queries}
+
+    Note that unlike {!Unix.getaddrinfo}, EIO's [getaddrinfo] family
+    of functions raise an exception {!Getaddrinfo_error} with an error
+    code instead of returning an empty list. *)
+
+(* keep in sync with C stubs *)
+type getaddrinfo_error =
+  | EAI_ADDRFAMILY
+  | EAI_AGAIN
+  | EAI_BADFLAGS
+  | EAI_BADHINTS
+  | EAI_FAIL
+  | EAI_FAMILY
+  | EAI_MEMORY
+  | EAI_NODATA
+  | EAI_NONAME
+  | EAI_OVERFLOW
+  | EAI_PROTOCOL
+  | EAI_SERVICE
+  | EAI_SOCKTYPE
+  | EAI_SYSTEM
+  (** Possible errors raised by getaddrinfo functions, check
+      getaddrinfo(3) and gai_strerror(3) for more information. *)
+
+exception Getaddrinfo_error of getaddrinfo_error
+
+val getaddrinfo_error_to_string : getaddrinfo_error -> string
+(** [getaddrinfo_error_to_string e] returns a string representation of [e], like gai_strerror(3). *)
 
 val getaddrinfo: ?service:string -> #t -> string -> Sockaddr.t list
 (** [getaddrinfo ?service t node] returns a list of IP addresses for [node]. [node] is either a domain name or
     an IP address.
+    May raise {!Getaddrinfo_error} and never returns an empty list.
 
     @param service is a human friendly textual name for internet services assigned by IANA., eg.
     'http', 'https', 'ftp', etc.
@@ -284,10 +313,12 @@ val getaddrinfo: ?service:string -> #t -> string -> Sockaddr.t list
     For a more thorough treatment, see {{:https://man7.org/linux/man-pages/man3/getaddrinfo.3.html} getaddrinfo}. *)
 
 val getaddrinfo_stream: ?service:string -> #t -> string -> Sockaddr.stream list
-(** [getaddrinfo_stream] is like {!getaddrinfo}, but filters out non-stream protocols. *)
+(** [getaddrinfo_stream] is like {!getaddrinfo}, but filters out non-stream protocols.
+    May raise {!Getaddrinfo_error} and never returns an empty list. *)
 
 val getaddrinfo_datagram: ?service:string -> #t -> string -> Sockaddr.datagram list
-(** [getaddrinfo_datagram] is like {!getaddrinfo}, but filters out non-datagram protocols. *)
+(** [getaddrinfo_datagram] is like {!getaddrinfo}, but filters out non-datagram protocols.
+    May raise {!Getaddrinfo_error} and never returns an empty list. *)
 
 val getnameinfo : #t -> Sockaddr.t -> (string * string)
 (** [getnameinfo t sockaddr] is [(hostname, service)] corresponding to [sockaddr]. [hostname] is the
