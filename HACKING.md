@@ -32,8 +32,36 @@ Most backends are built in two layers:
 - A "low-level" module directly wraps the platform's own API, just adding support for suspending fibers for concurrency
   and basic safety features (such wrapping `Unix.file_descr` to prevent use-after-close races).
 
-- An implementation of the cross-platform API defined in the `eio` package that uses the low-level API internally.
+- An implementation of the cross-platform API (as defined in the `eio` package) that uses the low-level API internally.
   This should ensure that errors are reported using the `Eio.Io` exception.
+
+`eio_posix` is the best one to look at first:
+
+- `lib_eio_posix/sched.ml` is similar to the mock scheduler, but extended to interact with the OS kernel.
+- `lib_eio_posix/low_level.ml` provides fairly direct wrappers of the standard POSIX functions,
+  but using `sched.ml` to suspend and resume instead of blocking the whole domain.
+- `lib_eio_posix/net.ml` implements the cross-platform API using the low-level API.
+  For example, it converts Eio network addresses to Unix ones.
+  Likewise, `fs.ml` implements the cross-platform file-system APIs, etc.
+- `lib_eio_posix/eio_posix.ml` provides the main `run` function.
+  It runs the scheduler, passing to the user's `main` function an `env` object for the cross-platform API functions.
+
+When writing a backend, it's best to write the main loop in OCaml rather than delegate that to a C function.
+Some particular things to watch out for:
+
+- If a system call returns `EINTR`, you must switch back to OCaml
+  (`caml_leave_blocking_section`) so that the signal can be handled. Some C
+  libraries just restart the function immediately and this will break signal
+  handling (on systems that have signals).
+
+- If C code installs a signal handler, it *must* use the alt stack (`SA_ONSTACK`).
+  Otherwise, signals handlers will run on the fiber stack, which is too small and will result in memory corruption.
+
+- Effects cannot be performed over a C function.
+  So, if the user installs an effect handler and then calls a C mainloop, and the C code invokes a callback,
+  the callback cannot use the effect handler.
+  This isn't a problem for Eio itself (Eio's effect handler is installed inside the mainloop),
+  but it can break programs using effects in other ways.
 
 ## Tests
 

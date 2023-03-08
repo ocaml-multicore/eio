@@ -91,10 +91,11 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 ## Structure of the Code
 
 - [Eio][] provides concurrency primitives (promises, etc.) and a high-level, cross-platform OS API.
+- [Eio_posix][] provides a cross-platform backend for these APIs for POSIX-type systems.
 - [Eio_luv][] provides a cross-platform backend for these APIs using [luv](https://github.com/aantron/luv) (libuv).
 - [Eio_linux][] provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
-- [Eio_main][] selects an appropriate backend (e.g. `eio_linux` or `eio_luv`), depending on your platform.
+- [Eio_main][] selects an appropriate backend (e.g. `eio_linux`, `eio_posix` or `eio_luv`), depending on your platform.
 
 ## Getting OCaml 5.0
 
@@ -1730,6 +1731,7 @@ Some background about the effects system can be found in:
 [Eio.Domain_manager]: https://ocaml-multicore.github.io/eio/eio/Eio/Domain_manager/index.html
 [Eio.Promise]: https://ocaml-multicore.github.io/eio/eio/Eio/Promise/index.html
 [Eio.Stream]: https://ocaml-multicore.github.io/eio/eio/Eio/Stream/index.html
+[Eio_posix]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio_posix/eio_posix.mli
 [Eio_luv]: https://ocaml-multicore.github.io/eio/eio_luv/Eio_luv/index.html
 [Eio_linux]: https://ocaml-multicore.github.io/eio/eio_linux/Eio_linux/index.html
 [Eio_main]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html
