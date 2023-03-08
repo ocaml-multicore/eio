@@ -369,7 +369,6 @@ module Low_level = struct
   module File = struct
     type t = {
       mutable release_hook : Eio.Switch.hook;        (* Use this on close to remove switch's [on_release] hook. *)
-      close_unix : bool;
       mutable fd : [`Open of Luv.File.t | `Closed]
     }
 
@@ -398,11 +397,11 @@ module Low_level = struct
 
     let to_luv = get "to_luv"
 
-    let of_luv_no_hook ~close_unix fd =
-      { fd = `Open fd; release_hook = Eio.Switch.null_hook; close_unix }
+    let of_luv_no_hook fd =
+      { fd = `Open fd; release_hook = Eio.Switch.null_hook }
 
-    let of_luv ?(close_unix=true) ~sw fd =
-      let t = of_luv_no_hook ~close_unix fd in
+    let of_luv ~sw fd =
+      let t = of_luv_no_hook fd in
       t.release_hook <- Switch.on_release_cancellable sw (fun () -> ensure_closed t);
       t
 
@@ -1153,9 +1152,9 @@ let cwd = object
 end
 
 let stdenv ~run_event_loop =
-  let stdin = lazy (source (File.of_luv_no_hook Luv.File.stdin ~close_unix:true)) in
-  let stdout = lazy (sink (File.of_luv_no_hook Luv.File.stdout ~close_unix:true)) in
-  let stderr = lazy (sink (File.of_luv_no_hook Luv.File.stderr ~close_unix:true)) in
+  let stdin = lazy (source (File.of_luv_no_hook Luv.File.stdin)) in
+  let stdout = lazy (sink (File.of_luv_no_hook Luv.File.stdout)) in
+  let stderr = lazy (sink (File.of_luv_no_hook Luv.File.stderr)) in
   object (_ : stdenv)
     method stdin  = Lazy.force stdin
     method stdout = Lazy.force stdout
@@ -1282,8 +1281,8 @@ let rec run2 : type a. (_ -> a) -> a = fun main ->
           )
           | Eio_unix.Private.Pipe sw -> Some (fun k ->
             let r, w = Luv.Pipe.pipe ~read_flags:[] ~write_flags:[] () |> or_raise in
-            let r = (flow (File.of_luv ~close_unix:true ~sw r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
-            let w = (flow (File.of_luv ~close_unix:true ~sw w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
+            let r = (flow (File.of_luv ~sw r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
+            let w = (flow (File.of_luv ~sw w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
             continue k (r, w)
           )
         | _ -> None

@@ -163,7 +163,6 @@ type t =
   ; mutable bytes_written  : int        (* Total written bytes. Wraps. *)
   ; mutable state          : state
   ; mutable wake_writer    : unit -> unit
-  ; id                     : Ctf.id
   }
 (* Invariant: [write_pos >= scheduled_pos] *)
 
@@ -378,7 +377,6 @@ let of_buffer ?sw buffer =
           ; bytes_written   = 0
           ; state           = Active
           ; wake_writer     = ignore
-          ; id              = Ctf.mint_id ()
           }
   in
   begin match sw with
