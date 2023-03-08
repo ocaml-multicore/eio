@@ -23,7 +23,21 @@ let read_all fd =
     | exception End_of_file -> Buffer.contents acc_buffer
   in read ()
 
+let resolve_program prog =
+  let paths = Option.map (fun v -> String.split_on_char ':' v) (Sys.getenv_opt "PATH") |> Option.value ~default:[ "/usr/bin"; "/usr/local/bin" ] in
+  if not (Filename.is_implicit prog) then Some prog
+  else
+  let exists path =
+    let p = Filename.concat path prog in
+    if Sys.file_exists p then Some p else None
+  in
+  List.find_map exists paths
+
 let exec ?stdin ?stdout ?stderr ?cwd ~env ~sw prog args = 
+  let prog = match resolve_program prog with
+    | Some prog -> prog
+    | None -> raise (Eio.Fs.err (Eio.Fs.Not_found (Eio_unix.Unix_error (Unix.ENOENT, "", ""))))
+  in
   let stdin = Option.value ~default:(Eio_linux.get_fd env#stdin) stdin in
   let stdout = Option.value ~default:(Eio_linux.get_fd env#stdout) stdout in
   let stderr = Option.value ~default:(Eio_linux.get_fd env#stderr) stderr in

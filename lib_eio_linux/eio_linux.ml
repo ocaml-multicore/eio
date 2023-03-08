@@ -959,22 +959,8 @@ module Low_level = struct
           let status = FD.use_exn "wait" t.process pidfd_wait in
           Promise.resolve r status;
           status
-
-      let resolve_program ~paths prog =
-        if not (Filename.is_implicit prog) then Some prog
-        else
-        let exists path =
-          let p = Filename.concat path prog in
-          if Sys.file_exists p then Some p else None
-        in
-        List.find_map exists paths
       
       let spawn ?env ~cwd ~stdin ~stdout ~stderr ~sw prog argv =
-        let paths = Option.map (fun v -> String.split_on_char ':' v) (Sys.getenv_opt "PATH") |> Option.value ~default:[ "/usr/bin"; "/usr/local/bin" ] in
-        let prog = match resolve_program ~paths prog with
-          | Some prog -> prog
-          | None -> raise (Eio.Fs.err (Eio.Fs.Not_found (Eio_unix.Unix_error (Unix.ENOENT, "", ""))))
-        in
         FD.use_exn "spawn_stdin" stdin @@ fun stdin ->
         FD.use_exn "spawn_stdout" stdout @@ fun stdout ->
         FD.use_exn "spawn_stderr" stderr @@ fun stderr ->

@@ -279,7 +279,8 @@ module Low_level : sig
       string list ->
       t
     (** Spawns a subprocess. If the process has not finished when the switch is released, the process
-        will be sent [Sys.sigkill]. *)
+        will be sent [Sys.sigkill]. [spawn] uses [execve] which means the program will {e not} be searched
+        for in the [PATH] environment variable. *)
 
     val wait : t -> Unix.process_status
     (** [wait t] waits for the process [t] to exit. This blocks the fiber until the process
