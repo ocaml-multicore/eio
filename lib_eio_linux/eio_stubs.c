@@ -174,6 +174,10 @@ static value alloc_process_status(int status)
     return st;
 }
 
+#ifndef P_PIDFD
+#define P_PIDFD 3
+#endif
+
 CAMLprim value caml_eio_pidfd_wait(value v_pidfd) {
   CAMLparam1(v_pidfd);
   CAMLlocal1(v_status);
