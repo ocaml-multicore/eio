@@ -1,16 +1,8 @@
-; We compile by hand because dune is a little broken w.r.t to
-; separate compilation, js_of_ocaml and effects.
 (executable
  (name index)
- (modes byte)
- (js_of_ocaml (flags --target-env=nodejs --enable=effects --debug-info --source-map --pretty))
+ (modes js)
+ (js_of_ocaml (flags --enable=effects))
  (libraries eio_browser))
-
-(rule
- (alias runtest)
- (deps index.bc)
- (targets index.bc.js)
- (action (run %{bin:js_of_ocaml} -o %{targets} --enable=effects %{lib:eio_browser:runtime.js} %{dep:index.bc})))
 
 (rule
  (alias runtest)
