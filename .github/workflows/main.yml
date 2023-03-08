@@ -14,7 +14,7 @@ jobs:
         ocaml-compiler:
           - 5.0.x
         local-packages:
-          - eio eio_posix eio_main
+          - eio eio_posix eio_main eio_browser
 
     runs-on: ${{ matrix.os }}
 
