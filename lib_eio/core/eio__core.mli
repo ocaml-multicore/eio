@@ -250,6 +250,36 @@ module Fiber : sig
       This is just a convenience wrapper around {!fork}.
       If [fn] raises an exception then the promise is resolved to the error, but [sw] is not failed. *)
 
+  val fork_seq : sw:Switch.t -> (('a -> unit) -> unit) -> 'a Seq.t
+  (** [fork_seq ~sw fn] creates (but does not start) a new fiber to run [fn yield].
+
+      Requesting the next item from the returned sequence resumes the fiber until it
+      calls [yield x], using [x] value as the next item in the sequence. If [fn]
+      returns without producing a value then the result is {!Seq.Nil} (end-of-sequence).
+
+      The returned sequence can be consumed safely from another domain.
+      [fn] itself always runs in the domain that called [fork_seq].
+
+      Example:
+      {[
+        Switch.run @@ fun sw ->
+        let seq = Fiber.fork_seq ~sw (fun yield ->
+            for i = 1 to 3 do
+              traceln "Yielding %d" i;
+              yield i
+            done
+          ) in
+        Seq.iter (traceln "Got: %d") seq
+      ]}
+
+      If [fn] raises an exception then the consumer receives it.
+      If the consumer cancels while awaiting a value, the producer is cancelled when
+      it next calls [yield].
+      It is an error to request two items at once, or to request items out of sequence.
+
+      @param sw When the switch finishes, the fiber is cancelled (if still running).
+                Attempting to read from the sequence after this raises an exception. *)
+
   val fork_daemon : sw:Switch.t -> (unit -> [`Stop_daemon]) -> unit
   (** [fork_daemon] is like {!fork} except that instead of waiting for the fiber to finish,
       the switch will cancel it once all non-daemon fibers are done.
