@@ -1,4 +1,4 @@
-open Eio
+open Eio.Std
 open Brr
 
 let () =
