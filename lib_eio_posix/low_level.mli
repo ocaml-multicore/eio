@@ -50,6 +50,8 @@ val writev : Fd.t -> Cstruct.t array -> int
 val preadv : file_offset:Optint.Int63.t -> Fd.t -> Cstruct.t array -> int
 val pwritev : file_offset:Optint.Int63.t -> Fd.t -> Cstruct.t array -> int
 
+val pipe : sw:Switch.t -> Fd.t * Fd.t
+
 module Open_flags : sig
   type t
 

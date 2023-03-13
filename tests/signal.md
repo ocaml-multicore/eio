@@ -26,12 +26,15 @@ Prove we can catch sigint:
         Unix.kill ppid Sys.sigint;
         Unix._exit 0
       | child_pid ->
-        let wait () =
-          let pid, status = Unix.waitpid [] child_pid in
-          assert (pid = child_pid);
-          assert (status = (Unix.WEXITED 0))
+        let rec wait () =
+          match Unix.waitpid [] child_pid with
+          | pid, status ->
+            assert (pid = child_pid);
+            assert (status = (Unix.WEXITED 0))
+          | exception Unix.Unix_error (EINTR, _, _) -> wait ()
+          | exception Unix.Unix_error (ECHILD, _, _) -> ()  (* Hack until we have a cross-platform process API *)
         in
-        try wait () with Unix.Unix_error (Unix.EINTR, _, _) -> wait ()
+        wait ()
     );
   Sys.set_signal Sys.sigint old;;
 +interrupted!

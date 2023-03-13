@@ -198,3 +198,11 @@ let rename ?old_dir old_path ?new_dir new_path =
   with_dirfd "rename-old" old_dir @@ fun old_dir ->
   with_dirfd "rename-new" new_dir @@ fun new_dir ->
   eio_renameat old_dir old_path new_dir new_path
+
+let pipe ~sw =
+  let unix_r, unix_w = Unix.pipe ~cloexec:true () in
+  let r = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_r in
+  let w = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_w in
+  Unix.set_nonblock unix_r;
+  Unix.set_nonblock unix_w;
+  r, w

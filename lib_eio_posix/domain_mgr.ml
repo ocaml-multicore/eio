@@ -46,11 +46,7 @@ let run_event_loop fn x =
         )
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
           match
-            let unix_r, unix_w = Unix.pipe ~cloexec:true () in
-            let r = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_r in
-            let w = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_w in
-            Unix.set_nonblock unix_r;
-            Unix.set_nonblock unix_w;
+            let r, w = Low_level.pipe ~sw in
             let source = (Flow.of_fd r :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
             let sink = (Flow.of_fd w :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
             (source, sink)
