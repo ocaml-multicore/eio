@@ -80,12 +80,28 @@ module Browser_tests = struct
     in
     Alcotest.(check (list int)) "timeouts" lst v
 
+  let test_busy_yielding () =
+    let i = ref 0 in
+    let rec loop () =
+      Eio.Fiber.yield ();
+      incr i;
+      (* An early cut off to prevent browser tab from crashing! *)
+      if !i > 1000000 then () else loop ()
+    in
+    Fiber.yield ();
+    Eio_browser.Timeout.sleep ~ms:10;
+    Fiber.first
+      loop
+      (fun () -> Eio_browser.Timeout.sleep ~ms:10);
+    if !i > 1000000 then Alcotest.fail "Yielding was not cancelled"
+
   let tests = [
     Alcotest.test_case "timeout cancelled" `Quick test_timeout_cancel;
     Alcotest.test_case "fut await" `Quick test_fut_await;
     Alcotest.test_case "fut cancelled" `Quick test_fut_cancel;
     Alcotest.test_case "test timeout" `Quick test_timeout;
-    Alcotest.test_case "test multiple timeouts" `Quick test_multiple_timeouts
+    Alcotest.test_case "test multiple timeouts" `Quick test_multiple_timeouts;
+    Alcotest.test_case "test busy yielding" `Quick test_busy_yielding;
   ]
 end
 
