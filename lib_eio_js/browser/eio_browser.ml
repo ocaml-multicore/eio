@@ -15,6 +15,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+[@@@alert "-unstable"]
+
 open Brr
 
 module Fiber_context = Eio.Private.Fiber_context
@@ -148,12 +150,12 @@ module Scheduler = struct
     schedule_wakeup t
 end
 
-type _ Effect.t += Enter_unchecked : (Scheduler.t -> 'a Suspended.t -> suspend) -> 'a Effect.t
-let enter_unchecked fn = Effect.perform (Enter_unchecked fn)
+type _ Effect.t += Enter : (Scheduler.t -> 'a Suspended.t -> suspend) -> 'a Effect.t
+let enter fn = Effect.perform (Enter fn)
 
 module Timeout = struct
   let sleep ~ms =
-    enter_unchecked @@ fun st k ->
+    enter @@ fun st k ->
     let id = G.set_timeout ~ms (fun () ->
         Fiber_context.clear_cancel_fn k.fiber;
         Scheduler.enqueue_thread st k ()
@@ -166,7 +168,7 @@ module Timeout = struct
 end
 
 let await fut =
-  enter_unchecked @@ fun st k ->
+  enter @@ fun st k ->
   (* There is no way to cancel a Javascript promise (which Fut wraps) so we
      have to leak this memory unfortunately. *)
   let cancelled = ref false in
@@ -182,7 +184,7 @@ let await fut =
 let next_event : 'a Brr.Ev.type' -> Brr.Ev.target -> 'a Brr.Ev.t = fun typ target ->
   let opts = Brr.Ev.listen_opts ~once:true () in
   let listen fn = Brr.Ev.listen ~opts typ fn target in
-  enter_unchecked @@ fun st k ->
+  enter @@ fun st k ->
   (* If there is a cancellation of the call to next_event, then unlisten
      will be called and so enqueue_thread will never be called even
      if another event arrives. *)
@@ -217,8 +219,10 @@ let run main =
                 );
               Scheduler.next scheduler
             )
-          | Enter_unchecked fn -> Some (fun k ->
-              fn scheduler { Suspended.k; fiber }
+          | Enter fn -> Some (fun k ->
+              match Fiber_context.get_error fiber with
+              | Some exn -> Effect.Deep.discontinue k exn
+              | None -> fn scheduler { Suspended.k; fiber }
             )
           | Eio.Private.Effects.Fork (new_fiber, f) -> Some (fun k ->
               let k = { Suspended.k; fiber } in
