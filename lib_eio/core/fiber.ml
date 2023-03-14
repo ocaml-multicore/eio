@@ -1,3 +1,5 @@
+[@@@alert "-unstable"]
+
 type _ Effect.t += Fork : Cancel.fiber_context * (unit -> unit) -> unit Effect.t
 
 let yield () =
@@ -284,3 +286,108 @@ let with_binding var value fn =
 let without_binding var fn =
   let ctx = Effect.perform Cancel.Get_context in
   Cancel.Fiber_context.with_vars ctx (Hmap.rem var ctx.vars) fn
+
+(* Coroutines.
+
+   [fork_coroutine ~sw fn] creates a new fiber for [fn]. [fn] immediately suspends, setting its state to
+   [Ready enqueue]. A consumer can resume it by setting the state to [Running] and calling [enqueue],
+   while suspending itself. The consumer passes in its own [enqueue] function. They run alternatively
+   like this, switching between the [Ready] and [Running] states.
+
+   To finish, the coroutine fiber can set the state to [Finished] or [Failed],
+   or the client can set the state to [Client_cancelled].
+*)
+
+(* Note: we could easily generalise this to [('in, 'out) coroutine] if that was useful. *)
+type 'out coroutine =
+  [ `Init
+  | `Ready of [`Running of 'out Suspend.enqueue] Suspend.enqueue
+  | `Running of 'out Suspend.enqueue
+  | `Finished
+  | `Client_cancelled of exn
+  | `Failed of exn ]
+
+(* The only good reason for the state to change while the coroutine is running is if the client
+   cancels. Return the exception in that case. If the coroutine is buggy it might e.g. fork two
+   fibers and yield twice for a single request - return Invalid_argument in that case. *)
+let unwrap_cancelled state =
+  match Atomic.get state with
+  | `Client_cancelled ex -> ex
+  | `Finished | `Failed _ -> Invalid_argument "Coroutine has already stopped!"
+  | `Ready _ -> Invalid_argument "Coroutine has already yielded!"
+  | `Init | `Running _ -> Invalid_argument "Coroutine in unexpected state!"
+
+let run_coroutine ~state fn =
+  let await_request ~prev ~on_suspend =
+    (* Suspend and wait for the consumer to resume us: *)
+    Suspend.enter (fun ctx enqueue ->
+        let ready = `Ready enqueue in
+        if Atomic.compare_and_set state prev ready then (
+          Cancel.Fiber_context.set_cancel_fn ctx (fun ex ->
+              if Atomic.compare_and_set state ready (`Failed ex) then
+                enqueue (Error ex);
+              (* else the client enqueued a resume for us; handle that instead *)
+            );
+          on_suspend ()
+        ) else (
+          enqueue (Error (unwrap_cancelled state))
+        )
+      )
+  in
+  let current_state = ref (await_request ~prev:`Init ~on_suspend:ignore) in
+  fn (fun v ->
+      (* The coroutine wants to yield the value [v] and suspend. *)
+      let `Running enqueue as prev = !current_state in
+      current_state := await_request ~prev ~on_suspend:(fun () -> enqueue (Ok (Some v)))
+    );
+  (* [fn] has finished. End the stream. *)
+  if Atomic.compare_and_set state (!current_state :> _ coroutine) `Finished then (
+    let `Running enqueue = !current_state in
+    enqueue (Ok None)
+  ) else (
+    raise (unwrap_cancelled state)
+  )
+
+let fork_coroutine ~sw fn =
+  let state = Atomic.make `Init in
+  fork_daemon ~sw (fun () ->
+      try
+        run_coroutine ~state fn;
+        `Stop_daemon
+      with ex ->
+        match ex, Atomic.exchange state (`Failed ex) with
+          | _, `Running enqueue ->
+            (* A client is waiting for us. Send the error there. Also do this if we were cancelled. *)
+            enqueue (Error ex);
+            `Stop_daemon
+          | Cancel.Cancelled _, _ ->
+            (* The client isn't waiting (probably it got cancelled, then we tried to yield to it and got cancelled too).
+               If it tries to resume us later it will see the error. *)
+            `Stop_daemon
+          | _ ->
+            (* Something unexpected happened. Re-raise. *)
+            raise ex
+    );
+  fun () ->
+    Suspend.enter (fun ctx enqueue ->
+        let rec aux () =
+          match Atomic.get state with
+          | `Ready resume as prev ->
+            let running = `Running enqueue in
+            if Atomic.compare_and_set state prev running then (
+              resume (Ok running);
+              Cancel.Fiber_context.set_cancel_fn ctx (fun ex ->
+                  if Atomic.compare_and_set state running (`Client_cancelled ex) then
+                    enqueue (Error ex)
+                )
+            ) else aux ()
+          | `Finished -> enqueue (Error (Invalid_argument "Coroutine has already finished!"))
+          | `Failed ex | `Client_cancelled ex -> enqueue (Error (Invalid_argument ("Coroutine has already failed: " ^ Printexc.to_string ex)))
+          | `Running _ -> enqueue (Error (Invalid_argument "Coroutine is still running!"))
+          | `Init -> assert false
+        in
+        aux ()
+      )
+
+let fork_seq ~sw fn =
+  Seq.of_dispenser (fork_coroutine ~sw fn)

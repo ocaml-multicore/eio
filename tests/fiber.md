@@ -656,3 +656,203 @@ Values are inherited from the currently running fiber, rather than the switch.
 +Key => 123
 - : unit = ()
 ```
+
+## fork_seq
+
+The simple case where everything works:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let seq =
+    Fiber.fork_seq ~sw (fun yield ->
+      traceln "Generator fiber starting";
+      for i = 1 to 3 do
+        traceln "Yielding %d" i;
+        yield i
+      done
+    )
+  in
+  traceln "Requesting 1st item";
+  match seq () with
+  | Nil -> assert false
+  | Cons (x, seq) ->
+    traceln "hd = %d" x;
+    traceln "Requesting remaining items";
+    List.of_seq seq;;
++Requesting 1st item
++Generator fiber starting
++Yielding 1
++hd = 1
++Requesting remaining items
++Yielding 2
++Yielding 3
+- : int list = [2; 3]
+```
+
+The generator raises:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let seq =
+    Fiber.fork_seq ~sw (fun yield ->
+      traceln "Generator fiber starting";
+      raise (Failure "Simulated error")
+    )
+  in
+  Eio.Cancel.protect (fun () ->         (* (ensure we get the exception from the sequence) *)
+     traceln "Requesting an item";
+     try
+       ignore (seq ());
+       assert false
+     with ex -> traceln "Consumer got exception: %a" Fmt.exn ex
+  );;
++Requesting an item
++Generator fiber starting
++Consumer got exception: Failure("Simulated error")
+- : unit = ()
+```
+
+The sequence is used after the switch is finished:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let seq =
+    Switch.run (fun sw ->
+       Fiber.fork_seq ~sw (fun _yield -> assert false)
+    )
+  in
+  traceln "Requesting an item";
+  seq ();;
++Requesting an item
+Exception:
+Invalid_argument "Coroutine has already failed: Cancelled: Stdlib.Exit".
+```
+
+The sequence is used after the switch is finished, and the generator has started:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let seq =
+    Switch.run (fun sw ->
+       let seq =
+         Fiber.fork_seq ~sw (fun yield ->
+            try yield 1
+            with ex -> traceln "Generator caught: %a" Fmt.exn ex; raise ex
+         )
+       in
+       traceln "Requesting an item";
+       match seq () with
+       | Nil -> assert false
+       | Cons (x, seq) ->
+         traceln "Got %d" x;
+         seq
+    )
+  in
+  traceln "Switch finished. Requesting another item...";
+  seq ();;
++Requesting an item
++Got 1
++Generator caught: Cancelled: Stdlib.Exit
++Switch finished. Requesting another item...
+Exception:
+Invalid_argument "Coroutine has already failed: Cancelled: Stdlib.Exit".
+```
+
+Using a sequence after it has finished normally:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let seq = Fiber.fork_seq ~sw (fun yield -> yield 1; traceln "Generator done") in
+  let next = Seq.to_dispenser seq in
+  traceln "Got %a" Fmt.(Dump.option int) (next ());
+  traceln "Got %a" Fmt.(Dump.option int) (next ());
+  next ();;
++Got Some 1
++Generator done
++Got None
+Exception: Invalid_argument "Coroutine has already finished!".
+```
+
+Trying to resume twice:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let seq = Fiber.fork_seq ~sw (fun _yield -> Fiber.await_cancel ()) in
+  Fiber.both
+    (fun () -> ignore (seq ()))
+    (fun () -> ignore (seq ()));;
+Exception: Invalid_argument "Coroutine is still running!".
+```
+
+Generator yields twice for a single request:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let seq = Fiber.fork_seq ~sw (fun yield -> Fiber.both yield yield) in
+  seq ();;
+Exception: Invalid_argument "Coroutine has already yielded!".
+```
+
+Yielding from a different fiber (note: end-of-sequence is still sent when the original fiber exits):
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let seq = Fiber.fork_seq ~sw (fun yield ->
+     let p = Fiber.fork_promise ~sw (fun () -> Fiber.yield (); yield "Second fiber") in
+     Promise.await_exn p;
+     yield "Original fiber"
+  ) in
+  List.of_seq seq;;
+- : string list = ["Second fiber"; "Original fiber"]
+```
+
+The consumer cancels:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let seq = Fiber.fork_seq ~sw (fun yield ->
+    traceln "Working...";
+    try
+      Fiber.yield ();
+      yield 1
+    with ex -> traceln "Generator caught: %a" Fmt.exn ex; raise ex
+  ) in
+  Fiber.first
+    (fun () -> seq ())
+    (fun () -> Nil);;
++Working...
++Generator caught: Cancelled: Eio__core__Fiber.Not_first
+- : int Seq.node = Seq.Nil
+```
+
+The generator is cancelled while queued to be resumed.
+It runs, but cancels at the next opportunity:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let seq = Fiber.fork_seq ~sw (fun yield ->
+    traceln "Working...";
+    try Fiber.check ()
+    with ex -> traceln "Generator caught: %a" Fmt.exn ex; raise ex
+  ) in
+  traceln "Enqueue resume";
+  Fiber.both
+    (fun () -> ignore (seq () : _ Seq.node); assert false)
+    (fun () ->
+       traceln "Cancel generator";
+       Switch.fail sw Exit
+    )
++Enqueue resume
++Cancel generator
++Working...
++Generator caught: Cancelled: Stdlib.Exit
+Exception: Stdlib.Exit.
+```

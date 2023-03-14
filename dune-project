@@ -14,7 +14,8 @@
  (conflicts
   (ocaml-base-compiler (< 5.0.0~beta1))
   (ocaml-variants (< 5.0.0~beta1))
-  (ocaml-system (< 5.0.0~beta1)))
+  (ocaml-system (< 5.0.0~beta1))
+  (seq (< 0.3)))
  (depends
   (ocaml (>= 5.0.0))
   (bigstringaf (>= 0.9.0))
@@ -26,7 +27,7 @@
   (hmap (>= 0.8.1))
   (crowbar (and (>= 0.2) :with-test))
   (mtime (>= 2.0.0))
-  (mdx (and (>= 1.10.0) :with-test))
+  (mdx (and (>= 2.2.0) :with-test))
   (alcotest (and (>= 1.4.0) :with-test))
   (dscheck (and (>= 0.1.0) :with-test))))
 (package
@@ -36,7 +37,7 @@
  (depends
   (alcotest (and (>= 1.4.0) :with-test))
   (eio (= :version))
-  (mdx (and (>= 1.10.0) :with-test))
+  (mdx (and (>= 2.2.0) :with-test))
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
   (cmdliner (and (>= 1.1.0) :with-test))
@@ -48,7 +49,7 @@
  (depends
   (eio (= :version))
   (iomux (>= 0.2))
-  (mdx (and (>= 1.10.0) :with-test))
+  (mdx (and (>= 2.2.0) :with-test))
   (fmt (>= 0.8.9))))
 (package
  (name eio_luv)
@@ -58,7 +59,7 @@
   (eio (= :version))
   (luv (>= 0.5.11))
   (luv_unix (>= 0.5.0))
-  (mdx (and (>= 1.10.0) :with-test))
+  (mdx (and (>= 2.2.0) :with-test))
   (fmt (>= 0.8.9))))
 (package
  (name eio_main)
@@ -66,7 +67,7 @@
  (description "Selects an appropriate Eio backend for the current platform.")
  (depopts eio_luv)
  (depends
-  (mdx (and (>= 1.10.0) :with-test))
+  (mdx (and (>= 2.2.0) :with-test))
   (eio_linux (and (= :version) (= :os "linux")))
   (eio_posix (and (= :version) (<> :os "windows")))
   (eio_luv (and (= :version) (or (= :os "windows") :with-test)))))
