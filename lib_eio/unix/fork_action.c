@@ -44,7 +44,7 @@ void eio_unix_fork_error(int fd, char *fn, char *buf) {
 
 static char **make_string_array(int errors, value v_array) {
   int n = Wosize_val(v_array);
-  char **c = malloc(sizeof(char *) * (n + 1));
+  char **c = calloc(sizeof(char *), (n + 1));
   if (!c) {
     eio_unix_fork_error(errors, "make_string_array", "out of memory");
     _exit(1);
