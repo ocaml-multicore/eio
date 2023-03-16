@@ -75,9 +75,10 @@ module Children = struct
   let rec reap () =
     Atomic.set need_wait false;
     match Unix.(waitpid [WNOHANG] (-1)) with
+    | 0, _ -> ()    (* Returned if there are children but none has exited yet. *)
     | pid, status -> report_child_status pid status; reap ()
     | exception Unix.Unix_error (EINTR, _, _) -> reap ()
-    | exception Unix.Unix_error (ECHILD, _, _) ->  ()
+    | exception Unix.Unix_error (ECHILD, _, _) -> ()  (* Returned if there are no children at all. *)
 
   let rec reap_nonblocking () =
     if Mutex.try_lock lock then (
@@ -135,13 +136,13 @@ let spawn ~sw actions =
     (* We take the lock to ensure that the signal handler won't reap the
        process before we've registered it. *)
     Children.with_lock (fun () ->
-      let pid =
-        Fd.use_exn "errors-w" errors_w @@ fun errors_w ->
-        eio_spawn errors_w c_actions
-      in
-      Fd.close errors_w;
-      { pid; exit_status = Children.register pid }
-    )
+        let pid =
+          Fd.use_exn "errors-w" errors_w @@ fun errors_w ->
+          eio_spawn errors_w c_actions
+        in
+        Fd.close errors_w;
+        { pid; exit_status = Children.register pid }
+      )
   in
   let hook = Switch.on_release_cancellable sw (fun () -> signal t Sys.sigkill) in
   (* Removing the hook must be done from our own domain, not from the signal handler,
