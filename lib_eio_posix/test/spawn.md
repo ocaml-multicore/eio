@@ -5,7 +5,7 @@
 ```ocaml
 open Eio.Std
 
-module Process = Eio_posix.Process
+module Process = Eio_posix.Low_level.Process
 ```
 
 ## Spawning processes
@@ -20,7 +20,7 @@ Setting environment variables:
       ~argv:[| "env" |]
       ~env:[| "FOO=bar" |];
   ] in
-  Promise.await child.exit_status;;
+  Promise.await (Process.exit_status child);;
 FOO=bar
 - : Unix.process_status = Unix.WEXITED 0
 ```
@@ -36,7 +36,7 @@ Changing directory:
       ~argv:[| "env"; "pwd" |]
       ~env:(Unix.environment ())
   ] in
-  Promise.await child.exit_status;;
+  Promise.await (Process.exit_status child);;
 /
 - : Unix.process_status = Unix.WEXITED 0
 ```
@@ -51,7 +51,7 @@ Exit status:
       ~argv:[| "env"; "false" |]
       ~env:(Unix.environment ())
   ] in
-  Promise.await child.exit_status;;
+  Promise.await (Process.exit_status child);;
 - : Unix.process_status = Unix.WEXITED 1
 ```
 
@@ -88,7 +88,7 @@ Signalling a running child:
     ]
   in
   Process.signal child Sys.sigkill;
-  match Promise.await child.exit_status with
+  match Promise.await (Process.exit_status child) with
   | Unix.WSIGNALED x when x = Sys.sigkill -> traceln "Child got SIGKILL"
   | _ -> assert false;;
 +Child got SIGKILL
@@ -107,7 +107,7 @@ Signalling an exited child does nothing:
         ~env:[| "FOO=bar" |];
     ]
   in
-  ignore (Promise.await child.exit_status : Unix.process_status);
+  ignore (Promise.await (Process.exit_status child) : Unix.process_status);
   Process.signal child Sys.sigkill;;
 FOO=bar
 - : unit = ()

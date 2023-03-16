@@ -22,5 +22,3 @@ val run : (stdenv -> 'a) -> 'a
 
 module Low_level = Low_level
 (** Low-level API for making POSIX calls directly. *)
-
-module Process = Process
