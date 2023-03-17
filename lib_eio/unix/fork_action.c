@@ -93,3 +93,84 @@ static void action_chdir(int errors, value v_config) {
 CAMLprim value eio_unix_fork_chdir(value v_unit) {
   return Val_fork_fn(action_chdir);
 }
+
+static void set_blocking(int errors, int fd, int blocking) {
+  int r = fcntl(fd, F_GETFL, 0);
+  if (r != -1) {
+    int flags = blocking
+      ? r & ~O_NONBLOCK
+      : r | O_NONBLOCK;
+    if (r != flags) {
+      r = fcntl(fd, F_SETFL, flags);
+    }
+  }
+  if (r == -1) {
+    eio_unix_fork_error(errors, "fcntl", strerror(errno));
+    _exit(1);
+  }
+}
+
+static void set_cloexec(int errors, int fd, int cloexec) {
+  int r = fcntl(fd, F_GETFD, 0);
+  if (r != -1) {
+    int flags = cloexec
+      ? r | FD_CLOEXEC
+      : r & ~FD_CLOEXEC;
+    if (r != flags) {
+      r = fcntl(fd, F_SETFD, flags);
+    }
+  }
+  if (r == -1) {
+    eio_unix_fork_error(errors, "fcntl", strerror(errno));
+    _exit(1);
+  }
+}
+
+static void action_dups(int errors, value v_config) {
+  value v_plan = Field(v_config, 1);
+  value v_blocking = Field(v_config, 2);
+  int tmp = -1;
+  while (Is_block(v_plan)) {
+    value v_dup = Field(v_plan, 0);
+    int src = Int_val(Field(v_dup, 0));
+    int dst = Int_val(Field(v_dup, 1));
+    if (src == -1) src = tmp;
+    if (dst == -1) {
+      // Dup to a temporary FD
+      if (tmp == -1) {
+	tmp = dup(src);
+	if (tmp < 0) {
+	  eio_unix_fork_error(errors, "dup-tmp", strerror(errno));
+	  _exit(1);
+	}
+      } else {
+	int r = dup2(src, tmp);
+	if (r < 0) {
+	  eio_unix_fork_error(errors, "dup2-tmp", strerror(errno));
+	  _exit(1);
+	}
+      }
+      set_cloexec(errors, tmp, 1);
+    } else if (src == dst) {
+      set_cloexec(errors, dst, 0);
+    } else {
+      int r = dup2(src, dst);
+      if (r < 0) {
+	eio_unix_fork_error(errors, "dup2", strerror(errno));
+	_exit(1);
+      }
+    }
+    v_plan = Field(v_plan, 1);
+  }
+  while (Is_block(v_blocking)) {
+    value v_flags = Field(v_blocking, 0);
+    int fd = Int_val(Field(v_flags, 0));
+    int blocking = Bool_val(Field(v_flags, 1));
+    set_blocking(errors, fd, blocking);
+    v_blocking = Field(v_blocking, 1);
+  }
+}
+
+CAMLprim value eio_unix_fork_dups(value v_unit) {
+  return Val_fork_fn(action_dups);
+}

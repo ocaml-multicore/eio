@@ -93,6 +93,15 @@ module Process : sig
 
     val fchdir : Fd.t -> t
     (** [fchdir dir] changes directory to [dir]. *)
+
+    val inherit_fds : (int * Fd.t * [< `Blocking | `Nonblocking | `Preserve_blocking]) list -> t
+    (** [inherit_fds mapping] marks file descriptors as not close-on-exec and renumbers them.
+
+        For each key in [mapping], we use [dup2] to duplicate the source descriptor.
+        If there are cycles in [mapping], a temporary FD is used to break the cycle.
+        A mapping from an FD to itself simply clears the close-on-exec flag.
+
+        For each FD, you can also say whether it should be set as blocking or non-blocking. *)
   end
 
   val spawn : sw:Switch.t -> Fork_action.t list -> t

@@ -34,3 +34,35 @@ let fchdir fd = {
   run = fun k ->
     Rcfd.use ~if_closed:(err_closed "fchdir") fd @@ fun fd ->
     k (Obj.repr (action_fchdir, fd)) }
+
+let int_of_fd : Unix.file_descr -> int = Obj.magic
+
+type action = Inherit_fds.action = { src : int; dst : int }
+
+let rec with_fds mapping k =
+  match mapping with
+  | [] -> k []
+  | (dst, src, _) :: xs ->
+    Rcfd.use ~if_closed:(err_closed "inherit_fds") src @@ fun src ->
+    with_fds xs @@ fun xs ->
+    k ((dst, int_of_fd src) :: xs)
+
+type blocking = [
+  | `Blocking
+  | `Nonblocking
+  | `Preserve_blocking
+]
+
+external action_dups : unit -> fork_fn = "eio_unix_fork_dups"
+let action_dups = action_dups ()
+let inherit_fds m =
+  let blocking = m |> List.filter_map (fun (dst, _, flags) ->
+      match flags with
+      | `Blocking -> Some (dst, true)
+      | `Nonblocking -> Some (dst, false)
+      | `Preserve_blocking -> None
+    )
+  in
+  with_fds m @@ fun m ->
+  let plan : action list = Inherit_fds.plan m in
+  { run = fun k -> k (Obj.repr (action_dups, plan, blocking)) }
