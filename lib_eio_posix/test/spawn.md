@@ -41,6 +41,23 @@ Changing directory:
 - : Unix.process_status = Unix.WEXITED 0
 ```
 
+Changing directory using a file descriptor:
+
+```ocaml
+# Eio_posix.run @@ fun _env ->
+  Switch.run @@ fun sw ->
+  let root = Eio_posix.Low_level.openat ~sw ~mode:0 "/" Eio_posix.Low_level.Open_flags.(rdonly + directory) in
+  let child = Process.spawn ~sw Process.Fork_action.[
+    fchdir root;
+    execve "/usr/bin/env"
+      ~argv:[| "env"; "pwd" |]
+      ~env:(Unix.environment ())
+  ] in
+  Promise.await (Process.exit_status child);;
+/
+- : Unix.process_status = Unix.WEXITED 0
+```
+
 Exit status:
 
 ```ocaml

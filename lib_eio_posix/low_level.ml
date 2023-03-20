@@ -219,12 +219,7 @@ module Process = struct
   module Fork_action = struct
     type t = Eio_unix.Private.Fork_action.t
 
-    let fchdir fd : t =
-      { run = fun k ->
-            Fd.use_exn "fchdir" fd @@ fun fd ->
-            (Eio_unix.Private.Fork_action.fchdir fd).run k
-      }
-
+    let fchdir fd = Eio_unix.Private.Fork_action.fchdir (Fd.to_rcfd fd)
     let chdir = Eio_unix.Private.Fork_action.chdir
     let execve = Eio_unix.Private.Fork_action.execve
   end

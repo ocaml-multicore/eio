@@ -38,6 +38,10 @@ val to_unix : [`Peek | `Take] -> t -> Unix.file_descr
 
     [to_unix `Peek t] returns the wrapped FD directly. You must ensure that it is not closed while using it. *)
 
+val to_rcfd : t -> Eio_unix.Private.Rcfd.t
+(** Get the underlying ref-counted FD.
+    Note: you must not close this directly, as that will not remove the hook. *)
+
 type has_fd = < fd : t >
 (** Resources that have FDs are sub-types of [has_fd]. *)
 

@@ -36,5 +36,5 @@ val execve : string -> argv:string array -> env:string array -> t
 val chdir : string -> t
 (** [chdir path] changes directory to [path]. *)
 
-val fchdir : Unix.file_descr -> t
+val fchdir : Rcfd.t -> t
 (** [fchdir fd] changes directory to [fd]. *)
