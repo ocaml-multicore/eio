@@ -14,10 +14,7 @@ void eio_unix_run_fork_actions(int errors, value v_actions) {
   while (Is_block(v_actions)) {
     value v_action = Field(v_actions, 0);
     fork_fn *action = (fork_fn *) Nativeint_val(Field(v_action, 0));
-    int err = action(errors, v_action);
-    if (err) {
-      _exit(err);
-    }
+    action(errors, v_action);
     v_actions = Field(v_actions, 1);
   }
   _exit(1);
@@ -56,43 +53,41 @@ static char **make_string_array(int errors, value v_array) {
   return c;
 }
 
-static int action_execve(int errors, value v_config) {
+static void action_execve(int errors, value v_config) {
   value v_exe = Field(v_config, 1);
   char **argv = make_string_array(errors, Field(v_config, 2));
   char **envp = make_string_array(errors, Field(v_config, 3));
   execve(String_val(v_exe), argv, envp);
   eio_unix_fork_error(errors, "execve", strerror(errno));
-  return 1;
+  _exit(1);
 }
 
 CAMLprim value eio_unix_fork_execve(value v_unit) {
   return Val_fork_fn(action_execve);
 }
 
-static int action_fchdir(int errors, value v_config) {
+static void action_fchdir(int errors, value v_config) {
   value v_fd = Field(v_config, 1);
   int r;
   r = fchdir(Int_val(v_fd));
   if (r != 0) {
     eio_unix_fork_error(errors, "fchdir", strerror(errno));
-    return 1;
+    _exit(1);
   }
-  return 0;
 }
 
 CAMLprim value eio_unix_fork_fchdir(value v_unit) {
   return Val_fork_fn(action_fchdir);
 }
 
-static int action_chdir(int errors, value v_config) {
+static void action_chdir(int errors, value v_config) {
   value v_path = Field(v_config, 1);
   int r;
   r = chdir(String_val(v_path));
   if (r != 0) {
     eio_unix_fork_error(errors, "chdir", strerror(errno));
-    return 1;
+    _exit(1);
   }
-  return 0;
 }
 
 CAMLprim value eio_unix_fork_chdir(value v_unit) {
