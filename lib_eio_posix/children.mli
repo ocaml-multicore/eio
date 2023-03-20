@@ -1,7 +1,7 @@
-(** Keep track of child processes and response to SIGCHLD. *)
+(** Keep track of child processes and respond to SIGCHLD. *)
 
 val with_lock : (unit -> 'a) -> 'a
-(** This must be held during the fork, register sequence
+(** This must be held during the (fork, register) sequence
     (so that we don't try to reap the process before it's registered),
     and also when signalling a child process
     (to ensure it isn't reaped at the same time). *)

@@ -21,13 +21,13 @@
 open Eio.Std
 
 (* Each child process is registered in this table.
-   Must hold [pid_lock] when accessing it. *)
+   Must hold [lock] when accessing it. *)
 let db : (int, Unix.process_status Promise.u) Hashtbl.t = Hashtbl.create 10
 
 (* Set to [true] when we receive [SIGCHLD] and [false] before calling [wait]. *)
 let need_wait = Atomic.make false
 
-(* [pid_lock] must be held when spawning or reaping. Otherwise, this can happen:
+(* [lock] must be held when spawning or reaping. Otherwise, this can happen:
 
    - We spawn process 100, adding it to [db].
    - It exits, sending us SIGCHLD.
@@ -36,7 +36,7 @@ let need_wait = Atomic.make false
      overwriting the previous entry.
    - The signal handler resumes, and gets the wrong entry.
 
-   If [pid_lock] is already locked when the SIGCHLD handler runs then it just leaves [need_wait = true]
+   If [lock] is already locked when the SIGCHLD handler runs then it just leaves [need_wait = true]
    (a signal handler can't wait on a mutex, since it may have interrupted the holder).
    The unlocker needs to check [need_wait] after releasing the lock. *)
 let lock = Mutex.create ()
