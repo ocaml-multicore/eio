@@ -27,7 +27,7 @@ val parse : ?initial_size:int -> max_size:int -> 'a parser -> #Flow.source -> ('
     It is a convenience function that does
     {[
       let buf = of_flow flow ~max_size in
-      format_errors (p <* eof) buf
+      format_errors (p <* end_of_input) buf
     ]}
 
     @param initial_size see {!of_flow}. *)
