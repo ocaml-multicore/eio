@@ -1,4 +1,8 @@
 (library
  (name eio_unix)
  (public_name eio.unix)
+ (foreign_stubs
+  (language c)
+  (include_dirs include)
+  (names fork_action))
  (libraries eio unix threads mtime.clock.os))

@@ -5,6 +5,7 @@
  (foreign_stubs
   (language c)
   (flags :standard -D_LARGEFILE64_SOURCE)
+  (include_dirs ../lib_eio/unix/include)
   (names eio_posix_stubs))
  (libraries eio eio.utils eio.unix fmt iomux))
 

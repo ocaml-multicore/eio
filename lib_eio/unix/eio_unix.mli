@@ -102,6 +102,8 @@ module Private : sig
         (<Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>) Effect.t (** See {!pipe} *)
 
   module Rcfd = Rcfd
+
+  module Fork_action = Fork_action
 end
 
 module Ctf = Ctf_unix

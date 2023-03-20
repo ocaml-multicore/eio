@@ -50,6 +50,8 @@ val writev : Fd.t -> Cstruct.t array -> int
 val preadv : file_offset:Optint.Int63.t -> Fd.t -> Cstruct.t array -> int
 val pwritev : file_offset:Optint.Int63.t -> Fd.t -> Cstruct.t array -> int
 
+val pipe : sw:Switch.t -> Fd.t * Fd.t
+
 module Open_flags : sig
   type t
 
@@ -72,3 +74,43 @@ end
 
 val openat : ?dirfd:Fd.t -> sw:Switch.t -> mode:int -> string -> Open_flags.t -> Fd.t
 (** Note: the returned FD is always non-blocking and close-on-exec. *)
+
+module Process : sig
+  type t
+  (** A child process. *)
+
+  (** Setup actions to perform in the child process. *)
+  module Fork_action : sig
+    type t = Eio_unix.Private.Fork_action.t
+
+    val execve : string -> argv:string array -> env:string array -> t
+    (** See execve(2).
+        This replaces the current executable,
+        so it only makes sense as the last action to be performed. *)
+
+    val chdir : string -> t
+    (** [chdir path] changes directory to [path]. *)
+
+    val fchdir : Fd.t -> t
+    (** [fchdir dir] changes directory to [dir]. *)
+  end
+
+  val spawn : sw:Switch.t -> Fork_action.t list -> t
+  (** [spawn ~sw actions] forks a child process, which executes [actions].
+      The last action should be {!Fork_action.execve}.
+
+      You will typically want to do [Promise.await (exit_status child)] after this.
+
+      @param sw The child will be sent {!Sys.sigkill} if [sw] finishes. *)
+
+  val signal : t -> int -> unit
+  (** [signal t x] sends signal [x] to [t].
+
+      This is similar to doing [Unix.kill t.pid x],
+      except that it ensures no signal is sent after [t] has been reaped. *)
+
+  val pid : t -> int
+
+  val exit_status : t -> Unix.process_status Promise.t
+  (** [exit_status t] is a promise for the process's exit status. *)
+end

@@ -198,3 +198,80 @@ let rename ?old_dir old_path ?new_dir new_path =
   with_dirfd "rename-old" old_dir @@ fun old_dir ->
   with_dirfd "rename-new" new_dir @@ fun new_dir ->
   eio_renameat old_dir old_path new_dir new_path
+
+let pipe ~sw =
+  let unix_r, unix_w = Unix.pipe ~cloexec:true () in
+  let r = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_r in
+  let w = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_w in
+  Unix.set_nonblock unix_r;
+  Unix.set_nonblock unix_w;
+  r, w
+
+module Process = struct
+  type t = {
+    pid : int;
+    exit_status : Unix.process_status Promise.t;
+  }
+
+  let exit_status t = t.exit_status
+  let pid t = t.pid
+
+  module Fork_action = struct
+    type t = Eio_unix.Private.Fork_action.t
+
+    let fchdir fd = Eio_unix.Private.Fork_action.fchdir (Fd.to_rcfd fd)
+    let chdir = Eio_unix.Private.Fork_action.chdir
+    let execve = Eio_unix.Private.Fork_action.execve
+  end
+
+  (* Read a (typically short) error message from a child process. *)
+  let rec read_response fd =
+    let buf = Bytes.create 256 in
+    match read fd buf 0 (Bytes.length buf) with
+    | 0 -> ""
+    | n -> Bytes.sub_string buf 0 n ^ read_response fd
+
+  let with_pipe fn =
+    Switch.run @@ fun sw ->
+    let r, w = pipe ~sw in
+    fn r w
+
+  let signal t signal =
+    (* The lock here ensures we don't signal the PID after reaping it. *)
+    Children.with_lock @@ fun () ->
+    if not (Promise.is_resolved t.exit_status) then (
+      Unix.kill t.pid signal
+    )
+
+  external eio_spawn : Unix.file_descr -> Eio_unix.Private.Fork_action.c_action list -> int = "caml_eio_posix_spawn"
+
+  let spawn ~sw actions =
+    with_pipe @@ fun errors_r errors_w ->
+    Eio_unix.Private.Fork_action.with_actions actions @@ fun c_actions ->
+    Switch.check sw;
+    let t =
+      (* We take the lock to ensure that the signal handler won't reap the
+         process before we've registered it. *)
+      Children.with_lock (fun () ->
+          let pid =
+            Fd.use_exn "errors-w" errors_w @@ fun errors_w ->
+            eio_spawn errors_w c_actions
+          in
+          Fd.close errors_w;
+          { pid; exit_status = Children.register pid }
+        )
+    in
+    let hook = Switch.on_release_cancellable sw (fun () -> signal t Sys.sigkill) in
+    (* Removing the hook must be done from our own domain, not from the signal handler,
+       so fork a fiber to deal with that. If the switch gets cancelled then this won't
+       run, but then the [on_release] handler will run the hook soon anyway. *)
+    Fiber.fork_daemon ~sw (fun () ->
+        ignore (Promise.await t.exit_status : Unix.process_status);
+        Switch.remove_hook hook;
+        `Stop_daemon
+      );
+    (* Check for errors starting the process. *)
+    match read_response errors_r with
+    | "" -> t                       (* Success! Execing the child closed [errors_w] and we got EOF. *)
+    | err -> failwith err
+end

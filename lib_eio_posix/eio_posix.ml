@@ -33,6 +33,7 @@ type stdenv = <
 let run main =
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
+  Sys.(set_signal sigchld (Signal_handle (fun (_:int) -> Children.handle_sigchld ())));
   let stdin = (Flow.of_fd Low_level.Fd.stdin :> <Eio.Flow.source; Eio_unix.unix_fd>) in
   let stdout = (Flow.of_fd Low_level.Fd.stdout :> <Eio.Flow.sink; Eio_unix.unix_fd>) in
   let stderr = (Flow.of_fd Low_level.Fd.stderr :> <Eio.Flow.sink; Eio_unix.unix_fd>) in

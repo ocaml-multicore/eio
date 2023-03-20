@@ -27,6 +27,8 @@ module Private = struct
     | Pipe : Eio.Switch.t -> (<Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>) Effect.t
 
   module Rcfd = Rcfd
+
+  module Fork_action = Fork_action
 end
 
 let await_readable fd = Effect.perform (Private.Await_readable fd)
