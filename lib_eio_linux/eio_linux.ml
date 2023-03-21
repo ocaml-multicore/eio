@@ -1365,8 +1365,9 @@ let with_sched ?(fallback=no_fallback) config fn =
         Printexc.raise_with_backtrace ex bt
     )
 
-let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
-  with_sched ?fallback config @@ fun st ->
+type exit = [`Exit_scheduler]
+
+let run_sched ~extra_effects st main arg =
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
     Ctf.note_switch (Fiber_context.tid fiber);
@@ -1426,26 +1427,6 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
                   );
                 schedule st
             )
-          | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
-          | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
-              let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
-              continue k (flow fd :> Eio_unix.socket)
-            )
-          | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
-              let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
-              let a = FD.of_unix ~sw ~seekable:false ~close_unix:true a |> flow in
-              let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
-              continue k ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
-            )
-          | Eio_unix.Private.Pipe sw -> Some (fun k ->
-              let r, w = Unix.pipe ~cloexec:true () in
-              (* See issue #319, PR #327 *)
-              Unix.set_nonblock r;
-              Unix.set_nonblock w;
-              let r = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
-              let w = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
-              continue k (r, w)
-            )
           | Low_level.Alloc -> Some (fun k ->
               match st.mem with
               | None -> continue k None
@@ -1462,7 +1443,7 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
               Low_level.free_buf st buf;
               continue k ()
             )
-          | _ -> None
+          | e -> extra_effects.effc e
       }
   in
   let result = ref None in
@@ -1482,6 +1463,36 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
       )
   in
   Option.get !result
+
+let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
+  with_sched ?fallback config @@ fun st ->
+  let open Effect.Deep in
+  let extra_effects : _ effect_handler = {
+    effc = fun (type a) (e : a Effect.t) : ((a, exit) continuation -> exit) option ->
+      match e with
+      | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
+      | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
+          let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
+          continue k (flow fd :> Eio_unix.socket)
+        )
+      | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
+          let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
+          let a = FD.of_unix ~sw ~seekable:false ~close_unix:true a |> flow in
+          let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
+          continue k ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
+        )
+      | Eio_unix.Private.Pipe sw -> Some (fun k ->
+          let r, w = Unix.pipe ~cloexec:true () in
+          (* See issue #319, PR #327 *)
+          Unix.set_nonblock r;
+          Unix.set_nonblock w;
+          let r = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
+          let w = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
+          continue k (r, w)
+        )
+      | _ -> None
+  } in
+  run_sched ~extra_effects st main arg
 
 let run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
   let config = config ?queue_depth ?n_blocks ?block_size ?polling_timeout () in
