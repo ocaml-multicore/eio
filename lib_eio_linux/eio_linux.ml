@@ -599,29 +599,27 @@ module Low_level = struct
     let result = enter enqueue_noop in
     if result <> 0 then raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno result, "noop", "")))
 
-  type _ Effect.t += Sleep_until : Mtime.t -> unit Effect.t
-  let sleep_until d =
-    Effect.perform (Sleep_until d)
+  let sleep_until time =
+    enter @@ fun t k ->
+    let job = Zzz.add t.sleep_q time k in
+    Fiber_context.set_cancel_fn k.fiber (fun ex ->
+        Zzz.remove t.sleep_q job;
+        enqueue_failed_thread t k ex
+      )
 
-  type _ Effect.t += ERead : (file_offset * Unix.file_descr * Uring.Region.chunk * amount) -> int Effect.t
+  let read ?file_offset fd buf amount =
+    let file_offset = FD.file_offset fd file_offset in
+    FD.use_exn "read" fd @@ fun fd ->
+    let res = enter (fun t k -> enqueue_read t k (file_offset, fd, buf, amount)) in
+    if res < 0 then (
+      raise @@ wrap_error (Uring.error_of_errno res) "read" ""
+    ) else res
 
   let read_exactly ?file_offset fd buf len =
-    let file_offset = FD.file_offset fd file_offset in
-    FD.use_exn "read_exactly" fd @@ fun fd ->
-    let res = Effect.perform (ERead (file_offset, fd, buf, Exactly len)) in
-    if res < 0 then (
-      raise @@ wrap_error (Uring.error_of_errno res) "read_exactly" ""
-    )
+    ignore (read ?file_offset fd buf (Exactly len) : int)
 
   let read_upto ?file_offset fd buf len =
-    let file_offset = FD.file_offset fd file_offset in
-    FD.use_exn "read_upto" fd @@ fun fd ->
-    let res = Effect.perform (ERead (file_offset, fd, buf, Upto len)) in
-    if res < 0 then (
-      raise @@ wrap_error (Uring.error_of_errno res) "read_upto" ""
-    ) else (
-      res
-    )
+    read ?file_offset fd buf (Upto len)
 
   let readv ?file_offset fd bufs =
     let file_offset =
@@ -681,12 +679,10 @@ module Low_level = struct
       raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno res, "await_writable", "")))
     )
 
-  type _ Effect.t += EWrite : (file_offset * Unix.file_descr * Uring.Region.chunk * amount) -> int Effect.t
-
   let write ?file_offset fd buf len =
     let file_offset = FD.file_offset fd file_offset in
     FD.use_exn "write" fd @@ fun fd ->
-    let res = Effect.perform (EWrite (file_offset, fd, buf, Exactly len)) in
+    let res = enter (fun t k -> enqueue_write t k (file_offset, fd, buf, Exactly len)) in
     if res < 0 then (
       raise @@ wrap_error (Uring.error_of_errno res) "write" ""
     )
@@ -1184,7 +1180,7 @@ let domain_mgr ~run_event_loop = object
             Fun.protect
               (fun () ->
                  let result = ref None in
-                 run_event_loop (fun _ -> result := Some (fn ~cancelled));
+                 run_event_loop (fun () -> result := Some (fn ~cancelled)) ();
                  Option.get !result
               )
               ~finally:(fun () -> enqueue_thread t k ())))
@@ -1313,48 +1309,65 @@ let monitor_event_fd t =
 
 let no_fallback (`Msg msg) = failwith msg
 
-(* Don't use [Fun.protect] - it throws away the original exception! *)
-let with_uring ~queue_depth ?polling_timeout ?(fallback=no_fallback) fn =
+type config = {
+  queue_depth : int;
+  n_blocks : int;
+  block_size : int;
+  polling_timeout : int option;
+}
+
+let config ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout () =
+  let n_blocks = Option.value n_blocks ~default:queue_depth in
+  {
+    queue_depth;
+    n_blocks;
+    block_size;
+    polling_timeout;
+  }
+
+let with_sched ?(fallback=no_fallback) config fn =
+  let { queue_depth; n_blocks; block_size; polling_timeout } = config in
   match Uring.create ~queue_depth ?polling_timeout () with
   | exception Unix.Unix_error(Unix.ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
   | uring ->
     let probe = Uring.get_probe uring in
     if not (Uring.op_supported probe Uring.Op.shutdown) then
       fallback (`Msg "Linux >= 5.11 is required for io_uring support")
-    else match fn uring with
+    else (
+      match
+        let mem =
+          let fixed_buf_len = block_size * n_blocks in
+          let buf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
+          match Uring.set_fixed_buffer uring buf with
+          | Ok () ->
+            Some (Uring.Region.init ~block_size buf n_blocks)
+          | Error `ENOMEM ->
+            Log.warn (fun f -> f "Failed to allocate %d byte fixed buffer" fixed_buf_len);
+            None
+        in
+        let run_q = Lf_queue.create () in
+        Lf_queue.push run_q IO;
+        let sleep_q = Zzz.create () in
+        let io_q = Queue.create () in
+        let mem_q = Queue.create () in
+        let eventfd = FD.of_unix_no_hook ~seekable:false ~close_unix:true (eio_eventfd 0) in
+        fn { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q }
+      with
       | x -> Uring.exit uring; x
       | exception ex ->
         let bt = Printexc.get_raw_backtrace () in
         begin
           try Uring.exit uring
-          with ex2 -> Log.warn (fun f -> f "Uring.exit failed (%a) while handling another error" Fmt.exn ex2)
+          with ex2 ->
+            let bt2 = Printexc.get_raw_backtrace () in
+            raise (Eio.Exn.Multiple [(ex2, bt2); (ex, bt)])
         end;
         Printexc.raise_with_backtrace ex bt
+    )
 
-let rec run : type a.
-  ?queue_depth:int -> ?n_blocks:int -> ?block_size:int -> ?polling_timeout:int -> ?fallback:(_ -> a) -> (_ -> a) -> a =
-  fun ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fallback main ->
-  let n_blocks = Option.value n_blocks ~default:queue_depth in
-  let stdenv = stdenv ~run_event_loop:(run ~queue_depth ~n_blocks ~block_size ?polling_timeout ?fallback:None) in
-  (* TODO unify this allocation API around baregion/uring *)
-  with_uring ~queue_depth ?polling_timeout ?fallback @@ fun uring ->
-  let mem =
-    let fixed_buf_len = block_size * n_blocks in
-    let buf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
-    match Uring.set_fixed_buffer uring buf with
-    | Ok () ->
-      Some (Uring.Region.init ~block_size buf n_blocks)
-    | Error `ENOMEM ->
-      Log.warn (fun f -> f "Failed to allocate %d byte fixed buffer" fixed_buf_len);
-      None
-  in
-  let run_q = Lf_queue.create () in
-  Lf_queue.push run_q IO;
-  let sleep_q = Zzz.create () in
-  let io_q = Queue.create () in
-  let mem_q = Queue.create () in
-  let eventfd = FD.of_unix_no_hook ~seekable:false ~close_unix:true (eio_eventfd 0) in
-  let st = { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q } in
+type exit = [`Exit_scheduler]
+
+let run_sched ~extra_effects st main arg =
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
     Ctf.note_switch (Fiber_context.tid fiber);
@@ -1374,30 +1387,9 @@ let rec run : type a.
                 fn st k;
                 schedule st
             )
-          | Low_level.ERead args -> Some (fun k ->
-              let k = { Suspended.k; fiber } in
-              enqueue_read st k args;
-              schedule st)
           | Cancel job -> Some (fun k ->
               enqueue_cancel job st;
               continue k ()
-            )
-          | Low_level.EWrite args -> Some (fun k ->
-              let k = { Suspended.k; fiber } in
-              enqueue_write st k args;
-              schedule st
-            )
-          | Low_level.Sleep_until time -> Some (fun k ->
-              let k = { Suspended.k; fiber } in
-              match Fiber_context.get_error fiber with
-              | Some ex -> Suspended.discontinue k ex
-              | None ->
-                let job = Zzz.add sleep_q time k in
-                Fiber_context.set_cancel_fn fiber (fun ex ->
-                    Zzz.remove sleep_q job;
-                    enqueue_failed_thread st k ex
-                  );
-                schedule st
             )
           | Eio.Private.Effects.Get_context -> Some (fun k -> continue k fiber)
           | Eio.Private.Effects.Suspend f -> Some (fun k ->
@@ -1435,26 +1427,6 @@ let rec run : type a.
                   );
                 schedule st
             )
-          | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
-          | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
-              let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
-              continue k (flow fd :> Eio_unix.socket)
-            )
-          | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
-              let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
-              let a = FD.of_unix ~sw ~seekable:false ~close_unix:true a |> flow in
-              let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
-              continue k ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
-            )
-          | Eio_unix.Private.Pipe sw -> Some (fun k ->
-              let r, w = Unix.pipe ~cloexec:true () in
-              (* See issue #319, PR #327 *)
-              Unix.set_nonblock r;
-              Unix.set_nonblock w;
-              let r = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
-              let w = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
-              continue k (r, w)
-            )
           | Low_level.Alloc -> Some (fun k ->
               match st.mem with
               | None -> continue k None
@@ -1471,7 +1443,7 @@ let rec run : type a.
               Low_level.free_buf st buf;
               continue k ()
             )
-          | _ -> None
+          | e -> extra_effects.effc e
       }
   in
   let result = ref None in
@@ -1484,7 +1456,7 @@ let rec run : type a.
               );
             result := Some (
                 Fiber.first
-                  (fun () -> main stdenv)
+                  (fun () -> main arg)
                   (fun () -> monitor_event_fd st)
               )
           )
@@ -1492,7 +1464,39 @@ let rec run : type a.
   in
   Option.get !result
 
+let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
+  with_sched ?fallback config @@ fun st ->
+  let open Effect.Deep in
+  let extra_effects : _ effect_handler = {
+    effc = fun (type a) (e : a Effect.t) : ((a, exit) continuation -> exit) option ->
+      match e with
+      | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
+      | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
+          let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
+          continue k (flow fd :> Eio_unix.socket)
+        )
+      | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
+          let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
+          let a = FD.of_unix ~sw ~seekable:false ~close_unix:true a |> flow in
+          let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
+          continue k ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
+        )
+      | Eio_unix.Private.Pipe sw -> Some (fun k ->
+          let r, w = Unix.pipe ~cloexec:true () in
+          (* See issue #319, PR #327 *)
+          Unix.set_nonblock r;
+          Unix.set_nonblock w;
+          let r = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
+          let w = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
+          continue k (r, w)
+        )
+      | _ -> None
+  } in
+  run_sched ~extra_effects st main arg
+
 let run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
+  let config = config ?queue_depth ?n_blocks ?block_size ?polling_timeout () in
+  let stdenv = stdenv ~run_event_loop:(run_event_loop ?fallback:None config) in
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
-  run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main
+  run_event_loop ?fallback config main stdenv
