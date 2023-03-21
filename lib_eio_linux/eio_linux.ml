@@ -1184,7 +1184,7 @@ let domain_mgr ~run_event_loop = object
             Fun.protect
               (fun () ->
                  let result = ref None in
-                 run_event_loop (fun _ -> result := Some (fn ~cancelled));
+                 run_event_loop (fun () -> result := Some (fn ~cancelled)) ();
                  Option.get !result
               )
               ~finally:(fun () -> enqueue_thread t k ())))
@@ -1313,48 +1313,64 @@ let monitor_event_fd t =
 
 let no_fallback (`Msg msg) = failwith msg
 
-(* Don't use [Fun.protect] - it throws away the original exception! *)
-let with_uring ~queue_depth ?polling_timeout ?(fallback=no_fallback) fn =
+type config = {
+  queue_depth : int;
+  n_blocks : int;
+  block_size : int;
+  polling_timeout : int option;
+}
+
+let config ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout () =
+  let n_blocks = Option.value n_blocks ~default:queue_depth in
+  {
+    queue_depth;
+    n_blocks;
+    block_size;
+    polling_timeout;
+  }
+
+let with_sched ?(fallback=no_fallback) config fn =
+  let { queue_depth; n_blocks; block_size; polling_timeout } = config in
   match Uring.create ~queue_depth ?polling_timeout () with
   | exception Unix.Unix_error(Unix.ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
   | uring ->
     let probe = Uring.get_probe uring in
     if not (Uring.op_supported probe Uring.Op.shutdown) then
       fallback (`Msg "Linux >= 5.11 is required for io_uring support")
-    else match fn uring with
+    else (
+      match
+        let mem =
+          let fixed_buf_len = block_size * n_blocks in
+          let buf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
+          match Uring.set_fixed_buffer uring buf with
+          | Ok () ->
+            Some (Uring.Region.init ~block_size buf n_blocks)
+          | Error `ENOMEM ->
+            Log.warn (fun f -> f "Failed to allocate %d byte fixed buffer" fixed_buf_len);
+            None
+        in
+        let run_q = Lf_queue.create () in
+        Lf_queue.push run_q IO;
+        let sleep_q = Zzz.create () in
+        let io_q = Queue.create () in
+        let mem_q = Queue.create () in
+        let eventfd = FD.of_unix_no_hook ~seekable:false ~close_unix:true (eio_eventfd 0) in
+        fn { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q }
+      with
       | x -> Uring.exit uring; x
       | exception ex ->
         let bt = Printexc.get_raw_backtrace () in
         begin
           try Uring.exit uring
-          with ex2 -> Log.warn (fun f -> f "Uring.exit failed (%a) while handling another error" Fmt.exn ex2)
+          with ex2 ->
+            let bt2 = Printexc.get_raw_backtrace () in
+            raise (Eio.Exn.Multiple [(ex2, bt2); (ex, bt)])
         end;
         Printexc.raise_with_backtrace ex bt
+    )
 
-let rec run : type a.
-  ?queue_depth:int -> ?n_blocks:int -> ?block_size:int -> ?polling_timeout:int -> ?fallback:(_ -> a) -> (_ -> a) -> a =
-  fun ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fallback main ->
-  let n_blocks = Option.value n_blocks ~default:queue_depth in
-  let stdenv = stdenv ~run_event_loop:(run ~queue_depth ~n_blocks ~block_size ?polling_timeout ?fallback:None) in
-  (* TODO unify this allocation API around baregion/uring *)
-  with_uring ~queue_depth ?polling_timeout ?fallback @@ fun uring ->
-  let mem =
-    let fixed_buf_len = block_size * n_blocks in
-    let buf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
-    match Uring.set_fixed_buffer uring buf with
-    | Ok () ->
-      Some (Uring.Region.init ~block_size buf n_blocks)
-    | Error `ENOMEM ->
-      Log.warn (fun f -> f "Failed to allocate %d byte fixed buffer" fixed_buf_len);
-      None
-  in
-  let run_q = Lf_queue.create () in
-  Lf_queue.push run_q IO;
-  let sleep_q = Zzz.create () in
-  let io_q = Queue.create () in
-  let mem_q = Queue.create () in
-  let eventfd = FD.of_unix_no_hook ~seekable:false ~close_unix:true (eio_eventfd 0) in
-  let st = { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q } in
+let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
+  with_sched ?fallback config @@ fun st ->
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
     Ctf.note_switch (Fiber_context.tid fiber);
@@ -1392,9 +1408,9 @@ let rec run : type a.
               match Fiber_context.get_error fiber with
               | Some ex -> Suspended.discontinue k ex
               | None ->
-                let job = Zzz.add sleep_q time k in
+                let job = Zzz.add st.sleep_q time k in
                 Fiber_context.set_cancel_fn fiber (fun ex ->
-                    Zzz.remove sleep_q job;
+                    Zzz.remove st.sleep_q job;
                     enqueue_failed_thread st k ex
                   );
                 schedule st
@@ -1484,7 +1500,7 @@ let rec run : type a.
               );
             result := Some (
                 Fiber.first
-                  (fun () -> main stdenv)
+                  (fun () -> main arg)
                   (fun () -> monitor_event_fd st)
               )
           )
@@ -1493,6 +1509,8 @@ let rec run : type a.
   Option.get !result
 
 let run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
+  let config = config ?queue_depth ?n_blocks ?block_size ?polling_timeout () in
+  let stdenv = stdenv ~run_event_loop:(run_event_loop ?fallback:None config) in
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
-  run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main
+  run_event_loop ?fallback config main stdenv
