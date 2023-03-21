@@ -16,7 +16,7 @@
       let await_x p =
         Eio.Mutex.use_ro mutex (fun () ->
            while not (p !x) do                  (* [x] cannot change, as mutex is locked. *)
-             Eio.Condition.await ~mutex cond    (* Mutex is unlocked while suspended. *)
+             Eio.Condition.await cond mutex     (* Mutex is unlocked while suspended. *)
            done
         )
     ]}
