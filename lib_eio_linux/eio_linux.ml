@@ -599,29 +599,27 @@ module Low_level = struct
     let result = enter enqueue_noop in
     if result <> 0 then raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno result, "noop", "")))
 
-  type _ Effect.t += Sleep_until : Mtime.t -> unit Effect.t
-  let sleep_until d =
-    Effect.perform (Sleep_until d)
+  let sleep_until time =
+    enter @@ fun t k ->
+    let job = Zzz.add t.sleep_q time k in
+    Fiber_context.set_cancel_fn k.fiber (fun ex ->
+        Zzz.remove t.sleep_q job;
+        enqueue_failed_thread t k ex
+      )
 
-  type _ Effect.t += ERead : (file_offset * Unix.file_descr * Uring.Region.chunk * amount) -> int Effect.t
+  let read ?file_offset fd buf amount =
+    let file_offset = FD.file_offset fd file_offset in
+    FD.use_exn "read" fd @@ fun fd ->
+    let res = enter (fun t k -> enqueue_read t k (file_offset, fd, buf, amount)) in
+    if res < 0 then (
+      raise @@ wrap_error (Uring.error_of_errno res) "read" ""
+    ) else res
 
   let read_exactly ?file_offset fd buf len =
-    let file_offset = FD.file_offset fd file_offset in
-    FD.use_exn "read_exactly" fd @@ fun fd ->
-    let res = Effect.perform (ERead (file_offset, fd, buf, Exactly len)) in
-    if res < 0 then (
-      raise @@ wrap_error (Uring.error_of_errno res) "read_exactly" ""
-    )
+    ignore (read ?file_offset fd buf (Exactly len) : int)
 
   let read_upto ?file_offset fd buf len =
-    let file_offset = FD.file_offset fd file_offset in
-    FD.use_exn "read_upto" fd @@ fun fd ->
-    let res = Effect.perform (ERead (file_offset, fd, buf, Upto len)) in
-    if res < 0 then (
-      raise @@ wrap_error (Uring.error_of_errno res) "read_upto" ""
-    ) else (
-      res
-    )
+    read ?file_offset fd buf (Upto len)
 
   let readv ?file_offset fd bufs =
     let file_offset =
@@ -681,12 +679,10 @@ module Low_level = struct
       raise (unclassified_error (Eio_unix.Unix_error (Uring.error_of_errno res, "await_writable", "")))
     )
 
-  type _ Effect.t += EWrite : (file_offset * Unix.file_descr * Uring.Region.chunk * amount) -> int Effect.t
-
   let write ?file_offset fd buf len =
     let file_offset = FD.file_offset fd file_offset in
     FD.use_exn "write" fd @@ fun fd ->
-    let res = Effect.perform (EWrite (file_offset, fd, buf, Exactly len)) in
+    let res = enter (fun t k -> enqueue_write t k (file_offset, fd, buf, Exactly len)) in
     if res < 0 then (
       raise @@ wrap_error (Uring.error_of_errno res) "write" ""
     )
@@ -1390,30 +1386,9 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
                 fn st k;
                 schedule st
             )
-          | Low_level.ERead args -> Some (fun k ->
-              let k = { Suspended.k; fiber } in
-              enqueue_read st k args;
-              schedule st)
           | Cancel job -> Some (fun k ->
               enqueue_cancel job st;
               continue k ()
-            )
-          | Low_level.EWrite args -> Some (fun k ->
-              let k = { Suspended.k; fiber } in
-              enqueue_write st k args;
-              schedule st
-            )
-          | Low_level.Sleep_until time -> Some (fun k ->
-              let k = { Suspended.k; fiber } in
-              match Fiber_context.get_error fiber with
-              | Some ex -> Suspended.discontinue k ex
-              | None ->
-                let job = Zzz.add st.sleep_q time k in
-                Fiber_context.set_cancel_fn fiber (fun ex ->
-                    Zzz.remove st.sleep_q job;
-                    enqueue_failed_thread st k ex
-                  );
-                schedule st
             )
           | Eio.Private.Effects.Get_context -> Some (fun k -> continue k fiber)
           | Eio.Private.Effects.Suspend f -> Some (fun k ->
