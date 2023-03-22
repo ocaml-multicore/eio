@@ -1,3 +1,6 @@
+#define _GNU_SOURCE
+#include <linux/sched.h>
+
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/eventfd.h>
@@ -7,8 +10,11 @@
 #include <errno.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <unistd.h>
 
+// We need caml_convert_signal_number
+#define CAML_INTERNALS
 
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
@@ -16,6 +22,8 @@
 #include <caml/signals.h>
 #include <caml/unixsupport.h>
 #include <caml/bigarray.h>
+
+#include "fork_action.h"
 
 // Make sure we have enough space for at least one entry.
 #define DIRENT_BUF_SIZE (PATH_MAX + sizeof(struct dirent64))
@@ -98,4 +106,44 @@ CAMLprim value caml_eio_getdents(value v_fd) {
   }
 
   CAMLreturn(result);
+}
+
+static int pidfd_send_signal(int pidfd, int sig, siginfo_t *info, unsigned int flags) {
+  return syscall(SYS_pidfd_send_signal, pidfd, sig, info, flags);
+}
+
+CAMLprim value caml_eio_pidfd_send_signal(value v_pidfd, value v_signal) {
+  CAMLparam0();
+  int res;
+
+  res = pidfd_send_signal(Int_val(v_pidfd), caml_convert_signal_number(Int_val(v_signal)), NULL, 0);
+  if (res == -1) uerror("pidfd_send_signal", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_eio_clone3(value v_errors, value v_actions) {
+  CAMLparam1(v_actions);
+  CAMLlocal1(v_result);
+  pid_t child_pid;
+  int pidfd = -1;		/* Is automatically close-on-exec */
+  struct clone_args cl_args = {
+    .flags = CLONE_PIDFD,
+    .pidfd = (uint64_t) &pidfd,
+    .exit_signal = SIGCHLD,	/* Needed for wait4 to work if we exit before exec */
+    .stack = (uint64_t) NULL,	/* Use copy-on-write parent stack */
+    .stack_size = 0,
+  };
+
+  child_pid = syscall(SYS_clone3, &cl_args, sizeof(struct clone_args));
+  if (child_pid == 0) {
+    eio_unix_run_fork_actions(Int_val(v_errors), v_actions);
+  } else if (child_pid < 0) {
+    uerror("clone3", Nothing);
+  }
+
+  v_result = caml_alloc_tuple(2);
+  Store_field(v_result, 0, Val_long(child_pid));
+  Store_field(v_result, 1, Val_int(pidfd));
+
+  CAMLreturn(v_result);
 }
