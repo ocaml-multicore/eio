@@ -498,6 +498,26 @@ let config ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout () =
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
+let exit_uring uring =
+  (* Normally, all operations should have finished by the time we exit because
+     we don't exit until all fibers have finished, and a fiber can't finish while
+     an operation is in progress. However, this is not the case for cancellation
+     operations, which may still be active in rare cases. Drain them here. *)
+  let rec aux errors =
+    if Uring.active_ops uring = 0 then errors
+    else (
+      match Uring.wait ~timeout:1.0 uring with
+      | None -> errors
+      | Some { data = runnable; result = _ } ->
+        match runnable with
+        | Cancel_job -> aux errors
+        | _ -> aux (errors + 1)
+    )
+  in
+  let unexpected_jobs = aux 0 in
+  Uring.exit uring;
+  if unexpected_jobs > 0 then Fmt.failwith "%d spare CQEs found on uring at exit!" unexpected_jobs
+
 let no_fallback (`Msg msg) = failwith msg
 
 let with_sched ?(fallback=no_fallback) config fn =
@@ -528,11 +548,11 @@ let with_sched ?(fallback=no_fallback) config fn =
         let eventfd = Fd.of_unix_no_hook ~seekable:false ~close_unix:true (eio_eventfd 0) in
         fn { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q }
       with
-      | x -> Uring.exit uring; x
+      | x -> exit_uring uring; x
       | exception ex ->
         let bt = Printexc.get_raw_backtrace () in
         begin
-          try Uring.exit uring
+          try exit_uring uring
           with ex2 ->
             let bt2 = Printexc.get_raw_backtrace () in
             raise (Eio.Exn.Multiple [(ex2, bt2); (ex, bt)])
