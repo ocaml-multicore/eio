@@ -187,17 +187,3 @@ CAMLprim value caml_eio_posix_renameat(value v_old_fd, value v_old_path, value v
   if (ret == -1) uerror("renameat", v_old_path);
   CAMLreturn(Val_unit);
 }
-
-CAMLprim value caml_eio_posix_spawn(value v_errors, value v_actions) {
-  CAMLparam1(v_actions);
-  pid_t child_pid;
-
-  child_pid = fork();
-  if (child_pid == 0) {
-    eio_unix_run_fork_actions(Int_val(v_errors), v_actions);
-  } else if (child_pid < 0) {
-    uerror("fork", Nothing);
-  }
-
-  CAMLreturn(Val_long(child_pid));
-}

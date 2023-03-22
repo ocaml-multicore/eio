@@ -20,6 +20,12 @@ let rec with_actions actions fn =
 let err_closed op () =
   Fmt.failwith "%s: FD is closed!" op
 
+external eio_spawn : Unix.file_descr -> c_action list -> int = "eio_unix_spawn"
+
+let spawn errors actions =
+  Rcfd.use ~if_closed:(err_closed "spawn") errors @@ fun errors ->
+  eio_spawn errors actions
+
 external action_execve : unit -> fork_fn = "eio_unix_fork_execve"
 let action_execve = action_execve ()
 let execve path ~argv ~env = { run = fun k -> k (Obj.repr (action_execve, path, argv, env)) }

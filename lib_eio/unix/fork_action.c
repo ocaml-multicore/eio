@@ -4,7 +4,9 @@
 #include <string.h>
 #include <errno.h>
 
+#include <caml/memory.h>
 #include <caml/mlvalues.h>
+#include <caml/unixsupport.h>
 
 #include "fork_action.h"
 
@@ -37,6 +39,20 @@ void eio_unix_fork_error(int fd, char *fn, char *buf) {
   try_write_all(fd, fn);
   try_write_all(fd, ": ");
   try_write_all(fd, buf);
+}
+
+CAMLprim value eio_unix_spawn(value v_errors, value v_actions) {
+  CAMLparam1(v_actions);
+  pid_t child_pid;
+
+  child_pid = fork();
+  if (child_pid == 0) {
+    eio_unix_run_fork_actions(Int_val(v_errors), v_actions);
+  } else if (child_pid < 0) {
+    uerror("fork", Nothing);
+  }
+
+  CAMLreturn(Val_long(child_pid));
 }
 
 static char **make_string_array(int errors, value v_array) {

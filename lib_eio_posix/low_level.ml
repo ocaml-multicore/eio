@@ -261,8 +261,6 @@ module Process = struct
       Unix.kill t.pid signal
     )
 
-  external eio_spawn : Unix.file_descr -> Eio_unix.Private.Fork_action.c_action list -> int = "caml_eio_posix_spawn"
-
   let spawn ~sw actions =
     with_pipe @@ fun errors_r errors_w ->
     Eio_unix.Private.Fork_action.with_actions actions @@ fun c_actions ->
@@ -271,10 +269,7 @@ module Process = struct
       (* We take the lock to ensure that the signal handler won't reap the
          process before we've registered it. *)
       Children.with_lock (fun () ->
-          let pid =
-            Fd.use_exn "errors-w" errors_w @@ fun errors_w ->
-            eio_spawn errors_w c_actions
-          in
+          let pid = Eio_unix.Private.Fork_action.spawn (Fd.to_rcfd errors_w) c_actions in
           Fd.close errors_w;
           { pid; exit_status = Children.register pid }
         )

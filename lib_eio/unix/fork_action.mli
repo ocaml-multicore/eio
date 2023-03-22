@@ -28,6 +28,12 @@ type t = { run : 'a. ((c_action -> 'a) -> 'a) } [@@unboxed]
 
 val with_actions : t list -> (c_action list -> 'a) -> 'a
 
+val spawn : Rcfd.t -> c_action list -> int
+(** [spawn errors actions] forks a child process and executes [actions] in it.
+
+    If an error occurs, a message is written to [errors].
+    Returns the PID of the child process. *)
+
 (** {2 Actions} *)
 
 val execve : string -> argv:string array -> env:string array -> t
