@@ -470,15 +470,18 @@ let run ~extra_effects st main arg =
             Switch.on_release sw (fun () ->
                 Fd.close st.eventfd
               );
-            result := Some (
-                Fiber.first
-                  (fun () -> main arg)
-                  (fun () -> monitor_event_fd st)
-              )
+            Fiber.fork_daemon ~sw (fun () -> monitor_event_fd st);
+            match main arg with
+            | x -> result := Some (Ok x)
+            | exception ex ->
+              let bt = Printexc.get_raw_backtrace () in
+              result := Some (Error (ex, bt))
           )
       )
   in
-  Option.get !result
+  match Option.get !result with
+  | Ok x -> x
+  | Error (ex, bt) -> Printexc.raise_with_backtrace ex bt
 
 type config = {
   queue_depth : int;
