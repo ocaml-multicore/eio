@@ -222,6 +222,11 @@ module Process = struct
     let fchdir fd = Eio_unix.Private.Fork_action.fchdir (Fd.to_rcfd fd)
     let chdir = Eio_unix.Private.Fork_action.chdir
     let execve = Eio_unix.Private.Fork_action.execve
+
+    let inherit_fds m : t =
+      m
+      |> List.map (fun (dst, src, flags) -> (dst, Fd.to_rcfd src, flags))
+      |> Eio_unix.Private.Fork_action.inherit_fds
   end
 
   (* Read a (typically short) error message from a child process. *)

@@ -1,4 +1,4 @@
 (tests
   (package eio)
-  (libraries cstruct crowbar fmt eio eio.mock)
-  (names fuzz_buf_read fuzz_buf_write))
+  (libraries cstruct crowbar fmt eio eio.mock eio.unix)
+  (names fuzz_buf_read fuzz_buf_write fuzz_inherit_fds))

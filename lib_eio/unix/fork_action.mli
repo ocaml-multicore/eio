@@ -38,3 +38,18 @@ val chdir : string -> t
 
 val fchdir : Rcfd.t -> t
 (** [fchdir fd] changes directory to [fd]. *)
+
+type blocking = [
+  | `Blocking            (** Clear the [O_NONBLOCK] flag in the child process. *)
+  | `Nonblocking         (** Set the [O_NONBLOCK] flag in the child process. *)
+  | `Preserve_blocking   (** Don't change the blocking mode of the FD. *)
+]
+
+val inherit_fds : (int * Rcfd.t * [< blocking]) list -> t
+(** [inherit_fds mapping] marks file descriptors as not close-on-exec and renumbers them.
+
+    For each (fd, src, flags) in [mapping], we use [dup2] to duplicate [src] as [fd].
+    If there are cycles in [mapping], a temporary FD is used to break the cycle.
+    A mapping from an FD to itself simply clears the close-on-exec flag.
+
+    After this, the new FDs may also be set as blocking or non-blocking, depending on [flags]. *)
