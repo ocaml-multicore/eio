@@ -33,6 +33,7 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Buffered Writing](#buffered-writing)
 * [Error Handling](#error-handling)
 * [Filesystem Access](#filesystem-access)
+* [Running processes](#running-processes)
 * [Time](#time)
 * [Multicore Support](#multicore-support)
 * [Synchronisation Tools](#synchronisation-tools)
@@ -875,6 +876,55 @@ and this allows following symlinks within that subtree.
 A program that operates on the current directory will probably want to use `cwd`,
 whereas a program that accepts a path from the user will probably want to use `fs`,
 perhaps with `open_dir` to constrain all access to be within that directory.
+
+## Running processes
+
+Spawning a child process can be done using the [Eio.Process][] module:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let proc_mgr = Eio.Stdenv.process_mgr env in
+  Eio.Process.run proc_mgr ["echo"; "hello"];;
+hello
+- : unit = ()
+```
+
+There are various optional arguments for setting the process's current directory or connecting up the standard streams.
+For example, we can use `tr` to convert some text to upper-case:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let proc_mgr = Eio.Stdenv.process_mgr env in
+  Eio.Process.run proc_mgr ["tr"; "a-z"; "A-Z"]
+    ~stdin:(Eio.Flow.string_source "One two three\n");;
+ONE TWO THREE
+- : unit = ()
+```
+
+If you want to capture the output of a process, you can provide a suitable `Eio.Flow.sink` as the `stdout` argument,
+or use the `parse_out` convenience wrapper:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let proc_mgr = Eio.Stdenv.process_mgr env in
+  Eio.Process.parse_out proc_mgr Eio.Buf_read.line ["echo"; "hello"];;
+- : string = "hello"
+```
+
+All process functions either return the exit status or check that it was zero (success):
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let proc_mgr = Eio.Stdenv.process_mgr env in
+  Eio.Process.parse_out proc_mgr Eio.Buf_read.take_all ["sh"; "-c"; "exit 3"];;
+Exception:
+Eio.Io Process Child_error Exited 3,
+  running command: sh -c "exit 3"
+```
+
+`Process.spawn` and `Process.await` give more control over the process's lifetime
+and exit status, and `Eio_unix.Process` gives more control over passing file
+descriptors (on systems that support them).
 
 ## Time
 
@@ -1825,3 +1875,4 @@ Some background about the effects system can be found in:
 [kcas]: https://github.com/ocaml-multicore/kcas
 [Meio]: https://github.com/tarides/meio
 [Lambda Capabilities]: https://roscidus.com/blog/blog/2023/04/26/lambda-capabilities/
+[Eio.Process]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio/process.ml

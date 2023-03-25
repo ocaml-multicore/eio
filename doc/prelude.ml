@@ -32,12 +32,14 @@ module Eio_main = struct
   let run fn =
     Eio_main.run @@ fun env ->
     fn @@ object
-      method net        = env#net
-      method stdin      = env#stdin
-      method stdout     = env#stdout
-      method cwd        = env#cwd
-      method domain_mgr = fake_domain_mgr
-      method clock      = fake_clock env#clock
+      method net         = env#net
+      method stdin       = env#stdin
+      method stdout      = env#stdout
+      method stderr      = env#stderr
+      method cwd         = env#cwd
+      method process_mgr = env#process_mgr
+      method domain_mgr  = fake_domain_mgr
+      method clock       = fake_clock env#clock
     end
 end
 

@@ -12,7 +12,9 @@
     Therefore, the fork call and all child actions need to be written in C.
     This module provides some support code for doing that.
     Individual backends will wrap these actions with higher-level APIs and
-    can also add their own platform-specific actions *)
+    can also add their own platform-specific actions.
+
+    @canonical Eio_unix.Private.Fork_action *)
 
 type fork_fn
 (** A C function, as defined in "include/fork_action.h". *)
