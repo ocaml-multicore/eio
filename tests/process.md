@@ -109,7 +109,8 @@ val with_pipe_from_child :
   Flow.copy r (Flow.buffer_sink buff);
   Buffer.contents buff;;
 val pread :
-  < process_mgr : #Process.mgr; stderr : Flow.sink; stdin : Flow.source; .. > ->
+  < process_mgr : #Process.mgr; stderr : #Flow.sink; stdin : #Flow.source;
+    .. > ->
   string = <fun>
 # run @@ fun _spawn env ->
   pread env;;
@@ -140,4 +141,20 @@ Calling `await_exit` multiple times on the same spawn just returns the status.
 hello world
 - : Process.status * Process.status * Process.status =
 (Eio.Process.Exited 0, Eio.Process.Exited 0, Eio.Process.Exited 0)
+```
+
+Using sources and sinks that are not backed by file descriptors.
+
+```ocaml
+# run @@ fun _spawn env ->
+  let proc = env#process_mgr in
+  let buf = Buffer.create 16 in
+  let dst = Flow.buffer_sink buf in
+  Eio.Switch.run @@ fun sw ->
+  let p = 
+    Eio.Process.spawn proc ~sw ~stdin:env#stdin ~stdout:dst ~stderr:env#stderr "/usr/bin/echo" [ "echo"; "Hello, world" ]
+  in
+  let _ : Process.status = Process.status p in
+  Buffer.contents buf
+- : string = "Hello, world\n"
 ```

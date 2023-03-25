@@ -19,19 +19,19 @@ val signal : #t -> int -> unit
 (** [signal t i] sends the signal [i] to process [t]. *)
 
 class virtual mgr : object
-    method virtual spawn : 
-        sw:Switch.t -> 
+    method virtual spawn : 'a 'b 'c.
+        sw:Switch.t ->
         ?cwd:Fs.dir Path.t ->
-        stdin:Flow.source ->
-        stdout:Flow.sink -> 
-        stderr:Flow.sink ->
+        stdin:(#Flow.source as 'a) ->
+        stdout:(#Flow.sink as 'b) ->
+        stderr:(#Flow.sink as 'c) ->
         string ->
         string list ->
         t
 end
 (** A process manager capable of spawning new processes. *)
 
-val spawn : sw:Switch.t -> #mgr -> ?cwd:Fs.dir Path.t -> stdin:Flow.source -> stdout:Flow.sink -> stderr:Flow.sink -> string -> string list -> t
+val spawn : sw:Switch.t -> #mgr -> ?cwd:Fs.dir Path.t -> stdin:#Flow.source -> stdout:#Flow.sink -> stderr:#Flow.sink -> string -> string list -> t
 (** [spawn ~sw mgr ?cwd ~stdin ~stdout ~stderr cmd args] creates a new subprocess that is connected to the
     switch [sw]. A process will be stopped when the switch is released.
     
