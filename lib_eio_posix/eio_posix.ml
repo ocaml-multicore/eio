@@ -21,6 +21,7 @@ type stdenv = <
   stdout : <Eio.Flow.sink; Eio_unix.unix_fd>;
   stderr : <Eio.Flow.sink; Eio_unix.unix_fd>;
   net : Eio.Net.t;
+  process_mgr : Eio.Process.mgr;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   mono_clock : Eio.Time.Mono.t;
@@ -45,6 +46,7 @@ let run main =
     method clock = Time.clock
     method mono_clock = Time.mono_clock
     method net = Net.v
+    method process_mgr = Process.v
     method domain_mgr = Domain_mgr.v
     method cwd = ((Fs.cwd, "") :> Eio.Fs.dir Eio.Path.t)
     method fs = ((Fs.fs, "") :> Eio.Fs.dir Eio.Path.t)

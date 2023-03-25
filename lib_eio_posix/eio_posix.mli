@@ -5,6 +5,7 @@ type stdenv = <
   stdout : <Eio.Flow.sink; Eio_unix.unix_fd>;
   stderr : <Eio.Flow.sink; Eio_unix.unix_fd>;
   net : Eio.Net.t;
+  process_mgr : Eio.Process.mgr;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   mono_clock : Eio.Time.Mono.t;
