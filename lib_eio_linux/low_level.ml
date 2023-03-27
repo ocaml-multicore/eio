@@ -432,3 +432,12 @@ let getaddrinfo ~service node =
   Eio_unix.run_in_systhread @@ fun () ->
   Unix.getaddrinfo node service []
   |> List.filter_map to_eio_sockaddr_t
+
+let pipe ~sw =
+  let unix_r, unix_w = Unix.pipe ~cloexec:true () in
+  let r = Fd.of_unix ~sw ~seekable:false ~close_unix:true unix_r in
+  let w = Fd.of_unix ~sw ~seekable:false ~close_unix:true unix_w in
+  (* See issue #319, PR #327 *)
+  Unix.set_nonblock unix_r;
+  Unix.set_nonblock unix_w;
+  (r, w)

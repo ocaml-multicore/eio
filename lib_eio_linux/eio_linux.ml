@@ -448,19 +448,26 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
           continue k (flow fd :> Eio_unix.socket)
         )
       | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
-          let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
-          let a = FD.of_unix ~sw ~seekable:false ~close_unix:true a |> flow in
-          let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
-          continue k ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
+          match
+            let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
+            let a = FD.of_unix ~sw ~seekable:false ~close_unix:true a |> flow in
+            let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
+            ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
+          with
+          | r -> continue k r
+          | exception Unix.Unix_error (code, name, arg) ->
+              discontinue k (Err.wrap code name arg)
         )
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
-          let r, w = Unix.pipe ~cloexec:true () in
-          (* See issue #319, PR #327 *)
-          Unix.set_nonblock r;
-          Unix.set_nonblock w;
-          let r = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true r) :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
-          let w = (flow (FD.of_unix ~sw ~seekable:false ~close_unix:true w) :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
-          continue k (r, w)
+          match
+            let r, w = Low_level.pipe ~sw in
+            let r = (flow r :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
+            let w = (flow w :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
+            (r, w)
+          with
+          | r -> continue k r
+          | exception Unix.Unix_error (code, name, arg) ->
+            discontinue k (Err.wrap code name arg)
         )
       | _ -> None
   } in
