@@ -25,6 +25,27 @@
 
 #include "fork_action.h"
 
+#ifndef SYS_pidfd_send_signal
+# define SYS_pidfd_send_signal 424
+#endif
+#ifndef SYS_clone3
+# define SYS_clone3 435
+# define CLONE_PIDFD 0x00001000
+struct clone_args {
+  uint64_t flags;
+  uint64_t pidfd;
+  uint64_t child_tid;
+  uint64_t parent_tid;
+  uint64_t exit_signal;
+  uint64_t stack;
+  uint64_t stack_size;
+  uint64_t tls;
+  uint64_t set_tid;
+  uint64_t set_tid_size;
+  uint64_t cgroup;
+};
+#endif
+
 // Make sure we have enough space for at least one entry.
 #define DIRENT_BUF_SIZE (PATH_MAX + sizeof(struct dirent64))
 
