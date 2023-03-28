@@ -10,6 +10,8 @@ type t = {
   mutable release_hook : Eio.Switch.hook;     (* Use this on close to remove switch's [on_release] hook. *)
 }
 
+let to_rcfd t = t.fd
+
 let err_closed op = Invalid_argument (op ^ ": file descriptor used after calling close!")
 
 let use t f ~if_closed = Rcfd.use t.fd f ~if_closed

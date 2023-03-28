@@ -441,3 +441,84 @@ let pipe ~sw =
   Unix.set_nonblock unix_r;
   Unix.set_nonblock unix_w;
   (r, w)
+
+let with_pipe fn =
+  Switch.run @@ fun sw ->
+  let r, w = pipe ~sw in
+  fn r w
+
+module Process = struct
+  module Rcfd = Eio_unix.Private.Rcfd
+
+  external eio_spawn :
+    Unix.file_descr ->
+    Eio_unix.Private.Fork_action.c_action list ->
+    int * Unix.file_descr = "caml_eio_clone3"
+
+  external pidfd_send_signal : Unix.file_descr -> int -> unit = "caml_eio_pidfd_send_signal"
+
+  type t = {
+    pid : int;
+    pid_fd : Fd.t;
+    exit_status : Unix.process_status Promise.t;
+  }
+
+  let exit_status t = t.exit_status
+  let pid t = t.pid
+
+  module Fork_action = struct
+    type t = Eio_unix.Private.Fork_action.t
+
+    let fchdir fd = Eio_unix.Private.Fork_action.fchdir (Fd.to_rcfd fd)
+    let chdir = Eio_unix.Private.Fork_action.chdir
+    let execve = Eio_unix.Private.Fork_action.execve
+  end
+
+  (* Read a (typically short) error message from a child process. *)
+  let rec read_response fd =
+    let buf = Cstruct.create 256 in
+    match readv fd [buf] with
+    | len -> Cstruct.to_string buf ~len ^ read_response fd
+    | exception End_of_file -> ""
+
+  let signal t signum =
+    Fd.use t.pid_fd ~if_closed:Fun.id @@ fun pid_fd ->
+    pidfd_send_signal pid_fd signum
+
+  let rec waitpid pid =
+    match Unix.waitpid [] pid with
+    | p, status -> assert (p = pid); status
+    | exception Unix.Unix_error (EINTR, _, _) -> waitpid pid
+
+  let spawn ~sw actions =
+    with_pipe @@ fun errors_r errors_w ->
+    Eio_unix.Private.Fork_action.with_actions actions @@ fun c_actions ->
+    Switch.check sw;
+    let exit_status, set_exit_status = Promise.create () in
+    let t =
+      Fd.use_exn "errors-w" errors_w @@ fun errors_w ->
+      let pid, pid_fd = eio_spawn errors_w c_actions in
+      let pid_fd = Fd.of_unix ~sw ~seekable:false ~close_unix:true pid_fd in
+      { pid; pid_fd; exit_status }
+    in
+    Fd.close errors_w;
+    Fiber.fork_daemon ~sw (fun () ->
+        let cleanup () =
+          Fd.close t.pid_fd;
+          Promise.resolve set_exit_status (waitpid t.pid);
+          `Stop_daemon
+        in
+        match await_readable t.pid_fd with
+        | () -> Eio.Cancel.protect cleanup
+        | exception Eio.Cancel.Cancelled _ ->
+          Eio.Cancel.protect (fun () ->
+              signal t Sys.sigkill;
+              await_readable t.pid_fd;
+              cleanup ()
+            )
+      );
+    (* Check for errors starting the process. *)
+    match read_response errors_r with
+    | "" -> t                       (* Success! Execing the child closed [errors_w] and we got EOF. *)
+    | err -> failwith err
+end
