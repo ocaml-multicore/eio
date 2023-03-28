@@ -1,3 +1,9 @@
+(* -*- tuareg -*- *)
+
+let linux = List.mem ("system", "linux") Jbuild_plugin.V1.ocamlc_config
+
+let () = Jbuild_plugin.V1.send @@ if not linux then "" else {|
+
 (library
  (name eurcp_lib)
  (enabled_if (= %{system} "linux"))
@@ -33,3 +39,5 @@
   (package eio_linux)
   (enabled_if (= %{system} "linux"))
   (deps (package eio_linux)))
+
+|}

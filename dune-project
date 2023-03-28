@@ -34,6 +34,7 @@
  (name eio_linux)
  (synopsis "Eio implementation for Linux using io-uring")
  (description "An Eio implementation for Linux using io-uring.")
+ (allow_empty)  ; Work-around for dune bug #6938
  (depends
   (alcotest (and (>= 1.4.0) :with-test))
   (eio (= :version))
