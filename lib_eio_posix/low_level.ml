@@ -13,6 +13,9 @@ type ty = Read | Write
 
 module Fd = Fd
 
+(* todo: keeping a pool of workers is probably faster *)
+let in_worker_thread = Eio_unix.run_in_systhread
+
 let await_readable fd =
   Fd.use_exn "await_readable" fd @@ fun fd ->
   Sched.enter @@ fun t k ->
@@ -24,6 +27,7 @@ let await_writable fd =
   Sched.await_writable t k fd
 
 let rec do_nonblocking ty fn fd =
+  Fiber.yield ();
   try fn fd with
   | Unix.Unix_error (EINTR, _, _) -> do_nonblocking ty fn fd    (* Just in case *)
   | Unix.Unix_error((EAGAIN | EWOULDBLOCK), _, _) ->
@@ -92,14 +96,19 @@ let getrandom { Cstruct.buffer; off; len } =
     else
       loop (n + eio_getrandom buffer (off + n) (len - n))
   in
+  in_worker_thread @@ fun () ->
   loop 0
 
 let fstat fd =
   Fd.use_exn "fstat" fd Unix.LargeFile.fstat
 
-let lstat = Unix.LargeFile.lstat
+let lstat path =
+  in_worker_thread @@ fun () ->
+  Unix.LargeFile.lstat path
 
-let realpath = Unix.realpath
+let realpath path =
+  in_worker_thread @@ fun () ->
+  Unix.realpath path
 
 let read_entries h =
   let rec aux acc =
@@ -111,6 +120,7 @@ let read_entries h =
   aux []
 
 let readdir path =
+  in_worker_thread @@ fun () ->
   let h = Unix.opendir path in
   match read_entries h with
   | r -> Unix.closedir h; r
@@ -177,19 +187,21 @@ external eio_openat : Unix.file_descr -> string -> Open_flags.t -> int -> Unix.f
 let openat ?dirfd ~sw ~mode path flags =
   with_dirfd "openat" dirfd @@ fun dirfd ->
   Switch.check sw;
-  eio_openat dirfd path Open_flags.(flags + cloexec + nonblock) mode
+  in_worker_thread (fun () -> eio_openat dirfd path Open_flags.(flags + cloexec + nonblock) mode)
   |> Fd.of_unix ~sw ~blocking:false ~close_unix:true
 
 external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_posix_mkdirat"
 
 let mkdir ?dirfd ~mode path =
   with_dirfd "mkdirat" dirfd @@ fun dirfd ->
+  in_worker_thread @@ fun () ->
   eio_mkdirat dirfd path mode
 
 external eio_unlinkat : Unix.file_descr -> string -> bool -> unit = "caml_eio_posix_unlinkat"
 
 let unlink ?dirfd ~dir path =
   with_dirfd "unlink" dirfd @@ fun dirfd ->
+  in_worker_thread @@ fun () ->
   eio_unlinkat dirfd path dir
 
 external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit = "caml_eio_posix_renameat"
@@ -197,6 +209,7 @@ external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -
 let rename ?old_dir old_path ?new_dir new_path =
   with_dirfd "rename-old" old_dir @@ fun old_dir ->
   with_dirfd "rename-new" new_dir @@ fun new_dir ->
+  in_worker_thread @@ fun () ->
   eio_renameat old_dir old_path new_dir new_path
 
 let pipe ~sw =
