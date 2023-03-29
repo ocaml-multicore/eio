@@ -546,3 +546,19 @@ Check reading and writing vectors at arbitrary offsets:
 + "-ab"/"c123"
 - : unit = ()
 ```
+
+# Cancelling while readable
+
+Ensure reads can be cancelled promptly, even if there is no need to wait:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Path.with_open_out (env#fs / "/dev/zero") ~create:`Never @@ fun null ->
+  Fiber.both
+     (fun () ->
+        let buf = Cstruct.create 4 in
+        for _ = 1 to 10 do Eio.Flow.read_exact null buf done;
+        assert false)
+     (fun () -> failwith "Simulated error");;
+Exception: Failure "Simulated error".
+```
