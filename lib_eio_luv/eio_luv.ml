@@ -959,6 +959,7 @@ type stdenv = <
   stdout : sink;
   stderr : sink;
   net : Eio.Net.t;
+  process_mgr : Eio.Process.mgr;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
   mono_clock : Eio.Time.Mono.t;
@@ -1160,6 +1161,7 @@ let stdenv ~run_event_loop =
     method stdout = Lazy.force stdout
     method stderr = Lazy.force stderr
     method net = net
+    method process_mgr = failwith "Processes are not supported using libuv"
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
     method mono_clock = mono_clock
