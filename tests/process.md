@@ -70,11 +70,7 @@ Passing in flows allows you to redirect the child process' stdout.
     Process.exit_status t
   in
   match run () with
-    | Exited 0 ->
-      Eio.Path.(with_open_in (fs / filename)) @@ fun flow ->
-      let buff = Buffer.create 128 in
-      Eio.Flow.copy flow (Eio.Flow.buffer_sink buff);
-      Buffer.contents buff
+    | Exited 0 -> Eio.Path.(load (fs / filename))
     | _ -> failwith "Subprocess didn't exit cleanly!";;
 - : string = "Hello\n"
 ```
