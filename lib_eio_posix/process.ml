@@ -32,7 +32,6 @@ let v = object
   inherit Eio.Process.mgr
 
   method spawn ~sw ?cwd ~(stdin : #Eio.Flow.source) ~(stdout : #Eio.Flow.sink) ~(stderr : #Eio.Flow.sink) prog args = 
-    let chdir = Option.to_list cwd |> List.map (fun (_, s) -> Process.Fork_action.chdir s) in
     let stdin_w, stdin_fd = read_of_fd ~sw stdin in
     let stdout_r, stdout_fd = write_of_fd ~sw stdout in
     let stderr_r, stderr_fd = write_of_fd ~sw stderr in
@@ -44,7 +43,18 @@ let v = object
       ];
       execve prog ~argv:(Array.of_list args) ~env:[||]
     ] in
-    let actions = chdir @ actions in 
+    let with_actions cwd fn = match cwd with
+      | Some ((dir, path) : Eio.Fs.dir Eio.Path.t) -> (
+        match Eio.Generic.probe dir Fs.Posix_dir with
+        | None -> fn actions
+        | Some posix ->
+          posix#with_parent_dir path @@ fun dirfd s ->
+          let cwd = Low_level.openat ?dirfd ~sw ~mode:0 s Low_level.Open_flags.(rdonly + directory) in
+          fn (Process.Fork_action.fchdir cwd :: actions)
+      )
+      | None -> fn actions
+    in
+    with_actions cwd @@ fun actions -> 
     let proc = process (Process.spawn ~sw actions) in
     Option.iter (fun stdin_w ->
       Eio.Fiber.fork ~sw (fun () ->

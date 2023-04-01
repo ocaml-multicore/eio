@@ -319,7 +319,6 @@ let process_mgr = object
   inherit Eio.Process.mgr
   
   method spawn ~sw ?cwd ~(stdin : #Eio.Flow.source) ~(stdout : #Eio.Flow.sink) ~(stderr : #Eio.Flow.sink) prog args = 
-    let chdir = Option.to_list cwd |> List.map (fun (_, s) -> Process.Fork_action.chdir s) in
     let stdin_w, stdin_fd = read_of_fd ~sw stdin in
     let stdout_r, stdout_fd = write_of_fd ~sw stdout in
     let stderr_r, stderr_fd = write_of_fd ~sw stderr in
@@ -331,7 +330,24 @@ let process_mgr = object
       ];
       execve prog ~argv:(Array.of_list args) ~env:[||]
     ] in
-    let actions = chdir @ actions in 
+    let with_actions cwd fn = match cwd with
+      | Some (fd, s) -> (
+        match get_dir_fd_opt fd with
+        | None -> fn actions
+        | Some dir_fd ->
+          let root =
+            Low_level.openat ~sw
+              ~seekable:false
+              ~access:`R
+              ~perm:0
+              ~flags:Uring.Open_flags.(cloexec + path + directory)
+              dir_fd s
+          in
+          fn (Process.Fork_action.fchdir root :: actions)
+      )
+      | None -> fn actions
+    in
+    with_actions cwd @@ fun actions -> 
     let proc = process (Process.spawn ~sw actions) in
     Option.iter (fun stdin_w ->
       Eio.Fiber.fork ~sw (fun () ->

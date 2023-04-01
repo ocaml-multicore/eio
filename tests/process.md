@@ -154,3 +154,15 @@ Using sources and sinks that are not backed by file descriptors.
   Buffer.contents buf
 - : string = "Hello, world\n"
 ```
+
+Changing directory
+
+```ocaml
+# run @@ fun spawn env ->
+  Switch.run @@ fun sw ->
+  let root = Eio.Path.(env#fs / "/") in
+  let child = spawn ~cwd:root ~sw "/usr/bin/env" [ "env"; "pwd" ] in
+  Process.exit_status child
+/
+- : Process.status = Eio.Process.Exited 0
+```
