@@ -24,7 +24,7 @@ Running a program as a subprocess
 # run @@ fun spawn env ->
   Switch.run @@ fun sw ->
   let t = spawn ~sw "/usr/bin/echo" [ "echo"; "hello world" ] in
-  Process.status t;;
+  Process.exit_status t;;
 hello world
 - : Process.status = Eio.Process.Exited 0
 ```
@@ -36,7 +36,7 @@ Stopping a subprocess works and checking the status waits and reports correctly
   Switch.run @@ fun sw ->
   let t = spawn ~sw "/usr/bin/sleep" [ "sleep"; "10" ] in
   Process.signal t Sys.sigkill;
-  Process.status t;;
+  Process.exit_status t;;
 - : Process.status = Eio.Process.Signaled (-7)
 ```
 
@@ -51,7 +51,7 @@ A switch will stop a process when it is released.
     proc := Some (spawn ~sw "/usr/bin/sleep" [ "sleep"; "10" ])
   in
   run ();
-  Process.status (Option.get !proc);;
+  Process.exit_status (Option.get !proc);;
 - : Process.status = Eio.Process.Signaled (-7)
 ```
 
@@ -67,7 +67,7 @@ Passing in flows allows you to redirect the child process' stdout.
     let stdout = (stdout :> Eio.Flow.sink) in
     Switch.run @@ fun sw ->
     let t = Eio.Process.spawn ~sw ~stdout ~stdin:env#stdin ~stderr:env#stderr process "/usr/bin/echo" [ "echo"; "Hello" ] in
-    Process.status t
+    Process.exit_status t
   in
   match run () with
     | Exited 0 ->
@@ -102,7 +102,7 @@ val with_pipe_from_child :
   let t =
     Eio.Process.spawn ~sw ~stdout:(w :> Flow.sink) ~stdin:env#stdin ~stderr:env#stderr env#process_mgr "/usr/bin/echo" [ "echo"; "Hello" ] 
   in
-  let status = Process.status t in
+  let status = Process.exit_status t in
   Eio.traceln "%a" Eio.Process.pp_status status;
   Flow.close w;
   let buff = Buffer.create 10 in
@@ -126,7 +126,7 @@ Spawning subprocesses in new domains works normally
   Eio.Domain_manager.run mgr @@ fun () ->
   Switch.run @@ fun sw ->
   let t = spawn ~sw "/usr/bin/echo" [ "echo"; "Hello from another domain" ] in
-  Process.status t;;
+  Process.exit_status t;;
 Hello from another domain
 - : Process.status = Eio.Process.Exited 0
 ```
@@ -137,7 +137,7 @@ Calling `await_exit` multiple times on the same spawn just returns the status.
 # run @@ fun spawn env ->
   Switch.run @@ fun sw ->
   let t = spawn ~sw "/usr/bin/echo" [ "echo"; "hello world" ] in
-  (Process.status t, Process.status t, Process.status t);;
+  (Process.exit_status t, Process.exit_status t, Process.exit_status t);;
 hello world
 - : Process.status * Process.status * Process.status =
 (Eio.Process.Exited 0, Eio.Process.Exited 0, Eio.Process.Exited 0)
@@ -154,7 +154,7 @@ Using sources and sinks that are not backed by file descriptors.
   let p = 
     Eio.Process.spawn proc ~sw ~stdin:env#stdin ~stdout:dst ~stderr:env#stderr "/usr/bin/echo" [ "echo"; "Hello, world" ]
   in
-  let _ : Process.status = Process.status p in
+  let _ : Process.status = Process.exit_status p in
   Buffer.contents buf
 - : string = "Hello, world\n"
 ```

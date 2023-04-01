@@ -7,12 +7,12 @@ let pp_status ppf = function
 
 class virtual t = object
   method virtual pid : int
-  method virtual status : status
+  method virtual exit_status : status
   method virtual signal : int -> unit
 end
 
 let pid proc = proc#pid
-let status proc = proc#status
+let exit_status proc = proc#exit_status
 let signal proc = proc#signal
 
 class virtual mgr = object
