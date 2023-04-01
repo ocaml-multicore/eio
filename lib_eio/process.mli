@@ -2,18 +2,25 @@ type status = Exited of int | Signaled of int | Stopped of int
 
 val pp_status : Format.formatter -> status -> unit
 
+type Exn.err += E of status
+
+val err : status -> exn
+(** [err e] is [Eio.Exn.create (E e)] *)
+
 class virtual t : object
     method virtual pid : int
-    method virtual exit_status : status
+    method virtual await : status
     method virtual signal : int -> unit
 end
 
 val pid : #t -> int
 (** The process ID *)
 
-val exit_status : #t -> status
-(** Reports the exit status of the subprocess. This will block waiting for the subprocess
-    to exit. *)
+val await : #t -> status
+(** This functions waits for the subprocess to exit and then reports the status. *)
+
+val await_exn : #t -> unit
+(** Like {! await} except an exception is raised if the status is not [Exited 0]. *)
 
 val signal : #t -> int -> unit
 (** [signal t i] sends the signal [i] to process [t]. *)

@@ -201,6 +201,9 @@ module Stdenv : sig
   val stdout : <stdout : #Flow.sink   as 'a; ..> -> 'a
   val stderr : <stderr : #Flow.sink   as 'a; ..> -> 'a
 
+  val stdio : <stdin  : #Flow.source as 'a; stdout : #Flow.sink as 'b; stderr : #Flow.sink as 'c; ..> -> 'a * 'b * 'c
+  (** [stdio t] returns [stdin, stdout, stderr]. *)
+
   (** {1 File-system access}
 
       To use these, see {!Path}. *)

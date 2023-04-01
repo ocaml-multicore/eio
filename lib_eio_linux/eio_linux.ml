@@ -295,7 +295,7 @@ let unix_status_to_stats = function
 
 let process proc : Eio.Process.t = object
   method pid = Process.pid proc
-  method exit_status = 
+  method await = 
     let status = Eio.Promise.await @@ Process.exit_status proc in
     unix_status_to_stats status
   method signal i = Process.signal proc i

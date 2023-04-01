@@ -49,6 +49,7 @@ module Stdenv = struct
   let stdin  (t : <stdin  : #Flow.source; ..>) = t#stdin
   let stdout (t : <stdout : #Flow.sink;   ..>) = t#stdout
   let stderr (t : <stderr : #Flow.sink;   ..>) = t#stderr
+  let stdio (t : <stdin  : #Flow.source; stdout: #Flow.sink; stderr : #Flow.sink; ..>) = t#stdin, t#stdout, t#stderr
   let net (t : <net : #Net.t; ..>) = t#net
   let process_mgr (t : <process_mgr : #Process.mgr; ..>) = t#process_mgr
   let domain_mgr (t : <domain_mgr : #Domain_manager.t; ..>) = t#domain_mgr

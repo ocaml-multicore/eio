@@ -33,6 +33,7 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Buffered Writing](#buffered-writing)
 * [Error Handling](#error-handling)
 * [Filesystem Access](#filesystem-access)
+* [Subprocesses](#subprocesses)
 * [Time](#time)
 * [Multicore Support](#multicore-support)
 * [Synchronisation Tools](#synchronisation-tools)
@@ -891,6 +892,36 @@ Note: the `eio_luv` backend doesn't have the `openat`, `mkdirat`, etc.,
 calls that are necessary to implement these checks without races,
 so be careful if symlinks out of the subtree may be created while the program is running.
 
+## Subprocesses
+
+Spawning subprocesses is provided by the [Eio.Process][] module.
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let proc_mgr = Eio.Stdenv.process_mgr env in
+  let stdin, stdout, stderr = Eio.Stdenv.stdio env in
+  Eio.Switch.run @@ fun sw ->
+  let child = Eio.Process.spawn proc_mgr ~sw ~stdin ~stdout ~stderr "/usr/bin/echo" [ "echo"; "hello" ] in
+  Eio.Process.await child;;
+hello
+- : Eio.Process.status = Eio.Process.Exited 0
+```
+
+If you want to capture the output of a process, you can provide a suitable `Eio.Flow.sink` as the `stdout` argument.
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let proc_mgr = Eio.Stdenv.process_mgr env in
+  let buffer = Buffer.create 4 in
+  let stdin, _, stderr = Eio.Stdenv.stdio env in
+  let stdout = Eio.Flow.buffer_sink buffer in
+  Eio.Switch.run @@ fun sw ->
+  let child = Eio.Process.spawn proc_mgr ~sw ~stdin ~stdout ~stderr "/usr/bin/echo" [ "echo"; "hello" ] in
+  Eio.Process.await_exn child;
+  Buffer.contents buffer;;
+- : string = "hello\n"
+```
+
 ## Time
 
 The standard environment provides a [clock][Eio.Time] with the usual POSIX time:
@@ -1743,3 +1774,4 @@ Some background about the effects system can be found in:
 [Eio.Mutex]: https://ocaml-multicore.github.io/eio/eio/Eio/Mutex/index.html
 [Eio.Semaphore]: https://ocaml-multicore.github.io/eio/eio/Eio/Semaphore/index.html
 [Eio.Condition]: https://ocaml-multicore.github.io/eio/eio/Eio/Condition/index.html
+[Eio.Process]: https://ocaml-multicore.github.io/eio/eio/Eio/Process/index.html
