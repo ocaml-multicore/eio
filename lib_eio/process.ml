@@ -16,16 +16,19 @@ let exit_status proc = proc#exit_status
 let signal proc = proc#signal
 
 class virtual mgr = object
-  method virtual spawn : 'a 'b 'c.
+  method virtual spawn :
     sw:Switch.t ->
     ?cwd:Fs.dir Path.t ->
-    stdin:(#Flow.source as 'a) ->
-    stdout:(#Flow.sink as 'b) ->
-    stderr:(#Flow.sink as 'c) ->
+    stdin:Flow.source ->
+    stdout:Flow.sink ->
+    stderr:Flow.sink ->
     string ->
     string list ->
     t
 end
 
-let spawn ~sw (t:#mgr) ?cwd ~(stdin:#Flow.source) ~(stdout:#Flow.sink) ~(stderr:#Flow.sink) cmd args = 
-  t#spawn ~sw ?cwd ~stdin ~stdout ~stderr cmd args
+let spawn ~sw (t:#mgr) ?cwd ~stdin ~stdout ~stderr cmd args = 
+  t#spawn ~sw ?cwd cmd args
+    ~stdin:(stdin :> Flow.source)
+    ~stdout:(stdout :> Flow.sink)
+    ~stderr:(stderr :> Flow.sink)

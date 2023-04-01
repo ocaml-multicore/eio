@@ -19,12 +19,12 @@ val signal : #t -> int -> unit
 (** [signal t i] sends the signal [i] to process [t]. *)
 
 class virtual mgr : object
-    method virtual spawn : 'a 'b 'c.
+    method virtual spawn : 
         sw:Switch.t ->
         ?cwd:Fs.dir Path.t ->
-        stdin:(#Flow.source as 'a) ->
-        stdout:(#Flow.sink as 'b) ->
-        stderr:(#Flow.sink as 'c) ->
+        stdin:Flow.source ->
+        stdout:Flow.sink ->
+        stderr:Flow.sink ->
         string ->
         string list ->
         t
