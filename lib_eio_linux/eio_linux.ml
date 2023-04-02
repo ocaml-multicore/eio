@@ -295,7 +295,7 @@ let unix_status_to_stats = function
 
 let process proc : Eio.Process.t = object
   method pid = Process.pid proc
-  method await = 
+  method await =
     let status = Eio.Promise.await @@ Process.exit_status proc in
     unix_status_to_stats status
   method signal i = Process.signal proc i
@@ -317,8 +317,8 @@ let write_of_fd ~sw t =
 
 let process_mgr = object
   inherit Eio.Process.mgr
-  
-  method spawn ~sw ?cwd ~(stdin : #Eio.Flow.source) ~(stdout : #Eio.Flow.sink) ~(stderr : #Eio.Flow.sink) prog args = 
+
+  method spawn ~sw ?cwd ~(stdin : #Eio.Flow.source) ~(stdout : #Eio.Flow.sink) ~(stderr : #Eio.Flow.sink) prog args =
     let stdin_w, stdin_fd = read_of_fd ~sw stdin in
     let stdout_r, stdout_fd = write_of_fd ~sw stdout in
     let stderr_r, stderr_fd = write_of_fd ~sw stderr in
@@ -347,19 +347,18 @@ let process_mgr = object
       )
       | None -> fn actions
     in
-    with_actions cwd @@ fun actions -> 
+    with_actions cwd @@ fun actions ->
     let proc = process (Process.spawn ~sw actions) in
     Option.iter (fun stdin_w ->
-      Eio.Fiber.fork ~sw (fun () ->
-        Eio.Flow.copy stdin stdin_w;
-        Eio.Flow.close stdin_w
-    )) stdin_w;
+      Eio.Flow.copy stdin stdin_w;
+      Eio.Flow.close stdin_w
+    ) stdin_w;
     Option.iter (fun stdout_r ->
       Fd.close stdout_fd;
-      Eio.Fiber.fork ~sw (fun () -> Eio.Flow.copy stdout_r stdout)) stdout_r;
+      Eio.Flow.copy stdout_r stdout) stdout_r;
     Option.iter (fun stderr_r ->
       Fd.close stderr_fd;
-      Eio.Fiber.fork ~sw (fun () -> Eio.Flow.copy stderr_r stdout)) stderr_r;
+      Eio.Flow.copy stderr_r stdout) stderr_r;
     proc
 end
 
