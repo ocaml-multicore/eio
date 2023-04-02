@@ -18,7 +18,7 @@ type socket = <
 module Private = struct
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
 
-  type _ Effect.t += 
+  type _ Effect.t +=
     | Await_readable : Unix.file_descr -> unit Effect.t
     | Await_writable : Unix.file_descr -> unit Effect.t
     | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
@@ -79,3 +79,16 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
   run_in_systhread (fun () ->
     let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
     (ni_hostname, ni_service))
+
+let resolve_program ~paths prog =
+  if not (Filename.is_relative prog) then begin
+    if Sys.file_exists prog then Some prog else None
+  end
+  else
+  let rec loop = function
+    | path :: rest ->
+      let p = Filename.concat path prog in
+      if Sys.file_exists p then Some p else loop rest
+    | [] -> None
+  in
+  loop paths

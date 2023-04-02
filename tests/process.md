@@ -10,7 +10,15 @@ Creating some useful helper functions
 open Eio
 open Eio.Std
 
+let paths = [ "/usr/bin"; "/bin"; "/usr/local/bin" ]
+
+let resolve_program cmd =
+  match Eio_unix.resolve_program ~paths cmd with
+  | Some cmd -> cmd
+  | None -> failwith "Failed to resolve program"
+
 let spawn ~env ~sw ?cwd cmd args =
+  let cmd = resolve_program cmd in
   Process.spawn ~sw ?cwd ~stdout:env#stdout ~stdin:env#stdin ~stderr:env#stderr env#process_mgr cmd args
 
 let run fn =
@@ -23,7 +31,7 @@ Running a program as a subprocess
 ```ocaml
 # run @@ fun spawn env ->
   Switch.run @@ fun sw ->
-  let t = spawn ~sw "/usr/bin/echo" [ "echo"; "hello world" ] in
+  let t = spawn ~sw "echo" [ "echo"; "hello world" ] in
   Process.await t;;
 hello world
 - : Process.status = Eio.Process.Exited 0
@@ -34,7 +42,7 @@ Stopping a subprocess works and checking the status waits and reports correctly
 ```ocaml
 # run @@ fun spawn _env ->
   Switch.run @@ fun sw ->
-  let t = spawn ~sw "/usr/bin/sleep" [ "sleep"; "10" ] in
+  let t = spawn ~sw "sleep" [ "sleep"; "10" ] in
   Process.signal t Sys.sigkill;
   Process.await t;;
 - : Process.status = Eio.Process.Signaled (-7)
@@ -45,10 +53,10 @@ A switch will stop a process when it is released.
 
 ```ocaml
 # run @@ fun spawn env ->
-  let proc = ref None in 
+  let proc = ref None in
   let run () =
     Switch.run @@ fun sw ->
-    proc := Some (spawn ~sw "/usr/bin/sleep" [ "sleep"; "10" ])
+    proc := Some (spawn ~sw "sleep" [ "sleep"; "10" ])
   in
   run ();
   Process.await (Option.get !proc);;
@@ -66,7 +74,8 @@ Passing in flows allows you to redirect the child process' stdout.
     Eio.Path.(with_open_out ~create:(`Exclusive 0o600) (fs / filename)) @@ fun stdout ->
     let stdout = (stdout :> Eio.Flow.sink) in
     Switch.run @@ fun sw ->
-    let t = Eio.Process.spawn ~sw ~stdout ~stdin:env#stdin ~stderr:env#stderr process "/usr/bin/echo" [ "echo"; "Hello" ] in
+    let echo = resolve_program "echo" in
+    let t = Eio.Process.spawn ~sw ~stdout ~stdin:env#stdin ~stderr:env#stderr process echo [ "echo"; "Hello" ] in
     Process.await t
   in
   match run () with
@@ -95,8 +104,9 @@ val with_pipe_from_child :
   'c = <fun>
 # let pread env =
   with_pipe_from_child @@ fun ~sw ~r ~w ->
+  let echo = resolve_program "echo" in
   let t =
-    Eio.Process.spawn ~sw ~stdout:(w :> Flow.sink) ~stdin:env#stdin ~stderr:env#stderr env#process_mgr "/usr/bin/echo" [ "echo"; "Hello" ] 
+    Eio.Process.spawn ~sw ~stdout:(w :> Flow.sink) ~stdin:env#stdin ~stderr:env#stderr env#process_mgr echo [ "echo"; "Hello" ]
   in
   let status = Process.await t in
   Eio.traceln "%a" Eio.Process.pp_status status;
@@ -121,7 +131,8 @@ Spawning subprocesses in new domains works normally
   let mgr = Eio.Stdenv.domain_mgr env in
   Eio.Domain_manager.run mgr @@ fun () ->
   Switch.run @@ fun sw ->
-  let t = spawn ~sw "/usr/bin/echo" [ "echo"; "Hello from another domain" ] in
+  let echo = resolve_program "echo" in
+  let t = spawn ~sw echo [ "echo"; "Hello from another domain" ] in
   Process.await t;;
 Hello from another domain
 - : Process.status = Eio.Process.Exited 0
@@ -132,7 +143,8 @@ Calling `await_exit` multiple times on the same spawn just returns the status.
 ```ocaml
 # run @@ fun spawn env ->
   Switch.run @@ fun sw ->
-  let t = spawn ~sw "/usr/bin/echo" [ "echo"; "hello world" ] in
+  let echo = resolve_program "echo" in
+  let t = spawn ~sw echo [ "echo"; "hello world" ] in
   (Process.await t, Process.await t, Process.await t);;
 hello world
 - : Process.status * Process.status * Process.status =
@@ -147,8 +159,9 @@ Using sources and sinks that are not backed by file descriptors.
   let buf = Buffer.create 16 in
   let dst = Flow.buffer_sink buf in
   Eio.Switch.run @@ fun sw ->
-  let p = 
-    Eio.Process.spawn proc ~sw ~stdin:env#stdin ~stdout:dst ~stderr:env#stderr "/usr/bin/echo" [ "echo"; "Hello, world" ]
+  let echo = resolve_program "echo" in
+  let p =
+    Eio.Process.spawn proc ~sw ~stdin:env#stdin ~stdout:dst ~stderr:env#stderr echo [ "echo"; "Hello, world" ]
   in
   let _ : Process.status = Process.await p in
   Buffer.contents buf
@@ -161,7 +174,7 @@ Changing directory
 # run @@ fun spawn env ->
   Switch.run @@ fun sw ->
   let root = Eio.Path.(env#fs / "/") in
-  let child = spawn ~cwd:root ~sw "/usr/bin/env" [ "env"; "pwd" ] in
+  let child = spawn ~cwd:root ~sw "env" [ "env"; "pwd" ] in
   Process.await child
 /
 - : Process.status = Eio.Process.Exited 0

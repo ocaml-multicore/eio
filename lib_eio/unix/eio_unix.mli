@@ -90,7 +90,7 @@ module Private : sig
   type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
   (** See {!FD}. *)
 
-  type _ Effect.t += 
+  type _ Effect.t +=
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
     | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
@@ -98,7 +98,7 @@ module Private : sig
         socket Effect.t                                      (** See {!FD.as_socket} *)
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int ->
         (socket * socket) Effect.t                           (** See {!socketpair} *)
-    | Pipe : Eio.Switch.t -> 
+    | Pipe : Eio.Switch.t ->
         (<Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>) Effect.t (** See {!pipe} *)
 
   module Rcfd = Rcfd
@@ -110,3 +110,7 @@ module Ctf = Ctf_unix
 
 val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
 (** [getnameinfo sockaddr] returns domain name and service for [sockaddr]. *)
+
+val resolve_program : paths:string list -> string -> string option
+(** [resolve_program ~paths prog] tries to resolve the absolute path for [prog]
+    by looking in each of [paths]. *)

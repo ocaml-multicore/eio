@@ -894,14 +894,19 @@ so be careful if symlinks out of the subtree may be created while the program is
 
 ## Subprocesses
 
-Spawning subprocesses is provided by the [Eio.Process][] module.
+Spawning subprocesses is provided by the [Eio.Process][] module. [Eio_unix][] contains a helper function
+for finding the absolute path to programs.
+
 
 ```ocaml
 # Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
   let stdin, stdout, stderr = Eio.Stdenv.stdio env in
+  let echo =
+    Option.get @@ Eio_unix.resolve_program ~paths:[ "/usr/bin"; "/bin" ] "echo"
+  in
   Eio.Switch.run @@ fun sw ->
-  let child = Eio.Process.spawn proc_mgr ~sw ~stdin ~stdout ~stderr "/usr/bin/echo" [ "echo"; "hello" ] in
+  let child = Eio.Process.spawn proc_mgr ~sw ~stdin ~stdout ~stderr echo [ "echo"; "hello" ] in
   Eio.Process.await child;;
 hello
 - : Eio.Process.status = Eio.Process.Exited 0
@@ -915,8 +920,11 @@ If you want to capture the output of a process, you can provide a suitable `Eio.
   let buffer = Buffer.create 4 in
   let stdin, _, stderr = Eio.Stdenv.stdio env in
   let stdout = Eio.Flow.buffer_sink buffer in
+  let echo =
+    Option.get @@ Eio_unix.resolve_program ~paths:[ "/usr/bin"; "/bin" ] "echo"
+  in
   Eio.Switch.run @@ fun sw ->
-  let child = Eio.Process.spawn proc_mgr ~sw ~stdin ~stdout ~stderr "/usr/bin/echo" [ "echo"; "hello" ] in
+  let child = Eio.Process.spawn proc_mgr ~sw ~stdin ~stdout ~stderr echo [ "echo"; "hello" ] in
   Eio.Process.await_exn child;
   Buffer.contents buffer;;
 - : string = "hello\n"
