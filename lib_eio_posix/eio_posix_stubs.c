@@ -2,7 +2,11 @@
 
 #include <sys/types.h>
 #ifdef __linux__
+#if __GLIBC__ > 2 || __GLIBC_MINOR__ > 24
 #include <sys/random.h>
+#else
+#include <sys/syscall.h>
+#endif
 #endif
 #include <sys/uio.h>
 #include <sys/stat.h>
@@ -40,7 +44,11 @@ CAMLprim value caml_eio_posix_getrandom(value v_ba, value v_off, value v_len) {
     void *buf = (uint8_t *)Caml_ba_data_val(v_ba) + off;
     caml_enter_blocking_section();
 #ifdef __linux__
+#if __GLIBC__ > 2 || __GLIBC_MINOR__ > 24
     ret = getrandom(buf, len, 0);
+#else
+    ret = syscall(SYS_getrandom, buf, len, 0);
+#endif
 #else
     arc4random_buf(buf, len);
     ret = len;
