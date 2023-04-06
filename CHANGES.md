@@ -1,3 +1,74 @@
+## v0.9
+
+New features:
+
+- Add eio_posix backend (@talex5 @haesbaert #448 #477, reviewed by @avsm @patricoferris @polytypic).  
+  This replaces eio_luv on all platforms except Windows (which will later switch to its own backend). It is a lot faster, provides access to more modern features (such as `openat`), and can safely share OS resources between domains.
+
+- Add subprocess support (@patricoferris @talex5 #461 #464 #472, reviewed by @haesbaert @avsm).
+
+- Add `Fiber.fork_seq` (@talex5 #460, reviewed by @avsm).  
+  This is a light-weight alternative to using a single-producer, single-consumer, 0-capacity stream, similar to a Python generator function.
+
+Bug fixes:
+
+- eio_linux: make it safe to share FDs across domains (@talex5 #440, reviewed by @haesbaert).  
+  It was previously not safe to share file descriptors between domains because if one domain used an FD just as another was closing it, and the FD got reused, then the original operation could act on the wrong file.
+
+- eio_linux: release uring if Linux is too old (@talex5 #476).  
+  Avoids a small resource leak.
+
+- eio_linux: improve error handling creating pipes and sockets (@talex5 #474, spotted by @avsm).  
+  If we get an error (e.g. too many FDs) then report it to the calling fiber, instead of exiting the event loop.
+
+- eio_linux: wait for uring to finish before exiting (@talex5 #470, reviewed by @avsm).  
+  If the main fiber raised an exception then it was possible to exit while a cancellation operation was still in progress.
+
+- eio_main: make `EIO_BACKEND` handling more uniform (@talex5 #447).  
+  Previously this environment variable was only used on Linux. Now all platforms check it.
+
+- Tell dune about `EIO_BACKEND` (@talex5 #442).  
+  If this changes, dune needs to re-run the tests.
+
+- eio_linux: add some missing close-on-execs (@talex5 #441).
+
+- eio_linux: `read_exactly` fails to update file offset (@talex5 #438).
+
+- Work around dune `enabled_if` bug on non-Linux systems (@polytypic #475, reviewed by @talex5).
+
+Documentation:
+
+- Add `HACKING.md` with hints for working on Eio (@talex5 #443, reviewed by @avsm @polytypic).
+
+- Improve worker pool example (@talex5 #454).
+
+- Add more Conditions documentation (@talex5 #436, reviewed by @haesbaert).  
+  This adds a discussion of conditions to the README and provides examples using them to handle signals.
+
+- Condition: fix the example in the docstring (@avsm #468).
+
+Performance:
+
+- Add a network benchmark using an HTTP-like protocol (@talex5 #478, reviewed by @avsm @patricoferris).
+
+- Add a benchmark for reading from `/dev/zero` (@talex5 #439).
+
+Other changes:
+
+- Add CI for macOS (@talex5 #452).
+
+- Add tests for `pread`, `pwrite` and `readdir` (@talex5 #451).
+
+- eio_linux: split into multiple files (@talex5 #465 #466, reviewed by @avsm).
+
+- Update Dockerfile (@talex5 #471).
+
+- Use dune.3.7.0 (@patricoferris #457).
+
+- Mint exclusive IDs across domains (@TheLortex #480, reported by @haesbaert, reviewed by @talex5).  
+  The tracing currently only works with a single domain anyway, but this will change when OCaml 5.1 is released.
+
+
 ## v0.8.1
 
 Some build fixes:
