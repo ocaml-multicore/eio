@@ -4,7 +4,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/eventfd.h>
+#if __GLIBC__ > 2 || __GLIBC_MINOR__ > 24
 #include <sys/random.h>
+#endif
 #include <sys/syscall.h>
 #include <limits.h>
 #include <errno.h>
@@ -97,7 +99,11 @@ CAMLprim value caml_eio_getrandom(value v_ba, value v_off, value v_len) {
   do {
     void *buf = Caml_ba_data_val(v_ba) + off;
     caml_enter_blocking_section();
+#if __GLIBC__ > 2 || __GLIBC_MINOR__ > 24
     ret = getrandom(buf, len, 0);
+#else
+    ret = syscall(SYS_getrandom, buf, len, 0);
+#endif
     caml_leave_blocking_section();
   } while (ret == -1 && errno == EINTR);
   if (ret == -1) uerror("getrandom", Nothing);
