@@ -5,7 +5,8 @@ New features:
 - Add eio_posix backend (@talex5 @haesbaert #448 #477, reviewed by @avsm @patricoferris @polytypic).  
   This replaces eio_luv on all platforms except Windows (which will later switch to its own backend). It is a lot faster, provides access to more modern features (such as `openat`), and can safely share OS resources between domains.
 
-- Add subprocess support (@patricoferris @talex5 #461 #464 #472, reviewed by @haesbaert @avsm).
+- Add subprocess support (@patricoferris @talex5 #461 #464 #472, reviewed by @haesbaert @avsm).  
+  This is the low-level API support for eio_linux and eio_posix. A high-level cross-platform API will be added in the next release.
 
 - Add `Fiber.fork_seq` (@talex5 #460, reviewed by @avsm).  
   This is a light-weight alternative to using a single-producer, single-consumer, 0-capacity stream, similar to a Python generator function.
@@ -35,6 +36,8 @@ Bug fixes:
 - eio_linux: `read_exactly` fails to update file offset (@talex5 #438).
 
 - Work around dune `enabled_if` bug on non-Linux systems (@polytypic #475, reviewed by @talex5).
+
+- Use raw system call of `getrandom` for glibc versions before 2.25 (@zenfey #482).
 
 Documentation:
 
