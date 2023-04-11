@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Condition (eio.Eio.Condition)</title><link rel="stylesheet" href="../../../odoc.css"/><meta charset="utf-8"/><meta name="generator" content="odoc 2.2.0"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="../../../highlight.pack.js"></script><script>hljs.initHighlightingOnLoad();</script></head><body class="odoc"><nav class="odoc-nav"><a href="../index.html">Up</a> – <a href="../../index.html">eio</a> &#x00BB; <a href="../index.html">Eio</a> &#x00BB; Condition</nav><header class="odoc-preamble"><h1>Module <code><span>Eio.Condition</span></code></h1><p>Waiting for a condition to become true.</p><p>Waiters call <a href="#val-await"><code>await</code></a> in a loop as long as some condition is false. Fibers that modify inputs to the condition must call <code>broadcast</code> soon afterwards so that waiters can re-check the condition.</p><p>Example:</p><pre class="language-ocaml"><code>let x = ref 0
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Condition (eio.Eio.Condition)</title><link rel="stylesheet" href="../../../_odoc_support/odoc.css"/><meta charset="utf-8"/><meta name="generator" content="odoc 2.2.0"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="../../../_odoc_support/highlight.pack.js"></script><script>hljs.initHighlightingOnLoad();</script></head><body class="odoc"><nav class="odoc-nav"><a href="../index.html">Up</a> – <a href="../../index.html">eio</a> &#x00BB; <a href="../index.html">Eio</a> &#x00BB; Condition</nav><header class="odoc-preamble"><h1>Module <code><span>Eio.Condition</span></code></h1><p>Waiting for a condition to become true.</p><p>Waiters call <a href="#val-await"><code>await</code></a> in a loop as long as some condition is false. Fibers that modify inputs to the condition must call <code>broadcast</code> soon afterwards so that waiters can re-check the condition.</p><p>Example:</p><pre class="language-ocaml"><code>let x = ref 0
 let cond = Eio.Condition.create ()
 let mutex = Eio.Mutex.create ()
 
@@ -10,7 +10,7 @@ let set_x value =
 let await_x p =
   Eio.Mutex.use_ro mutex (fun () -&gt;
      while not (p !x) do                  (* [x] cannot change, as mutex is locked. *)
-       Eio.Condition.await ~mutex cond    (* Mutex is unlocked while suspended. *)
+       Eio.Condition.await cond mutex     (* Mutex is unlocked while suspended. *)
      done
   )</code></pre><p>It is used like this:</p><pre class="language-ocaml"><code>Fiber.both
   (fun () -&gt;
