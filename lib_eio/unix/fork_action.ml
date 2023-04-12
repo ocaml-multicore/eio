@@ -17,9 +17,6 @@ let rec with_actions actions fn =
     with_actions xs @@ fun c_actions ->
     fn (c_action :: c_actions)
 
-let err_closed op () =
-  Fmt.failwith "%s: FD is closed!" op
-
 external action_execve : unit -> fork_fn = "eio_unix_fork_execve"
 let action_execve = action_execve ()
 let execve path ~argv ~env = { run = fun k -> k (Obj.repr (action_execve, path, argv, env)) }
@@ -32,7 +29,7 @@ external action_fchdir : unit -> fork_fn = "eio_unix_fork_fchdir"
 let action_fchdir = action_fchdir ()
 let fchdir fd = {
   run = fun k ->
-    Rcfd.use ~if_closed:(err_closed "fchdir") fd @@ fun fd ->
+    Fd.use_exn "fchdir" fd @@ fun fd ->
     k (Obj.repr (action_fchdir, fd)) }
 
 let int_of_fd : Unix.file_descr -> int = Obj.magic
@@ -43,7 +40,7 @@ let rec with_fds mapping k =
   match mapping with
   | [] -> k []
   | (dst, src, _) :: xs ->
-    Rcfd.use ~if_closed:(err_closed "inherit_fds") src @@ fun src ->
+    Fd.use_exn "inherit_fds" src @@ fun src ->
     with_fds xs @@ fun xs ->
     k ((dst, int_of_fd src) :: xs)
 

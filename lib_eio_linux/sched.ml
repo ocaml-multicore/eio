@@ -57,7 +57,7 @@ type t = {
 
   (* When adding to [run_q] from another domain, this domain may be sleeping and so won't see the event.
      In that case, [need_wakeup = true] and you must signal using [eventfd]. *)
-  eventfd : Fd.t;
+  eventfd : Eio_unix.Private.Rcfd.t;
 
   (* If [false], the main thread will check [run_q] before sleeping again
      (possibly because an event has been or will be sent to [eventfd]).
@@ -85,7 +85,7 @@ let wake_buffer =
    and also from signal handlers or GC finalizers. It must not take any locks. *)
 let wakeup t =
   Atomic.set t.need_wakeup false; (* [t] will check [run_q] after getting the event below *)
-  Fd.use t.eventfd
+  Eio_unix.Private.Rcfd.use t.eventfd
     (fun fd ->
        let sent = Unix.single_write fd wake_buffer 0 8 in
        assert (sent = 8)
@@ -374,7 +374,7 @@ let read_eventfd fd buf =
 
 let monitor_event_fd t =
   let buf = Cstruct.create 8 in
-  Fd.use_exn "monitor_event_fd" t.eventfd @@ fun fd ->
+  Eio_unix.Private.Rcfd.use ~if_closed:(fun () -> failwith "event_fd closed!") t.eventfd @@ fun fd ->
   while true do
     let got = read_eventfd fd buf in
     assert (got = 8);
@@ -467,9 +467,6 @@ let run ~extra_effects st main arg =
     let new_fiber = Fiber_context.make_root () in
     fork ~new_fiber (fun () ->
         Switch.run_protected (fun sw ->
-            Switch.on_release sw (fun () ->
-                Fd.close st.eventfd
-              );
             Fiber.fork_daemon ~sw (fun () -> monitor_event_fd st);
             match main arg with
             | x -> result := Some (Ok x)
@@ -503,6 +500,18 @@ external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
 let no_fallback (`Msg msg) = failwith msg
 
+let with_eventfd fn =
+  let eventfd = Eio_unix.Private.Rcfd.make (eio_eventfd 0) in
+  let close () =
+    if not (Eio_unix.Private.Rcfd.close eventfd) then failwith "eventfd already closed!"
+  in
+  match fn eventfd with
+  | x -> close (); x
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    close ();
+    Printexc.raise_with_backtrace ex bt
+
 let with_sched ?(fallback=no_fallback) config fn =
   let { queue_depth; n_blocks; block_size; polling_timeout } = config in
   match Uring.create ~queue_depth ?polling_timeout () with
@@ -529,7 +538,7 @@ let with_sched ?(fallback=no_fallback) config fn =
         let sleep_q = Zzz.create () in
         let io_q = Queue.create () in
         let mem_q = Queue.create () in
-        let eventfd = Fd.of_unix_no_hook ~seekable:false ~close_unix:true (eio_eventfd 0) in
+        with_eventfd @@ fun eventfd ->
         fn { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q }
       with
       | x -> Uring.exit uring; x

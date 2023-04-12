@@ -18,6 +18,8 @@ open Eio.Std
 
 [@@@alert "-unstable"]
 
+module Fd = Eio_unix.Fd
+
 (* Run an event loop in the current domain, using [fn x] as the root fiber. *)
 let run_event_loop fn x =
   Sched.with_sched @@ fun sched ->
@@ -47,8 +49,8 @@ let run_event_loop fn x =
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
           match
             let r, w = Low_level.pipe ~sw in
-            let source = (Flow.of_fd r :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
-            let sink = (Flow.of_fd w :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
+            let source = (Flow.of_fd r :> Eio_unix.source) in
+            let sink = (Flow.of_fd w :> Eio_unix.sink) in
             (source, sink)
           with
           | r -> continue k r

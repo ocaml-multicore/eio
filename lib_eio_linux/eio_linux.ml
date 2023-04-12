@@ -26,20 +26,18 @@ module Suspended = Eio_utils.Suspended
 module Zzz = Eio_utils.Zzz
 module Lf_queue = Eio_utils.Lf_queue
 
-module FD = Fd
 module Low_level = Low_level
 
-type _ Eio.Generic.ty += FD : FD.t Eio.Generic.ty
-let get_fd_opt t = Eio.Generic.probe t FD
+(* Deprecated FD code *)
+module FD = Fd
+let get_fd = Eio_unix.Resource.fd
+let get_fd_opt = Eio_unix.Resource.fd_opt
 
 type _ Eio.Generic.ty += Dir_fd : Low_level.dir_fd Eio.Generic.ty
 let get_dir_fd_opt t = Eio.Generic.probe t Dir_fd
 
-type has_fd = < fd : FD.t >
-type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
-type sink   = < Eio.Flow.sink  ; Eio.Flow.close; has_fd >
-
-let get_fd (t : <has_fd; ..>) = t#fd
+type source = Eio_unix.source
+type sink   = Eio_unix.sink
 
 (* When copying between a source with an FD and a sink with an FD, we can share the chunk
    and avoid copying. *)
@@ -140,8 +138,7 @@ let flow fd =
     method stat = Low_level.fstat fd
 
     method probe : type a. a Eio.Generic.ty -> a option = function
-      | FD -> Some fd
-      | Eio_unix.Private.Unix_file_descr op -> Some (FD.to_unix op fd)
+      | Eio_unix.Resource.FD -> Some fd
       | _ -> None
 
     method read_into buf =
@@ -163,7 +160,7 @@ let flow fd =
     method write bufs = Low_level.writev fd bufs
 
     method copy src =
-      match get_fd_opt src with
+      match Eio_unix.Resource.fd_opt src with
       | Some src -> fast_copy_try_splice src fd
       | None ->
         let rec aux = function
@@ -179,8 +176,6 @@ let flow fd =
       | `Receive -> Unix.SHUTDOWN_RECEIVE
       | `Send -> Unix.SHUTDOWN_SEND
       | `All -> Unix.SHUTDOWN_ALL
-
-    method unix_fd op = FD.to_unix op fd
   end
 
 let source fd = (flow fd :> source)
@@ -188,10 +183,6 @@ let sink   fd = (flow fd :> sink)
 
 let listening_socket fd = object
   inherit Eio.Net.listening_socket
-
-  method! probe : type a. a Eio.Generic.ty -> a option = function
-    | Eio_unix.Private.Unix_file_descr op -> Some (FD.to_unix op fd)
-    | _ -> None
 
   method close = FD.close fd
 
@@ -204,6 +195,10 @@ let listening_socket fd = object
     in
     let flow = (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) in
     flow, client_addr
+
+  method! probe : type a. a Eio.Generic.ty -> a option = function
+    | Eio_unix.Resource.FD -> Some fd
+    | _ -> None
 end
 
 let socket_domain_of = function
@@ -416,10 +411,9 @@ let secure_random = object
 end
 
 let stdenv ~run_event_loop =
-  let of_unix fd = FD.of_unix_no_hook ~seekable:(FD.is_seekable fd) ~close_unix:true fd in
-  let stdin = lazy (source (of_unix Unix.stdin)) in
-  let stdout = lazy (sink (of_unix Unix.stdout)) in
-  let stderr = lazy (sink (of_unix Unix.stderr)) in
+  let stdin = lazy (source (Eio_unix.Fd.stdin)) in
+  let stdout = lazy (sink (Eio_unix.Fd.stdout)) in
+  let stderr = lazy (sink (Eio_unix.Fd.stderr)) in
   let fs = (new dir ~label:"fs" Fs, ".") in
   let cwd = (new dir ~label:"cwd" Cwd, ".") in
   object (_ : stdenv)
@@ -461,8 +455,8 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
           match
             let r, w = Low_level.pipe ~sw in
-            let r = (flow r :> <Eio.Flow.source; Eio.Flow.close; Eio_unix.unix_fd>) in
-            let w = (flow w :> <Eio.Flow.sink; Eio.Flow.close; Eio_unix.unix_fd>) in
+            let r = (flow r :> Eio_unix.source) in
+            let w = (flow w :> Eio_unix.sink) in
             (r, w)
           with
           | r -> continue k r

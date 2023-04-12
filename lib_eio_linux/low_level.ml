@@ -3,11 +3,20 @@
 open Eio.Std
 
 module Ctf = Eio.Private.Ctf
+module Fd = Eio_unix.Fd
 
 type dir_fd =
   | FD of Fd.t
   | Cwd         (* Confined to "." *)
   | Fs          (* Unconfined "."; also allows absolute paths *)
+
+let uring_file_offset t =
+  if Fd.is_seekable t then Optint.Int63.minus_one else Optint.Int63.zero
+
+let file_offset t = function
+  | Some x -> `Pos x
+  | None when Fd.is_seekable t -> `Seekable_current
+  | None -> `Nonseekable_current
 
 let enqueue_read st action (file_offset,fd,buf,len) =
   let req = { Sched.op=`R; file_offset; len; fd; cur_off = 0; buf; action } in
@@ -113,10 +122,10 @@ let sleep_until time =
       Sched.enqueue_failed_thread t k ex
     )
 
-let read ?file_offset fd buf amount =
-  let file_offset = Fd.file_offset fd file_offset in
+let read ?file_offset:off fd buf amount =
+  let off = file_offset fd off in
   Fd.use_exn "read" fd @@ fun fd ->
-  let res = Sched.enter (fun t k -> enqueue_read t k (file_offset, fd, buf, amount)) in
+  let res = Sched.enter (fun t k -> enqueue_read t k (off, fd, buf, amount)) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "read" ""
   ) else res
@@ -140,7 +149,7 @@ let readv ?file_offset fd bufs =
   let file_offset =
     match file_offset with
     | Some x -> x
-    | None -> Fd.uring_file_offset fd
+    | None -> uring_file_offset fd
   in
   Fd.use_exn "readv" fd @@ fun fd ->
   let res = Sched.enter (enqueue_readv (file_offset, fd, bufs)) in
@@ -156,7 +165,7 @@ let writev_single ?file_offset fd bufs =
   let file_offset =
     match file_offset with
     | Some x -> x
-    | None -> Fd.uring_file_offset fd
+    | None -> uring_file_offset fd
   in
   Fd.use_exn "writev" fd @@ fun fd ->
   let res = Sched.enter (enqueue_writev (file_offset, fd, bufs)) in
@@ -194,10 +203,10 @@ let await_writable fd =
     raise (Err.unclassified (Eio_unix.Unix_error (Uring.error_of_errno res, "await_writable", "")))
   )
 
-let write ?file_offset fd buf len =
-  let file_offset = Fd.file_offset fd file_offset in
+let write ?file_offset:off fd buf len =
+  let off = file_offset fd off in
   Fd.use_exn "write" fd @@ fun fd ->
-  let res = Sched.enter (fun t k -> enqueue_write t k (file_offset, fd, buf, Exactly len)) in
+  let res = Sched.enter (fun t k -> enqueue_write t k (off, fd, buf, Exactly len)) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "write" ""
   )
@@ -256,7 +265,7 @@ let recv_msg_with_fds ~sw ~max_fds fd buf =
   );
   let fds =
     Uring.Msghdr.get_fds msghdr
-    |> List.map (fun fd -> Fd.of_unix ~sw ~seekable:(Fd.is_seekable fd) ~close_unix:true fd)
+    |> List.map (fun fd -> Fd.of_unix ~sw ~close_unix:true fd)
   in
   addr, res, fds
 
@@ -276,12 +285,7 @@ let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
       raise @@ Err.wrap_fs (Uring.error_of_errno res) "openat2" ""
     );
     let fd : Unix.file_descr = Obj.magic res in
-    let seekable =
-      match seekable with
-      | None -> Fd.is_seekable fd
-      | Some x -> x
-    in
-    Fd.of_unix ~sw ~seekable ~close_unix:true fd
+    Fd.of_unix ~sw ?seekable ~close_unix:true fd
   in
   match dir with
   | None -> use None
@@ -466,13 +470,7 @@ module Process = struct
   let exit_status t = t.exit_status
   let pid t = t.pid
 
-  module Fork_action = struct
-    type t = Eio_unix.Private.Fork_action.t
-
-    let fchdir fd = Eio_unix.Private.Fork_action.fchdir (Fd.to_rcfd fd)
-    let chdir = Eio_unix.Private.Fork_action.chdir
-    let execve = Eio_unix.Private.Fork_action.execve
-  end
+  module Fork_action = Eio_unix.Private.Fork_action
 
   (* Read a (typically short) error message from a child process. *)
   let rec read_response fd =

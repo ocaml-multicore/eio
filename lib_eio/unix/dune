@@ -4,5 +4,5 @@
  (foreign_stubs
   (language c)
   (include_dirs include)
-  (names fork_action))
+  (names fork_action stubs))
  (libraries eio unix threads mtime.clock.os))

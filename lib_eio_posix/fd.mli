@@ -2,7 +2,7 @@
 
 open Eio.Std
 
-type t
+type t = Eio_unix.Fd.t
 (** A wrapper around a {!Unix.file_descr}. *)
 
 val of_unix : sw:Switch.t -> blocking:bool -> close_unix:bool -> Unix.file_descr -> t
@@ -38,15 +38,8 @@ val to_unix : [`Peek | `Take] -> t -> Unix.file_descr
 
     [to_unix `Peek t] returns the wrapped FD directly. You must ensure that it is not closed while using it. *)
 
-val to_rcfd : t -> Eio_unix.Private.Rcfd.t
-(** Get the underlying ref-counted FD.
-    Note: you must not close this directly, as that will not remove the hook. *)
-
 type has_fd = < fd : t >
 (** Resources that have FDs are sub-types of [has_fd]. *)
-
-type _ Eio.Generic.ty += FD : t Eio.Generic.ty
-(** Resources that wrap FDs can handle this in their [probe] method to expose the FD. *)
 
 val get_fd_opt : #Eio.Generic.t -> t option
 (** [get_fd_opt r] returns the [t] being wrapped by a resource, if any.

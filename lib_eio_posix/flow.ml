@@ -1,3 +1,5 @@
+module Fd = Eio_unix.Fd
+
 let fstat fd =
   try
     let ust = Low_level.fstat fd in
@@ -61,8 +63,7 @@ let shutdown fd cmd =
     | `All -> Unix.SHUTDOWN_ALL
   with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 
-let of_fd fd = object (_ : <Eio.Flow.two_way; Eio.Flow.close; Eio.File.rw; Eio_unix.unix_fd; Fd.has_fd>)
-  method unix_fd op = Fd.to_unix op fd
+let of_fd fd = object (_ : <Eio_unix.socket; Eio.File.rw>)
   method fd = fd
 
   method read_methods = []
@@ -78,8 +79,7 @@ let of_fd fd = object (_ : <Eio.Flow.two_way; Eio.Flow.close; Eio.File.rw; Eio_u
   method close = Fd.close fd
 
   method probe : type a. a Eio.Generic.ty -> a option = function
-    | Fd.FD -> Some fd
-    | Eio_unix.Private.Unix_file_descr op -> Some (Fd.to_unix op fd)
+    | Eio_unix.Resource.FD -> Some fd
     | _ -> None
 end
 

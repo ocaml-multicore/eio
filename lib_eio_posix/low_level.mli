@@ -79,30 +79,8 @@ module Process : sig
   type t
   (** A child process. *)
 
+  module Fork_action = Eio_unix.Private.Fork_action
   (** Setup actions to perform in the child process. *)
-  module Fork_action : sig
-    type t = Eio_unix.Private.Fork_action.t
-
-    val execve : string -> argv:string array -> env:string array -> t
-    (** See execve(2).
-        This replaces the current executable,
-        so it only makes sense as the last action to be performed. *)
-
-    val chdir : string -> t
-    (** [chdir path] changes directory to [path]. *)
-
-    val fchdir : Fd.t -> t
-    (** [fchdir dir] changes directory to [dir]. *)
-
-    val inherit_fds : (int * Fd.t * [< `Blocking | `Nonblocking | `Preserve_blocking]) list -> t
-    (** [inherit_fds mapping] marks file descriptors as not close-on-exec and renumbers them.
-
-        For each key in [mapping], we use [dup2] to duplicate the source descriptor.
-        If there are cycles in [mapping], a temporary FD is used to break the cycle.
-        A mapping from an FD to itself simply clears the close-on-exec flag.
-
-        For each FD, you can also say whether it should be set as blocking or non-blocking. *)
-  end
 
   val spawn : sw:Switch.t -> Fork_action.t list -> t
   (** [spawn ~sw actions] forks a child process, which executes [actions].

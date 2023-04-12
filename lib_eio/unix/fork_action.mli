@@ -31,12 +31,15 @@ val with_actions : t list -> (c_action list -> 'a) -> 'a
 (** {2 Actions} *)
 
 val execve : string -> argv:string array -> env:string array -> t
-(** See [execve(2)]. *)
+(** See [execve(2)].
+
+    This replaces the current executable,
+    so it only makes sense as the last action to be performed. *)
 
 val chdir : string -> t
 (** [chdir path] changes directory to [path]. *)
 
-val fchdir : Rcfd.t -> t
+val fchdir : Fd.t -> t
 (** [fchdir fd] changes directory to [fd]. *)
 
 type blocking = [
@@ -45,7 +48,7 @@ type blocking = [
   | `Preserve_blocking   (** Don't change the blocking mode of the FD. *)
 ]
 
-val inherit_fds : (int * Rcfd.t * [< blocking]) list -> t
+val inherit_fds : (int * Fd.t * [< blocking]) list -> t
 (** [inherit_fds mapping] marks file descriptors as not close-on-exec and renumbers them.
 
     For each (fd, src, flags) in [mapping], we use [dup2] to duplicate [src] as [fd].

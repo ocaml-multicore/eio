@@ -1,5 +1,7 @@
 open Eio.Std
 
+module Fd = Eio_unix.Fd
+
 let socket_domain_of = function
   | `Unix _ -> Unix.PF_UNIX
   | `UdpV4 -> Unix.PF_INET
@@ -13,11 +15,6 @@ let socket_domain_of = function
 let listening_socket ~hook fd = object
   inherit Eio.Net.listening_socket
 
-  method! probe : type a. a Eio.Generic.ty -> a option = function
-    | Eio_unix.Private.Unix_file_descr op -> Some (Fd.to_unix op fd)
-    | Fd.FD -> Some fd
-    | _ -> None
-
   method close =
     Switch.remove_hook hook;
     Fd.close fd
@@ -30,6 +27,10 @@ let listening_socket ~hook fd = object
     in
     let flow = (Flow.of_fd client :> <Eio.Flow.two_way; Eio.Flow.close>) in
     flow, client_addr
+
+  method! probe : type a. a Eio.Generic.ty -> a option = function
+    | Eio_unix.Resource.FD -> Some fd
+    | _ -> None
 end
 
 (* todo: would be nice to avoid copying between bytes and cstructs here *)

@@ -1,7 +1,7 @@
 (** Plan how to renumber FDs in a child process. *)
 
 type action = { src : int; dst : int }
-(** { src; dst} is (roughly) a request to [dup2(src, dst)].
+(** [{ src; dst}] is (roughly) a request to [dup2(src, dst)].
 
     [dst] should not be marked as close-on-exec.
     If [src = dst] then simply clear the close-on-exec flag for the FD.
