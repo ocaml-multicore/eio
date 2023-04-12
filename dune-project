@@ -53,23 +53,19 @@
   (mdx (and (>= 2.2.0) :with-test))
   (fmt (>= 0.8.9))))
 (package
- (name eio_luv)
- (synopsis "Eio implementation using luv (libuv)")
- (description "An Eio implementation for most platforms, using luv.")
+ (name eio_windows)
+ (synopsis "Eio implementation for Windows")
+ (description "An Eio implementation using I/O Completion Ports")
+ (allow_empty)  ; Work-around for dune bug #6938
  (depends
-  (eio (= :version))
-  (luv (>= 0.5.11))
-  (luv_unix (>= 0.5.0))
-  (mdx (and (>= 2.2.0) :with-test))
-  (fmt (>= 0.8.9))))
+  (eio (= :version))))
 (package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
  (description "Selects an appropriate Eio backend for the current platform.")
- (depopts eio_luv)
  (depends
   (mdx (and (>= 2.2.0) :with-test))
   (eio_linux (and (= :version) (= :os "linux")))
   (eio_posix (and (= :version) (<> :os "windows")))
-  (eio_luv (and (= :version) (or (= :os "windows") :with-test)))))
+  (eio_windows (and (= :version) (= :os "windows")))))
 (using mdx 0.2)

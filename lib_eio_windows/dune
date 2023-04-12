@@ -1,0 +1,5 @@
+(library
+ (name eio_windows)
+ (public_name eio_windows)
+ (enabled_if (= %{os_type} "Win32"))
+ (libraries eio eio.utils fmt))

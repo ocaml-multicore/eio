@@ -1,3 +1,0 @@
-(mdx
-  (package eio_luv)
-  (deps (package eio_luv)))

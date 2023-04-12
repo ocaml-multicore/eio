@@ -69,7 +69,7 @@ For example, there are many ways to provide a stream of bytes (from a file, TCP 
 Often this choice is determined by the user at runtime, for example by providing a URL giving the scheme to use.
 We may even need to choose a completely different Eio backend at runtime.
 For example `Eio_main.run` will use the io_uring backend if the Linux kernel is new enough,
-but fall back to `Eio_luv` if not.
+but fall back to `Eio_posix` if not.
 For these reasons, Eio needs to use dynamic dispatch.
 
 A resource whose implementation isn't known until runtime can be represented in many ways, including:

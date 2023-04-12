@@ -15,9 +15,6 @@ bench:
 	dune exec -- ./bench/bench_cancel.exe
 	if ocamlc -config | grep -q '^system: linux'; then dune exec -- ./lib_eio_linux/tests/bench_noop.exe; fi
 
-test_luv:
-	EIO_BACKEND=luv dune runtest
-
 test_posix:
 	EIO_BACKEND=posix dune runtest
 
