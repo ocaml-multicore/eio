@@ -92,10 +92,9 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 
 - [Eio][] provides concurrency primitives (promises, etc.) and a high-level, cross-platform OS API.
 - [Eio_posix][] provides a cross-platform backend for these APIs for POSIX-type systems.
-- [Eio_luv][] provides a cross-platform backend for these APIs using [luv](https://github.com/aantron/luv) (libuv).
 - [Eio_linux][] provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
-- [Eio_main][] selects an appropriate backend (e.g. `eio_linux`, `eio_posix` or `eio_luv`), depending on your platform.
+- [Eio_main][] selects an appropriate backend (e.g. `eio_linux` or `eio_posix`), depending on your platform.
 
 ## Getting OCaml 5.0
 
@@ -701,7 +700,7 @@ For example:
 let test r =
   try Eio.Buf_read.line r
   with
-  | Eio.Io (Eio.Net.E Connection_reset Eio_luv.Luv_error _, _) -> "Luv connection reset"
+  | Eio.Io (Eio.Net.E Connection_reset Eio_unix.Unix_error _, _) -> "Unix connection reset"
   | Eio.Io (Eio.Net.E Connection_reset _, _) -> "Connection reset"
   | Eio.Io (Eio.Net.E _, _) -> "Some network error"
   | Eio.Io _ -> "Some I/O error"
@@ -757,11 +756,11 @@ it can be annoying to have the full backend-specific error displayed:
   Switch.run @@ fun sw ->
   Eio.Net.connect ~sw net (`Tcp (Eio.Net.Ipaddr.V4.loopback, 1234));;
 Exception:
-Eio.Io Net Connection_failure Refused Eio_luv.Luv_error(ECONNREFUSED) (* connection refused *),
+Eio.Io Net Connection_failure Refused Unix_error (Connection refused, "connect", ""),
   connecting to tcp:127.0.0.1:1234
 ```
 
-If we ran this using e.g. the Linux io_uring backend, the `Luv_error` part would change.
+If we ran this using another backend, the `Unix_error` part might change.
 To avoid this problem, you can use `Eio.Exn.Backend.show` to hide the backend-specific part of errors:
 
 ```ocaml
@@ -886,10 +885,6 @@ and this allows following symlinks within that subtree.
 A program that operates on the current directory will probably want to use `cwd`,
 whereas a program that accepts a path from the user will probably want to use `fs`,
 perhaps with `open_dir` to constrain all access to be within that directory.
-
-Note: the `eio_luv` backend doesn't have the `openat`, `mkdirat`, etc.,
-calls that are necessary to implement these checks without races,
-so be careful if symlinks out of the subtree may be created while the program is running.
 
 ## Time
 
@@ -1732,7 +1727,6 @@ Some background about the effects system can be found in:
 [Eio.Promise]: https://ocaml-multicore.github.io/eio/eio/Eio/Promise/index.html
 [Eio.Stream]: https://ocaml-multicore.github.io/eio/eio/Eio/Stream/index.html
 [Eio_posix]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio_posix/eio_posix.mli
-[Eio_luv]: https://ocaml-multicore.github.io/eio/eio_luv/Eio_luv/index.html
 [Eio_linux]: https://ocaml-multicore.github.io/eio/eio_linux/Eio_linux/index.html
 [Eio_main]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html
 [Eio.traceln]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html#val-traceln

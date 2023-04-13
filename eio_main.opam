@@ -13,10 +13,9 @@ depends: [
   "mdx" {>= "2.2.0" & with-test}
   "eio_linux" {= version & os = "linux"}
   "eio_posix" {= version & os != "windows"}
-  "eio_luv" {= version & os = "windows" | with-test}
+  "eio_windows" {= version & os = "windows"}
   "odoc" {with-doc}
 ]
-depopts: ["eio_luv"]
 build: [
   ["dune" "subst"] {dev}
   [

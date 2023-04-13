@@ -15,8 +15,8 @@ val run : (Eio.Stdenv.t -> 'a) -> 'a
     and prevent using the library with other Eio libraries.
 
     [run] will select an appropriate event loop for the current platform.
-    On many systems, it will use {!Eio_luv.run}.
+    On many systems, it will use {!Eio_posix.run}.
 
     On recent-enough versions of Linux, it will use {!Eio_linux.run}.
     You can override this by setting the $EIO_BACKEND environment variable to
-    either "linux" or "luv". *)
+    either "linux", "posix" or "windows". *)

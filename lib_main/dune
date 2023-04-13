@@ -8,7 +8,7 @@
     (select posix_backend.ml from
             (eio_posix -> posix_backend.enabled.ml)
             (          -> posix_backend.disabled.ml))
-    (select luv_backend.ml from
-            (eio_luv -> luv_backend.enabled.ml)
-            (        -> luv_backend.disabled.ml))
+    (select windows_backend.ml from
+            (eio_windows -> windows_backend.enabled.ml)
+            (            -> windows_backend.disabled.ml))
     ))
