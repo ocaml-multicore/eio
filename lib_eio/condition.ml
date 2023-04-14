@@ -2,6 +2,9 @@ type t = Broadcast.t
 
 let create () = Broadcast.create ()
 
+let lock_protected m =
+  Cancel.protect (fun () -> Eio_mutex.lock m)
+
 let await_generic ?mutex t =
   match
     Suspend.enter_unchecked (fun ctx enqueue ->
@@ -21,10 +24,10 @@ let await_generic ?mutex t =
               )
       )
   with
-  | () -> Option.iter Eio_mutex.lock mutex
+  | () -> Option.iter lock_protected mutex
   | exception ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Option.iter Eio_mutex.lock mutex;
+    Option.iter lock_protected mutex;
     Printexc.raise_with_backtrace ex bt
 
 let await t mutex = await_generic ~mutex t
