@@ -202,3 +202,38 @@ Cancellation while waiting:
 +x = 0
 - : unit = ()
 ```
+
+### Cancelling while the mutex is held
+
+`await` must always re-acquire the lock, and that lock operation must be non-cancellable:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  Fiber.fork ~sw
+    (fun () ->
+       traceln "Forked fiber locking";
+       Eio.Mutex.lock mutex;
+       try
+         Eio.Condition.await cond mutex;
+         assert false;
+       with Eio.Cancel.Cancelled _ as ex ->
+         traceln "Forked fiber unlocking";
+         Eio.Mutex.unlock mutex;
+         raise ex
+    );
+  Eio.Cancel.protect
+    (fun () ->
+       traceln "Main fiber locking";
+       Eio.Mutex.lock mutex;
+       Switch.fail sw (Failure "Simulated error");
+       Fiber.yield ();
+       traceln "Main fiber unlocking";
+       Eio.Mutex.unlock mutex;
+    )
++Forked fiber locking
++Main fiber locking
++Main fiber unlocking
++Forked fiber unlocking
+Exception: Failure "Simulated error".
+```
