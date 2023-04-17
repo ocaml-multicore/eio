@@ -1,0 +1,4 @@
+(executable
+ (name test)
+ (enabled_if (= %{os_type} "Win32"))
+ (libraries eio_windows))
