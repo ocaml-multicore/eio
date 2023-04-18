@@ -50,6 +50,7 @@ Eio replaces existing concurrency libraries such as Lwt
   * [Async](#async)
   * [Lwt](#lwt)
   * [Unix and System Threads](#unix-and-system-threads)
+  * [Domainslib](#domainslib)
 * [Best Practices](#best-practices)
   * [Switches](#switches-1)
   * [Casting](#casting)
@@ -1578,6 +1579,43 @@ The [Eio_unix][] module provides features for using Eio with OCaml's Unix module
 In particular, `Eio_unix.run_in_systhread` can be used to run a blocking operation in a separate systhread,
 allowing it to be used within Eio without blocking the whole domain.
 
+### Domainslib
+
+For certain compute-intensive tasks it may be useful to send work to a pool of [Domainslib][] worker domains.
+You can resolve an Eio promise from non-Eio domains (or systhreads), which provides an easy way to retrieve the result.
+For example:
+
+<!-- $MDX skip -->
+```ocaml
+open Eio.Std
+
+let pool = Domainslib.Task.setup_pool ~num_domains:2 ()
+
+let fib n = ... (* Some Domainslib function *)
+
+let run_in_pool fn x =
+  let result, set_result = Promise.create () in
+  let _ : unit Domainslib.Task.promise = Domainslib.Task.async pool (fun () ->
+      Promise.resolve set_result @@
+      match fn x with
+      | r -> Ok r
+      | exception ex -> Error ex
+    )
+  in
+  Promise.await_exn result
+
+let () =
+  Eio_main.run @@ fun _ ->
+  Fiber.both
+    (fun () -> traceln "fib 30 = %d" (run_in_pool fib 30))
+    (fun () -> traceln "fib 10 = %d" (run_in_pool fib 10))
+```
+
+Note that most Domainslib functions can only be called from code running in the Domainslib pool,
+while most Eio functions can only be used from Eio domains.
+The bridge function `run_in_pool` makes use of the fact that `Domainslib.Task.async` is able to run from
+an Eio domain, and `Eio.Promise.resolve` is able to run from a Domainslib one.
+
 ## Best Practices
 
 This section contains some recommendations for designing library APIs for use with Eio.
@@ -1737,3 +1775,4 @@ Some background about the effects system can be found in:
 [Eio.Mutex]: https://ocaml-multicore.github.io/eio/eio/Eio/Mutex/index.html
 [Eio.Semaphore]: https://ocaml-multicore.github.io/eio/eio/Eio/Semaphore/index.html
 [Eio.Condition]: https://ocaml-multicore.github.io/eio/eio/Eio/Condition/index.html
+[Domainslib]: https://github.com/ocaml-multicore/domainslib
