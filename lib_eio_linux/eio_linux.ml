@@ -411,15 +411,15 @@ let secure_random = object
 end
 
 let stdenv ~run_event_loop =
-  let stdin = lazy (source (Eio_unix.Fd.stdin)) in
-  let stdout = lazy (sink (Eio_unix.Fd.stdout)) in
-  let stderr = lazy (sink (Eio_unix.Fd.stderr)) in
+  let stdin = source Eio_unix.Fd.stdin in
+  let stdout = sink Eio_unix.Fd.stdout in
+  let stderr = sink Eio_unix.Fd.stderr in
   let fs = (new dir ~label:"fs" Fs, ".") in
   let cwd = (new dir ~label:"cwd" Cwd, ".") in
   object (_ : stdenv)
-    method stdin  = Lazy.force stdin
-    method stdout = Lazy.force stdout
-    method stderr = Lazy.force stderr
+    method stdin  = stdin
+    method stdout = stdout
+    method stderr = stderr
     method net = net
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
