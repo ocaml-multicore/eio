@@ -1,3 +1,5 @@
+(* Deprecated *)
+
 include Eio_unix.Fd
 
 let is_open t =

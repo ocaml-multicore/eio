@@ -44,27 +44,19 @@ val await_writable : Unix.file_descr -> unit
 (**/**)
 module FD : sig
   val peek : < Resource.t; .. > -> Unix.file_descr
-  (** [peek x] is the Unix file descriptor underlying [x].
-      The caller must ensure that they do not continue to use the result after [x] is closed. *)
+  [@@deprecated "Use Eio_unix.Resource.fd instead"]
 
   val peek_opt : #Eio.Generic.t -> Unix.file_descr option
-  (** [peek_opt x] is the Unix file descriptor underlying [x], if any.
-      The caller must ensure that they do not continue to use the result after [x] is closed. *)
+  [@@deprecated "Use Eio_unix.Resource.fd_opt instead"]
 
   val take : < Resource.t; .. > -> Unix.file_descr
-  (** [take x] is like [peek], but also marks [x] as closed on success (without actually closing the FD).
-      [x] can no longer be used after this, and the caller is responsible for closing the FD. *)
+  [@@deprecated "Use Eio_unix.Resource.fd and Fd.remove instead"]
 
   val take_opt : #Eio.Generic.t -> Unix.file_descr option
-  (** [take_opt x] is like [peek_opt], but also marks [x] as closed on success (without actually closing the FD).
-      [x] can no longer be used after this, and the caller is responsible for closing the FD. *)
+  [@@deprecated "Use Eio_unix.Resource.fd_opt and Fd.remove instead"]
 
   val as_socket : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> socket
-  (** [as_socket ~sw ~close_unix:true fd] is an Eio flow that uses [fd].
-      It can be cast to e.g. {!Eio.source} for a one-way flow.
-      The socket object will be closed when [sw] finishes.
-      @param close_unix If [true], closing the object will also close the underlying FD.
-                        If [false], the caller is responsible for keeping [FD] open until the object is closed. *)
+  [@@deprecated "Use Eio_unix.import_socket_stream instead"]
 end
 (**/**)
 

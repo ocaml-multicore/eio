@@ -1,3 +1,5 @@
+(* Deprecated *)
+
 include Eio_unix.Fd
 
 type has_fd = Eio_unix.Resource.t

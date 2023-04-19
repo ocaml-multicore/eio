@@ -34,6 +34,7 @@ module FD : sig
   val of_unix : sw:Switch.t -> seekable:bool -> close_unix:bool -> Unix.file_descr -> t
   val to_unix : [< `Peek | `Take] -> t -> Unix.file_descr
 end
+[@@deprecated "Use Eio_unix.Fd instead"]
 (**/**)
 
 (** {1 Eio API} *)
@@ -56,8 +57,11 @@ type stdenv = <
 >
 
 (**/**)
-val get_fd : <Eio_unix.Resource.t; ..> -> FD.t
-val get_fd_opt : #Eio.Generic.t -> FD.t option
+val get_fd : <Eio_unix.Resource.t; ..> -> fd
+[@@deprecated "Use Eio_unix.Resource.fd instead"]
+
+val get_fd_opt : #Eio.Generic.t -> fd option
+[@@deprecated "Use Eio_unix.Resource.fd_opt instead"]
 (**/**)
 
 (** {1 Main Loop} *)

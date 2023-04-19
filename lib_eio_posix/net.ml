@@ -106,7 +106,7 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
     | `Unix _ | `Tcp _ ->
       Switch.null_hook
   in
-  Low_level.Fd.use_exn "listen" sock (fun fd ->
+  Fd.use_exn "listen" sock (fun fd ->
       if reuse_addr then
         Unix.setsockopt fd Unix.SO_REUSEADDR true;
       if reuse_port then

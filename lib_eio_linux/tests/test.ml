@@ -9,10 +9,11 @@ let () =
 
 let read_one_byte ~sw r =
   Fiber.fork_promise ~sw (fun () ->
-      let r = Option.get (Eio_linux.get_fd_opt r) in
+      let r = Eio_unix.Resource.fd r in
       Eio_linux.Low_level.await_readable r;
+      Eio_unix.Fd.use_exn "read" r @@ fun r ->
       let b = Bytes.create 1 in
-      let got = Unix.read (Eio_linux.FD.to_unix `Peek r) b 0 1 in
+      let got = Unix.read r b 0 1 in
       assert (got = 1);
       Bytes.to_string b
     )
@@ -23,9 +24,11 @@ let test_poll_add () =
   let r, w = Eio_unix.pipe sw in
   let thread = read_one_byte ~sw r in
   Fiber.yield ();
-  let w = Option.get (Eio_linux.get_fd_opt w) in
+  let w = Eio_unix.Resource.fd w in
   Eio_linux.Low_level.await_writable w;
-  let sent = Unix.write (Eio_linux.FD.to_unix `Peek w) (Bytes.of_string "!") 0 1 in
+  let sent =
+    Eio_unix.Fd.use_exn "write" w @@ fun w ->
+    Unix.write w (Bytes.of_string "!") 0 1 in
   assert (sent = 1);
   let result = Promise.await_exn thread in
   Alcotest.(check string) "Received data" "!" result
@@ -37,8 +40,11 @@ let test_poll_add_busy () =
   let a = read_one_byte ~sw r in
   let b = read_one_byte ~sw r in
   Fiber.yield ();
-  let w = Option.get (Eio_linux.get_fd_opt w) |> Eio_linux.FD.to_unix `Peek in
-  let sent = Unix.write w (Bytes.of_string "!!") 0 2 in
+  let w = Eio_unix.Resource.fd w in
+  let sent =
+    Eio_unix.Fd.use_exn "write" w @@ fun w ->
+    Unix.write w (Bytes.of_string "!!") 0 2
+  in
   assert (sent = 2);
   let a = Promise.await_exn a in
   Alcotest.(check string) "Received data" "!" a;
@@ -86,14 +92,8 @@ let test_iovec () =
   Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let from_pipe, to_pipe = Eio_unix.pipe sw in
-  let from_pipe =
-    Eio_unix.FD.take from_pipe |>
-    Eio_linux.FD.of_unix ~sw ~seekable:false ~close_unix:true
-  in
-  let to_pipe =
-    Eio_unix.FD.take to_pipe |>
-    Eio_linux.FD.of_unix ~sw ~seekable:false ~close_unix:true
-  in
+  let from_pipe = Eio_unix.Resource.fd from_pipe in
+  let to_pipe = Eio_unix.Resource.fd to_pipe in
   let message = Cstruct.of_string "Got [   ] and [   ]" in
   let rec recv = function
     | [] -> ()
@@ -106,7 +106,7 @@ let test_iovec () =
     (fun () ->
        let b = Cstruct.of_string "barfoo" in
        Eio_linux.Low_level.writev to_pipe [Cstruct.sub b 3 3; Cstruct.sub b 0 3];
-       Eio_linux.FD.close to_pipe
+       Eio_unix.Fd.close to_pipe
     );
   Alcotest.(check string) "Transfer correct" "Got [foo] and [bar]" (Cstruct.to_string message)
 
