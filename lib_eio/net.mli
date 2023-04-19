@@ -67,6 +67,14 @@ module Ipaddr : sig
     'a
   (** [fold ~v4 ~v6 t] is [v4 t] if [t] is an IPv4 address, or [v6 t] if it's an IPv6 address. *)
 
+  (** {2 Interoperability}
+
+  To convert to or from OCaml Unix addresses, use {!Eio_unix.Ipaddr}.
+
+  To interoperate with the {{:https://opam.ocaml.org/packages/ipaddr/} ipaddr} library:
+  - [Ipaddr.to_octets ipaddr_ip |> Eio.Net.Ipaddr.of_raw]
+  - [Ipaddr.of_octets_exn (eio_ip :> string)] *)
+
   val of_raw : string -> v4v6
   (** [of_raw addr] casts [addr] to an IP address.
       @raise Invalid_argument if it is not 4 or 16 bytes long. *)
