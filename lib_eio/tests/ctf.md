@@ -17,7 +17,7 @@
 A new domain gets a new chunk:
 
 ```ocaml
-# Domain.spawn
+# Domain.join @@ Domain.spawn
     (fun () ->
       for _ = 1 to 5 do
         Printf.printf "%d\n%!" (Eio.Private.Ctf.mint_id () :> int)
@@ -27,7 +27,7 @@ A new domain gets a new chunk:
 1026
 1027
 1028
-- : unit Domain.t = <abstr>
+- : unit = ()
 ```
 
 When the original domain exhausts its chunk, it jumps to the next free chunk:
