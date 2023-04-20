@@ -85,3 +85,5 @@ let rec use_exn_list op xs k =
 let stdin = of_unix_no_hook Unix.stdin
 let stdout = of_unix_no_hook Unix.stdout
 let stderr= of_unix_no_hook Unix.stderr
+
+let pp f t = Rcfd.pp f t.fd

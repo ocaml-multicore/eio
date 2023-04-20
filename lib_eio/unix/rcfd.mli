@@ -69,3 +69,6 @@ val peek : t -> Unix.file_descr
 
     If [t] was closed, it instead raises an exception (if you're not sure when
     [t] might get closed, you shouldn't be using this function). *)
+
+val pp : t Fmt.t
+(** Displays the FD number. *)

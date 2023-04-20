@@ -68,3 +68,8 @@ val is_seekable : t -> bool
 val stdin : t
 val stdout : t
 val stderr : t
+
+(** {2 Printing} *)
+
+val pp : t Fmt.t
+(** Displays the FD number. *)
