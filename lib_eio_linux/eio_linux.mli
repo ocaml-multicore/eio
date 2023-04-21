@@ -23,40 +23,24 @@
 
 open Eio.Std
 
-(** Wrap [Unix.file_descr] to track whether it has been closed. *)
+type fd := Eio_unix.Fd.t
+
+(**/**)
 module FD : sig
-  type t
-  (** Either a [Unix.file_descr] or nothing (if closed) .*)
+  type t = fd
 
   val is_open : t -> bool
-  (** [is_open t] is [true] if {!close} hasn't been called yet. *)
-
   val close : t -> unit
-  (** [close t] closes [t].
-      @raise Invalid_arg if [t] is already closed. *)
-
   val of_unix : sw:Switch.t -> seekable:bool -> close_unix:bool -> Unix.file_descr -> t
-  (** [let t = of_unix ~sw ~seekable ~close_unix fd] wraps [fd] as an open file descriptor.
-      This is unsafe if [fd] is closed directly (before or after wrapping it).
-      @param sw [t] is closed when [sw] is released, if not closed manually first.
-      @param close_unix If [true], closing [t] also closes [fd].
-                        If [false], the caller is responsible for closing [fd],
-                        which must not happen until after [t] is closed.
-      @param seekable If true, we pass [-1] to io_uring as the "file offset", to use the current offset.
-                      If false, pass [0] as the file offset, which is needed for sockets. *)
-
   val to_unix : [< `Peek | `Take] -> t -> Unix.file_descr
-  (** [to_unix op t] returns the wrapped descriptor.
-      This allows unsafe access to the FD.
-      If [op] is [`Take] then [t] is marked as closed (but the underlying FD is not actually closed).
-      @raise Invalid_arg if [t] is closed. *)
 end
+[@@deprecated "Use Eio_unix.Fd instead"]
+(**/**)
 
 (** {1 Eio API} *)
 
-type has_fd = < fd : FD.t >
-type source = < Eio.Flow.source; Eio.Flow.close; has_fd >
-type sink   = < Eio.Flow.sink  ; Eio.Flow.close; has_fd >
+type source = Eio_unix.source
+type sink   = Eio_unix.sink
 
 type stdenv = <
   stdin  : source;
@@ -72,8 +56,13 @@ type stdenv = <
   debug : Eio.Debug.t;
 >
 
-val get_fd : <has_fd; ..> -> FD.t
-val get_fd_opt : #Eio.Generic.t -> FD.t option
+(**/**)
+val get_fd : <Eio_unix.Resource.t; ..> -> fd
+[@@deprecated "Use Eio_unix.Resource.fd instead"]
+
+val get_fd_opt : #Eio.Generic.t -> fd option
+[@@deprecated "Use Eio_unix.Resource.fd_opt instead"]
+(**/**)
 
 (** {1 Main Loop} *)
 
@@ -143,75 +132,75 @@ module Low_level : sig
     flags:Uring.Open_flags.t ->
     perm:Unix.file_perm ->
     resolve:Uring.Resolve.t ->
-    ?dir:FD.t -> string -> FD.t
+    ?dir:fd -> string -> fd
   (** [openat2 ~sw ~flags ~perm ~resolve ~dir path] opens [dir/path].
 
       See {!Uring.openat2} for details. *)
 
-  val read_upto : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> int
+  val read_upto : ?file_offset:Optint.Int63.t -> fd -> Uring.Region.chunk -> int -> int
   (** [read_upto fd chunk len] reads at most [len] bytes from [fd],
       returning as soon as some data is available.
 
       @param file_offset Read from the given position in [fd] (default: 0).
       @raise End_of_file Raised if all data has already been read. *)
 
-  val read_exactly : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
+  val read_exactly : ?file_offset:Optint.Int63.t -> fd -> Uring.Region.chunk -> int -> unit
   (** [read_exactly fd chunk len] reads exactly [len] bytes from [fd],
       performing multiple read operations if necessary.
 
       @param file_offset Read from the given position in [fd] (default: 0).
       @raise End_of_file Raised if the stream ends before [len] bytes have been read. *)
 
-  val readv : ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> int
+  val readv : ?file_offset:Optint.Int63.t -> fd -> Cstruct.t list -> int
   (** [readv] is like {!read_upto} but can read into any cstruct(s),
       not just chunks of the pre-shared buffer.
 
       If multiple buffers are given, they are filled in order. *)
 
-  val write : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
+  val write : ?file_offset:Optint.Int63.t -> fd -> Uring.Region.chunk -> int -> unit
   (** [write fd buf len] writes exactly [len] bytes from [buf] to [fd].
 
       It blocks until the OS confirms the write is done,
       and resubmits automatically if the OS doesn't write all of it at once. *)
 
-  val writev : ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> unit
+  val writev : ?file_offset:Optint.Int63.t -> fd -> Cstruct.t list -> unit
   (** [writev] is like {!write} but can write from any cstruct(s),
       not just chunks of the pre-shared buffer.
 
       If multiple buffers are given, they are sent in order.
       It will make multiple OS calls if the OS doesn't write all of it at once. *)
 
-  val writev_single : ?file_offset:Optint.Int63.t -> FD.t -> Cstruct.t list -> int
+  val writev_single : ?file_offset:Optint.Int63.t -> fd -> Cstruct.t list -> int
   (** [writev_single] is like [writev] but only performs a single write operation.
       It returns the number of bytes written, which may be smaller than the requested amount. *)
 
-  val splice : FD.t -> dst:FD.t -> len:int -> int
+  val splice : fd -> dst:fd -> len:int -> int
   (** [splice src ~dst ~len] attempts to copy up to [len] bytes of data from [src] to [dst].
 
       @return The number of bytes copied.
       @raise End_of_file [src] is at the end of the file.
       @raise Unix.Unix_error(EINVAL, "splice", _) if splice is not supported for these FDs. *)
 
-  val connect : FD.t -> Unix.sockaddr -> unit
+  val connect : fd -> Unix.sockaddr -> unit
   (** [connect fd addr] attempts to connect socket [fd] to [addr]. *)
 
-  val await_readable : FD.t -> unit
+  val await_readable : fd -> unit
   (** [await_readable fd] blocks until [fd] is readable (or has an error). *)
 
-  val await_writable : FD.t -> unit
+  val await_writable : fd -> unit
   (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
-  val fstat : FD.t -> Eio.File.Stat.t
+  val fstat : fd -> Eio.File.Stat.t
   (** Like {!Unix.LargeFile.fstat}. *)
 
-  val read_dir : FD.t -> string list
+  val read_dir : fd -> string list
   (** [read_dir dir] reads all directory entries from [dir].
       The entries are not returned in any particular order
       (not even necessarily the order in which Linux returns them). *)
 
   (** {1 Sockets} *)
 
-  val accept : sw:Switch.t -> FD.t -> (FD.t * Unix.sockaddr)
+  val accept : sw:Switch.t -> fd -> (fd * Unix.sockaddr)
   (** [accept ~sw t] blocks until a new connection is received on listening socket [t].
 
       It returns the new connection and the address of the connecting peer.
@@ -219,17 +208,17 @@ module Low_level : sig
       The new connection is attached to [sw] and will be closed when that finishes, if
       not already closed manually by then. *)
 
-  val shutdown : FD.t -> Unix.shutdown_command -> unit
+  val shutdown : fd -> Unix.shutdown_command -> unit
   (** Like {!Unix.shutdown}. *)
 
-  val send_msg : FD.t -> ?fds:FD.t list -> ?dst:Unix.sockaddr -> Cstruct.t list -> unit
+  val send_msg : fd -> ?fds:fd list -> ?dst:Unix.sockaddr -> Cstruct.t list -> unit
   (** [send_msg socket bufs] is like [writev socket bufs], but also allows setting the destination address
       (for unconnected sockets) and attaching FDs (for Unix-domain sockets). *)
 
-  val recv_msg : FD.t -> Cstruct.t list -> Uring.Sockaddr.t * int
+  val recv_msg : fd -> Cstruct.t list -> Uring.Sockaddr.t * int
   (** [recv_msg socket bufs] is like [readv socket bufs] but also returns the address of the sender. *)
 
-  val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> FD.t -> Cstruct.t list -> Uring.Sockaddr.t * int * FD.t list
+  val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> fd -> Cstruct.t list -> Uring.Sockaddr.t * int * fd list
   (** [recv_msg_with_fds] is like [recv_msg] but also allows receiving up to [max_fds] file descriptors
       (sent using SCM_RIGHTS over a Unix domain socket). *)
 
@@ -254,21 +243,8 @@ module Low_level : sig
     type t
     (** A child process. *)
 
+    module Fork_action = Eio_unix.Private.Fork_action
     (** Setup actions to perform in the child process. *)
-    module Fork_action : sig
-      type t = Eio_unix.Private.Fork_action.t
-
-      val execve : string -> argv:string array -> env:string array -> t
-      (** See execve(2).
-          This replaces the current executable,
-          so it only makes sense as the last action to be performed. *)
-
-      val chdir : string -> t
-      (** [chdir path] changes directory to [path]. *)
-
-      val fchdir : FD.t -> t
-      (** [fchdir dir] changes directory to [dir]. *)
-    end
 
     val spawn : sw:Switch.t -> Fork_action.t list -> t
     (** [spawn ~sw actions] forks a child process, which executes [actions].

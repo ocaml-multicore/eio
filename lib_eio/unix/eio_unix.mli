@@ -4,20 +4,36 @@
     For example, it is possible to leak file descriptors this way, or to use them after they've been closed,
     allowing one module to corrupt a file belonging to an unrelated module. *)
 
+[@@@alert "-unstable"]
+
 open Eio.Std
 
 type Eio.Exn.Backend.t += Unix_error of Unix.error * string * string
 (** Wrapper for embedding {!Unix.Unix_error} errors. *)
 
-type unix_fd = <
-  unix_fd : [`Peek | `Take] -> Unix.file_descr;
->
+module Fd = Fd
+(** A safe wrapper for {!Unix.file_descr}. *)
 
-type socket = <
-  Eio.Flow.two_way;
-  Eio.Flow.close;
-  unix_fd;
->
+(** Eio resources backed by an OS file descriptor. *)
+module Resource : sig
+  type t = < fd : Fd.t >
+  (** Resources that have FDs are sub-types of [t]. *)
+
+  val fd : <t;..> -> Fd.t
+  (** [fd t] returns the FD being wrapped by a resource. *)
+
+  type _ Eio.Generic.ty += FD : Fd.t Eio.Generic.ty
+  (** Resources that wrap FDs can handle this in their [probe] method to expose the FD. *)
+
+  val fd_opt : #Eio.Generic.t -> Fd.t option
+  (** [fd_opt t] returns the FD being wrapped by a generic resource, if any.
+
+      This just probes [t] using {!extension-FD}. *)
+end
+
+type source = < Eio.Flow.source;  Resource.t; Eio.Flow.close >
+type sink   = < Eio.Flow.sink;    Resource.t; Eio.Flow.close >
+type socket = < Eio.Flow.two_way; Resource.t; Eio.Flow.close >
 
 val await_readable : Unix.file_descr -> unit
 (** [await_readable fd] blocks until [fd] is readable (or has an error). *)
@@ -25,31 +41,32 @@ val await_readable : Unix.file_descr -> unit
 val await_writable : Unix.file_descr -> unit
 (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
-(** Convert between [Unix.file_descr] and Eio objects. *)
+(**/**)
 module FD : sig
-  val peek : < unix_fd; .. > -> Unix.file_descr
-  (** [peek x] is the Unix file descriptor underlying [x].
-      The caller must ensure that they do not continue to use the result after [x] is closed. *)
+  val peek : < Resource.t; .. > -> Unix.file_descr
+  [@@deprecated "Use Eio_unix.Resource.fd instead"]
 
   val peek_opt : #Eio.Generic.t -> Unix.file_descr option
-  (** [peek_opt x] is the Unix file descriptor underlying [x], if any.
-      The caller must ensure that they do not continue to use the result after [x] is closed. *)
+  [@@deprecated "Use Eio_unix.Resource.fd_opt instead"]
 
-  val take : < unix_fd; .. > -> Unix.file_descr
-  (** [take x] is like [peek], but also marks [x] as closed on success (without actually closing the FD).
-      [x] can no longer be used after this, and the caller is responsible for closing the FD. *)
+  val take : < Resource.t; .. > -> Unix.file_descr
+  [@@deprecated "Use Eio_unix.Resource.fd and Fd.remove instead"]
 
   val take_opt : #Eio.Generic.t -> Unix.file_descr option
-  (** [take_opt x] is like [peek_opt], but also marks [x] as closed on success (without actually closing the FD).
-      [x] can no longer be used after this, and the caller is responsible for closing the FD. *)
+  [@@deprecated "Use Eio_unix.Resource.fd_opt and Fd.remove instead"]
 
   val as_socket : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> socket
-  (** [as_socket ~sw ~close_unix:true fd] is an Eio flow that uses [fd].
-      It can be cast to e.g. {!Eio.source} for a one-way flow.
-      The socket object will be closed when [sw] finishes.
-      @param close_unix If [true], closing the object will also close the underlying FD.
-                        If [false], the caller is responsible for keeping [FD] open until the object is closed. *)
+  [@@deprecated "Use Eio_unix.import_socket_stream instead"]
 end
+(**/**)
+
+val import_socket_stream : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> socket
+(** [import_socket_stream ~sw ~close_unix:true fd] is an Eio flow that uses [fd].
+
+    It can be cast to e.g. {!source} for a one-way flow.
+    The socket object will be closed when [sw] finishes.
+
+    The [close_unix] and [sw] arguments are passed to {!Fd.of_unix}. *)
 
 (** Convert between Eio.Net.Ipaddr and Unix.inet_addr. *)
 module Ipaddr : sig
@@ -80,16 +97,13 @@ val socketpair :
     This creates OS-level resources using [socketpair(2)].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
-val pipe : Switch.t -> <Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>
+val pipe : Switch.t -> source * sink
 (** [pipe sw] returns a connected pair of flows [src] and [sink]. Data written to [sink]
     can be read from [src].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
 (** API for Eio backends only. *)
 module Private : sig
-  type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
-  (** See {!FD}. *)
-
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
@@ -98,8 +112,7 @@ module Private : sig
         socket Effect.t                                      (** See {!FD.as_socket} *)
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int ->
         (socket * socket) Effect.t                           (** See {!socketpair} *)
-    | Pipe : Eio.Switch.t -> 
-        (<Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>) Effect.t (** See {!pipe} *)
+    | Pipe : Eio.Switch.t -> (source * sink) Effect.t (** See {!pipe} *)
 
   module Rcfd = Rcfd
 

@@ -12,45 +12,48 @@
 
 open Eio.Std
 
-module Fd = Fd
+type fd := Eio_unix.Fd.t
 
-val await_readable : Fd.t -> unit
-val await_writable : Fd.t -> unit
+module Fd = Fd
+[@@deprecated "Use Eio_unix.Fd instead"]
+
+val await_readable : fd -> unit
+val await_writable : fd -> unit
 
 val sleep_until : Mtime.t -> unit
 
-val read : Fd.t -> bytes -> int -> int -> int
-val write : Fd.t -> bytes -> int -> int -> int
+val read : fd -> bytes -> int -> int -> int
+val write : fd -> bytes -> int -> int -> int
 
-val socket : sw:Switch.t -> Unix.socket_domain -> Unix.socket_type -> int -> Fd.t
-val connect : Fd.t -> Unix.sockaddr -> unit
-val accept : sw:Switch.t -> Fd.t -> Fd.t * Unix.sockaddr
+val socket : sw:Switch.t -> Unix.socket_domain -> Unix.socket_type -> int -> fd
+val connect : fd -> Unix.sockaddr -> unit
+val accept : sw:Switch.t -> fd -> fd * Unix.sockaddr
 
-val shutdown : Fd.t -> Unix.shutdown_command -> unit
+val shutdown : fd -> Unix.shutdown_command -> unit
 
-val recv_msg : Fd.t -> bytes -> int * Unix.sockaddr
-val send_msg : Fd.t -> dst:Unix.sockaddr -> bytes -> int
+val recv_msg : fd -> bytes -> int * Unix.sockaddr
+val send_msg : fd -> dst:Unix.sockaddr -> bytes -> int
 
 val getrandom : Cstruct.t -> unit
 
-val fstat : Fd.t -> Unix.LargeFile.stats
+val fstat : fd -> Unix.LargeFile.stats
 val lstat : string -> Unix.LargeFile.stats
 
 val realpath : string -> string
 
-val mkdir : ?dirfd:Fd.t -> mode:int -> string -> unit
-val unlink : ?dirfd:Fd.t -> dir:bool -> string -> unit
-val rename : ?old_dir:Fd.t -> string -> ?new_dir:Fd.t -> string -> unit
+val mkdir : ?dirfd:fd -> mode:int -> string -> unit
+val unlink : ?dirfd:fd -> dir:bool -> string -> unit
+val rename : ?old_dir:fd -> string -> ?new_dir:fd -> string -> unit
 
 val readdir : string -> string array
 
-val readv : Fd.t -> Cstruct.t array -> int
-val writev : Fd.t -> Cstruct.t array -> int
+val readv : fd -> Cstruct.t array -> int
+val writev : fd -> Cstruct.t array -> int
 
-val preadv : file_offset:Optint.Int63.t -> Fd.t -> Cstruct.t array -> int
-val pwritev : file_offset:Optint.Int63.t -> Fd.t -> Cstruct.t array -> int
+val preadv : file_offset:Optint.Int63.t -> fd -> Cstruct.t array -> int
+val pwritev : file_offset:Optint.Int63.t -> fd -> Cstruct.t array -> int
 
-val pipe : sw:Switch.t -> Fd.t * Fd.t
+val pipe : sw:Switch.t -> fd * fd
 
 module Open_flags : sig
   type t
@@ -72,37 +75,15 @@ module Open_flags : sig
   val ( + ) : t -> t -> t
 end
 
-val openat : ?dirfd:Fd.t -> sw:Switch.t -> mode:int -> string -> Open_flags.t -> Fd.t
+val openat : ?dirfd:fd -> sw:Switch.t -> mode:int -> string -> Open_flags.t -> fd
 (** Note: the returned FD is always non-blocking and close-on-exec. *)
 
 module Process : sig
   type t
   (** A child process. *)
 
+  module Fork_action = Eio_unix.Private.Fork_action
   (** Setup actions to perform in the child process. *)
-  module Fork_action : sig
-    type t = Eio_unix.Private.Fork_action.t
-
-    val execve : string -> argv:string array -> env:string array -> t
-    (** See execve(2).
-        This replaces the current executable,
-        so it only makes sense as the last action to be performed. *)
-
-    val chdir : string -> t
-    (** [chdir path] changes directory to [path]. *)
-
-    val fchdir : Fd.t -> t
-    (** [fchdir dir] changes directory to [dir]. *)
-
-    val inherit_fds : (int * Fd.t * [< `Blocking | `Nonblocking | `Preserve_blocking]) list -> t
-    (** [inherit_fds mapping] marks file descriptors as not close-on-exec and renumbers them.
-
-        For each key in [mapping], we use [dup2] to duplicate the source descriptor.
-        If there are cycles in [mapping], a temporary FD is used to break the cycle.
-        A mapping from an FD to itself simply clears the close-on-exec flag.
-
-        For each FD, you can also say whether it should be set as blocking or non-blocking. *)
-  end
 
   val spawn : sw:Switch.t -> Fork_action.t list -> t
   (** [spawn ~sw actions] forks a child process, which executes [actions].

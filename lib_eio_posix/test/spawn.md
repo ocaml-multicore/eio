@@ -133,10 +133,9 @@ FOO=bar
 Inheriting file descriptors:
 
 ```ocaml
-let fd flow = Eio_posix.Low_level.Fd.get_fd_opt flow |> Option.get
-let unix flow = Eio_posix.Low_level.Fd.to_unix `Peek (fd flow)
+let fd flow = Eio_unix.Resource.fd flow
 let int_of_fd : Unix.file_descr -> int = Obj.magic
-let id flow = int_of_fd (unix flow)
+let id flow = Eio_unix.Fd.use_exn "id" (fd flow) int_of_fd
 let read_all pipe =
   let r = Eio.Buf_read.of_flow pipe ~max_size:1024 in
   Eio.Buf_read.take_all r

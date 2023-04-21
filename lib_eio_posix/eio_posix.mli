@@ -1,9 +1,9 @@
 (** Fallback Eio backend for POSIX systems. *)
 
 type stdenv = <
-  stdin  : <Eio.Flow.source; Eio_unix.unix_fd>;
-  stdout : <Eio.Flow.sink; Eio_unix.unix_fd>;
-  stderr : <Eio.Flow.sink; Eio_unix.unix_fd>;
+  stdin  : <Eio.Flow.source; Eio_unix.Resource.t>;
+  stdout : <Eio.Flow.sink; Eio_unix.Resource.t>;
+  stderr : <Eio.Flow.sink; Eio_unix.Resource.t>;
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;

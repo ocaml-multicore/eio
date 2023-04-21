@@ -229,18 +229,7 @@ module Process = struct
   let exit_status t = t.exit_status
   let pid t = t.pid
 
-  module Fork_action = struct
-    type t = Eio_unix.Private.Fork_action.t
-
-    let fchdir fd = Eio_unix.Private.Fork_action.fchdir (Fd.to_rcfd fd)
-    let chdir = Eio_unix.Private.Fork_action.chdir
-    let execve = Eio_unix.Private.Fork_action.execve
-
-    let inherit_fds m : t =
-      m
-      |> List.map (fun (dst, src, flags) -> (dst, Fd.to_rcfd src, flags))
-      |> Eio_unix.Private.Fork_action.inherit_fds
-  end
+  module Fork_action = Eio_unix.Private.Fork_action
 
   (* Read a (typically short) error message from a child process. *)
   let rec read_response fd =

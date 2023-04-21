@@ -17,9 +17,9 @@
 module Low_level = Low_level
 
 type stdenv = <
-  stdin  : <Eio.Flow.source; Eio_unix.unix_fd>;
-  stdout : <Eio.Flow.sink; Eio_unix.unix_fd>;
-  stderr : <Eio.Flow.sink; Eio_unix.unix_fd>;
+  stdin  : <Eio.Flow.source; Eio_unix.Resource.t>;
+  stdout : <Eio.Flow.sink; Eio_unix.Resource.t>;
+  stderr : <Eio.Flow.sink; Eio_unix.Resource.t>;
   net : Eio.Net.t;
   domain_mgr : Eio.Domain_manager.t;
   clock : Eio.Time.clock;
@@ -34,9 +34,9 @@ let run main =
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
   Sys.(set_signal sigchld (Signal_handle (fun (_:int) -> Children.handle_sigchld ())));
-  let stdin = (Flow.of_fd Low_level.Fd.stdin :> <Eio.Flow.source; Eio_unix.unix_fd>) in
-  let stdout = (Flow.of_fd Low_level.Fd.stdout :> <Eio.Flow.sink; Eio_unix.unix_fd>) in
-  let stderr = (Flow.of_fd Low_level.Fd.stderr :> <Eio.Flow.sink; Eio_unix.unix_fd>) in
+  let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> <Eio.Flow.source; Eio_unix.Resource.t>) in
+  let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> <Eio.Flow.sink; Eio_unix.Resource.t>) in
+  let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> <Eio.Flow.sink; Eio_unix.Resource.t>) in
   Domain_mgr.run_event_loop main @@ object (_ : stdenv)
     method stdin = stdin
     method stdout = stdout

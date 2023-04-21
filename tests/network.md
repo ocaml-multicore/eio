@@ -256,16 +256,16 @@ Extracting file descriptors from Eio objects:
 ```ocaml
 # run @@ fun ~net sw ->
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
-  traceln "Listening socket has Unix FD: %b" (Eio_unix.FD.peek_opt server <> None);
+  traceln "Listening socket has Unix FD: %b" (Eio_unix.Resource.fd_opt server <> None);
   let have_client, have_server =
     Fiber.pair
       (fun () ->
          let flow = Eio.Net.connect ~sw net addr in
-         (Eio_unix.FD.peek_opt flow <> None)
+         (Eio_unix.Resource.fd_opt flow <> None)
       )
       (fun () ->
          let flow, _addr = Eio.Net.accept ~sw server in
-         (Eio_unix.FD.peek_opt flow <> None)
+         (Eio_unix.Resource.fd_opt flow <> None)
       )
   in
   traceln "Client-side socket has Unix FD: %b" have_client;
@@ -336,8 +336,8 @@ Wrapping a Unix FD as an Eio socket:
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let r, w = Unix.pipe () in
-  let source = (Eio_unix.FD.as_socket ~sw ~close_unix:true r :> Eio.Flow.source) in
-  let sink = (Eio_unix.FD.as_socket ~sw ~close_unix:true w :> Eio.Flow.sink) in
+  let source = (Eio_unix.import_socket_stream ~sw ~close_unix:true r :> Eio.Flow.source) in
+  let sink = (Eio_unix.import_socket_stream ~sw ~close_unix:true w :> Eio.Flow.sink) in
   Fiber.both
     (fun () -> Eio.Flow.copy_string "Hello\n!" sink)
     (fun () ->
@@ -409,8 +409,8 @@ Exception: Failure "Simulated error".
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let a, b = Eio_unix.socketpair ~sw () in
-  ignore (Eio_unix.FD.peek a : Unix.file_descr);
-  ignore (Eio_unix.FD.peek b : Unix.file_descr);
+  ignore (Eio_unix.Resource.fd a : Eio_unix.Fd.t);
+  ignore (Eio_unix.Resource.fd b : Eio_unix.Fd.t);
   Eio.Flow.copy_string "foo" a;
   Eio.Flow.close a;
   let msg = Eio.Buf_read.of_flow b ~max_size:10 |> Eio.Buf_read.take_all in
@@ -687,8 +687,8 @@ TODO: This is wrong; see https://github.com/ocaml-multicore/eio/issues/342
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let a, b = Eio_unix.socketpair ~sw ~domain:Unix.PF_UNIX ~ty:Unix.SOCK_DGRAM () in
-  ignore (Eio_unix.FD.peek a : Unix.file_descr);
-  ignore (Eio_unix.FD.peek b : Unix.file_descr);
+  ignore (Eio_unix.Resource.fd a : Eio_unix.Fd.t);
+  ignore (Eio_unix.Resource.fd b : Eio_unix.Fd.t);
   let l = [ "foo"; "bar"; "foobar"; "cellar door" ] in
   let buf = Cstruct.create 32 in
   let write bufs = Eio.Flow.write a (List.map Cstruct.of_string bufs) in

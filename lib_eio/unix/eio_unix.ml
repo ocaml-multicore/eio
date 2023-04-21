@@ -1,3 +1,16 @@
+[@@@alert "-unstable"]
+
+module Fd = Fd
+
+module Resource = struct
+  type t = < fd : Fd.t >
+
+  type _ Eio.Generic.ty += FD : Fd.t Eio.Generic.ty
+
+  let fd t = t#fd
+  let fd_opt t = Eio.Generic.probe t FD
+end
+
 type Eio.Exn.Backend.t += Unix_error of Unix.error * string * string
 let () =
   Eio.Exn.Backend.register_pp (fun f -> function
@@ -5,26 +18,18 @@ let () =
       | _ -> false
     )
 
-type unix_fd = <
-  unix_fd : [`Peek | `Take] -> Unix.file_descr;
->
-
-type socket = <
-  Eio.Flow.two_way;
-  Eio.Flow.close;
-  unix_fd;
->
+type source = < Eio.Flow.source;  Resource.t; Eio.Flow.close >
+type sink   = < Eio.Flow.sink;    Resource.t; Eio.Flow.close >
+type socket = < Eio.Flow.two_way; Resource.t; Eio.Flow.close >
 
 module Private = struct
-  type _ Eio.Generic.ty += Unix_file_descr : [`Peek | `Take] -> Unix.file_descr Eio.Generic.ty
-
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t
     | Await_writable : Unix.file_descr -> unit Effect.t
     | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
     | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> socket Effect.t
     | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int -> (socket * socket) Effect.t
-    | Pipe : Eio.Switch.t -> (<Eio.Flow.source; Eio.Flow.close; unix_fd> * <Eio.Flow.sink; Eio.Flow.close; unix_fd>) Effect.t
+    | Pipe : Eio.Switch.t -> (source * sink) Effect.t
 
   module Rcfd = Rcfd
 
@@ -47,14 +52,25 @@ let run_in_systhread fn =
   in
   Effect.perform (Eio.Private.Effects.Suspend f)
 
+let import_socket_stream ~sw ~close_unix fd = Effect.perform (Private.Socket_of_fd (sw, close_unix, fd))
+
+(* Deprecated *)
 module FD = struct
-  let peek x = x#unix_fd `Peek
-  let take x = x#unix_fd `Take
+  let peek t = Fd.use_exn "peek" (Resource.fd t) Fun.id
 
-  let peek_opt x = Eio.Generic.probe x (Private.Unix_file_descr `Peek)
-  let take_opt x = Eio.Generic.probe x (Private.Unix_file_descr `Take)
+  let peek_opt t =
+    match Resource.fd_opt t with
+    | None -> None
+    | Some fd -> Some (Fd.use_exn "peek_opt" fd Fun.id)
 
-  let as_socket ~sw ~close_unix fd = Effect.perform (Private.Socket_of_fd (sw, close_unix, fd))
+  let take t = Fd.remove (Resource.fd t) |> Option.get
+
+  let take_opt t =
+    match Resource.fd_opt t with
+    | None -> None
+    | Some fd -> Fd.remove fd
+
+  let as_socket = import_socket_stream
 end
 
 let socketpair ~sw ?(domain=Unix.PF_UNIX) ?(ty=Unix.SOCK_STREAM) ?(protocol=0) () =

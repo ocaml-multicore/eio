@@ -431,9 +431,10 @@ We can get the Unix FD from the flow and use it directly:
 # run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
   Path.with_open_in (fs / Filename.null) (fun flow ->
-     match Eio_unix.FD.peek_opt flow with
+     match Eio_unix.Resource.fd_opt flow with
      | None -> failwith "No Unix file descriptor!"
      | Some fd ->
+        Eio_unix.Fd.use_exn "read" fd @@ fun fd ->
         let got = Unix.read fd (Bytes.create 10) 0 10 in
         traceln "Read %d bytes from null device" got
   );;
@@ -447,7 +448,9 @@ In that case, `with_open_in` will no longer close it on exit:
 ```ocaml
 # run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
-  let fd = Path.with_open_in (fs / Filename.null) (fun flow -> Option.get (Eio_unix.FD.take_opt flow)) in
+  let fd = Path.with_open_in (fs / Filename.null) (fun flow ->
+    Option.get (Eio_unix.Fd.remove (Option.get (Eio_unix.Resource.fd_opt flow)))
+  ) in
   let got = Unix.read fd (Bytes.create 10) 0 10 in
   traceln "Read %d bytes from null device" got;
   Unix.close fd;;

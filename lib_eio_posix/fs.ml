@@ -24,6 +24,8 @@
 
 open Eio.Std
 
+module Fd = Eio_unix.Fd
+
 class virtual posix_dir = object
   inherit Eio.Fs.dir
 

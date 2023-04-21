@@ -169,3 +169,14 @@ let peek t =
   match Atomic.get t.fd with
   | Open fd -> fd
   | Closing _ -> failwith "FD already closed!"
+
+let pp f t =
+  match Atomic.get t.fd with
+  | Closing _ -> Fmt.string f "(closed FD)"
+  | Open fd ->
+    match Sys.os_type with
+    | "Unix" ->
+      let id : int = Obj.magic (fd : Unix.file_descr) in
+      Fmt.pf f "FD-%d" id
+    | _ ->
+      Fmt.string f "(FD)"
