@@ -51,6 +51,7 @@ Eio replaces existing concurrency libraries such as Lwt
   * [Lwt](#lwt)
   * [Unix and System Threads](#unix-and-system-threads)
   * [Domainslib](#domainslib)
+  * [kcas](#kcas)
 * [Best Practices](#best-practices)
   * [Switches](#switches-1)
   * [Casting](#casting)
@@ -1604,6 +1605,65 @@ while most Eio functions can only be used from Eio domains.
 The bridge function `run_in_pool` makes use of the fact that `Domainslib.Task.async` is able to run from
 an Eio domain, and `Eio.Promise.resolve` is able to run from a Domainslib one.
 
+### kcas
+
+Eio provides the support [kcas][] requires to implement blocking in the
+lock-free software transactional memory (STM) implementation that it provides.
+This means that one can use all the composable lock-free data structures and
+primitives for communication and synchronization implemented using **kcas** to
+communicate and synchronize between Eio fibers, raw domains, and any other
+schedulers that provide the domain local await mechanism.
+
+To demonstrate **kcas**
+
+```ocaml
+# #require "kcas"
+# open Kcas
+```
+
+let's first create a couple of shared memory locations
+
+```ocaml
+# let x = Loc.make 0
+val x : int Loc.t = <abstr>
+# let y = Loc.make 0
+val y : int Loc.t = <abstr>
+```
+
+and spawn a domain
+
+```ocaml
+# let foreign_domain = Domain.spawn @@ fun () ->
+    let x = Loc.get_as (fun x -> Retry.unless (x <> 0); x) x in
+    Loc.set y 22;
+    x
+val foreign_domain : int Domain.t = <abstr>
+```
+
+that first waits for one of the locations to change value and then writes to the
+other location.
+
+Then we run a Eio program
+
+```ocaml
+# let y = Eio_main.run @@ fun _env ->
+    Loc.set x 20;
+    Loc.get_as (fun y -> Retry.unless (y <> 0); y) y
+val y : int = 22
+```
+
+that first writes to the location the other domain is waiting on and then waits
+for the other domain to write to the other location.
+
+Joining with the other domain
+
+```ocaml
+# y + Domain.join foreign_domain
+- : int = 42
+```
+
+we arrive at the answer.
+
 ## Best Practices
 
 This section contains some recommendations for designing library APIs for use with Eio.
@@ -1762,5 +1822,6 @@ Some background about the effects system can be found in:
 [Eio.Semaphore]: https://ocaml-multicore.github.io/eio/eio/Eio/Semaphore/index.html
 [Eio.Condition]: https://ocaml-multicore.github.io/eio/eio/Eio/Condition/index.html
 [Domainslib]: https://github.com/ocaml-multicore/domainslib
+[kcas]: https://github.com/ocaml-multicore/kcas
 [Meio]: https://github.com/tarides/meio
 [Lambda Capabilities]: https://roscidus.com/blog/blog/2023/04/26/lambda-capabilities/

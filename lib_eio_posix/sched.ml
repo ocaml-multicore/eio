@@ -351,8 +351,12 @@ let run ~extra_effects t main x =
   let result = ref None in
   let `Exit_scheduler =
     let new_fiber = Fiber_context.make_root () in
-    fork ~new_fiber (fun () ->
-        result := Some (with_op t main x);
+    Domain_local_await.using
+      ~prepare_for_await:Eio.Private.Dla.prepare_for_await
+      ~while_running:(fun () ->
+        fork ~new_fiber (fun () ->
+          result := Some (with_op t main x);
+        )
       )
   in
   match !result with

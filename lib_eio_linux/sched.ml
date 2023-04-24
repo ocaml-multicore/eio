@@ -465,14 +465,18 @@ let run ~extra_effects st main arg =
   let result = ref None in
   let `Exit_scheduler =
     let new_fiber = Fiber_context.make_root () in
-    fork ~new_fiber (fun () ->
-        Switch.run_protected (fun sw ->
-            Fiber.fork_daemon ~sw (fun () -> monitor_event_fd st);
-            match main arg with
-            | x -> result := Some (Ok x)
-            | exception ex ->
-              let bt = Printexc.get_raw_backtrace () in
-              result := Some (Error (ex, bt))
+    Domain_local_await.using
+      ~prepare_for_await:Eio.Private.Dla.prepare_for_await
+      ~while_running:(fun () ->
+        fork ~new_fiber (fun () ->
+            Switch.run_protected (fun sw ->
+                Fiber.fork_daemon ~sw (fun () -> monitor_event_fd st);
+                match main arg with
+                | x -> result := Some (Ok x)
+                | exception ex ->
+                  let bt = Printexc.get_raw_backtrace () in
+                  result := Some (Error (ex, bt))
+              )
           )
       )
   in
