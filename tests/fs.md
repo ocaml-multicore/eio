@@ -17,7 +17,7 @@ open Eio.Std
 
 let ( / ) = Path.( / )
 
-let run (fn : Eio.Stdenv.t -> unit) =
+let run fn =
   Eio_main.run @@ fun env ->
   fn env
 

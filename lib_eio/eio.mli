@@ -66,7 +66,7 @@ end
     methods directly. Using the functions results in better error messages from the compiler,
     and may provide extra features or sanity checks.
 
-    The system resources are available from the {!Stdenv.t} provided by your event loop
+    The system resources are available from the environment argument provided by your event loop
     (e.g. {!Eio_main.run}). *)
 
 (** A base class for objects that can be queried at runtime for extra features. *)
@@ -163,7 +163,7 @@ end
 (** The standard environment of a process. *)
 module Stdenv : sig
   (** All access to the outside world comes from running the event loop,
-      which provides a {!t}.
+      which provides an environment (e.g. an {!Eio_unix.Stdenv.base}).
 
       Example:
       {[
@@ -174,20 +174,6 @@ module Stdenv : sig
             ~net:env#net
       ]}
   *)
-
-  type t = <
-    stdin  : Flow.source;
-    stdout : Flow.sink;
-    stderr : Flow.sink;
-    net : Net.t;
-    domain_mgr : Domain_manager.t;
-    clock : Time.clock;
-    mono_clock : Time.Mono.t;
-    fs : Fs.dir Path.t;
-    cwd : Fs.dir Path.t;
-    secure_random : Flow.source;
-    debug : Debug.t;
-  >
 
   (** {1 Standard streams}
 

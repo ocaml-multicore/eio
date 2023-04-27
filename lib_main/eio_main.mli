@@ -1,6 +1,6 @@
 (** Select a suitable event loop for Eio. *)
 
-val run : (Eio.Stdenv.t -> 'a) -> 'a
+val run : (Eio_unix.Stdenv.base -> 'a) -> 'a
 (** [run fn] runs an event loop and then calls [fn env] within it.
 
     [env] provides access to the process's environment (file-system, network, etc).

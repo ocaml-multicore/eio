@@ -30,20 +30,6 @@ module Fs = Fs
 module Path = Path
 
 module Stdenv = struct
-  type t = <
-    stdin  : Flow.source;
-    stdout : Flow.sink;
-    stderr : Flow.sink;
-    net : Net.t;
-    domain_mgr : Domain_manager.t;
-    clock : Time.clock;
-    mono_clock : Time.Mono.t;
-    fs : Fs.dir Path.t;
-    cwd : Fs.dir Path.t;
-    secure_random : Flow.source;
-    debug : Debug.t;
-  >
-
   let stdin  (t : <stdin  : #Flow.source; ..>) = t#stdin
   let stdout (t : <stdout : #Flow.sink;   ..>) = t#stdout
   let stderr (t : <stderr : #Flow.sink;   ..>) = t#stderr

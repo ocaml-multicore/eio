@@ -281,19 +281,7 @@ let net = object
   method getnameinfo = Eio_unix.getnameinfo
 end
 
-type stdenv = <
-  stdin  : source;
-  stdout : sink;
-  stderr : sink;
-  net : Eio.Net.t;
-  domain_mgr : Eio.Domain_manager.t;
-  clock : Eio.Time.clock;
-  mono_clock : Eio.Time.Mono.t;
-  fs : Eio.Fs.dir Eio.Path.t;
-  cwd : Eio.Fs.dir Eio.Path.t;
-  secure_random : Eio.Flow.source;
-  debug : Eio.Debug.t;
->
+type stdenv = Eio_unix.Stdenv.base
 
 let domain_mgr ~run_event_loop = object
   inherit Eio.Domain_manager.t
