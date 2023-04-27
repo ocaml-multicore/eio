@@ -2,4 +2,5 @@
   (package eio_main)
   (deps (package eio_main) (env_var "EIO_BACKEND"))
   (preludes doc/prelude.ml)
+  (enabled_if (<> %{os_type} "Win32"))
   (files README.md))

@@ -1,5 +1,15 @@
 (library
  (name eio_windows)
  (public_name eio_windows)
+ (library_flags :standard -ccopt -lbcrypt)
  (enabled_if (= %{os_type} "Win32"))
- (libraries eio eio.utils fmt))
+ (foreign_stubs
+  (language c)
+  (flags :standard -D_LARGEFILE64_SOURCE)
+  (include_dirs ../lib_eio/unix/include)
+  (names eio_posix_stubs))
+ (libraries eio eio.unix eio.utils fmt cstruct-unix))
+
+(rule
+ (targets config.ml)
+ (action (run ./include/discover.exe)))

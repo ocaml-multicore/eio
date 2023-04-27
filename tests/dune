@@ -1,5 +1,6 @@
 (mdx
   (package eio_main)
+  (enabled_if (<> %{os_type} "Win32"))
   (deps
     (env_var "EIO_BACKEND")
     (package eio_main)))

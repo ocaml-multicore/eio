@@ -1,0 +1,5 @@
+(test
+  (name test)
+  (package eio_windows)
+  (enabled_if (= %{os_type} "Win32"))
+  (libraries alcotest eio.mock eio_windows))

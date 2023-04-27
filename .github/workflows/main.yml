@@ -32,7 +32,25 @@ jobs:
       - run: opam --cli=2.1 pin -yn --with-version=dev .
       - run: opam install ${{ matrix.local-packages }} --deps-only --with-test
       - run: opam install ${{ matrix.local-packages }} --with-test
+  windows:
+    runs-on: windows-latest
 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set-up OCaml
+        uses: ocaml/setup-ocaml@v2
+        with:
+          opam-pin: false
+          opam-depext: false
+          ocaml-compiler: ocaml.5.0.0,ocaml-option-mingw
+          opam-repositories: |
+            dra27: https://github.com/dra27/opam-repository.git#windows-5.0
+            normal: https://github.com/ocaml/opam-repository.git
+            default: https://github.com/ocaml-opam/opam-repository-mingw.git#opam2
+      - run: opam pin -yn . && opam install eio_windows --deps-only --with-test
+      - run: opam exec -- dune runtest
   docker:
     runs-on: ubuntu-latest
     steps:

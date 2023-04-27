@@ -1,4 +1,5 @@
 (mdx
   (package eio_main)
   (deps (package eio_main) (env_var "EIO_BACKEND"))
+  (enabled_if (<> %{os_type} "Win32"))
   (files multicore.md))
