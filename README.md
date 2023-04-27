@@ -245,6 +245,9 @@ This shows the two counting threads as two horizonal lines.
 The white regions indicate when each thread was running.
 Note that the output from `traceln` appears in the trace as well as on the console.
 
+The [Meio][] (Monitoring for Eio) project provides an interactive console-based UI for exploring running fibers,
+using the new runtime events support in OCaml 5.1.
+
 ## Cancellation
 
 Every fiber has a [cancellation context][Eio.Cancel].
@@ -1776,3 +1779,4 @@ Some background about the effects system can be found in:
 [Eio.Semaphore]: https://ocaml-multicore.github.io/eio/eio/Eio/Semaphore/index.html
 [Eio.Condition]: https://ocaml-multicore.github.io/eio/eio/Eio/Condition/index.html
 [Domainslib]: https://github.com/ocaml-multicore/domainslib
+[Meio]: https://github.com/tarides/meio
