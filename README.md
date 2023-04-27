@@ -245,6 +245,9 @@ This shows the two counting threads as two horizonal lines.
 The white regions indicate when each thread was running.
 Note that the output from `traceln` appears in the trace as well as on the console.
 
+The [Meio][] (Monitoring for Eio) project provides an interactive console-based UI for exploring running fibers,
+using the new runtime events support in OCaml 5.1.
+
 ## Cancellation
 
 Every fiber has a [cancellation context][Eio.Cancel].
@@ -511,7 +514,7 @@ See [examples/net](./examples/net/) for a more complete example.
 
 ## Design Note: Capabilities
 
-Eio follows the principles of [capability-based security][].
+Eio follows the principles of capability-based security.
 The key idea here is that the lambda calculus already contains a perfectly good security system:
 a function can only access things that are in its scope.
 If we can avoid breaking this model (for example, by adding global variables to our language)
@@ -541,27 +544,12 @@ In a capability-safe language, we don't have to read the entire code-base to fin
   We could make that code easier to audit by passing it `(fun () -> Eio.Net.connect net addr)` instead of `net` .
   Then we could see that `run_client` could only connect to our loopback address.
 
-Some key features required for a capability system are:
-
-1. The language must be memory-safe.
-   OCaml allows all code to use e.g. `Obj.magic` or `Array.unsafe_set`.
-
-2. The default scope must not provide access to the outside world.
-   OCaml's `Stdlib.open_in` gives all code access to the file-system.
-
-3. No top-level mutable state.
-   In OCaml, if two libraries use a module `Foo` with top-level mutable state, then they could communicate using that
-   without first being introduced to each other by the main application code.
-
-4. APIs should make it easy to restrict access.
-   For example, having a "directory" should allow access to that sub-tree of the file-system only.
-   If the file-system abstraction provides a `get_parent` function then access to any directory is
-   equivalent to access to everything.
-
 Since OCaml is not a capability language, code can ignore Eio and use the non-capability APIs directly.
-However, it still makes non-malicious code easier to understand and test
+However, it still makes non-malicious code easier to understand and test,
 and may allow for an extension to the language in the future.
-See [Emily][] for a previous attempt at this.
+
+The [Lambda Capabilities][] blog post provides a more detailed introduction to capabilities,
+written for functional programmers.
 
 ## Buffered Reading and Parsing
 
@@ -1746,8 +1734,6 @@ Some background about the effects system can be found in:
 [Lwt_eio]: https://github.com/ocaml-multicore/lwt_eio
 [mirage-trace-viewer]: https://github.com/talex5/mirage-trace-viewer
 [structured concurrency]: https://en.wikipedia.org/wiki/Structured_concurrency
-[capability-based security]: https://en.wikipedia.org/wiki/Object-capability_model
-[Emily]: https://www.hpl.hp.com/techreports/2006/HPL-2006-116.pdf
 [gemini-eio]: https://gitlab.com/talex5/gemini-eio
 [Awesome Multicore OCaml]: https://github.com/ocaml-multicore/awesome-multicore-ocaml
 [Eio]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html
@@ -1776,3 +1762,5 @@ Some background about the effects system can be found in:
 [Eio.Semaphore]: https://ocaml-multicore.github.io/eio/eio/Eio/Semaphore/index.html
 [Eio.Condition]: https://ocaml-multicore.github.io/eio/eio/Eio/Condition/index.html
 [Domainslib]: https://github.com/ocaml-multicore/domainslib
+[Meio]: https://github.com/tarides/meio
+[Lambda Capabilities]: https://roscidus.com/blog/blog/2023/04/26/lambda-capabilities/
