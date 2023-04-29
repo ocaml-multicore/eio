@@ -37,12 +37,17 @@ type fd_event_waiters = {
   write : unit Suspended.t Lwt_dllist.t;
 }
 
-module FdMap = Map.Make (Int)
+module FdCompare = struct
+  type t = Unix.file_descr
+  let compare = Stdlib.compare
+end
+
+module FdSet = Set.Make (FdCompare)
 
 (* A structure for storing the file descriptors for select. *)
 type poll = {
-  mutable to_read : Unix.file_descr FdMap.t;
-  mutable to_write : Unix.file_descr FdMap.t;
+  mutable to_read : FdSet.t;
+  mutable to_write : FdSet.t;
 }
 
 type t = {
@@ -50,7 +55,6 @@ type t = {
   run_q : runnable Lf_queue.t;
 
   poll : poll;
-  mutable poll_maxi : int;      (* The highest index ever used in [poll]. *)
   fd_map : (Unix.file_descr, fd_event_waiters) Hashtbl.t;
 
   (* When adding to [run_q] from another domain, this domain may be sleeping and so won't see the event.
@@ -114,7 +118,6 @@ let clear_event_fd t =
 
 (* Update [t.poll]'s entry for [fd] to match [waiters]. *)
 let update t waiters fd =
-  let fdi : int = Obj.magic fd in
   let flags =
     match not (Lwt_dllist.is_empty waiters.read),
           not (Lwt_dllist.is_empty waiters.write) with
@@ -125,15 +128,15 @@ let update t waiters fd =
   in
     match flags with
     | `Empty -> (
-      t.poll.to_read <- FdMap.remove fdi t.poll.to_read;
-      t.poll.to_write <- FdMap.remove fdi t.poll.to_write;
+      t.poll.to_read <- FdSet.remove fd t.poll.to_read;
+      t.poll.to_write <- FdSet.remove fd t.poll.to_write;
       Hashtbl.remove t.fd_map fd
     )
-    | `R -> t.poll.to_read <- FdMap.add fdi fd t.poll.to_read
-    | `W -> t.poll.to_write <- FdMap.add fdi fd t.poll.to_write
+    | `R -> t.poll.to_read <- FdSet.add fd t.poll.to_read
+    | `W -> t.poll.to_write <- FdSet.add fd t.poll.to_write
     | `RW -> 
-      t.poll.to_read <- FdMap.add fdi fd t.poll.to_read;
-      t.poll.to_write <- FdMap.add fdi fd t.poll.to_write
+      t.poll.to_read <- FdSet.add fd t.poll.to_read;
+      t.poll.to_write <- FdSet.add fd t.poll.to_write
 
 let resume t node =
   t.active_ops <- t.active_ops - 1;
@@ -202,9 +205,9 @@ let rec next t : [`Exit_scheduler] =
              If [need_wakeup] is still [true], this is fine because we don't promise to do that.
              If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
           Ctf.(note_hiatus Wait_for_work);
-          let cons _ fd acc = fd :: acc in
-          let read = FdMap.fold cons t.poll.to_read [] in
-          let write = FdMap.fold cons t.poll.to_write [] in
+          let cons fd acc = fd :: acc in
+          let read = FdSet.fold cons t.poll.to_read [] in
+          let write = FdSet.fold cons t.poll.to_write [] in
           match Unix.select read write [] timeout with 
           | exception Unix.(Unix_error (EINTR, _, _)) -> next t
           | readable, writeable, _ ->
@@ -237,14 +240,11 @@ let with_sched fn =
     let was_open = Rcfd.close eventfd in
     assert was_open
   in
-  let poll = { to_read = FdMap.empty; to_write = FdMap.empty } in
+  let poll = { to_read = FdSet.empty; to_write = FdSet.empty } in
   let fd_map = Hashtbl.create 10 in
-  let t = { run_q; poll; poll_maxi = (-1); fd_map; eventfd; eventfd_r;
+  let t = { run_q; poll; fd_map; eventfd; eventfd_r;
             active_ops = 0; need_wakeup = Atomic.make false; sleep_q } in
-  let eventfd_ri : int = Obj.magic eventfd_r in
-  t.poll.to_read <- FdMap.add eventfd_ri eventfd_r t.poll.to_read;
-  if eventfd_ri > t.poll_maxi then
-    t.poll_maxi <- eventfd_ri;
+  t.poll.to_read <- FdSet.add eventfd_r t.poll.to_read;
   match fn t with
   | x -> cleanup (); x
   | exception ex ->
