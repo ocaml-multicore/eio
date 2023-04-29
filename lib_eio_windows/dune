@@ -5,9 +5,8 @@
  (enabled_if (= %{os_type} "Win32"))
  (foreign_stubs
   (language c)
-  (flags :standard -D_LARGEFILE64_SOURCE)
   (include_dirs ../lib_eio/unix/include)
-  (names eio_posix_stubs))
+  (names eio_windows_stubs))
  (libraries eio eio.unix eio.utils fmt cstruct-unix))
 
 (rule
