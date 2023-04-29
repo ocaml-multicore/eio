@@ -73,30 +73,3 @@ end
 
 val openat : ?dirfd:fd -> sw:Switch.t -> mode:int -> string -> Open_flags.t -> fd
 (** Note: the returned FD is always non-blocking and close-on-exec. *)
-
-module Process : sig
-  type t
-  (** A child process. *)
-
-  module Fork_action = Eio_unix.Private.Fork_action
-  (** Setup actions to perform in the child process. *)
-
-  val spawn : sw:Switch.t -> Fork_action.t list -> t
-  (** [spawn ~sw actions] forks a child process, which executes [actions].
-      The last action should be {!Fork_action.execve}.
-
-      You will typically want to do [Promise.await (exit_status child)] after this.
-
-      @param sw The child will be sent {!Sys.sigkill} if [sw] finishes. *)
-
-  val signal : t -> int -> unit
-  (** [signal t x] sends signal [x] to [t].
-
-      This is similar to doing [Unix.kill t.pid x],
-      except that it ensures no signal is sent after [t] has been reaped. *)
-
-  val pid : t -> int
-
-  val exit_status : t -> Unix.process_status Promise.t
-  (** [exit_status t] is a promise for the process's exit status. *)
-end
