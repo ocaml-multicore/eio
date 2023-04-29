@@ -14,9 +14,6 @@ open Eio.Std
 
 type fd := Eio_unix.Fd.t
 
-module Fd = Fd
-[@@deprecated "Use Eio_unix.Fd instead"]
-
 val await_readable : fd -> unit
 val await_writable : fd -> unit
 

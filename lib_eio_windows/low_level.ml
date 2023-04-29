@@ -11,10 +11,10 @@ open Eio.Std
 
 type ty = Read | Write
 
-module Fd = Fd
-
 (* todo: keeping a pool of workers is probably faster *)
 let in_worker_thread = Eio_unix.run_in_systhread
+
+module Fd = Eio_unix.Fd
 
 let await_readable fd =
   Fd.use_exn "await_readable" fd @@ fun fd ->
