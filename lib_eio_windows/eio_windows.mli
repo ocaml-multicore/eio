@@ -1,4 +1,4 @@
-(** Fallback Eio backend for POSIX systems. *)
+(** Fallback Eio backend for Windows using OCaml's [Unix.select]. *)
 
 type stdenv = <
   stdin  : <Eio.Flow.source; Eio_unix.Resource.t>;
@@ -13,7 +13,7 @@ type stdenv = <
   secure_random : Eio.Flow.source;
   debug : Eio.Debug.t;
 >
-(** An extended version of {!Eio.Stdenv.t} with some extra features available on POSIX systems. *)
+(** An extended version of {!Eio.Stdenv.t} with some extra features available on Windows. *)
 
 val run : (stdenv -> 'a) -> 'a
 (** [run main] runs an event loop and calls [main stdenv] inside it.
@@ -21,4 +21,4 @@ val run : (stdenv -> 'a) -> 'a
     For portable code, you should use {!Eio_main.run} instead, which will call this for you if appropriate. *)
 
 module Low_level = Low_level
-(** Low-level API for making POSIX calls directly. *)
+(** Low-level API. *)

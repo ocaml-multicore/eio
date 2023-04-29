@@ -31,10 +31,6 @@ type stdenv = <
 >
 
 let run main =
-  (* SIGPIPE makes no sense in a modern application. *)
-  (* These don't work on Windows. *)
-  (* Sys.(set_signal sigpipe Signal_ignore); *)
-  (* Sys.(set_signal sigchld (Signal_handle (fun (_:int) -> Children.handle_sigchld ()))); *)
   let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> <Eio.Flow.source; Eio_unix.Resource.t>) in
   let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> <Eio.Flow.sink; Eio_unix.Resource.t>) in
   let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> <Eio.Flow.sink; Eio_unix.Resource.t>) in
