@@ -54,7 +54,7 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Best Practices](#best-practices)
   * [Switches](#switches-1)
   * [Casting](#casting)
-  * [Passing Stdenv.t](#passing-stdenvt)
+  * [Passing env](#passing-env)
 * [Further Reading](#further-reading)
 
 <!-- vim-markdown-toc -->
@@ -1675,7 +1675,7 @@ end
 
 Note: the `#type` syntax only works on types defined by classes, whereas the slightly more verbose `<type; ..>` works on all object types.
 
-### Passing Stdenv.t
+### Passing env
 
 The `env` value you get from `Eio_main.run` is a powerful capability,
 and programs are easier to understand when it's not passed around too much.

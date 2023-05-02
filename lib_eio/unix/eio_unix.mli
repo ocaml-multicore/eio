@@ -102,6 +102,26 @@ val pipe : Switch.t -> source * sink
     can be read from [src].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
+(** The set of resources provided to a process on a Unix-compatible system. *)
+module Stdenv : sig
+  type base = <
+    stdin  : source;
+    stdout : sink;
+    stderr : sink;
+    net : Eio.Net.t;
+    domain_mgr : Eio.Domain_manager.t;
+    clock : Eio.Time.clock;
+    mono_clock : Eio.Time.Mono.t;
+    fs : Eio.Fs.dir Eio.Path.t;
+    cwd : Eio.Fs.dir Eio.Path.t;
+    secure_random : Eio.Flow.source;
+    debug : Eio.Debug.t;
+  >
+  (** The common set of features provided by all traditional operating systems (BSDs, Linux, Mac, Windows).
+
+      You can use the functions in {!Eio.Stdenv} to access these fields if you prefer. *)
+end
+
 (** API for Eio backends only. *)
 module Private : sig
   type _ Effect.t += 

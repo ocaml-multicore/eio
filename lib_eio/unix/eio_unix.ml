@@ -1,5 +1,7 @@
 [@@@alert "-unstable"]
 
+open Eio.Std
+
 module Fd = Fd
 
 module Resource = struct
@@ -27,9 +29,9 @@ module Private = struct
     | Await_readable : Unix.file_descr -> unit Effect.t
     | Await_writable : Unix.file_descr -> unit Effect.t
     | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
-    | Socket_of_fd : Eio.Switch.t * bool * Unix.file_descr -> socket Effect.t
-    | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int -> (socket * socket) Effect.t
-    | Pipe : Eio.Switch.t -> (source * sink) Effect.t
+    | Socket_of_fd : Switch.t * bool * Unix.file_descr -> socket Effect.t
+    | Socketpair : Switch.t * Unix.socket_domain * Unix.socket_type * int -> (socket * socket) Effect.t
+    | Pipe : Switch.t -> (source * sink) Effect.t
 
   module Rcfd = Rcfd
 
@@ -95,3 +97,19 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
   run_in_systhread (fun () ->
     let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
     (ni_hostname, ni_service))
+
+module Stdenv = struct
+  type base = <
+    stdin  : source;
+    stdout : sink;
+    stderr : sink;
+    net : Eio.Net.t;
+    domain_mgr : Eio.Domain_manager.t;
+    clock : Eio.Time.clock;
+    mono_clock : Eio.Time.Mono.t;
+    fs : Eio.Fs.dir Eio.Path.t;
+    cwd : Eio.Fs.dir Eio.Path.t;
+    secure_random : Eio.Flow.source;
+    debug : Eio.Debug.t;
+  >
+end

@@ -8,7 +8,7 @@
 ```ocaml
 open Eio.Std
 
-let run (fn : net:Eio.Net.t -> Switch.t -> unit) =
+let run (fn : net:#Eio.Net.t -> Switch.t -> unit) =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Switch.run (fn ~net)
