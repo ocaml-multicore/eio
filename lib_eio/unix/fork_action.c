@@ -12,7 +12,6 @@
 #ifdef _WIN32
 #else
 void eio_unix_run_fork_actions(int errors, value v_actions) {
-  uerror("Unsupported operation on windows", Nothing);
   int old_flags = fcntl(errors, F_GETFL, 0);
   fcntl(errors, F_SETFL, old_flags & ~O_NONBLOCK);
   while (Is_block(v_actions)) {
