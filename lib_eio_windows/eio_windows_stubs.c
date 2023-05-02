@@ -51,22 +51,22 @@ CAMLprim value caml_eio_windows_getrandom(value v_ba, value v_off, value v_len)
 
 CAMLprim value caml_eio_windows_readv(value v_fd, value v_bufs)
 {
-  uerror("Readv is not supported on windows yet", Nothing);
+  uerror("readv is not supported on windows yet", Nothing);
 }
 
 CAMLprim value caml_eio_windows_preadv(value v_fd, value v_bufs, value v_offset)
 {
-  uerror("Preadv is not supported on windows yet", Nothing);
+  uerror("preadv is not supported on windows yet", Nothing);
 }
 
 CAMLprim value caml_eio_windows_pwritev(value v_fd, value v_bufs, value v_offset)
 {
-  uerror("Pwritev is not supported on windows yet", Nothing);
+  uerror("pwritev is not supported on windows yet", Nothing);
 }
 
 CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_pathname, value v_flags, value v_mode)
 {
-  uerror("Readv is not supported on windows yet", Nothing);
+  uerror("openat is not supported on windows yet", Nothing);
 }
 
 CAMLprim value caml_eio_windows_mkdirat(value v_fd, value v_path, value v_perm)
@@ -86,5 +86,5 @@ CAMLprim value caml_eio_windows_renameat(value v_old_fd, value v_old_path, value
 
 CAMLprim value caml_eio_windows_spawn(value v_errors, value v_actions)
 {
-  uerror("Processes are not supported on windows yet", Nothing);
+  uerror("processes are not supported on windows yet", Nothing);
 }

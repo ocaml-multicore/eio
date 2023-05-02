@@ -9,10 +9,10 @@
 
 #include "fork_action.h"
 
+#ifdef _WIN32
+#else
 void eio_unix_run_fork_actions(int errors, value v_actions) {
-  #ifdef _WIN32
   uerror("Unsupported operation on windows", Nothing);
-  #else
   int old_flags = fcntl(errors, F_GETFL, 0);
   fcntl(errors, F_SETFL, old_flags & ~O_NONBLOCK);
   while (Is_block(v_actions)) {
@@ -22,8 +22,8 @@ void eio_unix_run_fork_actions(int errors, value v_actions) {
     v_actions = Field(v_actions, 1);
   }
   _exit(1);
-  #endif
 }
+#endif
 
 static void try_write_all(int fd, char *buf) {
   int len = strlen(buf);

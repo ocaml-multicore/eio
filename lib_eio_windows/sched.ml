@@ -230,7 +230,7 @@ let with_sched fn =
   let run_q = Lf_queue.create () in
   Lf_queue.push run_q IO;
   let sleep_q = Zzz.create () in
-  (* Pipe's on Windows cannot be nonblocking through the OCaml API. *)
+  (* Pipes on Windows cannot be nonblocking through the OCaml API. *)
   let eventfd_r, eventfd_w = Unix.socketpair ~cloexec:true Unix.PF_UNIX Unix.SOCK_STREAM 0 in
   Unix.set_nonblock eventfd_r;
   Unix.set_nonblock eventfd_w;
