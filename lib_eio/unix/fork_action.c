@@ -9,8 +9,7 @@
 
 #include "fork_action.h"
 
-#ifdef _WIN32
-#else
+#ifndef _WIN32
 void eio_unix_run_fork_actions(int errors, value v_actions) {
   int old_flags = fcntl(errors, F_GETFL, 0);
   fcntl(errors, F_SETFL, old_flags & ~O_NONBLOCK);
