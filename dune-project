@@ -28,7 +28,6 @@
   (domain-local-await (>= 0.1.0))
   (crowbar (and (>= 0.2) :with-test))
   (mtime (>= 2.0.0))
-  (kcas (and (>= 0.3.0) :with-test))
   (mdx (and (>= 2.2.0) :with-test))
   (alcotest (and (>= 1.4.0) :with-test))
   (dscheck (and (>= 0.1.0) :with-test))))
@@ -67,6 +66,7 @@
  (description "Selects an appropriate Eio backend for the current platform.")
  (depends
   (mdx (and (>= 2.2.0) :with-test))
+  (kcas (and (>= 0.3.0) :with-test))
   (eio_linux (and (= :version) (= :os "linux")))
   (eio_posix (and (= :version) (<> :os "windows")))
   (eio_windows (and (= :version) (= :os "windows")))))

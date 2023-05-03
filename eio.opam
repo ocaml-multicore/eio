@@ -21,7 +21,6 @@ depends: [
   "domain-local-await" {>= "0.1.0"}
   "crowbar" {>= "0.2" & with-test}
   "mtime" {>= "2.0.0"}
-  "kcas" {>= "0.3.0" & with-test}
   "mdx" {>= "2.2.0" & with-test}
   "alcotest" {>= "1.4.0" & with-test}
   "dscheck" {>= "0.1.0" & with-test}
