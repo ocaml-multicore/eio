@@ -52,8 +52,11 @@ let bench_resolved ~clock ~n_iters =
     t := !t + Promise.await p;
   done;
   let t1 = Eio.Time.now clock in
-  Printf.printf "Reading a resolved promise: %.3f ns\n%!" (1e9 *. (t1 -. t0) /. float n_iters);
-  assert (!t = n_iters)
+  assert (!t = n_iters);
+  Metric.create
+    "read-resolved"
+    (`Float (1e9 *. (t1 -. t0) /. float n_iters)) "ns"
+    "Time to read a resolved promise"
 
 let maybe_spin v fn =
   if v then Fiber.first spin fn
@@ -62,7 +65,6 @@ let maybe_spin v fn =
 let run_bench ~domain_mgr ~spin ~clock ~use_domains ~n_iters =
   let init_p, init_r = Promise.create () in
   Gc.full_major ();
-  let _minor0, prom0, _major0 = Gc.counters () in
   let t0 = Eio.Time.now clock in
   Fiber.both
     (fun () ->
@@ -79,23 +81,28 @@ let run_bench ~domain_mgr ~spin ~clock ~use_domains ~n_iters =
   let t1 = Eio.Time.now clock in
   let time_total = t1 -. t0 in
   let time_per_iter = time_total /. float n_iters in
-  let _minor1, prom1, _major1 = Gc.counters () in
-  let prom = prom1 -. prom0 in
-  let domains = Printf.sprintf "%b/%b" use_domains spin in
-  Printf.printf "%11s, %8d, %8.2f, %13.4f\n%!" domains n_iters (1e9 *. time_per_iter) (prom /. float n_iters)
+  let domains_label =
+    if use_domains then
+      if spin then "with-spin"
+      else "without-spin"
+    else "no"
+  in
+  Metric.create
+    (Printf.sprintf "iterations:%d domains:%s" n_iters domains_label)
+    (`Float (1e9 *. time_per_iter)) "ns"
+    "Time to round-trip a request/reply"
 
 let main ~domain_mgr ~clock =
-  bench_resolved ~clock ~n_iters:(10_000_000);
-  Printf.printf "domains/spin, n_iters,  ns/iter, promoted/iter\n%!";
-  [false, false, 1_000_000;
+  let resolved = bench_resolved ~clock ~n_iters:(10_000_000) in
+  let metrics = [false, false, 1_000_000;
    true,  true,    100_000;
    true,  false,   100_000]
-  |> List.iter (fun (use_domains, spin, n_iters) ->
+  |> List.map (fun (use_domains, spin, n_iters) ->
       run_bench ~domain_mgr ~spin ~clock ~use_domains ~n_iters
-    )
+  ) in
+  resolved :: metrics
 
-let () =
-  Eio_main.run @@ fun env ->
+let run env =
   main
     ~domain_mgr:(Eio.Stdenv.domain_mgr env)
     ~clock:(Eio.Stdenv.clock env)

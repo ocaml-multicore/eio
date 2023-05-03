@@ -52,7 +52,8 @@ jobs:
       - run: | 
           opam pin -yn eio.dev .
           opam pin -yn eio_windows.dev .
-          opam install eio eio_windows --deps-only --with-test
+          opam pin -yn eio_main.dev .
+          opam install eio eio_windows eio_main --deps-only --with-test
       - run: opam exec -- dune build
       - run: opam exec -- dune runtest
       - run: opam exec -- dune exec -- ./examples/net/main.exe

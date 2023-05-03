@@ -1,4 +1,8 @@
-(executables
-  (names bench_stream bench_promise bench_semaphore bench_yield bench_cancel bench_mutex
-         bench_buf_read bench_condition bench_fd bench_http)
-  (libraries eio_main))
+; This should be an executable, but dune won't let us associate non-installed executables
+; to packages, so we use this work-around.
+(test
+  (name main)
+  (package eio_main)
+  (deps ./main.exe)
+  (action (progn))  ; Don't run as a test
+  (libraries eio_main yojson))
