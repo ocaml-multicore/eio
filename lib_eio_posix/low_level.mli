@@ -64,7 +64,6 @@ module Open_flags : sig
   val append : t
   val creat : t
   val directory : t
-  val dsync : t
   val excl : t
   val noctty : t
   val nofollow : t

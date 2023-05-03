@@ -164,7 +164,6 @@ module Open_flags = struct
   let cloexec = Config.o_cloexec
   let creat = Config.o_creat
   let directory = Config.o_directory
-  let dsync = Config.o_dsync
   let excl = Config.o_excl
   let noctty = Config.o_noctty
   let nofollow = Config.o_nofollow

@@ -14,7 +14,6 @@ let () =
             "O_CLOEXEC", Int;
             "O_CREAT", Int;
             "O_DIRECTORY", Int;
-            "O_DSYNC", Int;
             "O_EXCL", Int;
             "O_NOCTTY", Int;
             "O_NOFOLLOW", Int;
