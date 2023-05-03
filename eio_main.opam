@@ -11,6 +11,7 @@ bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "3.7"}
   "mdx" {>= "2.2.0" & with-test}
+  "kcas" {>= "0.3.0" & with-test}
   "eio_linux" {= version & os = "linux"}
   "eio_posix" {= version & os != "windows"}
   "eio_windows" {= version & os = "windows"}
