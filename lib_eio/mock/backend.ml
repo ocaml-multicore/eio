@@ -63,7 +63,11 @@ let run main =
   in
   let new_fiber = Fiber_context.make_root () in
   let result = ref None in
-  let Exit_scheduler = fork ~new_fiber (fun () -> result := Some (main ())) in
+  let Exit_scheduler =
+    Domain_local_await.using
+      ~prepare_for_await:Eio.Private.Dla.prepare_for_await
+      ~while_running:(fun () ->
+        fork ~new_fiber (fun () -> result := Some (main ()))) in
   match !result with
   | None -> raise Deadlock_detected
   | Some x -> x
