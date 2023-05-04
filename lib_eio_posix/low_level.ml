@@ -171,6 +171,8 @@ module Open_flags = struct
   let nonblock = Config.o_nonblock
   let sync = Config.o_sync
   let trunc = Config.o_trunc
+  let resolve_beneath = Config.o_resolve_beneath
+  let path = Config.o_path
 
   let empty = 0
   let ( + ) = ( lor )
