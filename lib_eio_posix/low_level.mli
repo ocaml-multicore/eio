@@ -64,12 +64,14 @@ module Open_flags : sig
   val append : t
   val creat : t
   val directory : t
-  val dsync : t
+  val dsync : t option
   val excl : t
   val noctty : t
   val nofollow : t
   val sync : t
   val trunc : t
+  val resolve_beneath : t option
+  val path : t option
 
   val empty : t
   val ( + ) : t -> t -> t
