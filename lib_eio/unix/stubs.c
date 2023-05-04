@@ -15,4 +15,5 @@ CAMLprim value eio_unix_is_blocking(value v_fd) {
     uerror("fcntl", Nothing);
 
   return Val_bool((r & O_NONBLOCK) == 0);
+  #endif
 }
