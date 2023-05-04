@@ -1,14 +1,11 @@
 include Eio__core
 
-module Fibre = Fiber
-
 module Debug = Private.Debug
 let traceln = Debug.traceln
 
 module Std = struct
   module Promise = Promise
   module Fiber = Fiber
-  module Fibre = Fiber
   module Switch = Switch
   let traceln = Debug.traceln
 end

@@ -330,18 +330,6 @@ module Fiber : sig
         @param max_fibers Maximum number of fibers to run concurrently *)
   end
 
-  val filter : ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
-  [@@ocaml.deprecated "Use `Eio.Fiber.List.filter` instead."]
-
-  val map : ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
-  [@@ocaml.deprecated "Use `Eio.Fiber.List.map instead."]
-
-  val filter_map : ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
-  [@@ocaml.deprecated "Use `Eio.Fiber.List.filter_map instead."]
-
-  val iter : ?max_fibers:int -> ('a -> unit) -> 'a list -> unit
-  [@@ocaml.deprecated "Use `Eio.Fiber.List.iter instead."]
-
   (** {2 Fiber-local variables}
 
       Each fiber maintains a map of additional variables associated with it,

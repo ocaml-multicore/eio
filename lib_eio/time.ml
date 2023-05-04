@@ -49,7 +49,6 @@ let with_timeout_exn t d = Fiber.first (fun () -> sleep t d; raise Timeout)
 module Timeout = struct
   type t =
     | Timeout of Mono.t * Mtime.Span.t
-    | Deprecated of clock * float
     | Unlimited
 
   let none = Unlimited
@@ -58,24 +57,17 @@ module Timeout = struct
   let seconds clock time =
     v clock (Mono.span_of_s time)
 
-  let of_s clock time =
-    Deprecated ((clock :> clock), time)
-
   let run t fn =
     match t with
     | Unlimited -> fn ()
     | Timeout (clock, d) ->
       Fiber.first (fun () -> Mono.sleep_span clock d; Error `Timeout) fn
-    | Deprecated (clock, d) ->
-      Fiber.first (fun () -> sleep clock d; Error `Timeout) fn
 
   let run_exn t fn =
     match t with
     | Unlimited -> fn ()
     | Timeout (clock, d) ->
       Fiber.first (fun () -> Mono.sleep_span clock d; raise Timeout) fn
-    | Deprecated (clock, d) ->
-      Fiber.first (fun () -> sleep clock d; raise Timeout) fn
 
   let pp_duration f d =
     if d >= 0.001 && d < 0.1 then
@@ -89,7 +81,5 @@ module Timeout = struct
     | Unlimited -> Fmt.string f "(no timeout)"
     | Timeout (_clock, d) ->
       let d = Mtime.Span.to_float_ns d /. 1e9 in
-      pp_duration f d
-    | Deprecated (_clock, d) ->
       pp_duration f d
 end

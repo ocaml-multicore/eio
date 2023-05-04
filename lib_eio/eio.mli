@@ -24,10 +24,6 @@ module Promise = Eio__core.Promise
 (** A fiber is a light-weight thread. *)
 module Fiber = Eio__core.Fiber
 
-(**/**)
-module Fibre = Fiber [@@deprecated "Now spelt Fiber"]
-(**/**)
-
 (** A counting semaphore. *)
 module Semaphore = Semaphore
 
@@ -47,9 +43,6 @@ module Cancel = Eio__core.Cancel
 module Std : sig
   module Promise = Promise
   module Fiber = Fiber
-  (**/**)
-  module Fibre = Fiber [@@deprecated "Now spelt Fiber"]
-  (**/**)
   module Switch = Switch
 
   val traceln :

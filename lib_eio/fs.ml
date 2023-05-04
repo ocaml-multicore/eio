@@ -1,8 +1,5 @@
 (** Defines types used by file-systems. *)
 
-(** Tranditional Unix permissions. *)
-module Unix_perm = File.Unix_perm [@@deprecated "Moved to File.Unix_perm"]
-
 type path = string
 
 type error =

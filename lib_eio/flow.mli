@@ -15,9 +15,6 @@ class virtual source : object
   method virtual read_into : Cstruct.t -> int
 end
 
-val read : #source -> Cstruct.t -> int
-[@@deprecated "Use single_read if you really want this."]
-
 val single_read : #source -> Cstruct.t -> int
 (** [single_read src buf] reads one or more bytes into [buf].
 
