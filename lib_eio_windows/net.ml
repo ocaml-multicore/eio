@@ -82,7 +82,7 @@ let getaddrinfo ~service node =
   aux ()
 
 let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.stream) =
-  let socket_type, addr =
+  let socket_type, addr, is_unix_socket =
     match listen_addr with
     | `Unix path         ->
       if reuse_addr then (
@@ -92,10 +92,10 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
         | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
         | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
       );
-      Unix.SOCK_STREAM, Unix.ADDR_UNIX path
+      Unix.SOCK_STREAM, Unix.ADDR_UNIX path, true
     | `Tcp (host, port)  ->
       let host = Eio_unix.Ipaddr.to_unix host in
-      Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
+      Unix.SOCK_STREAM, Unix.ADDR_INET (host, port), false
   in
   let sock = Low_level.socket ~sw (socket_domain_of listen_addr) socket_type 0 in
   (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
@@ -107,12 +107,14 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
       Switch.null_hook
   in
   Fd.use_exn "listen" sock (fun fd ->
-      if reuse_addr then
+      (* REUSEADDR cannot be set on a Windows UNIX domain socket,
+         otherwise the Unix.bind will fail! *)
+      if not is_unix_socket && reuse_addr then
         Unix.setsockopt fd Unix.SO_REUSEADDR true;
       if reuse_port then
         Unix.setsockopt fd Unix.SO_REUSEPORT true;
       Unix.bind fd addr;
-      Unix.listen fd backlog;
+      Unix.listen fd backlog
     );
   listening_socket ~hook sock
 

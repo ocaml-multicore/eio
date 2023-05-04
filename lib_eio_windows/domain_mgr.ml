@@ -30,7 +30,8 @@ let run_event_loop fn x =
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k (Time.mono_clock : Eio.Time.Mono.t))
       | Eio_unix.Private.Socket_of_fd (sw, close_unix, unix_fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
-          Unix.set_nonblock unix_fd;
+          (* TODO: On Windows, if the FD from Unix.pipe () is passed this will fail *)
+          (try Unix.set_nonblock unix_fd with Unix.Unix_error (Unix.ENOTSOCK, _, _) -> ());
           continue k (Flow.of_fd fd :> Eio_unix.socket)
         )
       | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
