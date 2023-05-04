@@ -102,6 +102,9 @@ val pipe : Switch.t -> source * sink
     can be read from [src].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
+module Process = Process
+(** Spawning child processes with extra control. *)
+
 (** The set of resources provided to a process on a Unix-compatible system. *)
 module Stdenv : sig
   type base = <
@@ -110,6 +113,7 @@ module Stdenv : sig
     stderr : sink;
     net : Eio.Net.t;
     domain_mgr : Eio.Domain_manager.t;
+    process_mgr : Process.mgr;
     clock : Eio.Time.clock;
     mono_clock : Eio.Time.Mono.t;
     fs : Eio.Fs.dir Eio.Path.t;

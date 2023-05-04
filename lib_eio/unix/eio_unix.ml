@@ -1,17 +1,14 @@
 [@@@alert "-unstable"]
 
-open Eio.Std
-
 module Fd = Fd
+module Resource = Resource
+module Private = Private
 
-module Resource = struct
-  type t = < fd : Fd.t >
+include Types
 
-  type _ Eio.Generic.ty += FD : Fd.t Eio.Generic.ty
-
-  let fd t = t#fd
-  let fd_opt t = Eio.Generic.probe t FD
-end
+let await_readable = Private.await_readable
+let await_writable = Private.await_writable
+let pipe = Private.pipe
 
 type Eio.Exn.Backend.t += Unix_error of Unix.error * string * string
 let () =
@@ -19,27 +16,6 @@ let () =
       | Unix_error (code, name, arg) -> Fmt.pf f "Unix_error (%s, %S, %S)" (Unix.error_message code) name arg; true
       | _ -> false
     )
-
-type source = < Eio.Flow.source;  Resource.t; Eio.Flow.close >
-type sink   = < Eio.Flow.sink;    Resource.t; Eio.Flow.close >
-type socket = < Eio.Flow.two_way; Resource.t; Eio.Flow.close >
-
-module Private = struct
-  type _ Effect.t += 
-    | Await_readable : Unix.file_descr -> unit Effect.t
-    | Await_writable : Unix.file_descr -> unit Effect.t
-    | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
-    | Socket_of_fd : Switch.t * bool * Unix.file_descr -> socket Effect.t
-    | Socketpair : Switch.t * Unix.socket_domain * Unix.socket_type * int -> (socket * socket) Effect.t
-    | Pipe : Switch.t -> (source * sink) Effect.t
-
-  module Rcfd = Rcfd
-
-  module Fork_action = Fork_action
-end
-
-let await_readable fd = Effect.perform (Private.Await_readable fd)
-let await_writable fd = Effect.perform (Private.Await_writable fd)
 
 let sleep d =
   Eio.Time.Mono.sleep (Effect.perform Private.Get_monotonic_clock) d
@@ -78,8 +54,6 @@ end
 let socketpair ~sw ?(domain=Unix.PF_UNIX) ?(ty=Unix.SOCK_STREAM) ?(protocol=0) () =
   Effect.perform (Private.Socketpair (sw, domain, ty, protocol))
 
-let pipe sw = Effect.perform (Private.Pipe sw)
-
 module Ipaddr = struct
   let to_unix : _ Eio.Net.Ipaddr.t -> Unix.inet_addr = Obj.magic
   let of_unix : Unix.inet_addr -> _ Eio.Net.Ipaddr.t = Obj.magic
@@ -98,6 +72,8 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
     let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
     (ni_hostname, ni_service))
 
+module Process = Process
+
 module Stdenv = struct
   type base = <
     stdin  : source;
@@ -105,6 +81,7 @@ module Stdenv = struct
     stderr : sink;
     net : Eio.Net.t;
     domain_mgr : Eio.Domain_manager.t;
+    process_mgr : Process.mgr;
     clock : Eio.Time.clock;
     mono_clock : Eio.Time.Mono.t;
     fs : Eio.Fs.dir Eio.Path.t;

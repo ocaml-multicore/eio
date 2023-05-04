@@ -33,6 +33,7 @@ let run main =
     method clock = Time.clock
     method mono_clock = Time.mono_clock
     method net = Net.v
+    method process_mgr = Process.v
     method domain_mgr = Domain_mgr.v
     method cwd = ((Fs.cwd, "") :> Eio.Fs.dir Eio.Path.t)
     method fs = ((Fs.fs, "") :> Eio.Fs.dir Eio.Path.t)

@@ -283,6 +283,52 @@ end
 
 type stdenv = Eio_unix.Stdenv.base
 
+module Process = Low_level.Process
+
+let process proc : Eio.Process.t = object
+  method pid = Process.pid proc
+
+  method await =
+    match Eio.Promise.await @@ Process.exit_status proc with
+    | Unix.WEXITED i -> `Exited i
+    | Unix.WSIGNALED i -> `Signaled i
+    | Unix.WSTOPPED _ -> assert false
+
+  method signal i = Process.signal proc i
+end
+
+(* fchdir wants just a directory FD, not an FD and a path like the *at functions. *)
+let with_dir dir_fd path fn =
+  Switch.run @@ fun sw ->
+  Low_level.openat ~sw
+    ~seekable:false
+    ~access:`R
+    ~perm:0
+    ~flags:Uring.Open_flags.(cloexec + path + directory)
+    dir_fd (if path = "" then "." else path)
+  |> fn
+
+let process_mgr = object
+  inherit Eio_unix.Process.mgr
+
+  method spawn_unix ~sw ?cwd ~env ~fds ~executable args =
+    let actions = Process.Fork_action.[
+        Eio_unix.Private.Fork_action.inherit_fds fds;
+        execve executable ~argv:(Array.of_list args) ~env
+    ] in
+    let with_actions cwd fn = match cwd with
+      | None -> fn actions
+      | Some (fd, s) ->
+        match get_dir_fd_opt fd with
+        | None -> Fmt.invalid_arg "cwd is not an OS directory!"
+        | Some dir_fd ->
+          with_dir dir_fd s @@ fun cwd ->
+          fn (Process.Fork_action.fchdir cwd :: actions)
+    in
+    with_actions cwd @@ fun actions ->
+    process (Process.spawn ~sw actions)
+end
+
 let domain_mgr ~run_event_loop = object
   inherit Eio.Domain_manager.t
 
@@ -409,6 +455,7 @@ let stdenv ~run_event_loop =
     method stdout = stdout
     method stderr = stderr
     method net = net
+    method process_mgr = process_mgr
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
     method mono_clock = mono_clock
