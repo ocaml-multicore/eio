@@ -235,14 +235,7 @@ module Fiber : sig
       The calling fiber is placed at the head of the run queue, ahead of any previous items. *)
 
   val fork_sub : sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
-  (** [fork_sub ~sw ~on_error fn] is like [fork], but it creates a new sub-switch for the fiber.
-
-      This means that you can cancel the child switch without cancelling the parent.
-      This is a convenience function for running {!Switch.run} inside a {!fork}.
-
-      @param on_error This is called if the fiber raises an exception.
-                      If it raises in turn, the parent switch is failed.
-                      It is not called if the parent [sw] itself is cancelled. *)
+  [@@deprecated "Use Fiber.fork and Switch.run separately instead"]
 
   val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.or_exn
   (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fiber and returns a promise for its result.
@@ -329,18 +322,6 @@ module Fiber : sig
         run concurrently in separate fibers.
         @param max_fibers Maximum number of fibers to run concurrently *)
   end
-
-  val filter : ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
-  [@@ocaml.deprecated "Use `Eio.Fiber.List.filter` instead."]
-
-  val map : ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
-  [@@ocaml.deprecated "Use `Eio.Fiber.List.map instead."]
-
-  val filter_map : ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
-  [@@ocaml.deprecated "Use `Eio.Fiber.List.filter_map instead."]
-
-  val iter : ?max_fibers:int -> ('a -> unit) -> 'a list -> unit
-  [@@ocaml.deprecated "Use `Eio.Fiber.List.iter instead."]
 
   (** {2 Fiber-local variables}
 

@@ -188,9 +188,6 @@ let accept_fork ~sw (t : #listening_socket) ~on_error handle =
          )
     )
 
-let accept_sub ~sw (t : #listening_socket) ~on_error handle =
-  accept_fork ~sw t ~on_error (fun flow addr -> Switch.run (fun sw -> handle ~sw flow addr))
-
 class virtual datagram_socket = object
   inherit socket
   method virtual send : Sockaddr.datagram -> Cstruct.t -> unit

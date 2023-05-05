@@ -218,7 +218,7 @@ Exception: Stdlib.Exit.
 Exception: Failure "simulated error".
 ```
 
-# Fiber.fork
+# Fiber.fork_promise
 
 `Fiber.fork_promise ~sw` inherits the cancellation context from `sw`, not from the current fiber:
 

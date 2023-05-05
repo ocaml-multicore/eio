@@ -211,14 +211,6 @@ val accept_fork :
                     If you don't want to handle connection errors,
                     use [~on_error:raise] to cancel the caller's context. *)
 
-val accept_sub :
-  sw:Switch.t ->
-  #listening_socket ->
-  on_error:(exn -> unit) ->
-  (sw:Switch.t -> stream_socket -> Sockaddr.stream -> unit) ->
-  unit
-[@@deprecated "Use accept_fork instead"]
-
 (** {2 Running Servers} *)
 
 val run_server :

@@ -107,5 +107,3 @@ class virtual two_way = object (_ : <source; sink; ..>)
 end
 
 let shutdown (t : #two_way) = t#shutdown
-
-let read = single_read

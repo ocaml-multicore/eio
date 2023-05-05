@@ -10,6 +10,14 @@ open Eio.Std
 let run (fn : Switch.t -> _) =
   Eio_mock.Backend.run @@ fun () ->
   Switch.run fn
+
+let fork_sub ~sw ~on_error fn =
+  Fiber.fork ~sw (fun () ->
+    try Switch.run fn
+    with
+    | Eio.Cancel.Cancelled _ -> ()
+    | ex -> on_error ex
+  )
 ```
 
 # Test cases
@@ -200,8 +208,8 @@ Child switches are cancelled when the parent is cancelled, but `on_error` isn't 
 # run (fun sw ->
       let p, _ = Promise.create () in
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
-      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await p);
-      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await p);
+      fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await p);
+      fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await p);
       Switch.fail sw (Failure "Cancel parent")
     );;
 +Child 1
@@ -216,8 +224,8 @@ A child can fail independently of the parent:
       let p1, r1 = Promise.create () in
       let p2, r2 = Promise.create () in
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
-      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await_exn p1);
-      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await_exn p2);
+      fork_sub ~sw ~on_error (fun sw -> traceln "Child 1"; Promise.await_exn p1);
+      fork_sub ~sw ~on_error (fun sw -> traceln "Child 2"; Promise.await_exn p2);
       Promise.resolve_error r1 (Failure "Child error");
       Promise.resolve_ok r2 ();
       Fiber.yield ();
@@ -237,7 +245,7 @@ A child can be cancelled independently of the parent:
       let p, _ = Promise.create () in
       let on_error ex = traceln "child: %s" (Printexc.to_string ex) in
       let child = ref None in
-      Fiber.fork_sub ~sw ~on_error (fun sw ->
+      fork_sub ~sw ~on_error (fun sw ->
           traceln "Child 1";
           child := Some sw;
           Promise.await ~sw p
@@ -258,7 +266,7 @@ A child error handler raises:
 # run (fun sw ->
       let p, r = Promise.create () in
       let on_error = raise in
-      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await_exn p);
+      fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await_exn p);
       Promise.resolve_error r (Failure "Child error escapes");
       Fiber.yield ();
       traceln "Not reached"
@@ -273,7 +281,7 @@ A child error handler deals with the exception:
 # run (fun sw ->
       let p, r = Promise.create () in
       let on_error = traceln "caught: %a" Fmt.exn in
-      Fiber.fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await_exn p);
+      fork_sub ~sw ~on_error (fun sw -> traceln "Child"; Promise.await_exn p);
       Promise.resolve_error r (Failure "Child error is caught");
       Fiber.yield ();
       traceln "Still running"

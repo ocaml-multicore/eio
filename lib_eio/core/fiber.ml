@@ -271,8 +271,6 @@ module List = struct
 
 end
 
-include List
-
 type 'a key = 'a Hmap.key
 
 let create_key () = Hmap.Key.create ()
