@@ -12,6 +12,7 @@ depends: [
   "dune" {>= "3.7"}
   "eio" {= version}
   "cstruct-unix" {= "dev"}
+  "kcas" {>= "0.3.0" & with-test}
   "alcotest" {>= "1.4.0" & with-test}
   "odoc" {with-doc}
 ]

@@ -8,6 +8,6 @@ let () = Jbuild_plugin.V1.send @@ if not win32 then "" else {|
   (name test)
   (package eio_windows)
   (enabled_if (= %{os_type} "Win32"))
-  (libraries alcotest eio.mock eio_windows))
+  (libraries alcotest kcas eio.mock eio_windows))
 
 |}
