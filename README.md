@@ -1875,4 +1875,4 @@ Some background about the effects system can be found in:
 [kcas]: https://github.com/ocaml-multicore/kcas
 [Meio]: https://github.com/tarides/meio
 [Lambda Capabilities]: https://roscidus.com/blog/blog/2023/04/26/lambda-capabilities/
-[Eio.Process]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio/process.ml
+[Eio.Process]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio/process.mli
