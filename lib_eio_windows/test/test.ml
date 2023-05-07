@@ -51,8 +51,9 @@ end
 
 let () =
   Eio_windows.run @@ fun env ->
-  Alcotest.run "eio_windows" [
+  Alcotest.run ~bail:true "eio_windows" [
     "net", Test_net.tests env;
+    "fs", Test_fs.tests env;
     "timeout", Timeout.tests env;
     "random", Random.tests env;
     "dla", Dla.tests

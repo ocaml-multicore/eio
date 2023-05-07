@@ -1,7 +1,7 @@
 (library
  (name eio_windows)
  (public_name eio_windows)
- (library_flags :standard -ccopt -lbcrypt)
+ (library_flags :standard -ccopt -lbcrypt -ccopt -lntdll)
  (enabled_if (= %{os_type} "Win32"))
  (foreign_stubs
   (language c)
