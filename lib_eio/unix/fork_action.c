@@ -71,7 +71,7 @@ CAMLprim value eio_unix_fork_execve(value v_unit) {
 
 static void action_fchdir(int errors, value v_config) {
   #ifdef _WIN32
-  uerror("Unsupported operation on windows", Nothing);
+  eio_unix_fork_error(errors, "action_fchdir", "Unsupported operation on windows");
   #else
   value v_fd = Field(v_config, 1);
   int r;
@@ -103,7 +103,7 @@ CAMLprim value eio_unix_fork_chdir(value v_unit) {
 
 static void set_blocking(int errors, int fd, int blocking) {
   #ifdef _WIN32
-  uerror("Unsupported operation on windows", Nothing);
+  eio_unix_fork_error(errors, "set_blocking", "Unsupported operation on windows");
   #else
   int r = fcntl(fd, F_GETFL, 0);
   if (r != -1) {
@@ -123,7 +123,7 @@ static void set_blocking(int errors, int fd, int blocking) {
 
 static void set_cloexec(int errors, int fd, int cloexec) {
   #ifdef _WIN32
-  uerror("Unsupported operation on windows", Nothing);
+  eio_unix_fork_error(errors, "set_cloexec", "Unsupported operation on windows");
   #else
   int r = fcntl(fd, F_GETFD, 0);
   if (r != -1) {
