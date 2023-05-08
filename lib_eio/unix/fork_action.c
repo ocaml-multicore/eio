@@ -5,9 +5,11 @@
 #include <errno.h>
 
 #include <caml/mlvalues.h>
+#include <caml/unixsupport.h>
 
 #include "fork_action.h"
 
+#ifndef _WIN32
 void eio_unix_run_fork_actions(int errors, value v_actions) {
   int old_flags = fcntl(errors, F_GETFL, 0);
   fcntl(errors, F_SETFL, old_flags & ~O_NONBLOCK);
@@ -19,6 +21,7 @@ void eio_unix_run_fork_actions(int errors, value v_actions) {
   }
   _exit(1);
 }
+#endif
 
 static void try_write_all(int fd, char *buf) {
   int len = strlen(buf);
@@ -67,6 +70,9 @@ CAMLprim value eio_unix_fork_execve(value v_unit) {
 }
 
 static void action_fchdir(int errors, value v_config) {
+  #ifdef _WIN32
+  eio_unix_fork_error(errors, "action_fchdir", "Unsupported operation on windows");
+  #else
   value v_fd = Field(v_config, 1);
   int r;
   r = fchdir(Int_val(v_fd));
@@ -74,6 +80,7 @@ static void action_fchdir(int errors, value v_config) {
     eio_unix_fork_error(errors, "fchdir", strerror(errno));
     _exit(1);
   }
+  #endif
 }
 
 CAMLprim value eio_unix_fork_fchdir(value v_unit) {
@@ -95,6 +102,9 @@ CAMLprim value eio_unix_fork_chdir(value v_unit) {
 }
 
 static void set_blocking(int errors, int fd, int blocking) {
+  #ifdef _WIN32
+  eio_unix_fork_error(errors, "set_blocking", "Unsupported operation on windows");
+  #else
   int r = fcntl(fd, F_GETFL, 0);
   if (r != -1) {
     int flags = blocking
@@ -108,9 +118,13 @@ static void set_blocking(int errors, int fd, int blocking) {
     eio_unix_fork_error(errors, "fcntl", strerror(errno));
     _exit(1);
   }
+  #endif
 }
 
 static void set_cloexec(int errors, int fd, int cloexec) {
+  #ifdef _WIN32
+  eio_unix_fork_error(errors, "set_cloexec", "Unsupported operation on windows");
+  #else
   int r = fcntl(fd, F_GETFD, 0);
   if (r != -1) {
     int flags = cloexec
@@ -124,6 +138,7 @@ static void set_cloexec(int errors, int fd, int cloexec) {
     eio_unix_fork_error(errors, "fcntl", strerror(errno));
     _exit(1);
   }
+  #endif
 }
 
 static void action_dups(int errors, value v_config) {

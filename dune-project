@@ -56,10 +56,13 @@
 (package
  (name eio_windows)
  (synopsis "Eio implementation for Windows")
- (description "An Eio implementation using I/O Completion Ports")
+ (description "An Eio implementation using OCaml's Unix.select")
  (allow_empty)  ; Work-around for dune bug #6938
  (depends
-  (eio (= :version))))
+  (eio (= :version))
+  (cstruct-unix (= dev))
+  (kcas (and (>= 0.3.0) :with-test))
+  (alcotest (and (>= 1.4.0) :with-test))))
 (package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")

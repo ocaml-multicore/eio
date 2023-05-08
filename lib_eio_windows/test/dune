@@ -1,0 +1,13 @@
+(* -*- tuareg -*- *)
+
+let win32 = List.mem ("os_type", "Win32") Jbuild_plugin.V1.ocamlc_config
+
+let () = Jbuild_plugin.V1.send @@ if not win32 then "" else {|
+
+(test
+  (name test)
+  (package eio_windows)
+  (enabled_if (= %{os_type} "Win32"))
+  (libraries alcotest kcas eio.mock eio_windows))
+
+|}
