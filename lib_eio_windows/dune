@@ -11,4 +11,5 @@
 
 (rule
  (targets config.ml)
+ (enabled_if (= %{os_type} "Win32"))
  (action (run ./include/discover.exe)))
