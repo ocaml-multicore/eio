@@ -1,4 +1,4 @@
-[API reference][Eio API] | [#eio Matrix chat](https://matrix.to/#/#eio:roscidus.com)
+[API reference][Eio API] | [#eio Matrix chat](https://matrix.to/#/#eio:roscidus.com) | [Dev meetings][]
 
 # Eio -- Effects-Based Parallel IO for OCaml
 
@@ -1876,3 +1876,4 @@ Some background about the effects system can be found in:
 [Meio]: https://github.com/tarides/meio
 [Lambda Capabilities]: https://roscidus.com/blog/blog/2023/04/26/lambda-capabilities/
 [Eio.Process]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio/process.mli
+[Dev meetings]: https://docs.google.com/document/d/1ZBfbjAkvEkv9ldumpZV5VXrEc_HpPeYjHPW_TiwJe4Q
