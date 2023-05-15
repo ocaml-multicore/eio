@@ -57,10 +57,10 @@ let create
     clear_signal = Atomic.make false;
   }
 
-let use
+let async 
     (t : 'a t)
     (f : 'a -> 'b)
-  : 'b =
+  : 'b Promise.t =
   let elem =
     Eio_mutex.use_rw ~protect:true t.lock (fun () ->
         match Stream.take_nonblocking t.ready with
@@ -80,22 +80,34 @@ let use
     | None -> Stream.take t.ready
     | Some x -> x
   in
+  let promise, resolver = Promise.create () in
   (* Obtain a copy of clear signal for this runner *)
   let clear_signal = t.clear_signal in
-  Fun.protect
-    (fun () -> f elem)
-    ~finally:(fun () ->
-        let do_not_clear = not (Atomic.get clear_signal) in
-        if do_not_clear && t.check elem then (
-          Stream.add t.ready elem
-        ) else (
-          Eio_mutex.use_rw ~protect:true t.lock (fun () ->
-              assert (t.current_size > 0);
-              t.current_size <- t.current_size - 1;
-              t.dispose elem;
+  Switch.run (fun sw ->
+      Fiber.fork ~sw (fun () ->
+          Fun.protect
+            (fun () ->
+               let res = f elem in
+               Promise.resolve resolver res
             )
+            ~finally:(fun () ->
+                let do_not_clear = not (Atomic.get clear_signal) in
+                if do_not_clear && t.check elem then (
+                  Stream.add t.ready elem
+                ) else (
+                  Eio_mutex.use_rw ~protect:true t.lock (fun () ->
+                      assert (t.current_size > 0);
+                      t.current_size <- t.current_size - 1;
+                      t.dispose elem;
+                    )
+                )
+              )
         )
-      )
+    );
+  promise
+
+let use t f =
+  Promise.await (async t f)
 
 let clear (t : 'a t) =
   Eio_mutex.use_rw ~protect:true t.lock (fun () ->

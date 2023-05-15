@@ -39,6 +39,9 @@ module Stream = Stream
 (** A resource pool. *)
 module Pool = Pool
 
+(** A task pool. *)
+module Task_pool = Task_pool
+
 (** Cancelling fibers. *)
 module Cancel = Eio__core.Cancel
 

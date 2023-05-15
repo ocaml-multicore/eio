@@ -15,6 +15,7 @@ module Mutex = Eio_mutex
 module Condition = Condition
 module Stream = Stream
 module Pool = Pool
+module Task_pool = Task_pool
 module Exn = Exn
 module Generic = Generic
 module Flow = Flow
