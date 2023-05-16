@@ -18,7 +18,7 @@ type status = [
   | `Stopped of int     (** Process was stopped (paused) by the given signal. *)
 ]
 
-val pp_status : status Fmt.t
+val pp_status : [< status] Fmt.t
 
 type error =
   | Executable_not_found of string      (** The requested executable does not exist. *)
