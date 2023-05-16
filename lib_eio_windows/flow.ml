@@ -57,7 +57,7 @@ let shutdown fd cmd =
     | `All -> Unix.SHUTDOWN_ALL
   with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 
-let of_fd fd = object (_ : <Eio_unix.socket; Eio.File.rw>)
+let of_fd fd = object (_ : <Eio_unix.Net.stream_socket; Eio.File.rw>)
   method fd = fd
 
   method read_methods = []

@@ -183,7 +183,7 @@ let run_dgram addr ~net sw =
     (fun () ->
       let e = Eio.Net.datagram_socket ~sw net e1 in
       traceln "Sending data from %a to %a" Eio.Net.Sockaddr.pp e1 Eio.Net.Sockaddr.pp e2;
-      Eio.Net.send e e2 (Cstruct.of_string "UDP Message"))
+      Eio.Net.send e ~dst:e2 [Cstruct.of_string "UDP Message"])
 ```
 
 Handling one UDP packet using IPv4:
@@ -224,7 +224,7 @@ let run_dgram2 ~e1 addr ~net sw =
     (fun () ->
       let e = Eio.Net.datagram_socket ~sw net e1 in
       traceln "Sending data to %a" Eio.Net.Sockaddr.pp server_addr;
-      Eio.Net.send e server_addr (Cstruct.of_string "UDP Message"));;
+      Eio.Net.send e ~dst:server_addr [Cstruct.of_string "UDP Message"]);;
 ```
 
 Handling one UDP packet using IPv4:
@@ -279,13 +279,13 @@ Extracting file descriptors from Eio objects:
 Check we can convert Eio IP addresses to Unix:
 
 ```ocaml
-# Eio.Net.Ipaddr.V4.loopback |> Eio_unix.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
+# Eio.Net.Ipaddr.V4.loopback |> Eio_unix.Net.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
 - : string = "127.0.0.1"
-# Eio.Net.Ipaddr.V4.any |> Eio_unix.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
+# Eio.Net.Ipaddr.V4.any |> Eio_unix.Net.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
 - : string = "0.0.0.0"
-# Eio.Net.Ipaddr.V6.loopback |> Eio_unix.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
+# Eio.Net.Ipaddr.V6.loopback |> Eio_unix.Net.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
 - : string = "::1"
-# Eio.Net.Ipaddr.V6.any |> Eio_unix.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
+# Eio.Net.Ipaddr.V6.any |> Eio_unix.Net.Ipaddr.to_unix |> Unix.string_of_inet_addr;;
 - : string = "::"
 ```
 
@@ -293,7 +293,7 @@ Check we can convert Unix IP addresses to Eio:
 
 ```ocaml
 # Eio_main.run @@ fun _ ->
-  let show x = traceln "%a" Eio.Net.Ipaddr.pp (Eio_unix.Ipaddr.of_unix (Unix.inet_addr_of_string x)) in
+  let show x = traceln "%a" Eio.Net.Ipaddr.pp (Eio_unix.Net.Ipaddr.of_unix (Unix.inet_addr_of_string x)) in
   show "127.0.0.1";
   show "0.0.0.0";
   show "1234:5678:9abc:def0:fedc:ba98:7654:3210";
@@ -319,7 +319,7 @@ Printing addresses with ports:
 
 ```ocaml
 # let show host port =
-    let host = Eio_unix.Ipaddr.of_unix (Unix.inet_addr_of_string host) in
+    let host = Eio_unix.Net.Ipaddr.of_unix (Unix.inet_addr_of_string host) in
     traceln "%a" Eio.Net.Sockaddr.pp (`Tcp (host, port))
   in
   Eio_main.run @@ fun env ->
@@ -330,14 +330,14 @@ Printing addresses with ports:
 - : unit = ()
 ```
 
-Wrapping a Unix FD as an Eio socket:
+Wrapping a Unix FD as an Eio stream socket:
 
 ```ocaml
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let r, w = Unix.pipe () in
-  let source = (Eio_unix.import_socket_stream ~sw ~close_unix:true r :> Eio.Flow.source) in
-  let sink = (Eio_unix.import_socket_stream ~sw ~close_unix:true w :> Eio.Flow.sink) in
+  let source = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true r :> Eio.Flow.source) in
+  let sink = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true w :> Eio.Flow.sink) in
   Fiber.both
     (fun () -> Eio.Flow.copy_string "Hello\n!" sink)
     (fun () ->
@@ -345,6 +345,25 @@ Wrapping a Unix FD as an Eio socket:
        traceln "Got: %S" (Eio.Buf_read.line b)
     );;
 +Got: "Hello"
+- : unit = ()
+```
+
+Wrapping a Unix FD as an datagram Eio socket:
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let a, b = Unix.(socketpair PF_UNIX SOCK_DGRAM 0) in
+  let a = Eio_unix.Net.import_socket_datagram ~sw ~close_unix:true a in
+  let b = Eio_unix.Net.import_socket_datagram ~sw ~close_unix:true b in
+  Fiber.both
+    (fun () -> Eio.Net.send a Cstruct.[of_string "12"; of_string "34"])
+    (fun () ->
+       let buf = Cstruct.create 10 in
+       let addr, len = Eio.Net.recv b buf in
+       traceln "Got: %S" (Cstruct.to_string buf ~len)
+    );;
++Got: "1234"
 - : unit = ()
 ```
 
@@ -425,7 +444,7 @@ Exception: Failure "Simulated error".
 ```ocaml
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
-  let a, b = Eio_unix.socketpair ~sw () in
+  let a, b = Eio_unix.Net.socketpair_stream ~sw () in
   ignore (Eio_unix.Resource.fd a : Eio_unix.Fd.t);
   ignore (Eio_unix.Resource.fd b : Eio_unix.Fd.t);
   Eio.Flow.copy_string "foo" a;
@@ -442,7 +461,7 @@ ECONNRESET:
 ```ocaml
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
-  let a, b = Eio_unix.socketpair ~sw () in
+  let a, b = Eio_unix.Net.socketpair_stream ~sw () in
   Eio.Flow.copy_string "foo" a;
   Eio.Flow.close b;     (* Close without reading *)
   try
@@ -460,7 +479,7 @@ EPIPE:
 ```ocaml
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
-  let a, b = Eio_unix.socketpair ~sw () in
+  let a, b = Eio_unix.Net.socketpair_stream ~sw () in
   Eio.Flow.close b;
   try
     Eio.Flow.copy_string "foo" a;
@@ -485,7 +504,7 @@ Exception: Eio.Io Fs Not_found _,
 ```ocaml
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
-  let a, b = Eio_unix.socketpair ~sw () in
+  let a, b = Eio_unix.Net.socketpair_stream ~sw () in
   Fiber.both
     (fun () ->
        match Eio.Flow.read_exact a (Cstruct.create 1) with
@@ -698,19 +717,17 @@ Eio.Io Net Connection_failure Timeout,
 
 ## read/write on SOCK_DGRAM
 
-TODO: This is wrong; see https://github.com/ocaml-multicore/eio/issues/342
-
 ```ocaml
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
-  let a, b = Eio_unix.socketpair ~sw ~domain:Unix.PF_UNIX ~ty:Unix.SOCK_DGRAM () in
+  let a, b = Eio_unix.Net.socketpair_datagram ~sw ~domain:Unix.PF_UNIX () in
   ignore (Eio_unix.Resource.fd a : Eio_unix.Fd.t);
   ignore (Eio_unix.Resource.fd b : Eio_unix.Fd.t);
-  let l = [ "foo"; "bar"; "foobar"; "cellar door" ] in
+  let l = [ "foo"; "bar"; "foobar"; "cellar door"; "" ] in
   let buf = Cstruct.create 32 in
-  let write bufs = Eio.Flow.write a (List.map Cstruct.of_string bufs) in
+  let write bufs = Eio.Net.send a (List.map Cstruct.of_string bufs) in
   let read () =
-    let n = Eio.Flow.single_read b buf in
+    let _addr, n = Eio.Net.recv b buf in
     traceln "Got: %d bytes: %S" n Cstruct.(to_string (sub buf 0 n))
   in
   List.iter (fun sbuf -> write [sbuf]) l;
@@ -723,6 +740,7 @@ TODO: This is wrong; see https://github.com/ocaml-multicore/eio/issues/342
 +Got: 3 bytes: "bar"
 +Got: 6 bytes: "foobar"
 +Got: 11 bytes: "cellar door"
++Got: 0 bytes: ""
 +Got: 7 bytes: "abacabb"
 - : unit = ()
 ```

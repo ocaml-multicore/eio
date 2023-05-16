@@ -243,7 +243,7 @@ let send_msg fd ?(fds=[]) ?dst buf =
   let res = Sched.enter (enqueue_send_msg fd ~fds ~dst buf) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "send_msg" ""
-  )
+  ) else res
 
 let recv_msg fd buf =
   Fd.use_exn "recv_msg" fd @@ fun fd ->
@@ -428,8 +428,8 @@ let getaddrinfo ~service node =
       (Unix.SOCK_STREAM | SOCK_DGRAM),
       Unix.ADDR_INET (inet_addr,port) -> (
         match ai_protocol with
-        | 6 -> Some (`Tcp (Eio_unix.Ipaddr.of_unix inet_addr, port))
-        | 17 -> Some (`Udp (Eio_unix.Ipaddr.of_unix inet_addr, port))
+        | 6 -> Some (`Tcp (Eio_unix.Net.Ipaddr.of_unix inet_addr, port))
+        | 17 -> Some (`Udp (Eio_unix.Net.Ipaddr.of_unix inet_addr, port))
         | _ -> None)
     | _ -> None
   in

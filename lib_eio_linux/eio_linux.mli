@@ -199,7 +199,7 @@ module Low_level : sig
   val shutdown : fd -> Unix.shutdown_command -> unit
   (** Like {!Unix.shutdown}. *)
 
-  val send_msg : fd -> ?fds:fd list -> ?dst:Unix.sockaddr -> Cstruct.t list -> unit
+  val send_msg : fd -> ?fds:fd list -> ?dst:Unix.sockaddr -> Cstruct.t list -> int
   (** [send_msg socket bufs] is like [writev socket bufs], but also allows setting the destination address
       (for unconnected sockets) and attaching FDs (for Unix-domain sockets). *)
 

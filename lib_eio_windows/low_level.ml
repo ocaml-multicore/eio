@@ -82,9 +82,13 @@ let accept ~sw sock =
 let shutdown sock cmd =
   Fd.use_exn "shutdown" sock (fun fd -> Unix.shutdown fd cmd)
 
-let send_msg fd ~dst buf =
+let send_msg fd ?dst buf =
   Fd.use_exn "send_msg" fd @@ fun fd ->
-  do_nonblocking Write (fun fd -> Unix.sendto fd buf 0 (Bytes.length buf) [] dst) fd
+  do_nonblocking Write (fun fd ->
+      match dst with
+      | Some dst -> Unix.sendto fd buf 0 (Bytes.length buf) [] dst
+      | None -> Unix.send fd buf 0 (Bytes.length buf) []
+    ) fd
 
 let recv_msg fd buf =
   Fd.use_exn "recv_msg" fd @@ fun fd ->
