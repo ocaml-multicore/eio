@@ -19,24 +19,27 @@ let ensure t n =
 (* The next data to be returned by `mock_flow`. `[]` to raise `End_of_file`: *)
 let next = ref []
 
-let mock_flow = object
-  inherit Eio.Flow.source
+let mock_flow =
+  let module X = struct
+    type t = unit
 
-  method read_methods = []
+    let read_methods = []
 
-  method read_into buf =
-    match !next with
-    | [] ->
-      traceln "mock_flow returning Eof";
-      raise End_of_file
-    | x :: xs ->
-      let len = min (Cstruct.length buf) (String.length x) in
-      traceln "mock_flow returning %d bytes" len;
-      Cstruct.blit_from_string x 0 buf 0 len;
-      let x' = String.sub x len (String.length x - len) in
-      next := (if x' = "" then xs else x' :: xs);
-      len
-end
+    let single_read () buf =
+      match !next with
+      | [] ->
+        traceln "mock_flow returning Eof";
+        raise End_of_file
+      | x :: xs ->
+        let len = min (Cstruct.length buf) (String.length x) in
+        traceln "mock_flow returning %d bytes" len;
+        Cstruct.blit_from_string x 0 buf 0 len;
+        let x' = String.sub x len (String.length x - len) in
+        next := (if x' = "" then xs else x' :: xs);
+        len
+  end in
+  let ops = Eio.Flow.Pi.source (module X) in
+  Eio.Resource.T ((), ops)
 
 let read flow n =
   let buf = Cstruct.create n in
@@ -238,7 +241,7 @@ Exception: End_of_file.
 
 ```ocaml
 # let bflow = R.of_flow mock_flow ~max_size:100 |> R.as_flow;;
-val bflow : Eio.Flow.source = <obj>
+val bflow : Eio.Flow.source_ty Eio.Std.r = Eio__.Resource.T (<poly>, <abstr>)
 # next := ["foo"; "bar"]; read bflow 2;;
 +mock_flow returning 3 bytes
 +Read "fo"

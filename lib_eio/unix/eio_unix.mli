@@ -16,27 +16,58 @@ module Fd = Fd
 
 (** Eio resources backed by an OS file descriptor. *)
 module Resource : sig
-  type t = < fd : Fd.t >
-  (** Resources that have FDs are sub-types of [t]. *)
+  type 'a t = ([> `Unix_fd] as 'a) Eio.Resource.t
+  (** Resources that have FDs are tagged with [`Unix_fd]. *)
 
-  val fd : <t;..> -> Fd.t
+  type ('t, _, _) Eio.Resource.pi += T : ('t, 't -> Fd.t, [> `Unix_fd]) Eio.Resource.pi
+
+  val fd : _ t -> Fd.t
   (** [fd t] returns the FD being wrapped by a resource. *)
 
-  type _ Eio.Generic.ty += FD : Fd.t Eio.Generic.ty
-  (** Resources that wrap FDs can handle this in their [probe] method to expose the FD. *)
-
-  val fd_opt : #Eio.Generic.t -> Fd.t option
+  val fd_opt : _ Eio.Resource.t -> Fd.t option
   (** [fd_opt t] returns the FD being wrapped by a generic resource, if any.
 
       This just probes [t] using {!extension-FD}. *)
+
+  module type FLOW = sig
+    include Eio.Net.Pi.STREAM_SOCKET
+    include Eio.File.Pi.WRITE with type t := t
+
+    val fd : t -> Fd.t
+  end
+
+  val flow_handler :
+    (module FLOW with type t = 't and type tag = 'tag) ->
+    ('t, [`Unix_fd | 'tag Eio.Net.stream_socket_ty | Eio.File.rw_ty]) Eio.Resource.handler
+
+  module type DATAGRAM_SOCKET = sig
+    include Eio.Net.Pi.DATAGRAM_SOCKET
+
+    val fd : t -> Fd.t
+  end
+
+  val datagram_handler :
+    (module DATAGRAM_SOCKET with type t = 't and type tag = 'tag) ->
+    ('t, [`Unix_fd | 'tag Eio.Net.datagram_socket_ty]) Eio.Resource.handler
+
+  module type LISTENING_SOCKET = sig
+    include Eio.Net.Pi.LISTENING_SOCKET
+
+    val fd : t -> Fd.t
+  end
+
+  val listening_socket_handler :
+    (module LISTENING_SOCKET with type t = 't and type tag = 'tag) ->
+    ('t, [`Unix_fd | 'tag Eio.Net.listening_socket_ty]) Eio.Resource.handler
 end
 
 module Net = Net
 (** Extended network API with support for file descriptors. *)
 
-type source = < Eio.Flow.source;  Resource.t; Eio.Flow.close >
-type sink   = < Eio.Flow.sink;    Resource.t; Eio.Flow.close >
-type socket = Net.stream_socket
+type source_ty = [`Unix_fd | Eio.Resource.close_ty | Eio.Flow.source_ty]
+type sink_ty   = [`Unix_fd | Eio.Resource.close_ty | Eio.Flow.sink_ty]
+type 'a source = ([> source_ty] as 'a) r
+type 'a sink = ([> sink_ty] as 'a) r
 
 val await_readable : Unix.file_descr -> unit
 (** [await_readable fd] blocks until [fd] is readable (or has an error). *)
@@ -54,7 +85,7 @@ val run_in_systhread : (unit -> 'a) -> 'a
 (** [run_in_systhread fn] runs the function [fn] in a newly created system thread (a {! Thread.t}).
     This allows blocking calls to be made non-blocking. *)
 
-val pipe : Switch.t -> source * sink
+val pipe : Switch.t -> source_ty r * sink_ty r
 (** [pipe sw] returns a connected pair of flows [src] and [sink]. Data written to [sink]
     can be read from [src].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
@@ -65,17 +96,17 @@ module Process = Process
 (** The set of resources provided to a process on a Unix-compatible system. *)
 module Stdenv : sig
   type base = <
-    stdin  : source;
-    stdout : sink;
-    stderr : sink;
-    net : Eio.Net.t;
+    stdin  : source_ty r;
+    stdout : sink_ty r;
+    stderr : sink_ty r;
+    net : [`Unix | `Generic] Eio.Net.ty r;
     domain_mgr : Eio.Domain_manager.t;
     process_mgr : Process.mgr;
     clock : Eio.Time.clock;
     mono_clock : Eio.Time.Mono.t;
-    fs : Eio.Fs.dir Eio.Path.t;
-    cwd : Eio.Fs.dir Eio.Path.t;
-    secure_random : Eio.Flow.source;
+    fs : Eio.Fs.dir_ty Eio.Path.t;
+    cwd : Eio.Fs.dir_ty Eio.Path.t;
+    secure_random : Eio.Flow.source_ty r;
     debug : Eio.Debug.t;
     backend_id : string;
   >
@@ -90,7 +121,7 @@ module Private : sig
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
     | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
-    | Pipe : Eio.Switch.t -> (source * sink) Effect.t (** See {!pipe} *)
+    | Pipe : Eio.Switch.t -> (source_ty r * sink_ty r) Effect.t    (** See {!pipe} *)
 
   module Rcfd = Rcfd
 

@@ -72,11 +72,13 @@ let get_env = function
 class virtual mgr = object (self)
   inherit Eio.Process.mgr
 
-  method pipe ~sw = (Private.pipe sw :> <Eio.Flow.source; Eio.Flow.close> * <Eio.Flow.sink; Eio.Flow.close>)
+  method pipe ~sw =
+    (Private.pipe sw :> ([Eio.Resource.close_ty | Eio.Flow.source_ty] r *
+                         [Eio.Resource.close_ty | Eio.Flow.sink_ty] r))
 
   method virtual spawn_unix :
     sw:Switch.t ->
-    ?cwd:Eio.Fs.dir Eio.Path.t ->
+    ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
     env:string array ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     executable:string ->

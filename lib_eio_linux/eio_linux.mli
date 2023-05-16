@@ -25,14 +25,9 @@ open Eio.Std
 
 type fd := Eio_unix.Fd.t
 
-(** {1 Eio API} *)
-
-type source = Eio_unix.source
-type sink   = Eio_unix.sink
+(** {1 Main Loop} *)
 
 type stdenv = Eio_unix.Stdenv.base
-
-(** {1 Main Loop} *)
 
 val run :
   ?queue_depth:int ->

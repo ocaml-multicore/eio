@@ -1,92 +1,101 @@
+open Eio.Std
+
 module Fd = Eio_unix.Fd
 
-let fstat fd =
-  try
-    let ust = Low_level.fstat fd in
-    let st_kind : Eio.File.Stat.kind =
-      match ust.st_kind with
-      | Unix.S_REG  -> `Regular_file
-      | Unix.S_DIR  -> `Directory
-      | Unix.S_CHR  -> `Character_special
-      | Unix.S_BLK  -> `Block_device
-      | Unix.S_LNK  -> `Symbolic_link
-      | Unix.S_FIFO -> `Fifo
-      | Unix.S_SOCK -> `Socket
-    in
-    Eio.File.Stat.{
-      dev     = ust.st_dev   |> Int64.of_int;
-      ino     = ust.st_ino   |> Int64.of_int;
-      kind    = st_kind;
-      perm    = ust.st_perm;
-      nlink   = ust.st_nlink |> Int64.of_int;
-      uid     = ust.st_uid   |> Int64.of_int;
-      gid     = ust.st_gid   |> Int64.of_int;
-      rdev    = ust.st_rdev  |> Int64.of_int;
-      size    = ust.st_size  |> Optint.Int63.of_int64;
-      atime   = ust.st_atime;
-      mtime   = ust.st_mtime;
-      ctime   = ust.st_ctime;
-    }
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+module Impl = struct
+  type tag = [`Generic | `Unix]
 
-let write_bufs fd bufs =
-  try
-    Low_level.writev fd bufs
-  with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
+  type t = Eio_unix.Fd.t
 
-let copy src dst =
-  let buf = Cstruct.create 4096 in
-  try
-    while true do
-      let got = Eio.Flow.single_read src buf in
-      write_bufs dst [Cstruct.sub buf 0 got]
-    done
-  with End_of_file -> ()
+  let stat t =
+    try
+      let ust = Low_level.fstat t in
+      let st_kind : Eio.File.Stat.kind =
+        match ust.st_kind with
+        | Unix.S_REG  -> `Regular_file
+        | Unix.S_DIR  -> `Directory
+        | Unix.S_CHR  -> `Character_special
+        | Unix.S_BLK  -> `Block_device
+        | Unix.S_LNK  -> `Symbolic_link
+        | Unix.S_FIFO -> `Fifo
+        | Unix.S_SOCK -> `Socket
+      in
+      Eio.File.Stat.{
+        dev     = ust.st_dev   |> Int64.of_int;
+        ino     = ust.st_ino   |> Int64.of_int;
+        kind    = st_kind;
+        perm    = ust.st_perm;
+        nlink   = ust.st_nlink |> Int64.of_int;
+        uid     = ust.st_uid   |> Int64.of_int;
+        gid     = ust.st_gid   |> Int64.of_int;
+        rdev    = ust.st_rdev  |> Int64.of_int;
+        size    = ust.st_size  |> Optint.Int63.of_int64;
+        atime   = ust.st_atime;
+        mtime   = ust.st_mtime;
+        ctime   = ust.st_ctime;
+      }
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
 
-let read fd buf =
-  match Low_level.read_cstruct fd buf with
-  | 0 -> raise End_of_file
-  | got -> got
-  | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.wrap code name arg)
+  let write t bufs =
+    try Low_level.writev t bufs
+    with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 
-let shutdown fd cmd =
-  try
-    Low_level.shutdown fd @@ match cmd with
-    | `Receive -> Unix.SHUTDOWN_RECEIVE
-    | `Send -> Unix.SHUTDOWN_SEND
-    | `All -> Unix.SHUTDOWN_ALL
-  with
-  | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
-  | Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
+  let copy dst ~src =
+    let buf = Cstruct.create 4096 in
+    try
+      while true do
+        let got = Eio.Flow.single_read src buf in
+        write dst [Cstruct.sub buf 0 got]
+      done
+    with End_of_file -> ()
 
-let of_fd fd = object (_ : <Eio_unix.Net.stream_socket; Eio.File.rw>)
-  method fd = fd
+  let single_read t buf =
+    match Low_level.read_cstruct t buf with
+    | 0 -> raise End_of_file
+    | got -> got
+    | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.wrap code name arg)
 
-  method read_methods = []
-  method copy src = copy src fd
+  let shutdown t cmd =
+    try
+      Low_level.shutdown t @@ match cmd with
+      | `Receive -> Unix.SHUTDOWN_RECEIVE
+      | `Send -> Unix.SHUTDOWN_SEND
+      | `All -> Unix.SHUTDOWN_ALL
+    with
+    | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
+    | Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 
-  method pread ~file_offset bufs =
-    let got = Low_level.preadv ~file_offset fd (Array.of_list bufs) in
+  let read_methods = []
+
+  let pread t ~file_offset bufs =
+    let got = Low_level.preadv ~file_offset t (Array.of_list bufs) in
     if got = 0 then raise End_of_file
     else got
 
-  method pwrite ~file_offset bufs = Low_level.pwritev ~file_offset fd (Array.of_list bufs)
+  let pwrite t ~file_offset bufs = Low_level.pwritev ~file_offset t (Array.of_list bufs)
 
-  method stat = fstat fd
-  method read_into buf = read fd buf
-  method write bufs = write_bufs fd bufs
-  method shutdown cmd = shutdown fd cmd
-  method close = Fd.close fd
+  let fd t = t
 
-  method probe : type a. a Eio.Generic.ty -> a option = function
-    | Eio_unix.Resource.FD -> Some fd
-    | _ -> None
+  let close = Eio_unix.Fd.close
 end
 
-let secure_random = object
-  inherit Eio.Flow.source
+let handler = Eio_unix.Resource.flow_handler (module Impl)
 
-  method read_into buf =
+let of_fd fd =
+  let r = Eio.Resource.T (fd, handler) in
+  (r : [Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r :>
+     [< Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r)
+
+module Secure_random = struct
+  type t = unit
+
+  let single_read () buf =
     Low_level.getrandom buf;
     Cstruct.length buf
+
+  let read_methods = []
 end
+
+let secure_random =
+  let ops = Eio.Flow.Pi.source (module Secure_random) in
+  Eio.Resource.T ((), ops)

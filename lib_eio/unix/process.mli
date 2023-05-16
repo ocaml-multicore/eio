@@ -7,11 +7,11 @@ class virtual mgr : object
 
   method pipe :
     sw:Switch.t ->
-    <Eio.Flow.source; Eio.Flow.close> * <Eio.Flow.sink; Eio.Flow.close>
+    [Eio.Flow.source_ty | Eio.Resource.close_ty] r * [Eio.Flow.sink_ty | Eio.Resource.close_ty] r
 
   method virtual spawn_unix :
     sw:Switch.t ->
-    ?cwd:Eio.Fs.dir Eio.Path.t ->
+    ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
     env:string array ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     executable:string ->
@@ -20,10 +20,10 @@ class virtual mgr : object
 
   method spawn :
     sw:Switch.t ->
-    ?cwd:Eio.Fs.dir Eio.Path.t ->
-    ?stdin:Eio.Flow.source ->
-    ?stdout:Eio.Flow.sink ->
-    ?stderr:Eio.Flow.sink ->
+    ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
+    ?stdin:Eio.Flow.source_ty r ->
+    ?stdout:Eio.Flow.sink_ty r ->
+    ?stderr:Eio.Flow.sink_ty r ->
     ?env:string array ->
     ?executable:string ->
     string list ->
@@ -34,7 +34,7 @@ end
 val spawn_unix :
     sw:Switch.t ->
     #mgr ->
-    ?cwd:Eio.Fs.dir Eio.Path.t ->
+    ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     ?env:string array ->
     ?executable:string ->

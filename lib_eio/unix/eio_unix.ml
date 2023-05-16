@@ -1,11 +1,12 @@
 [@@@alert "-unstable"]
 
+open Eio.Std
+
 module Fd = Fd
 module Resource = Resource
 module Private = Private
 
 include Types
-type socket = Net.stream_socket
 
 let await_readable = Private.await_readable
 let await_writable = Private.await_writable
@@ -32,17 +33,17 @@ module Net = Net
 
 module Stdenv = struct
   type base = <
-    stdin  : source;
-    stdout : sink;
-    stderr : sink;
-    net : Eio.Net.t;
+    stdin  : source_ty r;
+    stdout : sink_ty r;
+    stderr : sink_ty r;
+    net : [`Unix | `Generic] Eio.Net.ty r;
     domain_mgr : Eio.Domain_manager.t;
     process_mgr : Process.mgr;
     clock : Eio.Time.clock;
     mono_clock : Eio.Time.Mono.t;
-    fs : Eio.Fs.dir Eio.Path.t;
-    cwd : Eio.Fs.dir Eio.Path.t;
-    secure_random : Eio.Flow.source;
+    fs : Eio.Fs.dir_ty Eio.Path.t;
+    cwd : Eio.Fs.dir_ty Eio.Path.t;
+    secure_random : Eio.Flow.source_ty r;
     debug : Eio.Debug.t;
     backend_id: string;
   >

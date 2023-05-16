@@ -11,6 +11,8 @@
       ]}
 *)
 
+open Std
+
 type connection_failure =
   | Refused of Exn.Backend.t
   | No_matching_addresses
@@ -100,45 +102,34 @@ module Sockaddr : sig
   val pp : Format.formatter -> [< t] -> unit
 end
 
-(** {2 Provider Interfaces} *)
+(** {2 Types} *)
 
-class virtual socket : object (<Generic.close; ..>)
-  inherit Generic.t
-end
+type socket_ty = [`Socket | `Close]
+type 'a socket = ([> socket_ty] as 'a) r
 
-class virtual stream_socket : object
-  inherit socket
-  inherit Flow.two_way
-end
+type 'tag stream_socket_ty = [`Stream | `Platform of 'tag | `Shutdown | socket_ty | Flow.source_ty | Flow.sink_ty]
+type 'a stream_socket = 'a r
+  constraint 'a = [> [> `Generic] stream_socket_ty]
 
-class virtual datagram_socket : object
-  inherit socket
-  method virtual send : ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
-  method virtual recv : Cstruct.t -> Sockaddr.datagram * int
-end
+type 'tag listening_socket_ty = [ `Accept | `Platform of 'tag | socket_ty]
+type 'a listening_socket = 'a r
+  constraint 'a = [> [> `Generic] listening_socket_ty]
 
-class virtual listening_socket : object (<Generic.close; ..>)
-  inherit socket
-  method virtual accept : sw:Switch.t -> stream_socket * Sockaddr.stream
-end
+type 'a connection_handler = 'a stream_socket -> Sockaddr.stream -> unit
+(** A [_ connection_handler] handles incoming connections from a listening socket. *)
 
-class virtual t : object
-  method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
-  method virtual connect : sw:Switch.t -> Sockaddr.stream -> stream_socket
-  method virtual datagram_socket :
-       reuse_addr:bool
-    -> reuse_port:bool
-    -> sw:Switch.t
-    -> [Sockaddr.datagram | `UdpV4 | `UdpV6]
-    -> datagram_socket
+type 'tag datagram_socket_ty = [`Datagram | `Platform of 'tag | `Shutdown | socket_ty]
+type 'a datagram_socket = 'a r
+  constraint 'a = [> [> `Generic] datagram_socket_ty]
 
-  method virtual getaddrinfo : service:string -> string -> Sockaddr.t list
-  method virtual getnameinfo : Sockaddr.t -> (string * string)
-end
+type 'tag ty = [`Network | `Platform of 'tag]
+
+type 'a t = 'a r
+  constraint 'a = [> [> `Generic] ty]
 
 (** {2 Out-bound Connections} *)
 
-val connect : sw:Switch.t -> #t -> Sockaddr.stream -> stream_socket
+val connect : sw:Switch.t -> [> 'tag ty] t -> Sockaddr.stream -> 'tag stream_socket_ty r
 (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
     The new socket will be closed when [sw] finishes, unless closed manually first. *)
@@ -147,8 +138,8 @@ val with_tcp_connect :
   ?timeout:Time.Timeout.t ->
   host:string ->
   service:string ->
-  #t ->
-  (stream_socket -> 'b) ->
+  [> 'tag ty] r ->
+  ('tag stream_socket_ty r -> 'b) ->
   'b
 (** [with_tcp_connect ~host ~service t f] creates a tcp connection [conn] to [host] and [service] and executes 
     [f conn].
@@ -169,7 +160,9 @@ val with_tcp_connect :
 
 (** {2 Incoming Connections} *)
 
-val listen : ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t -> #t -> Sockaddr.stream -> listening_socket
+val listen :
+  ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t ->
+  [> 'tag ty] r -> Sockaddr.stream -> 'tag listening_socket_ty r
 (** [listen ~sw ~backlog t addr] is a new listening socket bound to local address [addr].
 
     The new socket will be closed when [sw] finishes, unless closed manually first.
@@ -183,21 +176,18 @@ val listen : ?reuse_addr:bool -> ?reuse_port:bool -> backlog:int -> sw:Switch.t 
 
 val accept :
   sw:Switch.t ->
-  #listening_socket ->
-  stream_socket * Sockaddr.stream
+  [> 'tag listening_socket_ty] r ->
+  'tag stream_socket_ty r * Sockaddr.stream
 (** [accept ~sw socket] waits until a new connection is ready on [socket] and returns it.
 
     The new socket will be closed automatically when [sw] finishes, if not closed earlier.
     If you want to handle multiple connections, consider using {!accept_fork} instead. *)
 
-type connection_handler = stream_socket -> Sockaddr.stream -> unit
-(** [connection_handler] handles incoming connections from a listening socket. *)
-
 val accept_fork :
   sw:Switch.t ->
-  #listening_socket ->
+  [> 'tag listening_socket_ty] r ->
   on_error:(exn -> unit) ->
-  connection_handler ->
+  [< 'tag stream_socket_ty] connection_handler ->
   unit
 (** [accept_fork ~sw ~on_error socket fn] accepts a connection and handles it in a new fiber.
 
@@ -222,8 +212,8 @@ val run_server :
   ?additional_domains:(#Domain_manager.t * int) ->
   ?stop:'a Promise.t ->
   on_error:(exn -> unit) ->
-  #listening_socket ->
-  connection_handler ->
+  [> 'tag listening_socket_ty ] r ->
+  [< 'tag stream_socket_ty] connection_handler ->
   'a
 (** [run_server ~on_error sock connection_handler] establishes a concurrent socket server [s].
 
@@ -253,9 +243,9 @@ val datagram_socket :
      ?reuse_addr:bool
   -> ?reuse_port:bool
   -> sw:Switch.t
-  -> #t
+  -> [> 'tag ty] r
   -> [< Sockaddr.datagram | `UdpV4 | `UdpV6]
-  -> datagram_socket
+  -> 'tag datagram_socket_ty r
   (** [datagram_socket ~sw t addr] creates a new datagram socket bound to [addr]. The new 
       socket will be closed when [sw] finishes. 
 
@@ -267,19 +257,19 @@ val datagram_socket :
       @param reuse_addr Set the {!Unix.SO_REUSEADDR} socket option.
       @param reuse_port Set the {!Unix.SO_REUSEPORT} socket option. *)
 
-val send : #datagram_socket -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
+val send : _ datagram_socket -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
 (** [send sock buf] sends the data in [buf] using the the datagram socket [sock].
 
     @param dst If [sock] isn't connected, this provides the destination. *)
 
-val recv : #datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
+val recv : _ datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
 (** [recv sock buf] receives data from the socket [sock] putting it in [buf]. The number of bytes received is 
     returned along with the sender address and port. If the [buf] is too small then excess bytes may be discarded
     depending on the type of the socket the message is received from. *)
 
 (** {2 DNS queries} *)
 
-val getaddrinfo: ?service:string -> #t -> string -> Sockaddr.t list
+val getaddrinfo: ?service:string -> _ t -> string -> Sockaddr.t list
 (** [getaddrinfo ?service t node] returns a list of IP addresses for [node]. [node] is either a domain name or
     an IP address.
 
@@ -288,18 +278,84 @@ val getaddrinfo: ?service:string -> #t -> string -> Sockaddr.t list
 
     For a more thorough treatment, see {{:https://man7.org/linux/man-pages/man3/getaddrinfo.3.html} getaddrinfo}. *)
 
-val getaddrinfo_stream: ?service:string -> #t -> string -> Sockaddr.stream list
+val getaddrinfo_stream: ?service:string -> _ t -> string -> Sockaddr.stream list
 (** [getaddrinfo_stream] is like {!getaddrinfo}, but filters out non-stream protocols. *)
 
-val getaddrinfo_datagram: ?service:string -> #t -> string -> Sockaddr.datagram list
+val getaddrinfo_datagram: ?service:string -> _ t -> string -> Sockaddr.datagram list
 (** [getaddrinfo_datagram] is like {!getaddrinfo}, but filters out non-datagram protocols. *)
 
-val getnameinfo : #t -> Sockaddr.t -> (string * string)
+val getnameinfo : _ t -> Sockaddr.t -> (string * string)
 (** [getnameinfo t sockaddr] is [(hostname, service)] corresponding to [sockaddr]. [hostname] is the
     registered domain name represented by [sockaddr]. [service] is the IANA specified textual name of the
     port specified in [sockaddr], e.g. 'ftp', 'http', 'https', etc. *)
 
 (** {2 Closing} *)
 
-val close : #Generic.close -> unit
-(** Alias of {!Generic.close}. *)
+val close : [> `Close] r -> unit
+(** Alias of {!Resource.close}. *)
+
+(** {2 Provider Interface} *)
+
+module Pi : sig
+  module type STREAM_SOCKET = sig
+    type tag
+    include Flow.Pi.SHUTDOWN
+    include Flow.Pi.SOURCE with type t := t
+    include Flow.Pi.SINK with type t := t
+    val close : t -> unit
+  end
+
+  val stream_socket :
+    (module STREAM_SOCKET with type t = 't and type tag = 'tag) ->
+    ('t, 'tag stream_socket_ty) Resource.handler
+
+  module type DATAGRAM_SOCKET = sig
+    type tag
+    include Flow.Pi.SHUTDOWN
+    val send : t -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
+    val recv : t -> Cstruct.t -> Sockaddr.datagram * int
+    val close : t -> unit
+  end
+
+  val datagram_socket :
+    (module DATAGRAM_SOCKET with type t = 't and type tag = 'tag) ->
+    ('t, 'tag datagram_socket_ty) Resource.handler
+
+  module type LISTENING_SOCKET = sig
+    type t
+    type tag
+
+    val accept : t -> sw:Switch.t -> tag stream_socket_ty r * Sockaddr.stream
+    val close : t -> unit
+  end
+
+  val listening_socket :
+    (module LISTENING_SOCKET with type t = 't and type tag = 'tag) ->
+    ('t, 'tag listening_socket_ty) Resource.handler
+
+  module type NETWORK = sig
+    type t
+    type tag
+
+    val listen :
+      t -> reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t ->
+      Sockaddr.stream -> tag listening_socket_ty r
+
+    val connect : t -> sw:Switch.t -> Sockaddr.stream -> tag stream_socket_ty r
+
+    val datagram_socket :
+      t
+      -> reuse_addr:bool
+      -> reuse_port:bool
+      -> sw:Switch.t
+      -> [Sockaddr.datagram | `UdpV4 | `UdpV6]
+      -> tag datagram_socket_ty r
+
+    val getaddrinfo : t -> service:string -> string -> Sockaddr.t list
+    val getnameinfo : t -> Sockaddr.t -> (string * string)
+  end
+
+  val network :
+    (module NETWORK with type t = 't and type tag = 'tag) ->
+    ('t, 'tag ty) Resource.handler
+end

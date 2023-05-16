@@ -8,7 +8,7 @@
 ```ocaml
 open Eio.Std
 
-let run (fn : net:#Eio.Net.t -> Switch.t -> unit) =
+let run (fn : net:_ Eio.Net.t -> Switch.t -> unit) =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Switch.run (fn ~net)
@@ -361,8 +361,8 @@ Wrapping a Unix FD as an Eio stream socket:
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let r, w = Unix.pipe () in
-  let source = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true r :> Eio.Flow.source) in
-  let sink = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true w :> Eio.Flow.sink) in
+  let source = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true r :> _ Eio.Flow.source) in
+  let sink = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true w :> _ Eio.Flow.sink) in
   Fiber.both
     (fun () -> Eio.Flow.copy_string "Hello\n!" sink)
     (fun () ->
@@ -997,4 +997,19 @@ Limiting to 2 concurrent connections:
 +flow3: wrote "Bye"
 +flow3: closed
 - : unit = ()
+```
+
+We keep the polymorphism when using a Unix network:
+
+```ocaml
+let _check_types ~(net:Eio_unix.Net.t) =
+  Switch.run @@ fun sw ->
+  let addr = `Unix "/socket" in
+  let server : [`Generic | `Unix] Eio.Net.listening_socket_ty r =
+    Eio.Net.listen ~sw net addr ~backlog:5
+  in
+  Eio.Net.accept_fork ~sw ~on_error:raise server
+    (fun (_flow : [`Generic | `Unix] Eio.Net.stream_socket_ty r) _addr -> assert false);
+  let _client : [`Generic | `Unix] Eio.Net.stream_socket_ty r = Eio.Net.connect ~sw net addr in
+  ();;
 ```

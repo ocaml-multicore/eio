@@ -1,5 +1,12 @@
 open Eio.Std
 
+type stream_socket_ty   = [`Unix_fd | [`Generic | `Unix] Eio.Net.stream_socket_ty]
+type datagram_socket_ty = [`Unix_fd | [`Generic | `Unix] Eio.Net.datagram_socket_ty]
+type listening_socket_ty = [`Unix_fd | [`Generic | `Unix] Eio.Net.listening_socket_ty]
+type 'a stream_socket = ([> stream_socket_ty] as 'a) r
+type 'a datagram_socket = ([> datagram_socket_ty] as 'a) r
+type 'a listening_socket = ([> listening_socket_ty] as 'a) r
+
 module Ipaddr = struct
   let to_unix : _ Eio.Net.Ipaddr.t -> Unix.inet_addr = Obj.magic
   let of_unix : Unix.inet_addr -> _ Eio.Net.Ipaddr.t = Obj.magic
@@ -23,14 +30,6 @@ let sockaddr_of_unix_datagram = function
     let host = Ipaddr.of_unix host in
     `Udp (host, port)
 
-class virtual stream_socket = object (_ : <Resource.t; ..>)
-  inherit Eio.Net.stream_socket
-end
-
-class virtual datagram_socket = object (_ : <Resource.t; ..>)
-  inherit Eio.Net.datagram_socket
-end
-
 let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
   let options =
     match sockaddr with
@@ -42,28 +41,30 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
     let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
     (ni_hostname, ni_service))
 
-class virtual t = object
-  inherit Eio.Net.t
-
-  method getnameinfo = getnameinfo
-end
+type t = [`Generic | `Unix] Eio.Net.ty r
 
 [@@@alert "-unstable"]
 
 type _ Effect.t +=
-  | Import_socket_stream : Switch.t * bool * Unix.file_descr -> stream_socket Effect.t
-  | Import_socket_datagram : Switch.t * bool * Unix.file_descr -> datagram_socket Effect.t
+  | Import_socket_stream : Switch.t * bool * Unix.file_descr -> stream_socket_ty r Effect.t
+  | Import_socket_datagram : Switch.t * bool * Unix.file_descr -> datagram_socket_ty r Effect.t
   | Socketpair_stream : Switch.t * Unix.socket_domain * int ->
-      (stream_socket * stream_socket) Effect.t
+      (stream_socket_ty r * stream_socket_ty r) Effect.t
   | Socketpair_datagram : Switch.t * Unix.socket_domain * int ->
-      (datagram_socket * datagram_socket) Effect.t
+      (datagram_socket_ty r * datagram_socket_ty r) Effect.t
 
-let import_socket_stream ~sw ~close_unix fd = Effect.perform (Import_socket_stream (sw, close_unix, fd))
+let open_stream s = (s : _ stream_socket :> [< stream_socket_ty] r)
+let open_datagram s = (s : _ datagram_socket :> [< datagram_socket_ty] r)
 
-let import_socket_datagram ~sw ~close_unix fd = Effect.perform (Import_socket_datagram (sw, close_unix, fd))
+let import_socket_stream ~sw ~close_unix fd =
+  open_stream @@ Effect.perform (Import_socket_stream (sw, close_unix, fd))
+
+let import_socket_datagram ~sw ~close_unix fd =
+  open_datagram @@ Effect.perform (Import_socket_datagram (sw, close_unix, fd))
 
 let socketpair_stream ~sw ?(domain=Unix.PF_UNIX) ?(protocol=0) () =
-  Effect.perform (Socketpair_stream (sw, domain, protocol))
+  let a, b = Effect.perform (Socketpair_stream (sw, domain, protocol)) in
+  (open_stream a, open_stream b)
 
 let socketpair_datagram ~sw ?(domain=Unix.PF_UNIX) ?(protocol=0) () =
   Effect.perform (Socketpair_datagram (sw, domain, protocol))

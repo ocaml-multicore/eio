@@ -26,25 +26,29 @@ exception Buffer_limit_exceeded = Buf_read.Buffer_limit_exceeded
 let initial_size = 10
 let max_size = 100
 
-let mock_flow next = object (self)
-  inherit Eio.Flow.source
+module Mock_flow = struct
+  type t = string list ref
 
-  val mutable next = next
-
-  method read_into buf =
-    match next with
+  let rec single_read t buf =
+    match !t with
     | [] ->
       raise End_of_file
     | "" :: xs ->
-      next <- xs;
-      self#read_into buf
+      t := xs;
+      single_read t buf
     | x :: xs ->
       let len = min (Cstruct.length buf) (String.length x) in
       Cstruct.blit_from_string x 0 buf 0 len;
       let x' = String.drop x len in
-      next <- (if x' = "" then xs else x' :: xs);
+      t := (if x' = "" then xs else x' :: xs);
       len
+
+  let read_methods = []
 end
+
+let mock_flow =
+  let ops = Eio.Flow.Pi.source (module Mock_flow) in
+  fun chunks -> Eio.Resource.T (ref chunks, ops)
 
 module Model = struct
   type t = string ref

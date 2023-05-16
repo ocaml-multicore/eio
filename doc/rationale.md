@@ -125,7 +125,7 @@ For dynamic dispatch with subtyping, objects seem to be the best choice:
   An object uses a single block to store the object's fields and a pointer to the shared method table.
 
 - First-class modules and GADTs are an advanced feature of the language.
-  The new users we hope to attract to OCaml 5.00 are likely to be familiar with objects already.
+  The new users we hope to attract to OCaml 5.0 are likely to be familiar with objects already.
 
 - It is possible to provide base classes with default implementations of some methods.
   This can allow adding new operations to the API in future without breaking existing providers.
@@ -133,24 +133,19 @@ For dynamic dispatch with subtyping, objects seem to be the best choice:
 In general, simulating objects using other features of the language leads to worse performance
 and worse ergonomics than using the language's built-in support.
 
-In Eio, we split the provider and consumer APIs:
+However, in order for Eio to be widely accepted in the OCaml community,
+we no longer use of objects and instead use a pair of a value and a function for looking up interfaces.
+There is a problem here, because each interface has a different type,
+so the function's return type depends on its input (the interface ID).
+This requires using a GADT. However, GADT's don't support sub-typing.
+To get around this, we use an extensible GADT to get the correct typing
+(but which will raise an exception if the interface isn't supported),
+and then wrap this with a polymorphic variant phantom type to help ensure
+it is used correctly.
 
-- To *provide* a flow, you implement an object type.
-- To *use* a flow, you call a function (e.g. `Flow.close`).
-
-The functions mostly just call the corresponding method on the object.
-If you call object methods directly in OCaml then you tend to get poor compiler error messages.
-This is because OCaml can only refer to the object types by listing the methods you seem to want to use.
-Using functions avoids this, because the function signature specifies the type of its argument,
-allowing type inference to work as for non-object code.
-In this way, users of Eio can be largely unaware that objects are being used at all.
-
-The function wrappers can also provide extra checks that the API is being followed correctly,
-such as asserting that a read does not return 0 bytes,
-or add extra convenience functions without forcing every implementor to add them too.
-
-Note that the use of objects in Eio is not motivated by the use of the "Object Capabilities" security model.
-Despite the name, that is not specific to objects at all.
+This system gives the same performance as using objects and without requiring allocation.
+However, care is needed when defining new interfaces,
+since the compiler can't check that the resource really implements all the interfaces its phantom type suggests.
 
 ## Results vs Exceptions
 

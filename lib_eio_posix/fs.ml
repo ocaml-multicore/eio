@@ -26,43 +26,77 @@ open Eio.Std
 
 module Fd = Eio_unix.Fd
 
-class virtual posix_dir = object
-  inherit Eio.Fs.dir
+module rec Dir : sig
+  include Eio.Fs.Pi.DIR
 
-  val virtual opt_nofollow : Low_level.Open_flags.t
-  (** Extra flags for open operations. Sandboxes will add [O_NOFOLLOW] here. *)
+  val v : label:string -> sandbox:bool -> string -> t
 
-  method virtual private resolve : string -> string
-  (** [resolve path] returns the real path that should be used to access [path].
+  val resolve : t -> string -> string
+  (** [resolve t path] returns the real path that should be used to access [path].
       For sandboxes, this is [realpath path] (and it checks that it is within the sandbox).
-      For unrestricted access, this is the identity function. *)
+      For unrestricted access, this returns [path] unchanged.
+      @raise Eio.Fs.Permission_denied if sandboxed and [path] is outside of [dir_path]. *)
 
-  method virtual with_parent_dir : 'a. (string -> (Fd.t option -> string -> 'a) -> 'a)
-  (** [with_parent_dir path fn] runs [fn dir_fd rel_path],
+  val with_parent_dir : t -> string -> (Fd.t option -> string -> 'a) -> 'a
+  (** [with_parent_dir t path fn] runs [fn dir_fd rel_path],
       where [rel_path] accessed relative to [dir_fd] gives access to [path].
       For unrestricted access, this just runs [fn None path].
       For sandboxes, it opens the parent of [path] as [dir_fd] and runs [fn (Some dir_fd) (basename path)]. *)
-end
+end = struct
+  type t = {
+    dir_path : string;
+    sandbox : bool;
+    label : string;
+    mutable closed : bool;
+  }
 
-(* When renaming, we get a plain [Eio.Fs.dir]. We need extra access to check
-   that the new location is within its sandbox. *)
-type _ Eio.Generic.ty += Posix_dir : posix_dir Eio.Generic.ty
-let as_posix_dir x = Eio.Generic.probe x Posix_dir
+  let resolve t path =
+    if t.sandbox then (
+      if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
+      if Filename.is_relative path then (
+        let dir_path = Err.run Low_level.realpath t.dir_path in
+        let full = Err.run Low_level.realpath (Filename.concat dir_path path) in
+        let prefix_len = String.length dir_path + 1 in
+        if String.length full >= prefix_len && String.sub full 0 prefix_len = dir_path ^ Filename.dir_sep then
+          full
+        else if full = dir_path then
+          full
+        else
+          raise @@ Eio.Fs.err (Permission_denied (Err.Outside_sandbox (full, dir_path)))
+      ) else (
+        raise @@ Eio.Fs.err (Permission_denied Err.Absolute_path)
+      )
+    ) else path
 
-class virtual dir ~label = object (self)
-  inherit posix_dir
+  let with_parent_dir t path fn =
+    if t.sandbox then (
+      if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
+      let dir, leaf = Filename.dirname path, Filename.basename path in
+      if leaf = ".." then (
+        (* We could be smarter here and normalise the path first, but '..'
+           doesn't make sense for any of the current uses of [with_parent_dir]
+           anyway. *)
+        raise (Eio.Fs.err (Permission_denied (Err.Invalid_leaf leaf)))
+      ) else (
+        let dir = resolve t dir in
+        Switch.run @@ fun sw ->
+        let dirfd = Low_level.openat ~sw ~mode:0 dir Low_level.Open_flags.(directory + rdonly + nofollow) in
+        fn (Some dirfd) leaf
+      )
+    ) else fn None path
 
-  val mutable closed = false
+  let v ~label ~sandbox dir_path = { dir_path; sandbox; label; closed = false }
 
-  method! probe : type a. a Eio.Generic.ty -> a option = function
-    | Posix_dir -> Some (self :> posix_dir)
-    | _ -> None
+  (* Sandboxes use [O_NOFOLLOW] when opening files ([resolve] already removed any symlinks).
+     This avoids a race where symlink might be added after [realpath] returns. *)
+  let opt_nofollow t =
+    if t.sandbox then Low_level.Open_flags.nofollow else Low_level.Open_flags.empty
 
-  method open_in ~sw path =
-    let fd = Err.run (Low_level.openat ~mode:0 ~sw (self#resolve path)) Low_level.Open_flags.(opt_nofollow + rdonly) in
-    (Flow.of_fd fd :> <Eio.File.ro; Eio.Flow.close>)
+  let open_in t ~sw path =
+    let fd = Err.run (Low_level.openat ~mode:0 ~sw (resolve t path)) Low_level.Open_flags.(opt_nofollow t + rdonly) in
+    (Flow.of_fd fd :> Eio.File.ro_ty Eio.Resource.t)
 
-  method open_out ~sw ~append ~create path =
+  let rec open_out t ~sw ~append ~create path =
     let mode, flags =
       match create with
       | `Never            -> 0,    Low_level.Open_flags.empty
@@ -71,12 +105,12 @@ class virtual dir ~label = object (self)
       | `Exclusive   perm -> perm, Low_level.Open_flags.(creat + excl)
     in
     let flags = if append then Low_level.Open_flags.(flags + append) else flags in
-    let flags = Low_level.Open_flags.(flags + rdwr + opt_nofollow) in
+    let flags = Low_level.Open_flags.(flags + rdwr + opt_nofollow t) in
     match
-      self#with_parent_dir path @@ fun dirfd path ->
+      with_parent_dir t path @@ fun dirfd path ->
       Low_level.openat ?dirfd ~sw ~mode path flags
     with
-    | fd -> (Flow.of_fd fd :> <Eio.File.rw; Eio.Flow.close>)
+    | fd -> (Flow.of_fd fd :> Eio.File.rw_ty r)
     | exception Unix.Unix_error (ELOOP, _, _) ->
       (* The leaf was a symlink (or we're unconfined and the main path changed, but ignore that).
          A leaf symlink might be OK, but we need to check it's still in the sandbox.
@@ -87,96 +121,67 @@ class virtual dir ~label = object (self)
           Filename.concat (Filename.dirname path) target
         else target
       in
-      self#open_out ~sw ~append ~create full_target
+      open_out t ~sw ~append ~create full_target
     | exception Unix.Unix_error (code, name, arg) ->
       raise (Err.wrap code name arg)
 
-  method mkdir ~perm path =
-    self#with_parent_dir path @@ fun dirfd path ->
+  let mkdir t ~perm path =
+    with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.mkdir ?dirfd ~mode:perm) path
 
-  method unlink path =
-    self#with_parent_dir path @@ fun dirfd path ->
+  let unlink t path =
+    with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.unlink ?dirfd ~dir:false) path
 
-  method rmdir path =
-    self#with_parent_dir path @@ fun dirfd path ->
+  let rmdir t path =
+    with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.unlink ?dirfd ~dir:true) path
 
-  method read_dir path =
+  let read_dir t path =
     (* todo: need fdopendir here to avoid races *)
-    let path = self#resolve path in
+    let path = resolve t path in
     Err.run Low_level.readdir path
     |> Array.to_list
 
-  method rename old_path new_dir new_path =
-    match as_posix_dir new_dir with
+  let rename t old_path new_dir new_path =
+    match Handler.as_posix_dir new_dir with
     | None -> invalid_arg "Target is not an eio_posix directory!"
     | Some new_dir ->
-      self#with_parent_dir old_path @@ fun old_dir old_path ->
-      new_dir#with_parent_dir new_path @@ fun new_dir new_path ->
+      with_parent_dir t old_path @@ fun old_dir old_path ->
+      with_parent_dir new_dir new_path @@ fun new_dir new_path ->
       Err.run (Low_level.rename ?old_dir old_path ?new_dir) new_path
 
-  method open_dir ~sw path =
+  let close t = t.closed <- true
+
+  let open_dir t ~sw path =
     Switch.check sw;
     let label = Filename.basename path in
-    let d = new sandbox ~label (self#resolve path) in
-    Switch.on_release sw (fun () -> d#close);
-    (d :> Eio.Fs.dir_with_close)
+    let d = v ~label (resolve t path) ~sandbox:true in
+    Switch.on_release sw (fun () -> close d);
+    Eio.Resource.T (d, Handler.v)
 
-  method close = closed <- true
-
-  method pp f = Fmt.string f (String.escaped label)
+  let pp f t = Fmt.string f (String.escaped t.label)
 end
+and Handler : sig
+  val v : (Dir.t, [`Dir | `Close]) Eio.Resource.handler
 
-and sandbox ~label dir_path = object (self)
-  inherit dir ~label
+  val as_posix_dir : [> `Dir] r -> Dir.t option
+end = struct
+  (* When renaming, we get a plain [Eio.Fs.dir]. We need extra access to check
+     that the new location is within its sandbox. *)
+  type (_, _, _) Eio.Resource.pi += Posix_dir : ('t, 't -> Dir.t, [> `Posix_dir]) Eio.Resource.pi
 
-  val opt_nofollow = Low_level.Open_flags.nofollow
+  let as_posix_dir (Eio.Resource.T (t, ops)) =
+    match Eio.Resource.get_opt ops Posix_dir with
+    | None -> None
+    | Some fn -> Some (fn t)
 
-  (* Resolve a relative path to an absolute one, with no symlinks.
-     @raise Eio.Fs.Permission_denied if it's outside of [dir_path]. *)
-  method private resolve path =
-    if closed then Fmt.invalid_arg "Attempt to use closed directory %S" dir_path;
-    if Filename.is_relative path then (
-      let dir_path = Err.run Low_level.realpath dir_path in
-      let full = Err.run Low_level.realpath (Filename.concat dir_path path) in
-      let prefix_len = String.length dir_path + 1 in
-      if String.length full >= prefix_len && String.sub full 0 prefix_len = dir_path ^ Filename.dir_sep then
-        full
-      else if full = dir_path then
-        full
-      else
-        raise @@ Eio.Fs.err (Permission_denied (Err.Outside_sandbox (full, dir_path)))
-    ) else (
-      raise @@ Eio.Fs.err (Permission_denied Err.Absolute_path)
-    )
-
-  method with_parent_dir path fn =
-    if closed then Fmt.invalid_arg "Attempt to use closed directory %S" dir_path;
-    let dir, leaf = Filename.dirname path, Filename.basename path in
-    if leaf = ".." then (
-      (* We could be smarter here and normalise the path first, but '..'
-         doesn't make sense for any of the current uses of [with_parent_dir]
-         anyway. *)
-      raise (Eio.Fs.err (Permission_denied (Err.Invalid_leaf leaf)))
-    ) else (
-      let dir = self#resolve dir in
-      Switch.run @@ fun sw ->
-      let dirfd = Low_level.openat ~sw ~mode:0 dir Low_level.Open_flags.(directory + rdonly + nofollow) in
-      fn (Some dirfd) leaf
-    )
+  let v = Eio.Resource.handler [
+      H (Eio.Fs.Pi.Dir, (module Dir));
+      H (Posix_dir, Fun.id);
+    ]
 end
 
 (* Full access to the filesystem. *)
-let fs = object
-  inherit dir ~label:"fs"
-
-  val opt_nofollow = Low_level.Open_flags.empty
-
-  (* No checks *)
-  method private resolve path = path
-  method private with_parent_dir path fn = fn None path
-end
-
-let cwd = new sandbox ~label:"cwd" "."
+let fs = Eio.Resource.T (Dir.v ~label:"fs" ~sandbox:false ".", Handler.v)
+let cwd = Eio.Resource.T (Dir.v ~label:"cwd" ~sandbox:true ".", Handler.v)

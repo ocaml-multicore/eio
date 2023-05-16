@@ -6,6 +6,8 @@
     ]}
  *)
 
+open Std
+
 (** {2 Status and error types} *)
 
 type exit_status = [
@@ -69,14 +71,14 @@ val signal : #t -> int -> unit
 class virtual mgr : object
   method virtual pipe :
     sw:Switch.t ->
-    <Flow.source; Flow.close> * <Flow.sink; Flow.close>
+    [Flow.source_ty | Resource.close_ty] r * [Flow.sink_ty | Resource.close_ty] r
 
   method virtual spawn :
     sw:Switch.t ->
-    ?cwd:Fs.dir Path.t ->
-    ?stdin:Flow.source ->
-    ?stdout:Flow.sink ->
-    ?stderr:Flow.sink ->
+    ?cwd:Fs.dir_ty Path.t ->
+    ?stdin:Flow.source_ty r ->
+    ?stdout:Flow.sink_ty r ->
+    ?stderr:Flow.sink_ty r ->
     ?env:string array ->
     ?executable:string ->
     string list ->
@@ -87,10 +89,10 @@ end
 val spawn :
   sw:Switch.t ->
   #mgr ->
-  ?cwd:#Fs.dir Path.t ->
-  ?stdin:#Flow.source ->
-  ?stdout:#Flow.sink ->
-  ?stderr:#Flow.sink ->
+  ?cwd:Fs.dir_ty Path.t ->
+  ?stdin:_ Flow.source ->
+  ?stdout:_ Flow.sink ->
+  ?stderr:_ Flow.sink ->
   ?env:string array ->
   ?executable:string ->
   string list -> t
@@ -113,10 +115,10 @@ val spawn :
 
 val run :
   #mgr ->
-  ?cwd:#Fs.dir Path.t ->
-  ?stdin:#Flow.source ->
-  ?stdout:#Flow.sink ->
-  ?stderr:#Flow.sink ->
+  ?cwd:_ Path.t ->
+  ?stdin:_ Flow.source ->
+  ?stdout:_ Flow.sink ->
+  ?stderr:_ Flow.sink ->
   ?is_success:(int -> bool) ->
   ?env:string array ->
   ?executable:string ->
@@ -132,9 +134,9 @@ val run :
 val parse_out :
   #mgr ->
   'a Buf_read.parser ->
-  ?cwd:#Fs.dir Path.t ->
-  ?stdin:#Flow.source ->
-  ?stderr:#Flow.sink ->
+  ?cwd:_ Path.t ->
+  ?stdin:_ Flow.source ->
+  ?stderr:_ Flow.sink ->
   ?is_success:(int -> bool) ->
   ?env:string array ->
   ?executable:string ->
@@ -152,7 +154,7 @@ val parse_out :
 
 (** {2 Pipes} *)
 
-val pipe : sw:Switch.t -> #mgr -> <Flow.source; Flow.close> * <Flow.sink; Flow.close>
+val pipe : sw:Switch.t -> #mgr -> [Flow.source_ty | Resource.close_ty] r * [Flow.sink_ty | Resource.close_ty] r
 (** [pipe ~sw mgr] creates a pipe backed by the OS.
 
     The flows can be used by {!spawn} without the need for extra fibers to copy the data.

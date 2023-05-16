@@ -40,30 +40,18 @@ module Stream = Stream
 module Cancel = Eio__core.Cancel
 
 (** Commonly used standard features. This module is intended to be [open]ed. *)
-module Std : sig
-  module Promise = Promise
-  module Fiber = Fiber
-  module Switch = Switch
-
-  val traceln :
-    ?__POS__:string * int * int * int ->
-    ('a, Format.formatter, unit, unit) format4 -> 'a
-    (** Same as {!Eio.traceln}. *)
-end
+module Std = Std
 
 (** {1 Cross-platform OS API}
 
     The general pattern here is that each type of resource has a set of functions for using it,
-    plus an object type to allow defining your own implementations.
-    To use the resources, it is recommended that you use the functions rather than calling
-    methods directly. Using the functions results in better error messages from the compiler,
-    and may provide extra features or sanity checks.
+    plus a provider ([Pi]) module to allow defining your own implementations.
 
     The system resources are available from the environment argument provided by your event loop
     (e.g. {!Eio_main.run}). *)
 
-(** A base class for objects that can be queried at runtime for extra features. *)
-module Generic = Generic
+(** Defines the base resource type. *)
+module Resource = Resource
 
 (** Byte streams. *)
 module Flow = Flow
@@ -175,9 +163,9 @@ module Stdenv : sig
 
       To use these, see {!Flow}. *)
 
-  val stdin  : <stdin  : #Flow.source as 'a; ..> -> 'a
-  val stdout : <stdout : #Flow.sink   as 'a; ..> -> 'a
-  val stderr : <stderr : #Flow.sink   as 'a; ..> -> 'a
+  val stdin  : <stdin  : _ Flow.source as 'a; ..> -> 'a
+  val stdout : <stdout : _ Flow.sink   as 'a; ..> -> 'a
+  val stderr : <stderr : _ Flow.sink   as 'a; ..> -> 'a
 
   (** {1 File-system access}
 
@@ -201,7 +189,7 @@ module Stdenv : sig
       To use this, see {!Net}.
   *)
 
-  val net : <net : #Net.t as 'a; ..> -> 'a
+  val net : <net : _ Net.t as 'a; ..> -> 'a
   (** [net t] gives access to the process's network namespace. *)
 
   (** {1 Processes }
@@ -233,7 +221,7 @@ module Stdenv : sig
 
   (** {1 Randomness} *)
 
-  val secure_random : <secure_random : #Flow.source as 'a; ..> -> 'a
+  val secure_random : <secure_random : _ Flow.source as 'a; ..> -> 'a
   (** [secure_random t] is an infinite source of random bytes suitable for cryptographic purposes. *)
 
   (** {1 Debugging} *)

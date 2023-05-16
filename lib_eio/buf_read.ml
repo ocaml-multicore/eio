@@ -1,11 +1,13 @@
 exception Buffer_limit_exceeded
 
+open Std
+
 type t = {
   mutable buf : Cstruct.buffer;
   mutable pos : int;
   mutable len : int;
-  mutable flow : Flow.source option;    (* None if we've seen eof *)
-  mutable consumed : int;               (* Total bytes consumed so far *)
+  mutable flow : Flow.source_ty r option;    (* None if we've seen eof *)
+  mutable consumed : int;                    (* Total bytes consumed so far *)
   max_size : int;
 }
 
@@ -45,7 +47,7 @@ open Syntax
 let capacity t = Bigarray.Array1.dim t.buf
 
 let of_flow ?initial_size ~max_size flow =
-  let flow = (flow :> Flow.source) in
+  let flow = (flow :> Flow.source_ty r) in
   if max_size <= 0 then Fmt.invalid_arg "Max size %d should be positive!" max_size;
   let initial_size = Option.value initial_size ~default:(min 4096 max_size) in
   let buf = Bigarray.(Array1.create char c_layout initial_size) in
@@ -128,17 +130,22 @@ let ensure_slow_path t n =
 let ensure t n =
   if t.len < n then ensure_slow_path t n
 
-let as_flow t =
-  object
-    inherit Flow.source
+module F = struct
+  type nonrec t = t
 
-    method read_into dst =
-      ensure t 1;
-      let len = min (buffered_bytes t) (Cstruct.length dst) in
-      Cstruct.blit (peek t) 0 dst 0 len;
-      consume t len;
-      len
-  end
+  let single_read t dst =
+    ensure t 1;
+    let len = min (buffered_bytes t) (Cstruct.length dst) in
+    Cstruct.blit (peek t) 0 dst 0 len;
+    consume t len;
+    len
+
+  let read_methods = []
+end
+
+let as_flow =
+  let ops = Flow.Pi.source (module F) in
+  fun t -> Resource.T (t, ops)
 
 let get t i =
   Bigarray.Array1.get t.buf (t.pos + i)

@@ -12,23 +12,23 @@ let run fn =
   Eio_main.run @@ fun _ ->
   fn ()
 
-let mock_source items =
-  object
-    inherit Eio.Flow.source
+let mock_source =
+  let module X = struct
+    type t = Cstruct.t list ref
 
-    val mutable items = items
+    let read_methods = []
 
-    method read_methods = []
-
-    method read_into buf =
-      match items with
+    let single_read t buf =
+      match !t with
       | [] -> raise End_of_file
       | x :: xs ->
         let len = min (Cstruct.length buf) (Cstruct.length x) in
         Cstruct.blit x 0 buf 0 len;
-        items <- Cstruct.shiftv (x :: xs) len;
+        t := Cstruct.shiftv (x :: xs) len;
         len
-  end
+  end in
+  let ops = Eio.Flow.Pi.source (module X) in
+  fun items -> Eio.Resource.T (ref items, ops)
 ```
 
 ## read_exact

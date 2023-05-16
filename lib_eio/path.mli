@@ -25,9 +25,10 @@
     ]}
 *)
 
+open Std
 open Fs
 
-type 'a t = (#Fs.dir as 'a) * path
+type 'a t = 'a Fs.dir * path
 (** An OS directory FD and a path relative to it, for use with e.g. [openat(2)]. *)
 
 val ( / ) : 'a t -> string -> 'a t
@@ -47,12 +48,12 @@ val load : _ t -> string
 
     This is a convenience wrapper around {!with_open_in}. *)
 
-val open_in : sw:Switch.t -> _ t -> <File.ro; Flow.close>
+val open_in : sw:Switch.t -> _ t -> File.ro_ty r
 (** [open_in ~sw t] opens [t] for reading.
 
     Note: files are always opened in binary mode. *)
 
-val with_open_in : _ t -> (<File.ro; Flow.close> -> 'a) -> 'a
+val with_open_in : _ t -> (File.ro_ty r -> 'a) -> 'a
 (** [with_open_in] is like [open_in], but calls [fn flow] with the new flow and closes
     it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
@@ -72,7 +73,7 @@ val open_out :
   sw:Switch.t ->
   ?append:bool ->
   create:create ->
-  _ t -> <File.rw; Flow.close>
+  _ t -> File.rw_ty Resource.t
 (** [open_out ~sw t] opens [t] for reading and writing.
 
     Note: files are always opened in binary mode.
@@ -82,7 +83,7 @@ val open_out :
 val with_open_out :
   ?append:bool ->
   create:create ->
-  _ t -> (<File.rw; Flow.close> -> 'a) -> 'a
+  _ t -> (File.rw_ty r -> 'a) -> 'a
 (** [with_open_out] is like [open_out], but calls [fn flow] with the new flow and closes
     it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
@@ -91,12 +92,12 @@ val with_open_out :
 val mkdir : perm:File.Unix_perm.t -> _ t -> unit
 (** [mkdir ~perm t] creates a new directory [t] with permissions [perm]. *)
 
-val open_dir : sw:Switch.t -> _ t -> <dir; Flow.close> t
+val open_dir : sw:Switch.t -> _ t -> [`Close | dir_ty] t
 (** [open_dir ~sw t] opens [t].
 
     This can be passed to functions to grant access only to the subtree [t]. *)
 
-val with_open_dir : _ t -> (<dir; Flow.close> t -> 'a) -> 'a
+val with_open_dir : _ t -> ([`Close | dir_ty] t -> 'a) -> 'a
 (** [with_open_dir] is like [open_dir], but calls [fn dir] with the new directory and closes
     it automatically when [fn] returns (if it hasn't already been closed by then). *)
 

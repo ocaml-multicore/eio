@@ -20,7 +20,7 @@ open Eio.Std
 
 module Fd = Eio_unix.Fd
 
-let socketpair k ~sw ~domain ~ty ~protocol ~wrap =
+let socketpair k ~sw ~domain ~ty ~protocol wrap_a wrap_b =
   let open Effect.Deep in
   match
     let unix_a, unix_b = Unix.socketpair ~cloexec:true domain ty protocol in
@@ -28,7 +28,7 @@ let socketpair k ~sw ~domain ~ty ~protocol ~wrap =
     let b = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_b in
     Unix.set_nonblock unix_a;
     Unix.set_nonblock unix_b;
-    (wrap a, wrap b)
+    (wrap_a a, wrap_b b)
   with
   | r -> continue k r
   | exception Unix.Unix_error (code, name, arg) ->
@@ -46,7 +46,7 @@ let run_event_loop fn x =
           let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
           (* TODO: On Windows, if the FD from Unix.pipe () is passed this will fail *)
           (try Unix.set_nonblock unix_fd with Unix.Unix_error (Unix.ENOTSOCK, _, _) -> ());
-          continue k (Flow.of_fd fd :> Eio_unix.Net.stream_socket)
+          continue k (Flow.of_fd fd :> _ Eio_unix.Net.stream_socket)
         )
       | Eio_unix.Net.Import_socket_datagram (sw, close_unix, unix_fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
@@ -54,18 +54,18 @@ let run_event_loop fn x =
           continue k (Net.datagram_socket fd)
         )
       | Eio_unix.Net.Socketpair_stream (sw, domain, protocol) -> Some (fun k ->
-          socketpair k ~sw ~domain ~protocol ~ty:Unix.SOCK_STREAM
-            ~wrap:(fun fd -> (Flow.of_fd fd :> Eio_unix.Net.stream_socket))
+          let wrap fd = (Flow.of_fd fd :> _ Eio_unix.Net.stream_socket) in
+          socketpair k ~sw ~domain ~protocol ~ty:Unix.SOCK_STREAM wrap wrap
         )
       | Eio_unix.Net.Socketpair_datagram (sw, domain, protocol) -> Some (fun k ->
-          socketpair k ~sw ~domain ~protocol ~ty:Unix.SOCK_DGRAM
-            ~wrap:(fun fd -> Net.datagram_socket fd)
+          let wrap fd = Net.datagram_socket fd in
+          socketpair k ~sw ~domain ~protocol ~ty:Unix.SOCK_DGRAM wrap wrap
         )
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
           match
             let r, w = Low_level.pipe ~sw in
-            let source = (Flow.of_fd r :> Eio_unix.source) in
-            let sink = (Flow.of_fd w :> Eio_unix.sink) in
+            let source = Flow.of_fd r in
+            let sink = Flow.of_fd w in
             (source, sink)
           with
           | r -> continue k r
