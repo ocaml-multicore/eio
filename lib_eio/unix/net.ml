@@ -30,6 +30,33 @@ let sockaddr_of_unix_datagram = function
     let host = Ipaddr.of_unix host in
     `Udp (host, port)
 
+module Pi = struct
+  module type STREAM_SOCKET = sig
+    type t
+
+    val send_msg : t -> fds:Fd.t list -> Cstruct.t list -> int
+
+    val recv_msg_with_fds : t -> sw:Switch.t -> max_fds:int -> Cstruct.t list -> int * Fd.t list
+  end
+
+  type (_, _, _) Eio.Resource.pi +=
+    | Stream_socket : ('t, (module STREAM_SOCKET with type t = 't), [> `Platform of [> `Unix] | `Socket | `Stream]) Eio.Resource.pi
+end
+
+let send_msg (Eio.Resource.T (t, ops)) ?(fds=[]) bufs =
+  let module X = (val (Eio.Resource.get ops Pi.Stream_socket)) in
+  let rec aux ~fds bufs =
+    let sent = X.send_msg t ~fds bufs in
+    match Cstruct.shiftv bufs sent with
+    | [] -> ()
+    | bufs -> aux bufs ~fds:[]
+  in
+  aux ~fds bufs
+
+let recv_msg_with_fds (Eio.Resource.T (t, ops)) ~sw ~max_fds bufs =
+  let module X = (val (Eio.Resource.get ops Pi.Stream_socket)) in
+  X.recv_msg_with_fds t ~sw ~max_fds bufs
+
 let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
   let options =
     match sockaddr with

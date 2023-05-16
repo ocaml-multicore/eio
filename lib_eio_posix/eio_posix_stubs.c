@@ -212,16 +212,43 @@ CAMLprim value caml_eio_posix_spawn(value v_errors, value v_actions) {
   CAMLreturn(Val_long(child_pid));
 }
 
-CAMLprim value caml_eio_posix_send_msg(value v_fd, value v_dst_opt, value v_bufs) {
-  CAMLparam2(v_dst_opt, v_bufs);
+/* Copy [n_fds] from [v_fds] to [msg]. */
+static void fill_fds(struct msghdr *msg, int n_fds, value v_fds) {
+  if (n_fds > 0) {
+    int i;
+    struct cmsghdr *cm;
+    cm = CMSG_FIRSTHDR(msg);
+    cm->cmsg_level = SOL_SOCKET;
+    cm->cmsg_type = SCM_RIGHTS;
+    cm->cmsg_len = CMSG_LEN(n_fds * sizeof(int));
+    for (i = 0; i < n_fds; i++) {
+      int fd = -1;
+      if (Is_block(v_fds)) {
+	fd = Int_val(Field(v_fds, 0));
+	v_fds = Field(v_fds, 1);
+      }
+      ((int *)CMSG_DATA(cm))[i] = fd;
+    }
+  }
+}
+
+CAMLprim value caml_eio_posix_send_msg(value v_fd, value v_n_fds, value v_fds, value v_dst_opt, value v_bufs) {
+  CAMLparam3(v_fds, v_dst_opt, v_bufs);
   int n_bufs = Wosize_val(v_bufs);
+  int n_fds = Int_val(v_n_fds);
   struct iovec iov[n_bufs];
   union sock_addr_union dst_addr;
+  int controllen = n_fds > 0 ? CMSG_SPACE(sizeof(int) * n_fds) : 0;
+  char cmsg[controllen];
   struct msghdr msg = {
     .msg_iov = iov,
     .msg_iovlen = n_bufs,
+    .msg_control = n_fds > 0 ? cmsg : NULL,
+    .msg_controllen = controllen,
   };
   ssize_t r;
+
+  memset(cmsg, 0, controllen);
 
   if (Is_some(v_dst_opt)) {
     caml_unix_get_sockaddr(Some_val(v_dst_opt), &dst_addr, &msg.msg_namelen);
@@ -229,6 +256,7 @@ CAMLprim value caml_eio_posix_send_msg(value v_fd, value v_dst_opt, value v_bufs
   }
 
   fill_iov(iov, v_bufs);
+  fill_fds(&msg, n_fds, v_fds);
 
   caml_enter_blocking_section();
   r = sendmsg(Int_val(v_fd), &msg, 0);
@@ -238,19 +266,48 @@ CAMLprim value caml_eio_posix_send_msg(value v_fd, value v_dst_opt, value v_bufs
   CAMLreturn(Val_long(r));
 }
 
-CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_bufs) {
+static value get_msghdr_fds(struct msghdr *msg) {
+  CAMLparam0();
+  CAMLlocal2(v_list, v_cons);
+  struct cmsghdr *cm;
+  v_list = Val_int(0);
+  for (cm = CMSG_FIRSTHDR(msg); cm; cm = CMSG_NXTHDR(msg, cm)) {
+    if (cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SCM_RIGHTS) {
+      int *fds = (int *) CMSG_DATA(cm);
+      int n_fds = (cm->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+      int i;
+      for (i = n_fds - 1; i >= 0; i--) {
+	value fd = Val_int(fds[i]);
+	v_cons = caml_alloc_tuple(2);
+	Store_field(v_cons, 0, fd);
+	Store_field(v_cons, 1, v_list);
+	v_list = v_cons;
+      }
+    }
+  }
+  CAMLreturn(v_list);
+}
+
+CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs) {
   CAMLparam1(v_bufs);
   CAMLlocal2(v_result, v_addr);
+  int max_fds = Int_val(v_max_fds);
   int n_bufs = Wosize_val(v_bufs);
   struct iovec iov[n_bufs];
   union sock_addr_union source_addr;
+  int controllen = max_fds > 0 ? CMSG_SPACE(sizeof(int) * max_fds) : 0;
+  char cmsg[controllen];
   struct msghdr msg = {
     .msg_name = &source_addr,
     .msg_namelen = sizeof(source_addr),
     .msg_iov = iov,
     .msg_iovlen = n_bufs,
+    .msg_control = max_fds > 0 ? cmsg : NULL,
+    .msg_controllen = controllen,
   };
   ssize_t r;
+
+  memset(cmsg, 0, controllen);
 
   fill_iov(iov, v_bufs);
 
@@ -261,9 +318,10 @@ CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_bufs) {
 
   v_addr = caml_unix_alloc_sockaddr(&source_addr, msg.msg_namelen, -1);
 
-  v_result = caml_alloc_tuple(2);
+  v_result = caml_alloc_tuple(3);
   Store_field(v_result, 0, v_addr);
   Store_field(v_result, 1, Val_long(r));
+  Store_field(v_result, 2, get_msghdr_fds(&msg));
 
   CAMLreturn(v_result);
 }

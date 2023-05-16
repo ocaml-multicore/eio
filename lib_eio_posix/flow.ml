@@ -81,6 +81,13 @@ module Impl = struct
 
   let pwrite t ~file_offset bufs = Low_level.pwritev ~file_offset t (Array.of_list bufs)
 
+  let send_msg t ~fds data =
+    Low_level.send_msg ~fds t (Array.of_list data)
+
+  let recv_msg_with_fds t ~sw ~max_fds data =
+    let _addr, n, fds = Low_level.recv_msg_with_fds t ~sw ~max_fds (Array.of_list data) in
+    n, fds
+
   let fd t = t
 
   let close = Eio_unix.Fd.close

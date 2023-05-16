@@ -185,6 +185,13 @@ module Flow = struct
     | `Receive -> Unix.SHUTDOWN_RECEIVE
     | `Send -> Unix.SHUTDOWN_SEND
     | `All -> Unix.SHUTDOWN_ALL
+
+  let send_msg t ~fds data =
+    Low_level.send_msg t ~fds data
+
+  let recv_msg_with_fds t ~sw ~max_fds data =
+    let _addr, n, fds = Low_level.recv_msg_with_fds t ~sw ~max_fds data in
+    n, fds
 end
 
 let flow_handler = Eio_unix.Resource.flow_handler (module Flow)

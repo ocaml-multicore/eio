@@ -11,6 +11,7 @@ let fd_opt (Eio.Resource.T (t, ops)) =
 module type FLOW = sig
   include Eio.Net.Pi.STREAM_SOCKET
   include Eio.File.Pi.WRITE with type t := t
+  include Net.Pi.STREAM_SOCKET with type t := t
 
   val fd : t -> Fd.t
 end
@@ -20,6 +21,7 @@ let flow_handler (type t tag) (module X : FLOW with type t = t and type tag = ta
   Eio.Resource.bindings (Eio.Net.Pi.stream_socket (module X)) @
   Eio.Resource.bindings (Eio.File.Pi.rw (module X)) @ [
     H (T, X.fd);
+    H (Net.Pi.Stream_socket, (module X));
   ]
 
 module type DATAGRAM_SOCKET = sig

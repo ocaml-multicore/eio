@@ -32,6 +32,7 @@ module Resource : sig
   module type FLOW = sig
     include Eio.Net.Pi.STREAM_SOCKET
     include Eio.File.Pi.WRITE with type t := t
+    include Net.Pi.STREAM_SOCKET with type t := t
 
     val fd : t -> Fd.t
   end

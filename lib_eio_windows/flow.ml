@@ -74,6 +74,10 @@ module Impl = struct
 
   let pwrite t ~file_offset bufs = Low_level.pwritev ~file_offset t (Array.of_list bufs)
 
+  let send_msg _t ~fds:_ _data = failwith "Not implemented on Windows"
+
+  let recv_msg_with_fds _t ~sw:_ ~max_fds:_ _data = failwith "Not implemented on Windows"
+
   let fd t = t
 
   let close = Eio_unix.Fd.close

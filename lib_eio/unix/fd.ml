@@ -46,6 +46,11 @@ let of_unix ~sw ?blocking ?seekable ~close_unix fd =
   t.release_hook <- Switch.on_release_cancellable sw (fun () -> close t);
   t
 
+let of_unix_list ~sw fds =
+  match Switch.get_error sw with
+  | Some e -> List.iter Unix.close fds; raise e
+  | None -> List.map (of_unix ~sw ~close_unix:true) fds
+
 external eio_is_blocking : Unix.file_descr -> bool = "eio_unix_is_blocking"
 
 let is_blocking t =

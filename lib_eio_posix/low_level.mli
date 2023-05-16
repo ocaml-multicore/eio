@@ -29,7 +29,9 @@ val accept : sw:Switch.t -> fd -> fd * Unix.sockaddr
 val shutdown : fd -> Unix.shutdown_command -> unit
 
 val recv_msg : fd -> Cstruct.t array -> Unix.sockaddr * int
-val send_msg : fd -> ?dst:Unix.sockaddr -> Cstruct.t array -> int
+val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> fd -> Cstruct.t array -> Unix.sockaddr * int * fd list
+
+val send_msg : fd -> ?fds:fd list -> ?dst:Unix.sockaddr -> Cstruct.t array -> int
 
 val getrandom : Cstruct.t -> unit
 

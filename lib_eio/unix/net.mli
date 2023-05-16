@@ -13,6 +13,24 @@ type 'a listening_socket = ([> listening_socket_ty] as 'a) r
 
 type t = [`Generic | `Unix] Eio.Net.ty r
 
+(** {2 Passing file descriptors} *)
+
+val send_msg :
+  [> `Platform of [>`Unix] | `Socket | `Stream] r ->
+  ?fds:Fd.t list ->
+  Cstruct.t list -> unit
+(** Like {!Eio.Flow.write}, but allows passing file descriptors (for Unix-domain sockets). *)
+
+val recv_msg_with_fds :
+  [> `Platform of [>`Unix] | `Socket | `Stream] r ->
+  sw:Switch.t ->
+  max_fds:int ->
+  Cstruct.t list ->
+  int * Fd.t list
+(** Like {!Eio.Flow.single_read}, but also allows receiving file descriptors (for Unix-domain sockets).
+
+    @param max_fds The maximum number of file descriptors to accept (additional ones will be closed). *)
+
 (** {2 Unix address conversions}
 
     Note: OCaml's {!Unix.sockaddr} type considers e.g. TCP port 80 and UDP port
@@ -70,6 +88,19 @@ val socketpair_datagram :
 
     This creates OS-level resources using [socketpair(2)].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
+
+module Pi : sig
+  module type STREAM_SOCKET = sig
+    type t
+
+    val send_msg : t -> fds:Fd.t list -> Cstruct.t list -> int
+
+    val recv_msg_with_fds : t -> sw:Switch.t -> max_fds:int -> Cstruct.t list -> int * Fd.t list
+  end
+
+  type (_, _, _) Eio.Resource.pi +=
+    | Stream_socket : ('t, (module STREAM_SOCKET with type t = 't), [> `Platform of [> `Unix] | `Socket | `Stream]) Eio.Resource.pi
+end
 
 (** {2 Private API for backends} *)
 
