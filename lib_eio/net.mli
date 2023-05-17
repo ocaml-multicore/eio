@@ -208,8 +208,12 @@ val accept_fork :
     @param on_error Called if [connection_handler] raises an exception.
                     This is typically a good place to log the error and continue.
                     If the exception is an {!Eio.Io} error then the caller's address is added to it.
+
                     If you don't want to handle connection errors,
-                    use [~on_error:raise] to cancel the caller's context. *)
+                    use [~on_error:raise] to cancel the caller's context.
+
+                    [on_error] is not called for {!Cancel.Cancelled} exceptions,
+                    which do not need to be reported. *)
 
 (** {2 Running Servers} *)
 
