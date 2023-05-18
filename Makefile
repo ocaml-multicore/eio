@@ -1,4 +1,4 @@
-.PHONY: all bench
+.PHONY: all bench stress
 
 all:
 	dune build @runtest @all
@@ -23,6 +23,10 @@ dscheck:
 	dune exec -- ./lib_eio/tests/dscheck/test_sync.exe
 	dune exec -- ./lib_eio/tests/dscheck/test_semaphore.exe
 	dune exec -- ./lib_eio/tests/dscheck/test_cells.exe
+
+stress:
+	dune exec -- ./stress/stress_proc.exe
+	dune exec -- ./stress/stress_semaphore.exe
 
 docker:
 	docker build -t eio .
