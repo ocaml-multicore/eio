@@ -182,6 +182,9 @@ let accept_fork ~sw (t : #listening_socket) ~on_error handle =
        Fiber.fork ~sw (fun () ->
            match child_started := true; handle (flow :> stream_socket) addr with
            | x -> Flow.close flow; x
+           | exception (Cancel.Cancelled _ as ex) ->
+             Flow.close flow;
+             raise ex
            | exception ex ->
              Flow.close flow;
              on_error (Exn.add_context ex "handling connection from %a" Sockaddr.pp addr)

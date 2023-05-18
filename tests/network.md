@@ -403,6 +403,23 @@ If the fork itself fails, we still close the connection:
 Exception: Failure "Simulated error".
 ```
 
+`accept_fork` doesn't send cancellations to `on_error`:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let socket = Eio_mock.Net.listening_socket "tcp/80" in
+  let flow = Eio_mock.Flow.make "connection" in
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 1234) in
+  Eio_mock.Net.on_accept socket [`Return (flow, addr)];
+  Switch.run @@ fun sw ->
+  Eio.Net.accept_fork ~sw ~on_error:(traceln "BUG: %a" Fmt.exn) socket
+    (fun _flow _addr -> Fiber.await_cancel ());
+  Switch.fail sw (Failure "Simulated error");;
++tcp/80: accepted connection from tcp:127.0.0.1:1234
++connection: closed
+Exception: Failure "Simulated error".
+```
+
 ## Socketpair
 
 ```ocaml
