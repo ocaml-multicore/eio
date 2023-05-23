@@ -15,6 +15,8 @@ val create :
 
 val use : 'a t -> ('a -> 'b) -> 'b
 
-val async : sw:Switch.t -> 'a t -> ('a -> 'b) -> 'b Promise.t
+val async : sw:Switch.t -> 'a t -> ('a -> unit) -> unit
+
+val async_promise : sw:Switch.t -> 'a t -> ('a -> 'b) -> 'b Promise.or_exn
 
 val clear : 'a t -> unit
