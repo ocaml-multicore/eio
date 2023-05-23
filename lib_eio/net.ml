@@ -143,6 +143,7 @@ module Sockaddr = struct
 
   type datagram = [
     | `Udp of Ipaddr.v4v6 * int
+    | `Unix of string
   ]
 
   type t = [ stream | datagram ]
@@ -158,9 +159,10 @@ end
 
 class virtual socket = object (_ : #Generic.t)
   method probe _ = None
+  method virtual close : unit
 end
 
-class virtual stream_socket = object
+class virtual stream_socket = object (_ : #socket)
   inherit Flow.two_way
 end
 
@@ -193,7 +195,7 @@ let accept_fork ~sw (t : #listening_socket) ~on_error handle =
 
 class virtual datagram_socket = object
   inherit socket
-  method virtual send : Sockaddr.datagram -> Cstruct.t -> unit
+  method virtual send : ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
   method virtual recv : Cstruct.t -> Sockaddr.datagram * int
 end
 

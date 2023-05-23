@@ -1,6 +1,7 @@
 #define _FILE_OFFSET_BITS 64
 
 #include <sys/types.h>
+#include <sys/socket.h>
 #ifdef __linux__
 #if __GLIBC__ > 2 || __GLIBC_MINOR__ > 24
 #include <sys/random.h>
@@ -20,6 +21,7 @@
 #include <caml/alloc.h>
 #include <caml/unixsupport.h>
 #include <caml/bigarray.h>
+#include <caml/socketaddr.h>
 
 #include "fork_action.h"
 
@@ -208,4 +210,60 @@ CAMLprim value caml_eio_posix_spawn(value v_errors, value v_actions) {
   }
 
   CAMLreturn(Val_long(child_pid));
+}
+
+CAMLprim value caml_eio_posix_send_msg(value v_fd, value v_dst_opt, value v_bufs) {
+  CAMLparam2(v_dst_opt, v_bufs);
+  int n_bufs = Wosize_val(v_bufs);
+  struct iovec iov[n_bufs];
+  union sock_addr_union dst_addr;
+  struct msghdr msg = {
+    .msg_iov = iov,
+    .msg_iovlen = n_bufs,
+  };
+  ssize_t r;
+
+  if (Is_some(v_dst_opt)) {
+    caml_unix_get_sockaddr(Some_val(v_dst_opt), &dst_addr, &msg.msg_namelen);
+    msg.msg_name = &dst_addr;
+  }
+
+  fill_iov(iov, v_bufs);
+
+  caml_enter_blocking_section();
+  r = sendmsg(Int_val(v_fd), &msg, 0);
+  caml_leave_blocking_section();
+  if (r < 0) uerror("send_msg", Nothing);
+
+  CAMLreturn(Val_long(r));
+}
+
+CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_bufs) {
+  CAMLparam1(v_bufs);
+  CAMLlocal2(v_result, v_addr);
+  int n_bufs = Wosize_val(v_bufs);
+  struct iovec iov[n_bufs];
+  union sock_addr_union source_addr;
+  struct msghdr msg = {
+    .msg_name = &source_addr,
+    .msg_namelen = sizeof(source_addr),
+    .msg_iov = iov,
+    .msg_iovlen = n_bufs,
+  };
+  ssize_t r;
+
+  fill_iov(iov, v_bufs);
+
+  caml_enter_blocking_section();
+  r = recvmsg(Int_val(v_fd), &msg, 0);
+  caml_leave_blocking_section();
+  if (r < 0) uerror("recv_msg", Nothing);
+
+  v_addr = caml_unix_alloc_sockaddr(&source_addr, msg.msg_namelen, -1);
+
+  v_result = caml_alloc_tuple(2);
+  Store_field(v_result, 0, v_addr);
+  Store_field(v_result, 1, Val_long(r));
+
+  CAMLreturn(v_result);
 }

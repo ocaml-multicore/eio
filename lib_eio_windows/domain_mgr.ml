@@ -20,6 +20,20 @@ open Eio.Std
 
 module Fd = Eio_unix.Fd
 
+let socketpair k ~sw ~domain ~ty ~protocol ~wrap =
+  let open Effect.Deep in
+  match
+    let unix_a, unix_b = Unix.socketpair ~cloexec:true domain ty protocol in
+    let a = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_a in
+    let b = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_b in
+    Unix.set_nonblock unix_a;
+    Unix.set_nonblock unix_b;
+    (wrap a, wrap b)
+  with
+  | r -> continue k r
+  | exception Unix.Unix_error (code, name, arg) ->
+    discontinue k (Err.wrap code name arg)
+
 (* Run an event loop in the current domain, using [fn x] as the root fiber. *)
 let run_event_loop fn x =
   Sched.with_sched @@ fun sched ->
@@ -28,24 +42,24 @@ let run_event_loop fn x =
     effc = fun (type a) (e : a Effect.t) : ((a, Sched.exit) continuation -> Sched.exit) option ->
       match e with
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k (Time.mono_clock : Eio.Time.Mono.t))
-      | Eio_unix.Private.Socket_of_fd (sw, close_unix, unix_fd) -> Some (fun k ->
+      | Eio_unix.Net.Import_socket_stream (sw, close_unix, unix_fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
           (* TODO: On Windows, if the FD from Unix.pipe () is passed this will fail *)
           (try Unix.set_nonblock unix_fd with Unix.Unix_error (Unix.ENOTSOCK, _, _) -> ());
-          continue k (Flow.of_fd fd :> Eio_unix.socket)
+          continue k (Flow.of_fd fd :> Eio_unix.Net.stream_socket)
         )
-      | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
-          match
-            let unix_a, unix_b = Unix.socketpair ~cloexec:true domain ty protocol in
-            let a = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_a in
-            let b = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_b in
-            Unix.set_nonblock unix_a;
-            Unix.set_nonblock unix_b;
-            (Flow.of_fd a :> Eio_unix.socket), (Flow.of_fd b :> Eio_unix.socket)
-          with
-          | r -> continue k r
-          | exception Unix.Unix_error (code, name, arg) ->
-              discontinue k (Err.wrap code name arg)
+      | Eio_unix.Net.Import_socket_datagram (sw, close_unix, unix_fd) -> Some (fun k ->
+          let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
+          Unix.set_nonblock unix_fd;
+          continue k (Net.datagram_socket fd)
+        )
+      | Eio_unix.Net.Socketpair_stream (sw, domain, protocol) -> Some (fun k ->
+          socketpair k ~sw ~domain ~protocol ~ty:Unix.SOCK_STREAM
+            ~wrap:(fun fd -> (Flow.of_fd fd :> Eio_unix.Net.stream_socket))
+        )
+      | Eio_unix.Net.Socketpair_datagram (sw, domain, protocol) -> Some (fun k ->
+          socketpair k ~sw ~domain ~protocol ~ty:Unix.SOCK_DGRAM
+            ~wrap:(fun fd -> Net.datagram_socket fd)
         )
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
           match

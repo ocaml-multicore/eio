@@ -31,9 +31,12 @@ module Resource : sig
       This just probes [t] using {!extension-FD}. *)
 end
 
+module Net = Net
+(** Extended network API with support for file descriptors. *)
+
 type source = < Eio.Flow.source;  Resource.t; Eio.Flow.close >
 type sink   = < Eio.Flow.sink;    Resource.t; Eio.Flow.close >
-type socket = < Eio.Flow.two_way; Resource.t; Eio.Flow.close >
+type socket = Net.stream_socket
 
 val await_readable : Unix.file_descr -> unit
 (** [await_readable fd] blocks until [fd] is readable (or has an error). *)
@@ -55,26 +58,25 @@ module FD : sig
   val take_opt : #Eio.Generic.t -> Unix.file_descr option
   [@@deprecated "Use Eio_unix.Resource.fd_opt and Fd.remove instead"]
 
-  val as_socket : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> socket
-  [@@deprecated "Use Eio_unix.import_socket_stream instead"]
+  val as_socket : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> Net.stream_socket
+  [@@deprecated "Use Eio_unix.Net.import_socket_stream instead"]
 end
+
+module Ipaddr = Net.Ipaddr
+[@@deprecated "Use Eio_unix.Net.Ipaddr instead"]
+
+val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
+[@@deprecated "Use stdenv"]
+
+val socketpair :
+  sw:Switch.t ->
+  ?domain:Unix.socket_domain ->
+  ?ty:Unix.socket_type ->
+  ?protocol:int ->
+  unit ->
+  Net.stream_socket * Net.stream_socket
+[@@@deprecated "Use Net.socketpair_stream"]
 (**/**)
-
-val import_socket_stream : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> socket
-(** [import_socket_stream ~sw ~close_unix:true fd] is an Eio flow that uses [fd].
-
-    It can be cast to e.g. {!source} for a one-way flow.
-    The socket object will be closed when [sw] finishes.
-
-    The [close_unix] and [sw] arguments are passed to {!Fd.of_unix}. *)
-
-(** Convert between Eio.Net.Ipaddr and Unix.inet_addr. *)
-module Ipaddr : sig
-  (** Internally, these are actually the same type, so these are just casts. *)
-
-  val to_unix : [< `V4 | `V6] Eio.Net.Ipaddr.t -> Unix.inet_addr
-  val of_unix : Unix.inet_addr -> Eio.Net.Ipaddr.v4v6
-end
 
 val sleep : float -> unit
 (** [sleep d] sleeps for [d] seconds, allowing other fibers to run.
@@ -85,17 +87,6 @@ val sleep : float -> unit
 val run_in_systhread : (unit -> 'a) -> 'a
 (** [run_in_systhread fn] runs the function [fn] in a newly created system thread (a {! Thread.t}).
     This allows blocking calls to be made non-blocking. *)
-
-val socketpair :
-  sw:Switch.t ->
-  ?domain:Unix.socket_domain ->
-  ?ty:Unix.socket_type ->
-  ?protocol:int ->
-  unit ->
-  socket * socket
-(** [socketpair ~sw ()] returns a connected pair of flows, such that writes to one can be read by the other.
-    This creates OS-level resources using [socketpair(2)].
-    Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
 val pipe : Switch.t -> source * sink
 (** [pipe sw] returns a connected pair of flows [src] and [sink]. Data written to [sink]
@@ -132,10 +123,6 @@ module Private : sig
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
     | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
-    | Socket_of_fd : Switch.t * bool * Unix.file_descr ->
-        socket Effect.t                                      (** See {!FD.as_socket} *)
-    | Socketpair : Eio.Switch.t * Unix.socket_domain * Unix.socket_type * int ->
-        (socket * socket) Effect.t                           (** See {!socketpair} *)
     | Pipe : Eio.Switch.t -> (source * sink) Effect.t (** See {!pipe} *)
 
   module Rcfd = Rcfd
@@ -144,6 +131,3 @@ module Private : sig
 end
 
 module Ctf = Ctf_unix
-
-val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
-(** [getnameinfo sockaddr] returns domain name and service for [sockaddr]. *)

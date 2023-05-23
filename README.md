@@ -704,14 +704,13 @@ The `Eio.Io` type is extensible, so libraries can also add additional top-level 
 For example, this HTTP GET function adds the URL to any IO error:
 
 ```ocaml
-# let get ~net ~host ~path =
-    try
-      Eio.Net.with_tcp_connect net ~host ~service:"http" @@ fun _flow ->
-      "..."
-    with Eio.Io _ as ex ->
-      let bt = Printexc.get_raw_backtrace () in
-      Eio.Exn.reraise_with_context ex bt "fetching http://%s/%s" host path;;
-val get : net:#Eio.Net.t -> host:string -> path:string -> string = <fun>
+let get ~net ~host ~path =
+  try
+    Eio.Net.with_tcp_connect net ~host ~service:"http" @@ fun _flow ->
+    "..."
+  with Eio.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Eio.Exn.reraise_with_context ex bt "fetching http://%s/%s" host path;;
 ```
 
 If we test it using a mock network that returns a timeout,

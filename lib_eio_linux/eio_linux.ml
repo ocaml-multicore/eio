@@ -107,26 +107,21 @@ let fallback_copy src dst =
     done
   with End_of_file -> ()
 
-let udp_socket sock = object
+let datagram_socket sock = object
   inherit Eio.Net.datagram_socket
+
+  method fd = sock
 
   method close = FD.close sock
 
-  method send sockaddr buf =
-    let addr = match sockaddr with
-      | `Udp (host, port) ->
-        let host = Eio_unix.Ipaddr.to_unix host in
-        Unix.ADDR_INET (host, port)
-    in
-    Low_level.send_msg sock ~dst:addr [buf]
+  method send ?dst buf =
+    let dst = Option.map Eio_unix.Net.sockaddr_to_unix dst in
+    let sent = Low_level.send_msg sock ?dst buf in
+    assert (sent = Cstruct.lenv buf)
 
   method recv buf =
     let addr, recv = Low_level.recv_msg sock [buf] in
-    match Uring.Sockaddr.get addr with
-      | Unix.ADDR_INET (inet, port) ->
-        `Udp (Eio_unix.Ipaddr.of_unix inet, port), recv
-      | Unix.ADDR_UNIX _ ->
-        raise (Failure "Expected INET UDP socket address but got Unix domain socket address.")
+    Eio_unix.Net.sockaddr_of_unix_datagram (Uring.Sockaddr.get addr), recv
 end
 
 let flow fd =
@@ -191,9 +186,9 @@ let listening_socket fd = object
     let client, client_addr = Low_level.accept ~sw fd in
     let client_addr = match client_addr with
       | Unix.ADDR_UNIX path         -> `Unix path
-      | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Ipaddr.of_unix host, port)
+      | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Net.Ipaddr.of_unix host, port)
     in
-    let flow = (flow client :> <Eio.Flow.two_way; Eio.Flow.close>) in
+    let flow = (flow client :> Eio.Net.stream_socket) in
     flow, client_addr
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
@@ -211,26 +206,30 @@ let socket_domain_of = function
       ~v4:(fun _ -> Unix.PF_INET)
       ~v6:(fun _ -> Unix.PF_INET6)
 
-let net = object
-  inherit Eio.Net.t
+let connect ~sw connect_addr =
+  let addr = Eio_unix.Net.sockaddr_to_unix connect_addr in
+  let sock_unix = Unix.socket ~cloexec:true (socket_domain_of connect_addr) Unix.SOCK_STREAM 0 in
+  let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
+  Low_level.connect sock addr;
+  (flow sock :> Eio.Net.stream_socket)
 
-  method listen ~reuse_addr ~reuse_port  ~backlog ~sw listen_addr =
-    let socket_type, addr =
+let net = object
+  inherit Eio_unix.Net.t
+
+  method listen ~reuse_addr ~reuse_port ~backlog ~sw listen_addr =
+    if reuse_addr then (
       match listen_addr with
-      | `Unix path         ->
-        if reuse_addr then (
-          match Unix.lstat path with
-          | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
-          | _ -> ()
-          | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
-          | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
-        );
-        Unix.SOCK_STREAM, Unix.ADDR_UNIX path
-      | `Tcp (host, port)  ->
-        let host = Eio_unix.Ipaddr.to_unix host in
-        Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
-    in
-    let sock_unix = Unix.socket ~cloexec:true (socket_domain_of listen_addr) socket_type 0 in
+      | `Tcp _ -> ()
+      | `Unix path ->
+        match Unix.lstat path with
+        | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
+        | _ -> ()
+        | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+        | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+    );
+    let addr = Eio_unix.Net.sockaddr_to_unix listen_addr in
+    let sock_unix = Unix.socket ~cloexec:true (socket_domain_of listen_addr) Unix.SOCK_STREAM 0 in
+    let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
     (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
     begin match listen_addr with
       | `Unix path ->
@@ -242,31 +241,28 @@ let net = object
       Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
     if reuse_port then
       Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
-    let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
     Unix.bind sock_unix addr;
     Unix.listen sock_unix backlog;
     listening_socket sock
 
-  method connect ~sw connect_addr =
-    let addr =
-      match connect_addr with
-      | `Unix path         -> Unix.ADDR_UNIX path
-      | `Tcp (host, port)  ->
-        let host = Eio_unix.Ipaddr.to_unix host in
-        Unix.ADDR_INET (host, port)
-    in
-    let sock_unix = Unix.socket ~cloexec:true (socket_domain_of connect_addr) Unix.SOCK_STREAM 0 in
-    let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
-    Low_level.connect sock addr;
-    (flow sock :> <Eio.Flow.two_way; Eio.Flow.close>)
+  method connect = connect
 
   method datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
+    if reuse_addr then (
+      match saddr with
+      | `Udp _ | `UdpV4 | `UdpV6 -> ()
+      | `Unix path ->
+        match Unix.lstat path with
+        | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
+        | _ -> ()
+        | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
+        | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+    );
     let sock_unix = Unix.socket ~cloexec:true (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
     let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
     begin match saddr with
-    | `Udp (host, port) ->
-      let host = Eio_unix.Ipaddr.to_unix host in
-      let addr = Unix.ADDR_INET (host, port) in
+    | `Udp _ | `Unix _ as saddr ->
+      let addr = Eio_unix.Net.sockaddr_to_unix saddr in
       if reuse_addr then
         Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
       if reuse_port then
@@ -274,11 +270,9 @@ let net = object
       Unix.bind sock_unix addr
     | `UdpV4 | `UdpV6 -> ()
     end;
-    udp_socket sock
+    (datagram_socket sock :> Eio.Net.datagram_socket)
 
   method getaddrinfo = Low_level.getaddrinfo
-
-  method getnameinfo = Eio_unix.getnameinfo
 end
 
 type stdenv = Eio_unix.Stdenv.base
@@ -472,16 +466,31 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
     effc = fun (type a) (e : a Effect.t) : ((a, Sched.exit) continuation -> Sched.exit) option ->
       match e with
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
-      | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
+      | Eio_unix.Net.Import_socket_stream (sw, close_unix, fd) -> Some (fun k ->
           let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
-          continue k (flow fd :> Eio_unix.socket)
+          continue k (flow fd :> Eio_unix.Net.stream_socket)
         )
-      | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
+      | Eio_unix.Net.Import_socket_datagram (sw, close_unix, fd) -> Some (fun k ->
+          let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
+          continue k (datagram_socket fd)
+        )
+      | Eio_unix.Net.Socketpair_stream (sw, domain, protocol) -> Some (fun k ->
           match
-            let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
+            let a, b = Unix.socketpair ~cloexec:true domain Unix.SOCK_STREAM protocol in
             let a = FD.of_unix ~sw ~seekable:false ~close_unix:true a |> flow in
             let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
-            ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
+            ((a :> Eio_unix.Net.stream_socket), (b :> Eio_unix.Net.stream_socket))
+          with
+          | r -> continue k r
+          | exception Unix.Unix_error (code, name, arg) ->
+              discontinue k (Err.wrap code name arg)
+        )
+      | Eio_unix.Net.Socketpair_datagram (sw, domain, protocol) -> Some (fun k ->
+          match
+            let a, b = Unix.socketpair ~cloexec:true domain Unix.SOCK_DGRAM protocol in
+            let a = FD.of_unix ~sw ~seekable:false ~close_unix:true a |> datagram_socket in
+            let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> datagram_socket in
+            ((a :> Eio_unix.Net.datagram_socket), (b :> Eio_unix.Net.datagram_socket))
           with
           | r -> continue k r
           | exception Unix.Unix_error (code, name, arg) ->

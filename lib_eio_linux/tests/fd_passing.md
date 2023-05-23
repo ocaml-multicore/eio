@@ -21,7 +21,10 @@ Sending a file descriptor over a Unix domain socket:
   let r = Eio_unix.Fd.of_unix ~sw ~seekable:false ~close_unix:true r in
   let w = Eio_unix.Fd.of_unix ~sw ~seekable:false ~close_unix:true w in
   Fiber.both
-    (fun () -> Eio_linux.Low_level.send_msg w [Cstruct.of_string "x"] ~fds:[Eio_unix.Resource.fd_opt fd |> Option.get])
+    (fun () ->
+       let sent = Eio_linux.Low_level.send_msg w [Cstruct.of_string "x"] ~fds:[Eio_unix.Resource.fd_opt fd |> Option.get] in
+       assert (sent = 1)
+    )
     (fun () ->
        let buf = Cstruct.of_string "?" in
        let addr, got, fds = Eio_linux.Low_level.recv_msg_with_fds ~sw r ~max_fds:10 [buf] in

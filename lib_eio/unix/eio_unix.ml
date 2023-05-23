@@ -5,6 +5,7 @@ module Resource = Resource
 module Private = Private
 
 include Types
+type socket = Net.stream_socket
 
 let await_readable = Private.await_readable
 let await_writable = Private.await_writable
@@ -20,17 +21,7 @@ let () =
 let sleep d =
   Eio.Time.Mono.sleep (Effect.perform Private.Get_monotonic_clock) d
 
-let run_in_systhread fn =
-  let f fiber enqueue =
-    match Eio.Private.Fiber_context.get_error fiber with
-    | Some err -> enqueue (Error err)
-    | None ->
-      let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
-      ()
-  in
-  Effect.perform (Eio.Private.Effects.Suspend f)
-
-let import_socket_stream ~sw ~close_unix fd = Effect.perform (Private.Socket_of_fd (sw, close_unix, fd))
+let run_in_systhread = Private.run_in_systhread
 
 (* Deprecated *)
 module FD = struct
@@ -48,31 +39,21 @@ module FD = struct
     | None -> None
     | Some fd -> Fd.remove fd
 
-  let as_socket = import_socket_stream
+  let as_socket = Net.import_socket_stream
 end
 
-let socketpair ~sw ?(domain=Unix.PF_UNIX) ?(ty=Unix.SOCK_STREAM) ?(protocol=0) () =
-  Effect.perform (Private.Socketpair (sw, domain, ty, protocol))
+module Ipaddr = Net.Ipaddr
 
-module Ipaddr = struct
-  let to_unix : _ Eio.Net.Ipaddr.t -> Unix.inet_addr = Obj.magic
-  let of_unix : Unix.inet_addr -> _ Eio.Net.Ipaddr.t = Obj.magic
-end
+let socketpair ~sw ?domain ?(ty=Unix.SOCK_STREAM) ?protocol () =
+  assert (ty = Unix.SOCK_STREAM);
+  Net.socketpair_stream ~sw ?domain ?protocol ()
 
 module Ctf = Ctf_unix
 
-let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
-  let sockaddr, options =
-    match sockaddr with
-    | `Unix s -> (Unix.ADDR_UNIX s, [])
-    | `Tcp (addr, port) -> (Unix.ADDR_INET (Ipaddr.to_unix addr, port), [])
-    | `Udp (addr, port) -> (Unix.ADDR_INET (Ipaddr.to_unix addr, port), [Unix.NI_DGRAM])
-  in
-  run_in_systhread (fun () ->
-    let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
-    (ni_hostname, ni_service))
+let getnameinfo = Net.getnameinfo
 
 module Process = Process
+module Net = Net
 
 module Stdenv = struct
   type base = <
