@@ -36,7 +36,7 @@ type 'a t = {
 
      clear at 3 should apply to use at 1 and 2, but not use at 4
   *)
-  mutable clear_signal : bool Atomic.t; 
+  mutable clear_signal : bool ref;
 }
 
 let create
@@ -60,7 +60,7 @@ let create
     current_size = init_size;
     alloc;
     ready;
-    clear_signal = Atomic.make false;
+    clear_signal = ref false;
   }
 
 let async
@@ -68,7 +68,7 @@ let async
     (t : 'a t)
     (f : 'a -> unit)
   : unit =
-  let elem =
+  let elem_and_handlers =
     Eio_mutex.use_rw ~protect:true t.lock (fun () ->
         match Stream.take_nonblocking t.ready with
         | None -> (
@@ -83,7 +83,7 @@ let async
       )
   in
   let elem, handlers =
-    match elem with
+    match elem_and_handlers with
     | None -> Stream.take t.ready
     | Some x -> x
   in
@@ -93,8 +93,8 @@ let async
       Fun.protect
         (fun () -> f elem)
         ~finally:(fun () ->
-            let do_not_clear = not (Atomic.get clear_signal) in
             Eio_mutex.use_rw ~protect:true t.lock (fun () ->
+                let do_not_clear = not !clear_signal in
                 if do_not_clear && handlers.check elem then (
                   Stream.add t.ready (elem, handlers)
                 ) else (
@@ -127,6 +127,7 @@ let use t f =
 
 let clear (t : 'a t) =
   Eio_mutex.use_rw ~protect:true t.lock (fun () ->
-      Atomic.set t.clear_signal true;
-      t.clear_signal <- Atomic.make false;
+      let old_signal = t.clear_signal in
+      old_signal := true;
+      t.clear_signal <- ref false;
     )
