@@ -54,20 +54,20 @@ domain manager
     let pool = T.create ~sw ~max_domains:3 domain_mgr in
     T.async pool (fun () ->
       for _=1 to 6 do
-        traceln "0";
         Unix.sleepf 0.2;
+        traceln "0";
       done
     );
     T.async pool (fun () ->
       for _=1 to 3 do
-        traceln "1";
         Unix.sleepf 0.4;
+        traceln "1";
       done
     );
     T.async pool (fun () ->
       for _=1 to 2 do
-        traceln "2";
         Unix.sleepf 0.6;
+        traceln "2";
       done
     );
     T.clear pool
@@ -94,34 +94,34 @@ domain manager
     let pool = T.create ~sw ~max_domains:3 domain_mgr in
     T.async pool (fun () ->
       for _=1 to 6 do
-        traceln "0";
         Unix.sleepf 0.2;
+        traceln "0";
       done
     );
     T.async pool (fun () ->
       for _=1 to 3 do
-        traceln "1";
         Unix.sleepf 0.4;
+        traceln "1";
       done
     );
     T.async pool (fun () ->
       for _=1 to 2 do
-        traceln "2";
         Unix.sleepf 0.6;
+        traceln "2";
       done
     );
     T.clear pool
   );;
 +0
-+2
-+1
-+0
-+0
 +1
 +0
 +2
 +0
 +1
++0
++0
++1
++2
 +0
 - : unit = ()
 ```
