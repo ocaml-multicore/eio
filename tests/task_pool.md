@@ -46,32 +46,36 @@ let run ~use_fake_domain_mgr (fn : Switch.t -> Eio.Domain_manager.t -> unit) =
 
 # Test cases
 
-Three concurrent traceln runners at different frequencies using deterministic
-domain manager
+## Three concurrent traceln runners at different frequencies
 
 ```ocaml
-# run ~use_fake_domain_mgr:true (fun sw domain_mgr ->
-    let pool = T.create ~sw ~max_domains:3 domain_mgr in
-    T.async pool (fun () ->
-      for _=1 to 6 do
-        Unix.sleepf 0.2;
-        traceln "0";
-      done
-    );
-    T.async pool (fun () ->
-      for _=1 to 3 do
-        Unix.sleepf 0.4;
-        traceln "1";
-      done
-    );
-    T.async pool (fun () ->
-      for _=1 to 2 do
-        Unix.sleepf 0.6;
-        traceln "2";
-      done
-    );
-    T.clear pool
-  );;
+let three_traceln_runners sw domain_mgr =
+  let pool = T.create ~sw ~max_domains:3 domain_mgr in
+  T.async pool (fun () ->
+    for _=1 to 6 do
+      Unix.sleepf 0.29;
+      traceln "0";
+    done
+  );
+  T.async pool (fun () ->
+    for _=1 to 3 do
+      Unix.sleepf 0.46;
+      traceln "1";
+    done
+  );
+  T.async pool (fun () ->
+    for _=1 to 2 do
+      Unix.sleepf 0.63;
+      traceln "2";
+    done
+  );
+  T.clear pool
+```
+
+#### Deterministic domain manager
+
+```ocaml
+# run ~use_fake_domain_mgr:true three_traceln_runners;;
 +[1] 0
 +[1] 0
 +[1] 0
@@ -86,32 +90,10 @@ domain manager
 - : unit = ()
 ```
 
-Three concurrent traceln runners at different frequencies using native
-domain manager
+#### Native domain manager
 
 ```ocaml
-# run ~use_fake_domain_mgr:false (fun sw domain_mgr ->
-    let pool = T.create ~sw ~max_domains:3 domain_mgr in
-    T.async pool (fun () ->
-      for _=1 to 6 do
-        Unix.sleepf 0.29;
-        traceln "0";
-      done
-    );
-    T.async pool (fun () ->
-      for _=1 to 3 do
-        Unix.sleepf 0.46;
-        traceln "1";
-      done
-    );
-    T.async pool (fun () ->
-      for _=1 to 2 do
-        Unix.sleepf 0.63;
-        traceln "2";
-      done
-    );
-    T.clear pool
-  );;
+# run ~use_fake_domain_mgr:false three_traceln_runners;;
 +0
 +1
 +0
