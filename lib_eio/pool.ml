@@ -94,15 +94,15 @@ let async
         (fun () -> f elem)
         ~finally:(fun () ->
             let do_not_clear = not (Atomic.get clear_signal) in
-            if do_not_clear && handlers.check elem then (
-              Stream.add t.ready (elem, handlers)
-            ) else (
-              Eio_mutex.use_rw ~protect:true t.lock (fun () ->
+            Eio_mutex.use_rw ~protect:true t.lock (fun () ->
+                if do_not_clear && handlers.check elem then (
+                  Stream.add t.ready (elem, handlers)
+                ) else (
                   assert (t.current_size > 0);
                   t.current_size <- t.current_size - 1;
                   handlers.dispose elem;
                 )
-            )
+              )
           )
     )
 
