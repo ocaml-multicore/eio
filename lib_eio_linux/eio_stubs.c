@@ -8,6 +8,7 @@
 #include <sys/random.h>
 #endif
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <limits.h>
 #include <errno.h>
 #include <dirent.h>
@@ -29,6 +30,9 @@
 
 #ifndef SYS_pidfd_send_signal
 # define SYS_pidfd_send_signal 424
+#endif
+#ifndef SYS_pidfd_open
+# define SYS_pidfd_open 434
 #endif
 #ifndef SYS_clone3
 # define SYS_clone3 435
@@ -148,6 +152,45 @@ CAMLprim value caml_eio_pidfd_send_signal(value v_pidfd, value v_signal) {
   CAMLreturn(Val_unit);
 }
 
+static int pidfd_open(pid_t pid, unsigned int flags) {
+  return syscall(SYS_pidfd_open, pid, flags);
+}
+
+/* Like clone3, but falls back to fork if not supported.
+   Also, raises exceptions rather then returning an error. */
+static pid_t clone3_with_fallback(struct clone_args *cl_args) {
+  int *pidfd = (int *)(uintptr_t) cl_args->pidfd;
+  pid_t child_pid = syscall(SYS_clone3, cl_args, sizeof(struct clone_args));
+
+  if (child_pid >= 0)
+    return child_pid;		/* Success! */
+
+  if (errno != ENOSYS && errno != EPERM) {
+    uerror("clone3", Nothing);	/* Unknown error */
+  }
+
+  /* Probably Docker's security policy is blocking clone3. Fall back to forking. */
+
+  child_pid = fork();
+  if (child_pid == 0) {
+    /* We are the child */
+    return 0;
+  } else if (child_pid < 0) {
+    uerror("fork", Nothing);
+  }
+
+  *pidfd = pidfd_open(child_pid, 0);   	/* Is automatically close-on-exec */
+  if (*pidfd < 0) {
+    int e = errno;
+    kill(child_pid, SIGKILL);
+    waitpid(child_pid, NULL, 0);
+    errno = e;
+    uerror("pidfd_open", Nothing);
+  }
+
+  return child_pid;
+}
+
 CAMLprim value caml_eio_clone3(value v_errors, value v_actions) {
   CAMLparam1(v_actions);
   CAMLlocal1(v_result);
@@ -155,17 +198,16 @@ CAMLprim value caml_eio_clone3(value v_errors, value v_actions) {
   int pidfd = -1;		/* Is automatically close-on-exec */
   struct clone_args cl_args = {
     .flags = CLONE_PIDFD,
-    .pidfd = (uint64_t) &pidfd,
+    .pidfd = (uintptr_t) &pidfd,
     .exit_signal = SIGCHLD,	/* Needed for wait4 to work if we exit before exec */
-    .stack = (uint64_t) NULL,	/* Use copy-on-write parent stack */
+    .stack = (uintptr_t) NULL,	/* Use copy-on-write parent stack */
     .stack_size = 0,
   };
 
-  child_pid = syscall(SYS_clone3, &cl_args, sizeof(struct clone_args));
+  child_pid = clone3_with_fallback(&cl_args);
   if (child_pid == 0) {
+    /* Run child actions (doesn't return) */
     eio_unix_run_fork_actions(Int_val(v_errors), v_actions);
-  } else if (child_pid < 0) {
-    uerror("clone3", Nothing);
   }
 
   v_result = caml_alloc_tuple(2);
