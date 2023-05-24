@@ -16,24 +16,12 @@
 
 module Low_level = Low_level
 
-type stdenv = <
-  stdin  : <Eio.Flow.source; Eio_unix.Resource.t>;
-  stdout : <Eio.Flow.sink; Eio_unix.Resource.t>;
-  stderr : <Eio.Flow.sink; Eio_unix.Resource.t>;
-  net : Eio.Net.t;
-  domain_mgr : Eio.Domain_manager.t;
-  clock : Eio.Time.clock;
-  mono_clock : Eio.Time.Mono.t;
-  fs : Eio.Fs.dir Eio.Path.t;
-  cwd : Eio.Fs.dir Eio.Path.t;
-  secure_random : Eio.Flow.source;
-  debug : Eio.Debug.t;
->
+type stdenv = Eio_unix.Stdenv.base
 
 let run main =
-  let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> <Eio.Flow.source; Eio_unix.Resource.t>) in
-  let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> <Eio.Flow.sink; Eio_unix.Resource.t>) in
-  let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> <Eio.Flow.sink; Eio_unix.Resource.t>) in
+  let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> Eio_unix.source) in
+  let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> Eio_unix.sink) in
+  let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> Eio_unix.sink) in
   Domain_mgr.run_event_loop main @@ object (_ : stdenv)
     method stdin = stdin
     method stdout = stdout
@@ -45,5 +33,6 @@ let run main =
     method domain_mgr = Domain_mgr.v
     method cwd = failwith "file-system operations not supported on Windows yet"
     method fs = failwith "file-system operations not supported on Windows yet"
+    method process_mgr = failwith "process operations not supported on Windows yet"
     method secure_random = Flow.secure_random
   end
