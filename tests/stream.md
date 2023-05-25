@@ -26,7 +26,7 @@ let take t =
 
 let take_nonblocking t =
   traceln "Reading from stream";
-  traceln "Got %a from stream" Fmt.(option ~none:(unit "None") int) (S.take_nonblocking t)
+  traceln "Got %a from stream" Fmt.(option ~none:(any "None") int) (S.take_nonblocking t)
 ```
 
 # Test cases
