@@ -47,9 +47,7 @@ jobs:
           ocaml-compiler: ocaml.5.0.0,ocaml-option-mingw
           opam-repositories: |
             dra27: https://github.com/dra27/opam-repository.git#windows-5.0
-            duniverse: git+https://github.com/dune-universe/opam-overlays
             normal: https://github.com/ocaml/opam-repository.git
-            default: https://github.com/ocaml-opam/opam-repository-mingw.git#opam2
       # --with-version=dev is not available, and --with-test also tries running tests for packages (like MDX) which fail...
       - run: | 
           opam pin -yn eio.dev .

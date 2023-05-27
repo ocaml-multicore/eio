@@ -1,4 +1,6 @@
 pin-depends: [
+  # With Fdopen's patch, the only thing we need from opam-repo-mingw
+  [ "ocamlbuild.dev" "git+https://github.com/patricoferris/ocamlbuild#b72c0dfdd6f1066d50da4b924b8196237696f66b" ]
   # Removes base bytes for crowbar
   [ "ocplib-endian.dev" "git+https://github.com/Leonidas-from-XIV/ocplib-endian#fda4d5525063c8444020be369c63de23d39c246e" ]
   # Needed for the cstruct read and writes without copying
