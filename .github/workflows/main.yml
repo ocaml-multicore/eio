@@ -56,6 +56,7 @@ jobs:
           opam pin -yn eio_windows.dev .
           opam install ocamlfind.1.9.5 kcas alcotest mdx crowbar -y
           opam install eio eio_windows --deps-only
+      - run: opam exec -- dune build
       - run: opam exec -- dune runtest
       - run: opam exec -- dune exec -- ./examples/net/main.exe
   docker:

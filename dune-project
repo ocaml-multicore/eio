@@ -46,6 +46,7 @@
   (uring (>= 0.5))))
 (package
  (name eio_posix)
+ (allow_empty)
  (synopsis "Eio implementation for POSIX systems")
  (description "An Eio implementation for most Unix-like platforms")
  (depends
