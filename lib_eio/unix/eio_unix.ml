@@ -1,6 +1,7 @@
 [@@@alert "-unstable"]
 
 module Fd = Fd
+module Pty = Pty
 module Resource = Resource
 module Private = Private
 

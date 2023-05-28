@@ -63,3 +63,10 @@ let inherit_fds m =
   with_fds m @@ fun m ->
   let plan : action list = Inherit_fds.plan m in
   { run = fun k -> k (Obj.repr (action_dups, plan, blocking)) }
+
+external action_login_tty : unit -> fork_fn = "eio_unix_login_tty"
+let action_login_tty = action_login_tty ()
+
+let login_tty pty =
+  Fd.use_exn "login_tty" pty @@ fun pty ->
+  { run = fun k -> k (Obj.repr (action_login_tty, pty)) }

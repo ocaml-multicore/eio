@@ -3,6 +3,9 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/ioctl.h>
+#include <paths.h>
+#include <utmp.h>
 
 #include <caml/mlvalues.h>
 #include <caml/unixsupport.h>
@@ -153,17 +156,17 @@ static void action_dups(int errors, value v_config) {
     if (dst == -1) {
       // Dup to a temporary FD
       if (tmp == -1) {
-	tmp = dup(src);
-	if (tmp < 0) {
-	  eio_unix_fork_error(errors, "dup-tmp", strerror(errno));
-	  _exit(1);
-	}
+        tmp = dup(src);
+        if (tmp < 0) {
+          eio_unix_fork_error(errors, "dup-tmp", strerror(errno));
+          _exit(1);
+        }
       } else {
-	int r = dup2(src, tmp);
-	if (r < 0) {
-	  eio_unix_fork_error(errors, "dup2-tmp", strerror(errno));
-	  _exit(1);
-	}
+        int r = dup2(src, tmp);
+        if (r < 0) {
+          eio_unix_fork_error(errors, "dup2-tmp", strerror(errno));
+          _exit(1);
+        }
       }
       set_cloexec(errors, tmp, 1);
     } else if (src == dst) {
@@ -171,8 +174,8 @@ static void action_dups(int errors, value v_config) {
     } else {
       int r = dup2(src, dst);
       if (r < 0) {
-	eio_unix_fork_error(errors, "dup2", strerror(errno));
-	_exit(1);
+        eio_unix_fork_error(errors, "dup2", strerror(errno));
+        _exit(1);
       }
     }
     v_plan = Field(v_plan, 1);
@@ -188,4 +191,15 @@ static void action_dups(int errors, value v_config) {
 
 CAMLprim value eio_unix_fork_dups(value v_unit) {
   return Val_fork_fn(action_dups);
+}
+
+static void action_login_tty(int errors, value v_config) {
+  value v_pty = Field(v_config, 1);
+
+  if (login_tty(Int_val(v_pty)) == -1)
+    dprintf(errors, "action_login_tty Error logging in tty: %s", strerror(errno));
+}
+
+CAMLprim value eio_unix_login_tty(value v_unit) {
+  return Val_fork_fn(action_login_tty);
 }

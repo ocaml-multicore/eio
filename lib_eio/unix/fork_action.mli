@@ -58,3 +58,6 @@ val inherit_fds : (int * Fd.t * [< blocking]) list -> t
     A mapping from an FD to itself simply clears the close-on-exec flag.
 
     After this, the new FDs may also be set as blocking or non-blocking, depending on [flags]. *)
+
+val login_tty : Fd.t -> t
+(** [login_tty pty] prepares for a shell login on the [pty] file descriptor. *)
