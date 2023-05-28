@@ -6,8 +6,8 @@
  (foreign_stubs
   (language c)
   (include_dirs ../lib_eio/unix/include)
-  (names eio_windows_stubs))
- (libraries eio eio.unix eio.utils fmt cstruct-unix))
+  (names eio_windows_stubs eio_windows_cstruct_stubs))
+ (libraries eio eio.unix eio.utils fmt))
 
 (rule
  (targets config.ml)

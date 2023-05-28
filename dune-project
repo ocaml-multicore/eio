@@ -46,6 +46,7 @@
   (uring (>= 0.5))))
 (package
  (name eio_posix)
+ (allow_empty)  ; Work-around for dune bug #6938
  (synopsis "Eio implementation for POSIX systems")
  (description "An Eio implementation for most Unix-like platforms")
  (depends
@@ -60,7 +61,6 @@
  (allow_empty)  ; Work-around for dune bug #6938
  (depends
   (eio (= :version))
-  (cstruct-unix (= dev))
   (kcas (and (>= 0.3.0) :with-test))
   (alcotest (and (>= 1.4.0) :with-test))))
 (package
