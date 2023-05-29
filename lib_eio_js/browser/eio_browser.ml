@@ -239,3 +239,17 @@ let run main =
   let result, r = Fut.create () in
   let Suspend = fork ~new_fiber (fun () -> r (main ())) in
   result
+
+let callback_stream = Eio.Stream.create 1 (* 0? *)
+
+let run_callbacks () =
+  let rec aux sw =
+    let callback = Eio.Stream.take callback_stream in
+    Eio.Fiber.fork ~sw callback;
+    aux sw
+  in
+  Eio.Switch.run aux
+
+let wrap_callback callback e =
+  Eio.Stream.add callback_stream (fun () -> callback e);
+  Js_of_ocaml.Js._false

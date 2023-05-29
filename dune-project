@@ -67,6 +67,8 @@
  (depends
   (eio (= :version))
   (js_of_ocaml-compiler (>= 5.0.1))
+  (js_of_ocaml (>= 5.0.1))
+  (js_of_ocaml-ppx (>= 5.0.1))
   (brr (>= 0.0.4))
   (alcotest (and (>= 1.6.0) :with-test))
   (ansi :with-test)))

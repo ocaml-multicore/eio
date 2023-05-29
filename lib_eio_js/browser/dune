@@ -1,4 +1,4 @@
 (library
  (name eio_browser)
  (public_name eio_browser)
- (libraries eio brr))
+ (libraries eio brr js_of_ocaml))

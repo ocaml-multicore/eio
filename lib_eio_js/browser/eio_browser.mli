@@ -14,3 +14,16 @@ val next_event : 'a Brr.Ev.type' -> Brr.Ev.target -> 'a Brr.Ev.t
 
 val run : (unit -> 'a) -> 'a Fut.t
 (** [run main] runs [main] whose result is returned as a promise. *)
+
+(** {1 Callbacks} *)
+
+val run_callbacks : (unit -> unit)
+(** [run_callbacks] is a never-ending loop that will handle all callbacks
+    wrapped by [wrap_callback].
+    It must be called at the end of your main loop
+    if you want to use Eio inside event handlers. *)
+
+val wrap_callback : ('a -> unit) -> 'a -> bool Js_of_ocaml.Js.t
+(** Callbacks must be wrapped with [wrap_callback]
+    if you want to use Eio from inside.
+*)

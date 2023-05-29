@@ -1,12 +1,24 @@
 (executable
  (name index)
  (modes js)
+ (modules index)
  (js_of_ocaml (flags --enable=effects))
  (libraries eio_browser))
+
+(executable
+ (name index2)
+ (modes js)
+ (modules index2)
+ (preprocess
+  (pps js_of_ocaml-ppx))
+ (js_of_ocaml (flags --enable=effects))
+ (libraries eio_browser js_of_ocaml))
 
 (rule
  (alias runtest)
  (package eio_browser)
- (deps index.html index.bc.js)
- (targets index.js)
- (action (copy index.bc.js index.js)))
+ (deps index.html index.bc.js index2.html index2.bc.js)
+ (targets index.js index2.js)
+ (action (progn
+          (copy index.bc.js index.js)
+          (copy index2.bc.js index2.js))))

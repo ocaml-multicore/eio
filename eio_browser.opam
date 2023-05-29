@@ -13,6 +13,8 @@ depends: [
   "dune" {>= "3.7"}
   "eio" {= version}
   "js_of_ocaml-compiler" {>= "5.0.1"}
+  "js_of_ocaml" {>= "5.0.1"}
+  "js_of_ocaml-ppx" {>= "5.0.1"}
   "brr" {>= "0.0.4"}
   "alcotest" {>= "1.6.0" & with-test}
   "ansi" {with-test}
