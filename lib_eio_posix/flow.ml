@@ -61,7 +61,9 @@ let shutdown fd cmd =
     | `Receive -> Unix.SHUTDOWN_RECEIVE
     | `Send -> Unix.SHUTDOWN_SEND
     | `All -> Unix.SHUTDOWN_ALL
-  with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
+  with
+  | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
+  | Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 
 let of_fd fd = object (_ : <Eio_unix.Net.stream_socket; Eio.File.rw>)
   method fd = fd
