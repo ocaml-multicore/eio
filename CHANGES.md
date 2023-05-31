@@ -1,3 +1,68 @@
+New features / API changes:
+
+- Add `Eio.Process` for cross-platform subprocess support (@patricoferris @talex5 #499, reviewed by @anmonteiro @avsm @haesbaert).
+
+- Add `Eio_unix.Net module` (@talex5 #516, reviewed by @avsm).  
+  The Unix network APIs have been cleaned up and moved here, and some missing datagram operations have been added.
+  `send` now takes an iovec, not just a single buffer.
+
+- Add support for domain local await (@polytypic @talex5 #494 #503).  
+  Allows sharing e.g. kcas data-structures across Eio and Domainslib domains.
+
+- Add initial eio_windows backend (@patricoferris @talex5 #497 #530 #511 #523, reviewed by @avsm @polytypic).  
+
+- Remove eio_luv backend (@talex5 #485).  
+  It was only used on Windows, and has been replaced by eio_windows.
+
+- Unify `Eio_linux.FD` and `Eio_posix.Fd` as `Eio_unix.Fd` (@talex5 #491).  
+  Now that eio_luv is gone, there is no need for different backends to have different types for wrapped file descriptors.
+
+- Move `Eio.Stdenv.t` to `Eio_unix.Stdenv.base` (@talex5 #498).  
+  Note that the rest of `Eio.Stdenv` is still there; only the definition of a full Unix-like environment has moved.
+
+- Deprecation cleanups (@talex5 #508).  
+  Removed some APIs that were already marked as deprecated in Eio 0.8.
+
+Bug fixes:
+
+- eio_linux: fall back to `fork` if `clone3` is unavailable (@talex5 #524, reported by @smondet, reviewed by @avsm).  
+  Docker's default security policy blocks `clone3`.
+
+- Don't call `accept_fork`'s error handler on cancellation (@talex5 #520).  
+  This isn't an error and should not be reported.
+
+- Fix `eio_unix_is_blocking` C stub (@patricoferris #505, reviewed by @talex5).
+
+- Fix `Condition.await bug` when cancelling (@polytypic @talex5 #487).
+
+Documentation:
+
+- Link to developer meetings information (@talex5 @Sudha247 #515).
+
+- Adopt OCaml Code of Conduct (@Sudha247 #501).
+
+- Add README links to Meio and Lambda Capabilities blog post (@talex5 #496).
+
+- Document mirage `Ipaddr` conversion (@RyanGibb @patricoferris @talex5 #492).
+
+- Document how to use Domainslib from Eio (@talex5 #489, reviewed by @polytypic @patricoferris).
+
+Other changes:
+
+- Run benchmarks with current-bench (@Sudha247 @talex5 #500).
+
+- Fix MDX tests on OCaml 5.1 (@talex5 #526).
+
+- Add stress test for spawning processes (@talex5 #519).  
+  This was an attempt to track down the https://github.com/ocaml/ocaml/issues/12253 signals bug.
+
+- `Eio.Process.pp_status` should be polymorphic (@talex5 #518).
+
+- eio_posix: probe for existence of some flags (@talex5 #507, reported by @hannesm).  
+  FreeBSD 12 didn't have `O_DSYNC`. Also, add `O_RESOLVE_BENEATH` and `O_PATH` if available.
+
+- Fix race in ctf tests (@talex5 #493).
+
 ## v0.9
 
 New features:
