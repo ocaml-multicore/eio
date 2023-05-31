@@ -23,11 +23,11 @@ let sockaddr_of_unix_datagram = function
     let host = Ipaddr.of_unix host in
     `Udp (host, port)
 
-class virtual stream_socket = object (_ : <Resource.t; ..>)
+class virtual stream_socket = object (_ : <Resource.t; Eio.Flow.close; ..>)
   inherit Eio.Net.stream_socket
 end
 
-class virtual datagram_socket = object (_ : <Resource.t; ..>)
+class virtual datagram_socket = object (_ : <Resource.t; Eio.Flow.close; ..>)
   inherit Eio.Net.datagram_socket
 end
 

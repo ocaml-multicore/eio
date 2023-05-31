@@ -159,7 +159,6 @@ end
 
 class virtual socket = object (_ : #Generic.t)
   method probe _ = None
-  method virtual close : unit
 end
 
 class virtual stream_socket = object (_ : #socket)
