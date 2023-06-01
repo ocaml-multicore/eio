@@ -104,7 +104,6 @@ end
 
 class virtual socket : object
   inherit Generic.t
-  method virtual close : unit
 end
 
 class virtual stream_socket : object

@@ -4,11 +4,11 @@ open Eio.Std
 
     These extend the types in {!Eio.Net} with support for file descriptors. *)
 
-class virtual stream_socket : object (<Resource.t; ..>)
+class virtual stream_socket : object (<Resource.t; Eio.Flow.close; ..>)
   inherit Eio.Net.stream_socket
 end
 
-class virtual datagram_socket : object (<Resource.t; ..>)
+class virtual datagram_socket : object (<Resource.t; Eio.Flow.close; ..>)
   inherit Eio.Net.datagram_socket
 end
 
