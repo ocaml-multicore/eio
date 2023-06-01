@@ -469,27 +469,21 @@ let rec await_batch t =
       );
     await_batch t
 
-let read_into t buf =
-  let iovecs = await_batch t in
-  let n, _iovecs = Cstruct.fillv ~src:iovecs ~dst:buf in
-  shift t n;
-  n
-
-let read_source_buffer t fn =
-  let iovecs = await_batch t in
-  shift t (fn iovecs)
-
-let as_flow t =
-  object
-    inherit Flow.source
-    method! read_methods = [Flow.Read_source_buffer (read_source_buffer t)]
-    method read_into = read_into t
-  end
+(* We have to do our own copy, because we can't [shift] until the write is complete. *)
+let copy t flow =
+  let rec aux () =
+    let iovecs = await_batch t in
+    Flow.write flow iovecs;             (* todo: add a Flow.single_write and use that. *)
+    shift t (Cstruct.lenv iovecs);
+    aux ()
+  in
+  try aux ()
+  with End_of_file -> ()
 
 let with_flow ?(initial_size=0x1000) flow fn =
   Switch.run @@ fun sw ->
   let t = create ~sw initial_size in
-  Fiber.fork ~sw (fun () -> Flow.copy (as_flow t) flow);
+  Fiber.fork ~sw (fun () -> copy t flow);
   match fn t with
   | x ->
     close t;
