@@ -182,7 +182,10 @@ Eio_mock.Flow.on_copy_bytes flow [
 - : unit = ()
 ```
 
-Multiple flushes:
+Multiple flushes.
+Note: ideally the flushes here would complete as soon as enough data has been flushed,
+but currently Eio.Flow.sink doesn't allow short writes and so Buf_write has to wait for
+the whole batch to be flushed.
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
@@ -201,12 +204,40 @@ Multiple flushes:
   traceln "Done";;
 +flow: wrote (rsb) ["a"]
 +flow: wrote (rsb) ["b"; "c"]
-+1st flush
 +flow: wrote (rsb) ["d"; "e"]
-+2nd flush
 +flow: wrote (rsb) ["f"]
++1st flush
++2nd flush
 +3rd flush
 +Done
+- : unit = ()
+```
+
+Check flush waits for the write to succeed:
+
+```ocaml
+let slow_writer = object
+  inherit Eio.Flow.sink
+  method copy src =
+    let buf = Cstruct.create 10 in
+    try
+      while true do
+        let len = Eio.Flow.single_read src buf in
+        Fiber.yield ();
+        traceln "Write %S" (Cstruct.to_string buf ~len)
+      done
+    with End_of_file -> ()
+end
+```
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Write.with_flow slow_writer @@ fun t ->
+  Write.string t "test";
+  Write.flush t;
+  traceln "Flush complete"
++Write "test"
++Flush complete
 - : unit = ()
 ```
 
