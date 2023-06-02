@@ -1,3 +1,5 @@
+## v0.10
+
 New features / API changes:
 
 - Add `Eio.Process` for cross-platform subprocess support (@patricoferris @talex5 #499, reviewed by @anmonteiro @avsm @haesbaert).
