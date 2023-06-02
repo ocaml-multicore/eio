@@ -385,9 +385,12 @@ let rename old_dir old_path new_dir new_path =
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
 let shutdown socket command =
-  Fd.use_exn "shutdown" socket @@ fun fd ->
-  try Unix.shutdown fd command
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  try
+    Fd.use_exn "shutdown" socket @@ fun fd ->
+    Unix.shutdown fd command
+  with
+  | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
+  | Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
 
 let accept ~sw fd =
   Ctf.label "accept";

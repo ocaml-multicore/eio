@@ -166,8 +166,7 @@ let flow fd =
         aux (Eio.Flow.read_methods src)
 
     method shutdown cmd =
-      FD.use_exn "shutdown" fd @@ fun fd ->
-      Unix.shutdown fd @@ match cmd with
+      Low_level.shutdown fd @@ match cmd with
       | `Receive -> Unix.SHUTDOWN_RECEIVE
       | `Send -> Unix.SHUTDOWN_SEND
       | `All -> Unix.SHUTDOWN_ALL
