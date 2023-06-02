@@ -9,7 +9,7 @@ New features / API changes:
 - Add support for domain local await (@polytypic @talex5 #494 #503).  
   Allows sharing e.g. kcas data-structures across Eio and Domainslib domains.
 
-- Add initial eio_windows backend (@patricoferris @talex5 #497 #530 #511 #523, reviewed by @avsm @polytypic).  
+- Add initial eio_windows backend (@patricoferris @talex5 #497 #530 #511 #523 #509, reviewed by @avsm @polytypic).  
 
 - Remove eio_luv backend (@talex5 #485).  
   It was only used on Windows, and has been replaced by eio_windows.
@@ -34,6 +34,10 @@ Bug fixes:
 - Fix `eio_unix_is_blocking` C stub (@patricoferris #505, reviewed by @talex5).
 
 - Fix `Condition.await bug` when cancelling (@polytypic @talex5 #487).
+
+- Buf_write: fix flush returning too early (@talex5 #539, reported by @cometkim).
+
+- Ignore `ENOTCONN` errors on socket shutdown (@avsm #533, reported by @patricoferris, reviewed by @talex5).
 
 Documentation:
 
