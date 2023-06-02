@@ -97,6 +97,7 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 - [Eio_posix][] provides a cross-platform backend for these APIs for POSIX-type systems.
 - [Eio_linux][] provides a Linux io-uring backend for these APIs,
   plus a low-level API that can be used directly (in non-portable code).
+- [Eio_windows][] is for use on Windows (incomplete - [help wanted](https://github.com/ocaml-multicore/eio/issues/125)).
 - [Eio_main][] selects an appropriate backend (e.g. `eio_linux` or `eio_posix`), depending on your platform.
 
 ## Getting OCaml 5.0
@@ -1859,8 +1860,9 @@ Some background about the effects system can be found in:
 [Eio.Domain_manager]: https://ocaml-multicore.github.io/eio/eio/Eio/Domain_manager/index.html
 [Eio.Promise]: https://ocaml-multicore.github.io/eio/eio/Eio/Promise/index.html
 [Eio.Stream]: https://ocaml-multicore.github.io/eio/eio/Eio/Stream/index.html
-[Eio_posix]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio_posix/eio_posix.mli
+[Eio_posix]: https://ocaml-multicore.github.io/eio/eio_posix/Eio_posix/index.html
 [Eio_linux]: https://ocaml-multicore.github.io/eio/eio_linux/Eio_linux/index.html
+[Eio_windows]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio_windows/eio_windows.mli
 [Eio_main]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html
 [Eio.traceln]: https://ocaml-multicore.github.io/eio/eio/Eio/index.html#val-traceln
 [Eio_main.run]: https://ocaml-multicore.github.io/eio/eio_main/Eio_main/index.html#val-run
@@ -1874,5 +1876,5 @@ Some background about the effects system can be found in:
 [kcas]: https://github.com/ocaml-multicore/kcas
 [Meio]: https://github.com/tarides/meio
 [Lambda Capabilities]: https://roscidus.com/blog/blog/2023/04/26/lambda-capabilities/
-[Eio.Process]: https://github.com/ocaml-multicore/eio/blob/main/lib_eio/process.mli
+[Eio.Process]: https://ocaml-multicore.github.io/eio/eio/Eio/Process/index.html
 [Dev meetings]: https://docs.google.com/document/d/1ZBfbjAkvEkv9ldumpZV5VXrEc_HpPeYjHPW_TiwJe4Q
