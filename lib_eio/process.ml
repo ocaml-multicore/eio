@@ -6,9 +6,9 @@ type exit_status = [
 type status = [ exit_status | `Stopped of int ]
 
 let pp_status ppf = function
-  | `Exited i -> Format.fprintf ppf "Exited %i" i
-  | `Signaled i -> Format.fprintf ppf "Signalled %i" i
-  | `Stopped i -> Format.fprintf ppf "Stopped %i" i
+  | `Exited i -> Format.fprintf ppf "Exited (code %i)" i
+  | `Signaled i -> Format.fprintf ppf "Exited (signal %a)" Fmt.Dump.signal i
+  | `Stopped i -> Format.fprintf ppf "Stopped (signal %a)" Fmt.Dump.signal i
 
 type error =
   | Executable_not_found of string

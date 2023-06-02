@@ -20,9 +20,7 @@ let run fn =
   Eio_main.run @@ fun env ->
   fn env#process_mgr env
 
-let check_signal expected = function
-  | `Signaled x when x = expected -> Ok ()
-  | x -> Error x;;
+let status_to_string = Fmt.to_to_string Eio.Process.pp_status
 ```
 
 Running a program as a subprocess:
@@ -43,8 +41,8 @@ Stopping a subprocess works and checking the status waits and reports correctly:
   Switch.run @@ fun sw ->
   let t = Process.spawn ~sw mgr [ "sleep"; "10" ] in
   Process.signal t Sys.sigkill;
-  Process.await t |> check_signal Sys.sigkill;;
-- : (unit, Process.exit_status) result = Ok ()
+  Process.await t |> status_to_string
+- : string = "Exited (signal SIGKILL)"
 ```
 
 A switch will stop a process when it is released:
@@ -52,8 +50,8 @@ A switch will stop a process when it is released:
 ```ocaml
 # run @@ fun mgr env ->
   let proc = Switch.run (fun sw -> Process.spawn ~sw mgr [ "sleep"; "10" ]) in
-  Process.await proc |> check_signal Sys.sigkill;;
-- : (unit, Process.exit_status) result = Ok ()
+  Process.await proc |> status_to_string
+- : string = "Exited (signal SIGKILL)"
 ```
 
 Passing in flows allows you to redirect the child process' stdout:
@@ -146,7 +144,7 @@ If a command fails, we get shown the arguments (quoted if necessary):
 # run @@ fun mgr env ->
   Process.run mgr ["bash"; "-c"; "exit 3"; ""; "foo"];;
 Exception:
-Eio.Io Process Child_error Exited 3,
+Eio.Io Process Child_error Exited (code 3),
   running command: bash -c "exit 3" "" foo
 ```
 

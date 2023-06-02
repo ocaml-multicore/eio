@@ -918,7 +918,7 @@ All process functions either return the exit status or check that it was zero (s
   let proc_mgr = Eio.Stdenv.process_mgr env in
   Eio.Process.parse_out proc_mgr Eio.Buf_read.take_all ["sh"; "-c"; "exit 3"];;
 Exception:
-Eio.Io Process Child_error Exited 3,
+Eio.Io Process Child_error Exited (code 3),
   running command: sh -c "exit 3"
 ```
 
