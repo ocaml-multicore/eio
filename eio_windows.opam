@@ -30,7 +30,3 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
-pin-depends: [
-  # With Fdopen's patch, the only thing we need from opam-repo-mingw
-  [ "ocamlbuild.dev" "git+https://github.com/patricoferris/ocamlbuild#b72c0dfdd6f1066d50da4b924b8196237696f66b" ]
-]
