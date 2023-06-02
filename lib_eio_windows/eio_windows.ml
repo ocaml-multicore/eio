@@ -31,8 +31,8 @@ let run main =
     method mono_clock = Time.mono_clock
     method net = Net.v
     method domain_mgr = Domain_mgr.v
-    method cwd = failwith "file-system operations not supported on Windows yet"
-    method fs = failwith "file-system operations not supported on Windows yet"
+    method cwd = ((Fs.cwd, "") :> Eio.Fs.dir Eio.Path.t)
+    method fs = ((Fs.fs, "") :> Eio.Fs.dir Eio.Path.t)
     method process_mgr = failwith "process operations not supported on Windows yet"
     method secure_random = Flow.secure_random
   end

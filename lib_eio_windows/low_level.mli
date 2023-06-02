@@ -39,7 +39,7 @@ val lstat : string -> Unix.LargeFile.stats
 
 val realpath : string -> string
 
-val mkdir : ?dirfd:fd -> mode:int -> string -> unit
+val mkdir : ?dirfd:fd -> ?nofollow:bool -> mode:int -> string -> unit
 val unlink : ?dirfd:fd -> dir:bool -> string -> unit
 val rename : ?old_dir:fd -> string -> ?new_dir:fd -> string -> unit
 
@@ -53,20 +53,67 @@ val pwritev : file_offset:Optint.Int63.t -> fd -> Cstruct.t array -> int
 
 val pipe : sw:Switch.t -> fd * fd
 
-module Open_flags : sig
-  type t
+module Flags : sig
+  module Open : sig
+    type t
 
-  val rdonly : t
-  val rdwr : t
-  val wronly : t
-  val append : t
-  val creat : t
-  val excl : t
-  val trunc : t
+    val rdonly : t
+    val rdwr : t
+    val wronly : t
+    val creat : t
+    val excl : t
+    val trunc : t
 
-  val empty : t
-  val ( + ) : t -> t -> t
+    val generic_read : t
+    val generic_write : t
+    val synchronise : t
+    val append : t
+
+    val empty : t
+    val ( + ) : t -> t -> t
+  end
+
+  module Disposition : sig
+    type t
+
+    val supersede : t
+    (** If the file already exists, replace it with the given file.
+        If it does not, create the given file. *)
+
+    val create : t
+    (** Create the file, if it already exists fail. *)
+
+    val open_ : t
+    (** If the file already exists, open it otherwise fail. *)
+
+    val open_if : t
+    (** If the file already exists, open it otherwise create it. *)
+
+    val overwrite : t
+    (** If the file already exists, open it and overwrite it otherwise fail. *)
+
+    val overwrite_if : t
+    (** If the file already exists, open it and overwrite it otherwise create it. *)
+  end
+
+  module Create : sig
+    type t
+
+    val directory : t
+    (** Create a directory. *)
+    
+    val non_directory : t
+    (** Create something that is not a directory. *)
+
+    val no_intermediate_buffering : t
+
+    val write_through : t
+
+    val sequential_only : t
+
+    val ( + ) : t -> t -> t
+  end
 end
 
-val openat : ?dirfd:fd -> sw:Switch.t -> mode:int -> string -> Open_flags.t -> fd
+val openat : ?dirfd:fd -> ?nofollow:bool-> sw:Switch.t -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> fd
 (** Note: the returned FD is always non-blocking and close-on-exec. *)

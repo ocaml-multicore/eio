@@ -156,51 +156,74 @@ let pwritev ~file_offset fd bufs =
   Fd.use_exn "pwritev" fd @@ fun fd ->
   do_nonblocking Write (fun fd -> eio_pwritev fd bufs file_offset) fd
 
-module Open_flags = struct
-  type t = int
+module Flags = struct
+  module Open = struct
+    type t = int
+    let rdonly = Config.o_rdonly
+    let rdwr = Config.o_rdwr
+    let wronly = Config.o_wronly
+    let cloexec = Config.o_noinherit
+    let creat = Config.o_creat
+    let excl = Config.o_excl
+    let trunc = Config.o_trunc
 
-  let rdonly = Config.o_rdonly
-  let rdwr = Config.o_rdwr
-  let wronly = Config.o_wronly
-  let append = Config.o_append
-  let cloexec = Config.o_noinherit
-  let creat = Config.o_creat
-  let excl = Config.o_excl
-  let trunc = Config.o_trunc
+    let generic_read = Config.generic_read
+    let generic_write = Config.generic_write
+    let synchronise = Config.synchronize
+    let append = Config.file_append_data
 
-  let empty = 0
-  let ( + ) = ( lor )
+    let empty = 0
+    let ( + ) = ( lor )
+  end
+
+  module Disposition = struct
+    type t = int
+    let supersede = Config.file_supersede
+    let create = Config.file_create
+    let open_ = Config.file_open
+    let open_if = Config.file_open_if
+    let overwrite = Config.file_overwrite
+    let overwrite_if = Config.file_overwrite_if
+  end
+
+  module Create = struct
+    type t = int
+    let directory = Config.file_directory_file
+    let non_directory = Config.file_non_directory_file
+    let no_intermediate_buffering = Config.file_no_intermediate_buffering
+    let write_through = Config.file_write_through
+    let sequential_only = Config.file_sequential_only
+    let ( + ) = ( lor )
+  end
 end
 
 let rec with_dirfd op dirfd fn =
   match dirfd with
-  | None -> fn (Obj.magic (failwith "TODO AT_FDCWD") : Unix.file_descr)
-  | Some dirfd -> Fd.use_exn op dirfd fn
+  | None -> fn None
+  | Some dirfd -> Fd.use_exn op dirfd (fun fd -> fn (Some fd))
   | exception Unix.Unix_error(Unix.EINTR, _, "") -> with_dirfd op dirfd fn
 
-external eio_openat : Unix.file_descr -> string -> Open_flags.t -> int -> Unix.file_descr = "caml_eio_windows_openat"
+external eio_openat : Unix.file_descr option -> bool -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> Unix.file_descr = "caml_eio_windows_openat_bytes" "caml_eio_windows_openat"
 
-let openat ?dirfd ~sw ~mode path flags =
+let openat ?dirfd ?(nofollow=false) ~sw path flags dis create =
   with_dirfd "openat" dirfd @@ fun dirfd ->
   Switch.check sw;
-  in_worker_thread (fun () -> eio_openat dirfd path Open_flags.(flags + cloexec (* + nonblock *)) mode)
+  in_worker_thread (fun () -> eio_openat dirfd nofollow path Flags.Open.(flags + cloexec (* + nonblock *)) dis create)
   |> Fd.of_unix ~sw ~blocking:false ~close_unix:true
 
-external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_windows_mkdirat"
+let mkdir ?dirfd ?(nofollow=false) ~mode:_ path =
+  Switch.run @@ fun sw ->
+  let _ : Fd.t = openat ?dirfd ~nofollow ~sw path Flags.Open.(generic_write + synchronise) Flags.Disposition.(create) Flags.Create.(directory) in
+  ()
 
-let mkdir ?dirfd ~mode path =
-  with_dirfd "mkdirat" dirfd @@ fun dirfd ->
-  in_worker_thread @@ fun () ->
-  eio_mkdirat dirfd path mode
-
-external eio_unlinkat : Unix.file_descr -> string -> bool -> unit = "caml_eio_windows_unlinkat"
+external eio_unlinkat : Unix.file_descr option -> string -> bool -> unit = "caml_eio_windows_unlinkat"
 
 let unlink ?dirfd ~dir path =
   with_dirfd "unlink" dirfd @@ fun dirfd ->
   in_worker_thread @@ fun () ->
   eio_unlinkat dirfd path dir
 
-external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit = "caml_eio_windows_renameat"
+external eio_renameat : Unix.file_descr option -> string -> Unix.file_descr option -> string -> unit = "caml_eio_windows_renameat"
 
 let rename ?old_dir old_path ?new_dir new_path =
   with_dirfd "rename-old" old_dir @@ fun old_dir ->
