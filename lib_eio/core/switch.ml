@@ -14,6 +14,8 @@ type hook =
 
 let null_hook = Null
 
+(* todo: would be good to make this thread-safe. While a switch can only be turned off from its own domain,
+   we might want to allow closing something explicitly from any domain, and that needs to remove the hook. *)
 let remove_hook = function
   | Null -> ()
   | Hook (id, n) ->

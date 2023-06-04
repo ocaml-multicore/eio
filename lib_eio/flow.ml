@@ -3,11 +3,8 @@ type shutdown_command = [ `Receive | `Send | `All ]
 type read_method = ..
 type read_method += Read_source_buffer of ((Cstruct.t list -> int) -> unit)
 
-class type close = object
-  method close : unit
-end
-
-let close (t : #close) = t#close
+class type close = Generic.close
+let close = Generic.close
 
 class virtual source = object (_ : <Generic.t; ..>)
   method probe _ = None

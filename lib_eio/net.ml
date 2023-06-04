@@ -165,10 +165,9 @@ class virtual stream_socket = object (_ : #socket)
   inherit Flow.two_way
 end
 
-class virtual listening_socket = object
+class virtual listening_socket = object (_ : <Generic.close; ..>)
   inherit socket
   method virtual accept : sw:Switch.t -> <stream_socket; Flow.close> * Sockaddr.stream
-  method virtual close : unit
 end
 
 type connection_handler = stream_socket -> Sockaddr.stream -> unit
@@ -245,7 +244,7 @@ let getaddrinfo_datagram ?service t hostname =
 
 let getnameinfo (t:#t) sockaddr = t#getnameinfo sockaddr
 
-let close = Flow.close
+let close = Generic.close
 
 let with_tcp_connect ?(timeout=Time.Timeout.none) ~host ~service t f =
   Switch.run @@ fun sw ->
