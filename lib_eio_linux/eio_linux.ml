@@ -187,7 +187,7 @@ let listening_socket fd = object
       | Unix.ADDR_UNIX path         -> `Unix path
       | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Net.Ipaddr.of_unix host, port)
     in
-    let flow = (flow client :> <Eio.Net.stream_socket; Eio.Flow.close>) in
+    let flow = (flow client :> Eio.Net.stream_socket) in
     flow, client_addr
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
@@ -210,7 +210,7 @@ let connect ~sw connect_addr =
   let sock_unix = Unix.socket ~cloexec:true (socket_domain_of connect_addr) Unix.SOCK_STREAM 0 in
   let sock = FD.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
   Low_level.connect sock addr;
-  (flow sock :> <Eio.Net.stream_socket; Eio.Flow.close>)
+  (flow sock :> Eio.Net.stream_socket)
 
 let net = object
   inherit Eio_unix.Net.t
@@ -269,7 +269,7 @@ let net = object
       Unix.bind sock_unix addr
     | `UdpV4 | `UdpV6 -> ()
     end;
-    (datagram_socket sock :> <Eio.Net.datagram_socket; Eio.Flow.close>)
+    (datagram_socket sock :> Eio.Net.datagram_socket)
 
   method getaddrinfo = Low_level.getaddrinfo
 end

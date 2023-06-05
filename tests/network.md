@@ -249,6 +249,31 @@ Handling one UDP packet using IPv6:
 - : unit = ()
 ```
 
+It's not an error to close the socket before the handler returns:
+
+```ocaml
+# run @@ fun ~net sw ->
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 8083) in
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
+  Fiber.both
+    (fun () ->
+        Eio.Net.accept_fork server ~sw ~on_error:raise @@ fun flow _addr ->
+        traceln "Server got connection";
+        Eio.Flow.copy_string "Hi" flow;
+        Eio.Flow.close flow
+    )
+    (fun () ->
+      traceln "Connecting to server...";
+      let flow = Eio.Net.connect ~sw net addr in
+      let msg = Eio.Buf_read.(parse_exn take_all) flow ~max_size:100 in
+      traceln "Client got %S" msg;
+    );;
++Connecting to server...
++Server got connection
++Client got "Hi"
+- : unit = ()
+```
+
 ## Unix interop
 
 Extracting file descriptors from Eio objects:

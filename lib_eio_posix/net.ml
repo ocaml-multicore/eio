@@ -25,7 +25,7 @@ let listening_socket ~hook fd = object
       | Unix.ADDR_UNIX path         -> `Unix path
       | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Net.Ipaddr.of_unix host, port)
     in
-    let flow = (Flow.of_fd client :> <Eio.Net.stream_socket; Eio.Flow.close>) in
+    let flow = (Flow.of_fd client :> Eio.Net.stream_socket) in
     flow, client_addr
 
   method! probe : type a. a Eio.Generic.ty -> a option = function
@@ -118,7 +118,7 @@ let connect ~sw connect_addr =
   let sock = Low_level.socket ~sw (socket_domain_of connect_addr) socket_type 0 in
   try
     Low_level.connect sock addr;
-    (Flow.of_fd sock :> <Eio.Net.stream_socket; Eio.Flow.close>)
+    (Flow.of_fd sock :> Eio.Net.stream_socket)
   with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 
 let create_datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
@@ -135,7 +135,7 @@ let create_datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
         )
     | `UdpV4 | `UdpV6 -> ()
   end;
-  (datagram_socket sock :> <Eio.Net.datagram_socket; Eio.Flow.close>)
+  (datagram_socket sock :> Eio.Net.datagram_socket)
 
 let v = object
   inherit Eio_unix.Net.t
