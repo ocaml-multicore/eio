@@ -38,7 +38,7 @@ val close : t -> unit
 
     The wrapped FD will be closed once all current users of the FD have finished (unless [close_unix = false]).
 
-    @raise Invalid_argument if [t] is closed by another fiber first. *)
+    Has no effect if [t] is already closed. *)
 
 val remove : t -> Unix.file_descr option
 (** [remove t] marks [t] as closed, so that {!use} can no longer be used to start new operations.

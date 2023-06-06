@@ -22,11 +22,9 @@ let use_exn op t f =
 let close t =
   Switch.remove_hook t.release_hook;
   if t.close_unix then (
-    if not (Rcfd.close t.fd) then raise (err_closed "close")
+    ignore (Rcfd.close t.fd : bool)
   ) else (
-    match Rcfd.remove t.fd with
-    | Some _ -> ()
-    | None -> raise (err_closed "close")
+    ignore (Rcfd.remove t.fd : Unix.file_descr option)
   )
 
 let remove t =

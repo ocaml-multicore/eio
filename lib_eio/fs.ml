@@ -53,8 +53,7 @@ class virtual dir = object (_ : #Generic.t)
   method virtual rename : path -> dir -> path -> unit
   method virtual pp : Format.formatter -> unit
 end
-and virtual dir_with_close = object
+and virtual dir_with_close = object (_ : <Generic.close; ..>)
   (* This dummy class avoids an "Error: The type < .. > is not an object type" error from the compiler. *)
   inherit dir
-  method virtual close : unit
 end

@@ -111,9 +111,7 @@ val shutdown : #two_way -> shutdown_command -> unit
     Flows are usually attached to switches and closed automatically when the switch
     finishes. However, it can be useful to close them sooner manually in some cases. *)
 
-class type close = object
-  method close : unit
-end
+class type close = Generic.close
 
 val close : #close -> unit
-(** [close t] marks the flow as closed. It can no longer be used after this. *)
+(** Alias of {!Generic.close}. *)

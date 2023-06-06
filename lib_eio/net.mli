@@ -117,10 +117,9 @@ class virtual datagram_socket : object
   method virtual recv : Cstruct.t -> Sockaddr.datagram * int
 end
 
-class virtual listening_socket : object
+class virtual listening_socket : object (<Generic.close; ..>)
   inherit socket
   method virtual accept : sw:Switch.t -> <stream_socket; Flow.close> * Sockaddr.stream
-  method virtual close : unit
 end
 
 class virtual t : object
@@ -301,5 +300,6 @@ val getnameinfo : #t -> Sockaddr.t -> (string * string)
     port specified in [sockaddr], e.g. 'ftp', 'http', 'https', etc. *)
 
 (** {2 Closing} *)
-val close : <close: unit; ..> -> unit
-(** [close t] marks the socket as closed. It can no longer be used after this. *)
+
+val close : #Generic.close -> unit
+(** Alias of {!Generic.close}. *)
