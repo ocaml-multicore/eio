@@ -4,3 +4,8 @@
   (preludes doc/prelude.ml)
   (enabled_if (<> %{os_type} "Win32"))
   (files README.md))
+
+(rule (copy eio.opam.template eio_main.opam.template))
+(rule (copy eio.opam.template eio_linux.opam.template))
+(rule (copy eio.opam.template eio_posix.opam.template))
+(rule (copy eio.opam.template eio_windows.opam.template))

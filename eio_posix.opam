@@ -9,7 +9,7 @@ homepage: "https://github.com/ocaml-multicore/eio"
 doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
-  "dune" {>= "3.7"}
+  "dune" {>= "3.9"}
   "eio" {= version}
   "iomux" {>= "0.2"}
   "mdx" {>= "2.2.0" & with-test}
@@ -31,3 +31,8 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
+pin-depends:
+[[
+   "dune.3.9.0"
+   "git+https://github.com/emillon/dune#d0d3ddb93d11b3622192b4dc3789e2bcb7cfc05d"
+]]
