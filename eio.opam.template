@@ -1,0 +1,5 @@
+pin-depends:
+[[
+   "dune.3.9.0"
+   "git+https://github.com/emillon/dune#d0d3ddb93d11b3622192b4dc3789e2bcb7cfc05d"
+]]
