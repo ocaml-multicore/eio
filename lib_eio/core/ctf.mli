@@ -62,3 +62,7 @@ module Control : sig
   val stop : unit -> unit
   (** [stop t] stops recording to [t] (which must be the current trace buffer). *)
 end
+
+(**/**)
+
+val get_caller : unit -> string

@@ -110,3 +110,50 @@ let note_signal ?src dst =
     | None, None -> ()
     | Some src, _ -> RE.note_signal ~src dst
     | None, Some src -> RE.note_signal ~src dst
+
+let demangle x = List.flatten (
+  List.map (fun i ->
+    Astring.String.cuts ~sep:"__" i
+    |> List.fold_left (fun a b -> match (a, b) with
+      | [], b -> [b]
+      | v, "" -> v
+      | a::v, s when Astring.Char.Ascii.is_lower s.[0] -> (a^"_"^s) :: v
+      | v, s -> s :: v) []
+    |> List.rev ) x
+  )
+
+let is_outer raw_entry =
+  let slot = Printexc.backtrace_slots_of_raw_entry raw_entry in
+  match slot with
+  | None -> None
+  | Some slots ->
+    Array.find_map (fun slot ->
+      let (let*) = Option.bind in
+      let* loc = Printexc.Slot.location slot in
+      let* name = Printexc.Slot.name slot in
+      let* name = match String.split_on_char '.' name |> demangle with
+        | "Eio_core" :: _ -> None
+        | "Eio" :: _ -> None
+        | "Eio_linux" :: _ -> None
+        | "Eio_luv" :: _ -> None
+        | "Eio_main" :: _ -> None
+        | "Stdlib" :: _ -> None
+        | "Dune_exe" :: v -> Some (String.concat "." v)
+        | v -> Some (String.concat "." v)
+      in
+      Some (Fmt.str "%s (%s:%d)" name loc.filename loc.line_number)
+    ) slots
+
+let dune_exe_strategy stack =
+  let first acc s = match acc with
+    | (Some _ as v) -> v
+    | _ -> is_outer s
+  in
+  List.fold_left first None stack
+
+let get_caller () =
+  let p = Printexc.get_callstack 30 |> Printexc.raw_backtrace_to_string in
+  let stack = Printexc.get_callstack 30 |> Printexc.raw_backtrace_entries |> Array.to_list in
+  match dune_exe_strategy stack with
+  | Some v -> v
+  | None -> p

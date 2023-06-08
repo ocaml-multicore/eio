@@ -383,7 +383,7 @@ let monitor_event_fd t =
   done;
   assert false
 
-let run ?loc ~extra_effects st main arg =
+let run ~loc ~extra_effects st main arg =
   Ctf.note_created ~label:"system thread" system_thread System_thread;
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
@@ -465,14 +465,14 @@ let run ?loc ~extra_effects st main arg =
   in
   let result = ref None in
   let `Exit_scheduler =
-    let new_fiber = Fiber_context.make_root ?loc () in
+    let new_fiber = Fiber_context.make_root ~loc () in
     Ctf.note_name (Fiber_context.tid new_fiber) "root";
     Domain_local_await.using
       ~prepare_for_await:Eio.Private.Dla.prepare_for_await
       ~while_running:(fun () ->
         fork ~new_fiber (fun () ->
-            Switch.run_protected ~name:"scheduler" ?loc (fun sw ->
-                Fiber.fork_daemon ?loc ~sw (fun () ->
+            Switch.run_protected ~name:"scheduler" ~loc (fun sw ->
+                Fiber.fork_daemon ~loc ~sw (fun () ->
                   Eio.Private.Ctf.set_name "eio_linux.monitor_event_fd";
                   monitor_event_fd st);
                 match main arg with

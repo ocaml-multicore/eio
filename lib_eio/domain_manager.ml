@@ -6,11 +6,11 @@ end
 let run_raw (t : #t) = t#run_raw
 
 
-let run ?loc (t : #t) fn =
-  t#run ?loc @@ fun ~cancelled ->
+let run ?(loc = Ctf.get_caller ()) (t : #t) fn =
+  t#run ~loc @@ fun ~cancelled ->
   (* If the spawning fiber is cancelled, [cancelled] gets set to the exception. *)
   try
-    Fiber.first ?loc
+    Fiber.first ~loc
       (fun () ->
         Ctf.set_name "eio.domain_mgr cancel thread";
         match Promise.await cancelled with

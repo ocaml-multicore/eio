@@ -43,10 +43,11 @@ module Mono = struct
     sleep_span t (span_of_s s)
 end
 
-let with_timeout ?loc t d =
-  Fiber.first ?loc (fun () -> sleep t d; Error `Timeout)
-let with_timeout_exn ?loc t d =
-  Fiber.first ?loc (fun () -> sleep t d; raise Timeout)
+
+let with_timeout ?(loc = Ctf.get_caller ()) t d =
+  Fiber.first ~loc (fun () -> sleep t d; Error `Timeout)
+let with_timeout_exn ?(loc = Ctf.get_caller ()) t d =
+  Fiber.first ~loc (fun () -> sleep t d; raise Timeout)
 
 module Timeout = struct
   type t =
