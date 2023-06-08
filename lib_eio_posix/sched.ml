@@ -315,7 +315,7 @@ let with_op t fn x =
 type _ Effect.t += Enter : (t -> 'a Eio_utils.Suspended.t -> [`Exit_scheduler]) -> 'a Effect.t
 let enter fn = Effect.perform (Enter fn)
 
-let run ~extra_effects t main x =
+let run ?loc ~extra_effects t main x =
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
     Ctf.note_switch (Fiber_context.tid fiber);
@@ -355,7 +355,7 @@ let run ~extra_effects t main x =
   in
   let result = ref None in
   let `Exit_scheduler =
-    let new_fiber = Fiber_context.make_root () in
+    let new_fiber = Fiber_context.make_root ?loc () in
     Domain_local_await.using
       ~prepare_for_await:Eio.Private.Dla.prepare_for_await
       ~while_running:(fun () ->

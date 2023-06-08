@@ -35,7 +35,7 @@ let socketpair k ~sw ~domain ~ty ~protocol ~wrap =
     discontinue k (Err.wrap code name arg)
 
 (* Run an event loop in the current domain, using [fn x] as the root fiber. *)
-let run_event_loop fn x =
+let run_event_loop ?loc fn x =
   Sched.with_sched @@ fun sched ->
   let open Effect.Deep in
   let extra_effects : _ effect_handler = {
@@ -74,7 +74,7 @@ let run_event_loop fn x =
       | _ -> None
   }
   in
-  Sched.run ~extra_effects sched fn x
+  Sched.run ?loc ~extra_effects sched fn x
 
 let wrap_backtrace fn x =
   match fn x with
@@ -97,13 +97,13 @@ let v = object
       );
     unwrap_backtrace (Domain.join (Option.get !domain))
 
-  method run fn =
+  method run ?loc fn =
     let domain = ref None in
     Eio.Private.Suspend.enter (fun ctx enqueue ->
         let cancelled, set_cancelled = Promise.create () in
         Eio.Private.Fiber_context.set_cancel_fn ctx (Promise.resolve set_cancelled);
         domain := Some (Domain.spawn (fun () ->
-            Fun.protect (run_event_loop (wrap_backtrace (fun () -> fn ~cancelled)))
+            Fun.protect (run_event_loop ?loc (wrap_backtrace (fun () -> fn ~cancelled)))
               ~finally:(fun () -> enqueue (Ok ()))))
       );
     unwrap_backtrace (Domain.join (Option.get !domain))

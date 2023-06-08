@@ -45,10 +45,11 @@ end
 
 exception Timeout
 
-val with_timeout : #clock -> float -> (unit -> ('a, 'e) result) -> ('a, [> `Timeout] as 'e) result
+val with_timeout : ?loc:string -> #clock -> float -> (unit -> ('a, 'e) result)
+                    -> ('a, [> `Timeout] as 'e) result
 (** [with_timeout clock d fn] runs [fn ()] but cancels it after [d] seconds. *)
 
-val with_timeout_exn : #clock -> float -> (unit -> 'a) -> 'a
+val with_timeout_exn : ?loc:string -> #clock -> float -> (unit -> 'a) -> 'a
 (** [with_timeout_exn clock d fn] runs [fn ()] but cancels it after [d] seconds,
     raising exception {!exception-Timeout}. *)
 

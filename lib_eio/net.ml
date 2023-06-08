@@ -67,7 +67,6 @@ module Ipaddr = struct
         let elide = min elide zeros in
         let parts = if zeros = 0 then acc else zeros :: acc in
         ((if elide < -1 then Some elide else None), List.rev parts)
-          
       in
       loop 0 0 [] t
 
@@ -174,12 +173,12 @@ type connection_handler = stream_socket -> Sockaddr.stream -> unit
 
 let accept ~sw (t : #listening_socket) = t#accept ~sw
 
-let accept_fork ~sw (t : #listening_socket) ~on_error handle =
+let accept_fork ?loc ~sw (t : #listening_socket) ~on_error handle =
   let child_started = ref false in
   let flow, addr = accept ~sw t in
   Fun.protect ~finally:(fun () -> if !child_started = false then Flow.close flow)
     (fun () ->
-       Fiber.fork ~sw (fun () ->
+       Fiber.fork ?loc ~sw (fun () ->
            match child_started := true; handle (flow :> stream_socket) addr with
            | x -> Flow.close flow; x
            | exception (Cancel.Cancelled _ as ex) ->
@@ -223,7 +222,7 @@ let connect ~sw (t:#t) addr =
     Exn.reraise_with_context ex bt "connecting to %a" Sockaddr.pp addr
 
 let datagram_socket ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:#t) addr =
-  let addr = (addr :> [Sockaddr.datagram | `UdpV4 | `UdpV6]) in 
+  let addr = (addr :> [Sockaddr.datagram | `UdpV4 | `UdpV6]) in
   t#datagram_socket ~reuse_addr ~reuse_port ~sw addr
 
 let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname
@@ -283,7 +282,7 @@ let run_server_loop ~connections ~on_error ~stop listening_socket connection_han
   in
   match stop with
   | None -> accept ()
-  | Some stop -> Fiber.first accept (fun () -> Promise.await stop)
+  | Some stop -> Fiber.first ~loc:"run_server_loop" accept (fun () -> Promise.await stop)
 
 let run_server ?(max_connections=Int.max_int) ?(additional_domains) ?stop ~on_error listening_socket connection_handler : 'a =
   if max_connections <= 0 then invalid_arg "max_connections";

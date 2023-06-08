@@ -480,8 +480,8 @@ let copy t flow =
   try aux ()
   with End_of_file -> ()
 
-let with_flow ?(initial_size=0x1000) flow fn =
-  Switch.run @@ fun sw ->
+let with_flow ?name ?loc ?(initial_size=0x1000) flow fn =
+  Switch.run ?name ?loc @@ fun sw ->
   let t = create ~sw initial_size in
   Fiber.fork ~sw (fun () ->
     Ctf.set_name "eio.buf_write.with_flow writer";

@@ -16,6 +16,7 @@ val with_sched : (t -> 'a) -> 'a
     When [fn] returns, the scheduler's resources are freed. *)
 
 val run :
+  ?loc:string ->
   extra_effects:exit Effect.Deep.effect_handler ->
   t -> ('a -> 'b) -> 'a -> 'b [@@alert "-unstable"]
 (** [run ~extra_effects t f x] starts an event loop using [t] and runs [f x] as the root fiber within it.

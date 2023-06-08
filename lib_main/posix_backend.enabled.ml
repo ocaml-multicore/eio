@@ -1,1 +1,1 @@
-let run ~fallback:_ fn = Eio_posix.run (fun env -> fn (env :> Eio_unix.Stdenv.base))
+let run ?loc ~fallback:_ fn = Eio_posix.run ?loc (fun env -> fn (env :> Eio_unix.Stdenv.base))

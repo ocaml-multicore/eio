@@ -18,14 +18,14 @@ module Low_level = Low_level
 
 type stdenv = Eio_unix.Stdenv.base
 
-let run main =
+let run ?loc main =
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
   Eio_unix.Process.install_sigchld_handler ();
   let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> Eio_unix.source) in
   let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> Eio_unix.sink) in
   let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> Eio_unix.sink) in
-  Domain_mgr.run_event_loop main @@ object (_ : stdenv)
+  Domain_mgr.run_event_loop ?loc main @@ object (_ : stdenv)
     method stdin = stdin
     method stdout = stdout
     method stderr = stderr

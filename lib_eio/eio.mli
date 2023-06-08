@@ -89,14 +89,14 @@ module Domain_manager : sig
   class virtual t : object
     method virtual run_raw : 'a. (unit -> 'a) -> 'a
 
-    method virtual run : 'a. (cancelled:exn Promise.t -> 'a) -> 'a
+    method virtual run : 'a. ?loc:string -> (cancelled:exn Promise.t -> 'a) -> 'a
     (** [t#run fn] runs [fn ~cancelled] in a new domain.
 
         If the calling fiber is cancelled, [cancelled] becomes resolved to the {!Cancel.Cancelled} exception.
         [fn] should cancel itself in this case. *)
   end
 
-  val run : #t -> (unit -> 'a) -> 'a
+  val run : ?loc:string -> #t -> (unit -> 'a) -> 'a
   (** [run t f] runs [f ()] in a newly-created domain and returns the result.
 
       Other fibers in the calling domain can run in parallel with the new domain.

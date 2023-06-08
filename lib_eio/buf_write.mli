@@ -85,7 +85,7 @@ exception Flush_aborted
 
 (** {2 Running} *)
 
-val with_flow : ?initial_size:int -> #Flow.sink -> (t -> 'a) -> 'a
+val with_flow : ?name:string -> ?loc:string -> ?initial_size:int -> #Flow.sink -> (t -> 'a) -> 'a
 (** [with_flow flow fn] runs [fn writer], where [writer] is a buffer that flushes to [flow].
 
     Concurrently with [fn], it also runs a fiber that copies from [writer] to [flow].
