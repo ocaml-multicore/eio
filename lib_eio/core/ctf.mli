@@ -4,8 +4,11 @@ include module type of Eio_runtime_events
 (** {2 Recording events}
     Libraries and applications can use these functions to make the traces more useful. *)
 
-val label : string -> unit
-(** [label msg] attaches text [msg] to the current thread. *)
+val log : string -> unit
+(** [log msg] attaches text [msg] to the current thread. *)
+
+val set_name : string -> unit
+(** [set_name msg] attaches name [msg] to the current thread. *)
 
 (** {2 Recording system events}
     These are normally only called by the scheduler. *)
@@ -13,6 +16,8 @@ val label : string -> unit
 val note_created : ?label:string -> id -> event -> unit
 (** [note_created t id ty] records the creation of [id]. *)
 
+val note_name : id -> string -> unit
+(** [note_name msg] attaches name [msg] to [id]. *)
 
 val note_parent : child:id -> parent:id -> unit
 (** [note_parent ~child ~parent] attaches [child] fiber to the given [parent] context. *)

@@ -225,8 +225,11 @@ let failed = Runtime_events.User.register "eio.fail" Failed labelled_type
 type Runtime_events.User.tag += Resolved
 let resolved = Runtime_events.User.(register "eio.resolved" Resolved Runtime_events.Type.int)
 
-type Runtime_events.User.tag += Label
-let labelled = Runtime_events.User.register "eio.label" Label labelled_type
+type Runtime_events.User.tag += Name
+let named = Runtime_events.User.register "eio.name" Name labelled_type
+
+type Runtime_events.User.tag += Log
+let logged = Runtime_events.User.register "eio.log" Log labelled_type
 
 type Runtime_events.User.tag += Switch
 let switch = Runtime_events.User.register "eio.switch" Switch Runtime_events.Type.int
@@ -262,8 +265,11 @@ let note_resolved p ~ex =
   | None ->
       add_event resolved p
 
-let note_label thread msg =
-  add_event labelled (thread, msg)
+let note_log thread msg =
+  add_event logged (thread, msg)
+
+let note_name thread msg =
+  add_event named (thread, msg)
 
 let note_switch new_current = add_event switch new_current
 

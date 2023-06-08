@@ -20,12 +20,12 @@ let file_offset t = function
 
 let enqueue_read st action (file_offset,fd,buf,len) =
   let req = { Sched.op=`R; file_offset; len; fd; cur_off = 0; buf; action } in
-  Ctf.label "read";
+  Ctf.log "read";
   Sched.submit_rw_req st req
 
 let rec enqueue_writev args st action =
   let (file_offset,fd,bufs) = args in
-  Ctf.label "writev";
+  Ctf.log "writev";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.writev st.uring ~file_offset fd bufs (Job action)
     )
@@ -35,11 +35,11 @@ let rec enqueue_writev args st action =
 
 let enqueue_write st action (file_offset,fd,buf,len) =
   let req = { Sched.op=`W; file_offset; len; fd; cur_off = 0; buf; action } in
-  Ctf.label "write";
+  Ctf.log "write";
   Sched.submit_rw_req st req
 
 let rec enqueue_splice ~src ~dst ~len st action =
-  Ctf.label "splice";
+  Ctf.log "splice";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.splice st.uring (Job action) ~src ~dst ~len
     )
@@ -48,7 +48,7 @@ let rec enqueue_splice ~src ~dst ~len st action =
     Queue.push (fun st -> enqueue_splice ~src ~dst ~len st action) st.io_q
 
 let rec enqueue_openat2 ((access, flags, perm, resolve, fd, path) as args) st action =
-  Ctf.label "openat2";
+  Ctf.log "openat2";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.openat2 st.uring ~access ~flags ~perm ~resolve ?fd path (Job action)
     )
@@ -57,7 +57,7 @@ let rec enqueue_openat2 ((access, flags, perm, resolve, fd, path) as args) st ac
     Queue.push (fun st -> enqueue_openat2 args st action) st.io_q
 
 let rec enqueue_unlink ((dir, fd, path) as args) st action =
-  Ctf.label "unlinkat";
+  Ctf.log "unlinkat";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.unlink st.uring ~dir ~fd path (Job action)
     )
@@ -66,7 +66,7 @@ let rec enqueue_unlink ((dir, fd, path) as args) st action =
     Queue.push (fun st -> enqueue_unlink args st action) st.io_q
 
 let rec enqueue_connect fd addr st action =
-  Ctf.label "connect";
+  Ctf.log "connect";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.connect st.uring fd addr (Job action)
     )
@@ -75,7 +75,7 @@ let rec enqueue_connect fd addr st action =
     Queue.push (fun st -> enqueue_connect fd addr st action) st.io_q
 
 let rec enqueue_send_msg fd ~fds ~dst buf st action =
-  Ctf.label "send_msg";
+  Ctf.log "send_msg";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.send_msg st.uring fd ~fds ?dst buf (Job action)
     )
@@ -84,7 +84,7 @@ let rec enqueue_send_msg fd ~fds ~dst buf st action =
     Queue.push (fun st -> enqueue_send_msg fd ~fds ~dst buf st action) st.io_q
 
 let rec enqueue_recv_msg fd msghdr st action =
-  Ctf.label "recv_msg";
+  Ctf.log "recv_msg";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.recv_msg st.uring fd msghdr (Job action);
     )
@@ -93,7 +93,7 @@ let rec enqueue_recv_msg fd msghdr st action =
     Queue.push (fun st -> enqueue_recv_msg fd msghdr st action) st.io_q
 
 let rec enqueue_accept fd client_addr st action =
-  Ctf.label "accept";
+  Ctf.log "accept";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.accept st.uring fd client_addr (Job action)
     ) in
@@ -103,7 +103,7 @@ let rec enqueue_accept fd client_addr st action =
   )
 
 let rec enqueue_noop t action =
-  Ctf.label "noop";
+  Ctf.log "noop";
   let job = Sched.enqueue_job t (fun () -> Uring.noop t.uring (Job_no_cancel action)) in
   if job = None then (
     (* wait until an sqe is available *)
@@ -138,7 +138,7 @@ let read_upto ?file_offset fd buf len =
 
 let rec enqueue_readv args st action =
   let (file_offset,fd,bufs) = args in
-  Ctf.label "readv";
+  Ctf.log "readv";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.readv st.uring ~file_offset fd bufs (Job action))
   in
@@ -393,7 +393,7 @@ let shutdown socket command =
   | Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
 
 let accept ~sw fd =
-  Ctf.label "accept";
+  Ctf.log "accept";
   Fd.use_exn "accept" fd @@ fun fd ->
   let client_addr = Uring.Sockaddr.create () in
   let res = Sched.enter (enqueue_accept fd client_addr) in

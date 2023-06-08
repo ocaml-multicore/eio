@@ -117,7 +117,7 @@ let rec enqueue_job t fn =
 
 (* Cancellations always come from the same domain, so no need to send wake events here. *)
 let rec enqueue_cancel job t =
-  Ctf.label "cancel";
+  Ctf.log "cancel";
   match enqueue_job t (fun () -> Uring.cancel t.uring job Cancel_job) with
   | None -> Queue.push (fun t -> enqueue_cancel job t) t.io_q
   | Some _ -> ()
@@ -160,7 +160,7 @@ let submit_pending_io st =
   match Queue.take_opt st.io_q with
   | None -> ()
   | Some fn ->
-    Ctf.label "submit_pending_io";
+    Ctf.log "submit_pending_io";
     fn st
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
@@ -181,7 +181,7 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as re
     )
   in
   if retry then (
-    Ctf.label "await-sqe";
+    Ctf.log "await-sqe";
     (* wait until an sqe is available *)
     Queue.push (fun st -> submit_rw_req st req) io_q
   )
@@ -336,7 +336,7 @@ let free_buf st buf =
   | Some k -> enqueue_thread st k buf
 
 let rec enqueue_poll_add fd poll_mask st action =
-  Ctf.label "poll_add";
+  Ctf.log "poll_add";
   let retry = with_cancel_hook ~action st (fun () ->
       Uring.poll_add st.uring fd poll_mask (Job action)
     )
@@ -345,7 +345,7 @@ let rec enqueue_poll_add fd poll_mask st action =
     Queue.push (fun st -> enqueue_poll_add fd poll_mask st action) st.io_q
 
 let rec enqueue_poll_add_unix fd poll_mask st action cb =
-  Ctf.label "poll_add";
+  Ctf.log "poll_add";
   let retry = with_cancel_hook ~action st (fun () ->
       Uring.poll_add st.uring fd poll_mask (Job_fn (action, cb))
     )
@@ -355,7 +355,7 @@ let rec enqueue_poll_add_unix fd poll_mask st action cb =
 
 let rec enqueue_readv args st action =
   let (file_offset,fd,bufs) = args in
-  Ctf.label "readv";
+  Ctf.log "readv";
   let retry = with_cancel_hook ~action st (fun () ->
       Uring.readv st.uring ~file_offset fd bufs (Job action))
   in

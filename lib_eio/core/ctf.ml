@@ -26,17 +26,27 @@ end
 
 module RE = Eio_runtime_events
 
-let label name =
+let log name =
   match !Control.event_log, !current_thread with
-  | true, Some current_thread -> RE.note_label current_thread name
+  | true, Some current_thread -> RE.note_log current_thread name
   | _ -> ()
+
+let note_name id name =
+  match !Control.event_log with
+  | false -> ()
+  | true -> RE.note_name id name
+
+let set_name name =
+    match !Control.event_log, !current_thread with
+    | true, Some current_thread -> note_name current_thread name
+    |  _-> ()
 
 let note_created ?label id ty =
   match !Control.event_log with
   | false -> ()
   | true ->
     RE.note_created id ty;
-    Option.iter (RE.note_label id) label
+    Option.iter (RE.note_name id) label
 
 let note_parent ~child ~parent =
   match !Control.event_log with
