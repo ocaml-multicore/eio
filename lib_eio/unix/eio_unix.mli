@@ -44,40 +44,6 @@ val await_readable : Unix.file_descr -> unit
 val await_writable : Unix.file_descr -> unit
 (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
-(**/**)
-module FD : sig
-  val peek : < Resource.t; .. > -> Unix.file_descr
-  [@@deprecated "Use Eio_unix.Resource.fd instead"]
-
-  val peek_opt : #Eio.Generic.t -> Unix.file_descr option
-  [@@deprecated "Use Eio_unix.Resource.fd_opt instead"]
-
-  val take : < Resource.t; .. > -> Unix.file_descr
-  [@@deprecated "Use Eio_unix.Resource.fd and Fd.remove instead"]
-
-  val take_opt : #Eio.Generic.t -> Unix.file_descr option
-  [@@deprecated "Use Eio_unix.Resource.fd_opt and Fd.remove instead"]
-
-  val as_socket : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> Net.stream_socket
-  [@@deprecated "Use Eio_unix.Net.import_socket_stream instead"]
-end
-
-module Ipaddr = Net.Ipaddr
-[@@deprecated "Use Eio_unix.Net.Ipaddr instead"]
-
-val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
-[@@deprecated "Use stdenv"]
-
-val socketpair :
-  sw:Switch.t ->
-  ?domain:Unix.socket_domain ->
-  ?ty:Unix.socket_type ->
-  ?protocol:int ->
-  unit ->
-  Net.stream_socket * Net.stream_socket
-[@@@deprecated "Use Net.socketpair_stream"]
-(**/**)
-
 val sleep : float -> unit
 (** [sleep d] sleeps for [d] seconds, allowing other fibers to run.
     This is can be useful for debugging (e.g. to introduce delays to trigger a race condition)

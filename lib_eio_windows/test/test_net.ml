@@ -97,7 +97,7 @@ let test_wrap_socket pipe_or_socketpair () =
 
 let test_eio_socketpair () =
   Switch.run @@ fun sw ->
-  let a, b = Eio_unix.socketpair ~sw () in
+  let a, b = Eio_unix.Net.socketpair_stream ~sw () in
   ignore (Eio_unix.Resource.fd a : Eio_unix.Fd.t);
   ignore (Eio_unix.Resource.fd b : Eio_unix.Fd.t);
   Eio.Flow.copy_string "foo" a;
