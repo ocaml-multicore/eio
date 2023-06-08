@@ -13,6 +13,10 @@ val label : string -> unit
 val note_created : ?label:string -> id -> event -> unit
 (** [note_created t id ty] records the creation of [id]. *)
 
+
+val note_parent : child:id -> parent:id -> unit
+(** [note_parent ~child ~parent] attaches [child] fiber to the given [parent] context. *)
+
 val note_read : ?reader:id -> id -> unit
 (** [note_read src] records that promise [src]'s value was read.
     @param reader The thread doing the read (default is the current thread). *)
