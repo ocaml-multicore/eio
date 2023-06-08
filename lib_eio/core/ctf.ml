@@ -36,17 +36,28 @@ let note_name id name =
   | false -> ()
   | true -> RE.note_name id name
 
+let note_loc id name =
+  match !Control.event_log with
+  | false -> ()
+  | true -> RE.note_location id name
+
 let set_name name =
     match !Control.event_log, !current_thread with
     | true, Some current_thread -> note_name current_thread name
     |  _-> ()
 
-let note_created ?label id ty =
+let set_loc name =
+  match !Control.event_log, !current_thread with
+  | true, Some current_thread -> note_loc current_thread name
+  |  _-> ()
+
+let note_created ?label ?loc id ty =
   match !Control.event_log with
   | false -> ()
   | true ->
     RE.note_created id ty;
-    Option.iter (RE.note_name id) label
+    Option.iter (RE.note_name id) label;
+    Option.iter (RE.note_location id) loc
 
 let note_parent ~child ~parent =
   match !Control.event_log with

@@ -7,14 +7,20 @@ include module type of Eio_runtime_events
 val log : string -> unit
 (** [log msg] attaches text [msg] to the current thread. *)
 
+val set_loc : string -> unit
+(** [set_loc msg] attaches location [msg] to the current thread. *)
+
 val set_name : string -> unit
 (** [set_name msg] attaches name [msg] to the current thread. *)
 
 (** {2 Recording system events}
     These are normally only called by the scheduler. *)
 
-val note_created : ?label:string -> id -> event -> unit
+val note_created : ?label:string -> ?loc:string -> id -> event -> unit
 (** [note_created t id ty] records the creation of [id]. *)
+
+val note_loc : id -> string -> unit
+(** [note_loc msg] attaches location [msg] to [id]. *)
 
 val note_name : id -> string -> unit
 (** [note_name msg] attaches name [msg] to [id]. *)

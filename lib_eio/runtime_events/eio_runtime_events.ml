@@ -232,6 +232,8 @@ let resolved = Runtime_events.User.(register "eio.resolved" Resolved Runtime_eve
 type Runtime_events.User.tag += Name
 let named = Runtime_events.User.register "eio.name" Name labelled_type
 
+type Runtime_events.User.tag += Loc
+let located = Runtime_events.User.register "eio.loc" Loc labelled_type
 type Runtime_events.User.tag += Log
 let logged = Runtime_events.User.register "eio.log" Log labelled_type
 
@@ -271,6 +273,9 @@ let note_resolved p ~ex =
 
 let note_log thread msg =
   add_event logged (thread, msg)
+
+let note_location thread msg =
+  add_event located (thread, msg)
 
 let note_name thread msg =
   add_event named (thread, msg)

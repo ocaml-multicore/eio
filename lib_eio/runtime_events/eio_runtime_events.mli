@@ -52,7 +52,7 @@ type Runtime_events.User.tag += Created
 
 val labelled_type : (id * string) Runtime_events.Type.t
 
-type Runtime_events.User.tag += Failed | Log | Name
+type Runtime_events.User.tag += Failed | Log | Name | Loc
 
 val two_ids_type : (id * id) Runtime_events.Type.t
 
@@ -79,6 +79,8 @@ val note_signal : src:id -> id -> unit
 val note_resolved : id -> ex:exn option -> unit
 
 val note_log : id -> string -> unit
+
+val note_location : id -> string -> unit
 
 val note_name : id -> string -> unit
 
