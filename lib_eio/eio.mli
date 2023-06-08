@@ -51,6 +51,10 @@ module Std : sig
     (** Same as {!Eio.traceln}. *)
 end
 
+module Ctf : sig
+  val with_tracing : (unit -> 'a) -> 'a
+end
+
 (** {1 Cross-platform OS API}
 
     The general pattern here is that each type of resource has a set of functions for using it,

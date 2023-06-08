@@ -10,6 +10,12 @@ module Std = struct
   let traceln = Debug.traceln
 end
 
+module Ctf = struct
+  let with_tracing fn =
+    Ctf.Control.start ();
+    Fun.protect ~finally:Ctf.Control.stop fn
+end
+
 module Semaphore = Semaphore
 module Mutex = Eio_mutex
 module Condition = Condition
