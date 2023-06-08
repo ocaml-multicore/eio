@@ -92,11 +92,12 @@ let move_fiber_to t fiber =
   fiber.cancel_node <- Some new_node
 
 (* Note: the new value is not linked into the cancellation tree. *)
-let create ~protected purpose =
+let create ?name ~protected purpose =
   let children = Lwt_dllist.create () in
   let fibers = Lwt_dllist.create () in
   let id = Ctf.mint_id () in
   Ctf.note_created id (Ctf.Cancellation_context {purpose; protected});
+  Option.iter (Ctf.note_name id) name;
   {
     id;
     state = Finished;
@@ -120,9 +121,9 @@ let activate t ~parent =
     Lwt_dllist.remove node
 
 (* Runs [fn] with a fresh cancellation context. *)
-let with_cc ~ctx:fiber ~parent ~protected purpose fn =
+let with_cc ?(name="Cancel.with_cc") ~ctx:fiber ~parent ~protected purpose fn =
   if not protected then check parent;
-  let t = create ~protected purpose in
+  let t = create ~name ~protected purpose in
   let deactivate = activate t ~parent in
   move_fiber_to t fiber;
   let cleanup () = move_fiber_to parent fiber; deactivate () in
@@ -130,9 +131,9 @@ let with_cc ~ctx:fiber ~parent ~protected purpose fn =
   | x            -> cleanup (); x
   | exception ex -> cleanup (); raise ex
 
-let protect ?(purpose=Ctf.Protect) fn =
+let protect ?(name="Cancel.protect") ?(purpose=Ctf.Protect) fn =
   let ctx = Effect.perform Get_context in
-  with_cc ~ctx ~parent:ctx.cancel_context ~protected:true purpose @@ fun _ ->
+  with_cc ~name ~ctx ~parent:ctx.cancel_context ~protected:true purpose @@ fun _ ->
   (* Note: there is no need to check the new context after [fn] returns;
      the goal of cancellation is only to finish the thread promptly, not to report the error.
      We also do not check the parent context, to make sure the caller has a chance to handle the result. *)
@@ -177,18 +178,18 @@ let cancel t ex =
     | exns -> raise (Cancel_hook_failed exns)
   )
 
-let sub ?(purpose=Ctf.Sub) fn =
+let sub ?(name="Cancel.sub") ?(purpose=Ctf.Sub) fn =
   let ctx = Effect.perform Get_context in
   let parent = ctx.cancel_context in
-  with_cc ~ctx ~parent ~protected:false purpose @@ fun t ->
+  with_cc ~name ~ctx ~parent ~protected:false purpose @@ fun t ->
   fn t
 
 (* Like [sub], but it's OK if the new context is cancelled.
    (instead, return the parent context on exit so the caller can check that) *)
-let sub_unchecked ~purpose fn =
+let sub_unchecked ?(name="Cancel.protect") ~purpose fn =
   let ctx = Effect.perform Get_context in
   let parent = ctx.cancel_context in
-  with_cc ~ctx ~parent ~protected:false purpose @@ fun t ->
+  with_cc ~name ~ctx ~parent ~protected:false purpose @@ fun t ->
   fn t;
   parent
 
@@ -215,7 +216,7 @@ module Fiber_context = struct
     t
 
   let make_root () =
-    let cc = create ~protected:false Root in
+    let cc = create ~name:"root" ~protected:false Root in
     cc.state <- On;
     make ~cc ~vars:Hmap.empty
 

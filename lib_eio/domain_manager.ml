@@ -11,6 +11,7 @@ let run (t : #t) fn =
   try
     Fiber.first
       (fun () ->
+         Ctf.set_name "eio.domain_mgr cancel thread";
          match Promise.await cancelled with
          | Cancel.Cancelled ex -> raise ex    (* To avoid [Cancelled (Cancelled ex))] *)
          | ex -> raise ex (* Shouldn't happen *)

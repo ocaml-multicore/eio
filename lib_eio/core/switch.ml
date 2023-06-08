@@ -149,12 +149,12 @@ let run_internal t fn =
     maybe_raise_exs t;
     assert false
 
-let run fn =
-  Cancel.sub ~purpose:Ctf.Switch (fun cc -> run_internal (create cc) fn)
+let run ?(name="Switch.run") fn =
+  Cancel.sub ~name ~purpose:Ctf.Switch (fun cc -> run_internal (create cc) fn)
 
-let run_protected fn =
+let run_protected ?(name="Switch.run_protected") fn =
   let ctx = Effect.perform Cancel.Get_context in
-  Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true Ctf.Switch @@ fun cancel ->
+  Cancel.with_cc ~name ~ctx ~parent:ctx.cancel_context ~protected:true Ctf.Switch @@ fun cancel ->
   run_internal (create cancel) fn
 
 (* Run [fn ()] in [t]'s cancellation context.

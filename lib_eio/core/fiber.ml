@@ -92,7 +92,7 @@ let await_cancel () =
 let any fs =
   let r = ref `None in
   let parent_c =
-    Cancel.sub_unchecked ~purpose:Ctf.Choose (fun cc ->
+    Cancel.sub_unchecked ~name:"Fiber.any" ~purpose:Ctf.Choose (fun cc ->
         let wrap h =
           match h () with
           | x ->
@@ -129,7 +129,7 @@ let any fs =
             p :: aux fs
         in
         let ps = aux fs in
-        Cancel.protect (fun () -> List.iter Promise.await_exn ps)
+        Cancel.protect ~name:"Fiber.any.await" (fun () -> List.iter Promise.await_exn ps)
       )
   in
   match !r, Cancel.get_error parent_c with
@@ -223,7 +223,7 @@ module List = struct
     match items with
     | [] -> []    (* Avoid creating a switch in the simple case *)
     | items ->
-      Switch.run @@ fun sw ->
+      Switch.run ~name:"Fiber.List.filter_map" @@ fun sw ->
       let limiter = Limiter.create ~sw max_fibers in
       let rec aux = function
         | [] -> []

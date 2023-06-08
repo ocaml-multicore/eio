@@ -469,8 +469,10 @@ let run ~extra_effects st main arg =
       ~prepare_for_await:Eio.Private.Dla.prepare_for_await
       ~while_running:(fun () ->
         fork ~new_fiber (fun () ->
-            Switch.run_protected (fun sw ->
-                Fiber.fork_daemon ~sw (fun () -> monitor_event_fd st);
+            Switch.run_protected ~name:"scheduler" (fun sw ->
+                Fiber.fork_daemon ~sw (fun () ->
+                  Eio.Private.Ctf.set_name "eio_linux.monitor_event_fd";
+                  monitor_event_fd st);
                 match main arg with
                 | x -> result := Some (Ok x)
                 | exception ex ->
