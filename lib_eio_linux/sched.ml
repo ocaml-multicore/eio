@@ -384,6 +384,7 @@ let monitor_event_fd t =
   assert false
 
 let run ~extra_effects st main arg =
+  Ctf.note_created ~label:"system thread" system_thread System_thread;
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
     Ctf.note_switch (Fiber_context.tid fiber);
@@ -465,6 +466,7 @@ let run ~extra_effects st main arg =
   let result = ref None in
   let `Exit_scheduler =
     let new_fiber = Fiber_context.make_root () in
+    Ctf.note_name (Fiber_context.tid new_fiber) "root";
     Domain_local_await.using
       ~prepare_for_await:Eio.Private.Dla.prepare_for_await
       ~while_running:(fun () ->

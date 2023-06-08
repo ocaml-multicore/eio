@@ -39,6 +39,7 @@ type event =
     purpose: cancellation_context;
     protected: bool;
   }
+  | System_thread
 (** Types of threads or other recorded objects. *)
 
 val event_to_string : event -> string

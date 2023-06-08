@@ -55,6 +55,7 @@ type event =
     purpose: cancellation_context;
     protected: bool;
   }
+  | System_thread
 
 let int_of_cc_type = function
   | Choose -> 0
@@ -86,6 +87,7 @@ let serialize_thread_type ~ofs buf t =
     | Stream -> 18
     | Mutex -> 19
     | Cancellation_context _ -> 20
+    | System_thread -> 21
   in
   Bytes.set_int8 buf ofs id;
   match t with
@@ -125,6 +127,7 @@ let event_to_string (t : event) =
   | Mutex -> "mutex"
   | Cancellation_context {purpose; _} ->
     "cancellation-context("^ (cc_to_string purpose) ^")"
+  | System_thread -> "system-thread"
 
 let int_to_cc_type = function
   | 0 -> Choose
@@ -158,6 +161,7 @@ let parse_thread_type ~ofs buf = match Bytes.get_int8 buf ofs with
     let purpose = Bytes.get_int8 buf (ofs+1) |> int_to_cc_type in
     let protected = Bytes.get_int8 buf (ofs+2) == 1 in
     Cancellation_context {purpose; protected}
+  | 21 -> System_thread
   | _ -> assert false
 
 (* Runtime events registration *)
