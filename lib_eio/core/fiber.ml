@@ -92,7 +92,7 @@ let await_cancel () =
 let any fs =
   let r = ref `None in
   let parent_c =
-    Cancel.sub_unchecked (fun cc ->
+    Cancel.sub_unchecked ~purpose:Ctf.Choose (fun cc ->
         let wrap h =
           match h () with
           | x ->

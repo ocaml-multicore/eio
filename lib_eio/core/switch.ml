@@ -119,7 +119,6 @@ let maybe_raise_exs t =
 
 let create cancel =
   let id = Ctf.mint_id () in
-  Ctf.note_created id Ctf.Switch;
   {
     id;
     fibers = 1;         (* The main function counts as a fiber *)
@@ -150,11 +149,12 @@ let run_internal t fn =
     maybe_raise_exs t;
     assert false
 
-let run fn = Cancel.sub (fun cc -> run_internal (create cc) fn)
+let run fn =
+  Cancel.sub ~purpose:Ctf.Switch (fun cc -> run_internal (create cc) fn)
 
 let run_protected fn =
   let ctx = Effect.perform Cancel.Get_context in
-  Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true @@ fun cancel ->
+  Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true Ctf.Switch @@ fun cancel ->
   run_internal (create cancel) fn
 
 (* Run [fn ()] in [t]'s cancellation context.

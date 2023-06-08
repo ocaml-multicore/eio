@@ -523,13 +523,13 @@ module Cancel : sig
   exception Cancel_hook_failed of exn list
   (** Raised by {!cancel} if any of the cancellation hooks themselves fail. *)
 
-  val sub : (t -> 'a) -> 'a
+  val sub :?purpose:Ctf.cancellation_context -> (t -> 'a) -> 'a
   (** [sub fn] installs a new cancellation context [t], runs [fn t] inside it, and then restores the old context.
 
       If the old context is cancelled while [fn] is running then [t] is cancelled too.
       [t] cannot be used after [sub] returns. *)
 
-  val protect : (unit -> 'a) -> 'a
+  val protect :?purpose:Ctf.cancellation_context -> (unit -> 'a) -> 'a
   (** [protect fn] runs [fn] in a new cancellation context that isn't cancelled when its parent is.
 
       This can be used to clean up resources on cancellation.
