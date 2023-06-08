@@ -23,34 +23,9 @@ let sleep d =
 
 let run_in_systhread = Private.run_in_systhread
 
-(* Deprecated *)
-module FD = struct
-  let peek t = Fd.use_exn "peek" (Resource.fd t) Fun.id
-
-  let peek_opt t =
-    match Resource.fd_opt t with
-    | None -> None
-    | Some fd -> Some (Fd.use_exn "peek_opt" fd Fun.id)
-
-  let take t = Fd.remove (Resource.fd t) |> Option.get
-
-  let take_opt t =
-    match Resource.fd_opt t with
-    | None -> None
-    | Some fd -> Fd.remove fd
-
-  let as_socket = Net.import_socket_stream
-end
-
 module Ipaddr = Net.Ipaddr
 
-let socketpair ~sw ?domain ?(ty=Unix.SOCK_STREAM) ?protocol () =
-  assert (ty = Unix.SOCK_STREAM);
-  Net.socketpair_stream ~sw ?domain ?protocol ()
-
 module Ctf = Ctf_unix
-
-let getnameinfo = Net.getnameinfo
 
 module Process = Process
 module Net = Net

@@ -25,32 +25,12 @@ open Eio.Std
 
 type fd := Eio_unix.Fd.t
 
-(**/**)
-module FD : sig
-  type t = fd
-
-  val is_open : t -> bool
-  val close : t -> unit
-  val of_unix : sw:Switch.t -> seekable:bool -> close_unix:bool -> Unix.file_descr -> t
-  val to_unix : [< `Peek | `Take] -> t -> Unix.file_descr
-end
-[@@deprecated "Use Eio_unix.Fd instead"]
-(**/**)
-
 (** {1 Eio API} *)
 
 type source = Eio_unix.source
 type sink   = Eio_unix.sink
 
 type stdenv = Eio_unix.Stdenv.base
-
-(**/**)
-val get_fd : <Eio_unix.Resource.t; ..> -> fd
-[@@deprecated "Use Eio_unix.Resource.fd instead"]
-
-val get_fd_opt : #Eio.Generic.t -> fd option
-[@@deprecated "Use Eio_unix.Resource.fd_opt instead"]
-(**/**)
 
 (** {1 Main Loop} *)
 

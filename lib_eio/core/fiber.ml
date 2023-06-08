@@ -83,22 +83,6 @@ let pair f g =
   let y = g () in
   (Promise.await_exn x, y)
 
-let fork_sub ~sw ~on_error f =
-  fork ~sw (fun () ->
-      try Switch.run f
-      with
-      | ex when Cancel.is_on sw.cancel ->
-        (* Typically the caller's context is within [sw], but it doesn't have to be.
-           It's possible that the original context has finished by now,
-           but [fork] is keeping [sw] alive so we can use that report the error. *)
-        Switch.run_in sw @@ fun () ->
-        try on_error ex
-        with ex2 ->
-          (* The [run_in] ensures [adopting_sw] isn't finished here *)
-          Switch.fail sw ex;
-          Switch.fail sw ex2
-    )
-
 exception Not_first
 
 let await_cancel () =

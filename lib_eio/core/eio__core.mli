@@ -234,9 +234,6 @@ module Fiber : sig
       [fn] runs immediately, without switching to any other fiber first.
       The calling fiber is placed at the head of the run queue, ahead of any previous items. *)
 
-  val fork_sub : sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
-  [@@deprecated "Use Fiber.fork and Switch.run separately instead"]
-
   val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.or_exn
   (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fiber and returns a promise for its result.
 
