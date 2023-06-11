@@ -8,7 +8,7 @@ type 'a handlers = {
 val noop_handlers : 'a handlers
 
 val create :
-  ?init_size:int ->
+  sw:Switch.t ->
   alloc:(unit -> 'a * 'a handlers) ->
   int ->
   'a t
@@ -20,3 +20,5 @@ val async : sw:Switch.t -> 'a t -> ('a -> unit) -> unit
 val async_promise : sw:Switch.t -> 'a t -> ('a -> 'b) -> 'b Promise.or_exn
 
 val clear : 'a t -> unit
+
+val shutdown : 'a t -> unit

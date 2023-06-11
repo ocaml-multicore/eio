@@ -46,7 +46,7 @@ let create ~sw ~max_domains domain_mgr : t =
   in
   {
     sw;
-    runners : runner Pool.t = Pool.create ~alloc max_domains;
+    runners : runner Pool.t = Pool.create ~sw ~alloc max_domains;
   }
 
 let async (t : t) (f : unit task) =
@@ -67,5 +67,5 @@ let run t (f : 'a task) : 'a =
   | Ok x -> x
   | Error exn -> raise exn
 
-let clear t =
-  Pool.clear t.runners
+let shutdown t =
+  Pool.shutdown t.runners

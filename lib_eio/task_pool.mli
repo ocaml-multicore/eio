@@ -10,4 +10,4 @@ val async : t -> unit task -> unit
 
 val async_promise : t -> 'a task -> 'a Promise.or_exn
 
-val clear : t -> unit
+val shutdown : t -> unit

@@ -18,9 +18,9 @@ type 'a alloc = unit -> 'a ready
 
 type 'a t = {
   lock : Eio_mutex.t;
-  max_size : int;
-  mutable current_size : int;
+  alloc_budget : Semaphore.t;
   alloc : 'a alloc;
+  waiting : 'a ready Promise.u option Stream.t;
   ready : 'a ready Stream.t;
   (* Each runner is given a copy of the clear signal
      to be checked after its run
@@ -36,74 +36,83 @@ type 'a t = {
 
      clear at 3 should apply to use at 1 and 2, but not use at 4
   *)
-  mutable clear_signal : bool ref;
+  mutable clear_signal : bool Atomic.t;
+  shutdown : bool Atomic.t;
 }
 
+let start_monitor ~sw (t : 'a t) : unit =
+  let rec aux () =
+    match Stream.take t.waiting with
+    | None -> ()
+    | Some resolver -> (
+        Semaphore.acquire t.alloc_budget;
+        Eio_mutex.use_rw ~protect:true t.lock (fun () ->
+            match Stream.take_nonblocking t.ready with
+            | None -> (
+                match t.alloc () with
+                | x -> Promise.resolve resolver x
+                | exception exn -> Switch.fail sw exn
+              )
+            | Some x -> Promise.resolve resolver x
+          );
+        aux ()
+      )
+  in
+  Fiber.fork ~sw aux
+
 let create
-    ?(init_size = 0)
+    ~sw
     ~(alloc : 'a alloc)
     max_size
   : 'a t =
-  if init_size < 0 then (
-    invalid_arg "Pool.create: init_size is negative"
+  if max_size <= 0 then (
+    invalid_arg "Pool.create: max_size is <= 0"
   );
-  if max_size < init_size then (
-    invalid_arg "Pool.create: max_size is smaller than init_size"
-  );
-  let ready = Stream.create max_size in
-  for _ = 0 to init_size-1 do
-    Stream.add ready (alloc ())
-  done;
-  {
-    lock = Eio_mutex.create ();
-    max_size;
-    current_size = init_size;
-    alloc;
-    ready;
-    clear_signal = ref false;
-  }
+  let t =
+    {
+      lock = Eio_mutex.create ();
+      alloc_budget = Semaphore.make max_size;
+      alloc;
+      waiting = Stream.create max_size;
+      ready = Stream.create max_size;
+      clear_signal = Atomic.make false;
+      shutdown = Atomic.make false;
+    }
+  in
+  start_monitor ~sw t;
+  t
 
 let async
     ~sw
     (t : 'a t)
     (f : 'a -> unit)
   : unit =
-  let elem_and_handlers =
-    Eio_mutex.use_rw ~protect:true t.lock (fun () ->
-        match Stream.take_nonblocking t.ready with
-        | None -> (
-            if t.current_size < t.max_size then (
-              t.current_size <- t.current_size + 1;
-              Some (t.alloc ())
-            ) else (
-              None
-            )
-          )
-        | Some x -> Some x
-      )
+  if Atomic.get t.shutdown then (
+    invalid_arg "Pool.async: Pool already shutdown"
+  );
+  let (promise, resolver) : 'a ready Promise.t * 'a ready Promise.u =
+    Promise.create ()
   in
-  let elem, handlers =
-    match elem_and_handlers with
-    | None -> Stream.take t.ready
-    | Some x -> x
-  in
+  Stream.add t.waiting (Some resolver);
+  let elem, handlers = Promise.await promise in
   (* Obtain a copy of clear signal for this runner *)
   let clear_signal = t.clear_signal in
   Fiber.fork ~sw (fun () ->
-      Fun.protect
-        (fun () -> f elem)
-        ~finally:(fun () ->
-            Eio_mutex.use_rw ~protect:true t.lock (fun () ->
-                let do_not_clear = not !clear_signal in
-                if do_not_clear && handlers.check elem then (
-                  Stream.add t.ready (elem, handlers)
-                ) else (
-                  assert (t.current_size > 0);
-                  t.current_size <- t.current_size - 1;
-                  handlers.dispose elem;
-                )
-              )
-          )
+      let r =
+        match f elem with
+        | () -> None
+        | exception exn -> Some exn
+      in
+      let do_not_clear = not (Atomic.get clear_signal) in
+      if do_not_clear && handlers.check elem then (
+        Stream.add t.ready (elem, handlers)
+      ) else (
+        handlers.dispose elem
+      );
+      Semaphore.release t.alloc_budget;
+      match r with
+      | None -> ()
+      | Some exn -> Switch.fail sw exn
     )
 
 let async_promise
@@ -128,6 +137,11 @@ let use t f =
 let clear (t : 'a t) =
   Eio_mutex.use_rw ~protect:true t.lock (fun () ->
       let old_signal = t.clear_signal in
-      old_signal := true;
-      t.clear_signal <- ref false;
+      Atomic.set old_signal true;
+      t.clear_signal <- Atomic.make false;
     )
+
+let shutdown (t : 'a t) =
+  clear t;
+  Atomic.set t.shutdown true;
+  Stream.add t.waiting None

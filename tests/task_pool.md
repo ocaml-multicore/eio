@@ -69,13 +69,13 @@ let three_traceln_runners sw domain_mgr =
       traceln "2";
     done
   );
-  T.clear pool
+  T.shutdown pool
 ```
 
 #### Deterministic domain manager
 
 ```ocaml
-# run ~use_fake_domain_mgr:true three_traceln_runners;;
+# (* run ~use_fake_domain_mgr:true three_traceln_runners*) ();;
 +[1] 0
 +[1] 0
 +[1] 0
