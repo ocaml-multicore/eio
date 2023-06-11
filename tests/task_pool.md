@@ -50,7 +50,7 @@ let run ~use_fake_domain_mgr (fn : Switch.t -> Eio.Domain_manager.t -> unit) =
 
 ```ocaml
 let three_traceln_runners sw domain_mgr =
-  let pool = T.create ~sw ~max_domains:3 domain_mgr in
+  let pool = T.create ~sw ~max_domains:2 domain_mgr in
   T.async pool (fun () ->
     for _=1 to 6 do
       Unix.sleepf 0.29;
@@ -75,7 +75,7 @@ let three_traceln_runners sw domain_mgr =
 #### Deterministic domain manager
 
 ```ocaml
-# (* run ~use_fake_domain_mgr:true three_traceln_runners*) ();;
+# run ~use_fake_domain_mgr:true three_traceln_runners;;
 +[1] 0
 +[1] 0
 +[1] 0

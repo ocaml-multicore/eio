@@ -17,7 +17,7 @@ type 'a ready = 'a * 'a handlers
 type 'a alloc = unit -> 'a ready
 
 type 'a t = {
-  lock : Eio_mutex.t;
+  max_size : int;
   alloc_budget : Semaphore.t;
   alloc : 'a alloc;
   waiting : 'a ready Promise.u option Stream.t;
@@ -46,16 +46,24 @@ let start_monitor ~sw (t : 'a t) : unit =
     | None -> ()
     | Some resolver -> (
         Semaphore.acquire t.alloc_budget;
-        Eio_mutex.use_rw ~protect:true t.lock (fun () ->
-            match Stream.take_nonblocking t.ready with
-            | None -> (
-                match t.alloc () with
-                | x -> Promise.resolve resolver x
-                | exception exn -> Switch.fail sw exn
-              )
-            | Some x -> Promise.resolve resolver x
-          );
-        aux ()
+        let exn =
+          match Stream.take_nonblocking t.ready with
+          | None -> (
+              match t.alloc () with
+              | x -> (
+                  Promise.resolve resolver x;
+                  None
+                )
+              | exception exn -> Some exn
+            )
+          | Some x -> (
+              Promise.resolve resolver x;
+              None
+            )
+        in
+        match exn with
+        | Some exn -> Switch.fail sw exn
+        | None -> aux ()
       )
   in
   Fiber.fork ~sw aux
@@ -70,7 +78,7 @@ let create
   );
   let t =
     {
-      lock = Eio_mutex.create ();
+      max_size;
       alloc_budget = Semaphore.make max_size;
       alloc;
       waiting = Stream.create max_size;
@@ -93,24 +101,25 @@ let async
   let (promise, resolver) : 'a ready Promise.t * 'a ready Promise.u =
     Promise.create ()
   in
-  Stream.add t.waiting (Some resolver);
-  let elem, handlers = Promise.await promise in
   (* Obtain a copy of clear signal for this runner *)
   let clear_signal = t.clear_signal in
   Fiber.fork ~sw (fun () ->
-      let r =
+      Stream.add t.waiting (Some resolver);
+      let elem, handlers = Promise.await promise in
+      let exn =
         match f elem with
         | () -> None
         | exception exn -> Some exn
       in
       let do_not_clear = not (Atomic.get clear_signal) in
-      if do_not_clear && handlers.check elem then (
+      let ready_has_space = Stream.length t.ready < t.max_size in
+      if do_not_clear && handlers.check elem && ready_has_space then (
         Stream.add t.ready (elem, handlers)
       ) else (
         handlers.dispose elem
       );
       Semaphore.release t.alloc_budget;
-      match r with
+      match exn with
       | None -> ()
       | Some exn -> Switch.fail sw exn
     )
@@ -135,13 +144,11 @@ let use t f =
     )
 
 let clear (t : 'a t) =
-  Eio_mutex.use_rw ~protect:true t.lock (fun () ->
-      let old_signal = t.clear_signal in
-      Atomic.set old_signal true;
-      t.clear_signal <- Atomic.make false;
-    )
+  let old_signal = t.clear_signal in
+  Atomic.set old_signal true;
+  t.clear_signal <- Atomic.make false
 
 let shutdown (t : 'a t) =
-  clear t;
+  Atomic.set t.clear_signal true;
   Atomic.set t.shutdown true;
   Stream.add t.waiting None
