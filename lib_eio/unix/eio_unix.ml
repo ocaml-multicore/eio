@@ -44,5 +44,6 @@ module Stdenv = struct
     cwd : Eio.Fs.dir Eio.Path.t;
     secure_random : Eio.Flow.source;
     debug : Eio.Debug.t;
+    backend_id: string;
   >
 end

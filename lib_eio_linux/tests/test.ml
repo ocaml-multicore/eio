@@ -150,6 +150,11 @@ let test_read_exact () =
     let got = Uring.Region.to_string chunk ~len:(String.length msg) in
     if got <> msg then Fmt.failwith "%S vs %S" got msg
 
+let test_expose_backend () =
+  Eio_linux.run @@ fun env ->
+  let backend = Eio.Stdenv.backend_id env in
+  assert (backend = "linux")
+
 let () =
   let open Alcotest in
   run "eio_linux" [
@@ -161,5 +166,6 @@ let () =
       test_case "iovec"         `Quick test_iovec;
       test_case "no_sqe"        `Quick test_no_sqe;
       test_case "read_exact"    `Quick test_read_exact;
+      test_case "expose_backend"    `Quick test_expose_backend;
     ];
   ]

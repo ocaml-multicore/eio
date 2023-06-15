@@ -40,6 +40,7 @@ module Stdenv = struct
   let fs (t : <fs : #Fs.dir Path.t; ..>) = t#fs
   let cwd (t : <cwd : #Fs.dir Path.t; ..>) = t#cwd
   let debug (t : <debug : 'a; ..>) = t#debug
+  let backend_id (t: <backend_id : string; ..>) = t#backend_id
 end
 
 exception Io = Exn.Io

@@ -77,6 +77,7 @@ module Stdenv : sig
     cwd : Eio.Fs.dir Eio.Path.t;
     secure_random : Eio.Flow.source;
     debug : Eio.Debug.t;
+    backend_id : string;
   >
   (** The common set of features provided by all traditional operating systems (BSDs, Linux, Mac, Windows).
 

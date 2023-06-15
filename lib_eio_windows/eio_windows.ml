@@ -35,4 +35,5 @@ let run main =
     method fs = ((Fs.fs, "") :> Eio.Fs.dir Eio.Path.t)
     method process_mgr = failwith "process operations not supported on Windows yet"
     method secure_random = Flow.secure_random
+    method backend_id = "windows"
   end

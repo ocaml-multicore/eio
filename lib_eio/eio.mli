@@ -240,6 +240,12 @@ module Stdenv : sig
 
   val debug : <debug : <Debug.t; ..> as 'a; ..> -> 'a
   (** [debug t] provides privileged controls for debugging. *)
+
+  val backend_id : <backend_id:string; ..> -> string
+  (** [backend_id t] provides the name of the backend being used.
+
+      The possible values are the same as the possible values of the "EIO_BACKEND"
+      environment variable used by {!Eio_main.run}. *)
 end
 
 (** {1 Errors and Debugging} *)
