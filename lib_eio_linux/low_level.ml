@@ -521,5 +521,6 @@ module Process = struct
     (* Check for errors starting the process. *)
     match read_response errors_r with
     | "" -> t                       (* Success! Execing the child closed [errors_w] and we got EOF. *)
+    | "execve: Argument list too long" -> raise (Eio.Process.err Eio.Process.Argument_list_too_long)
     | err -> failwith err
 end

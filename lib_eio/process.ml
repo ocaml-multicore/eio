@@ -13,6 +13,7 @@ let pp_status ppf = function
 type error =
   | Executable_not_found of string
   | Child_error of exit_status
+  | Argument_list_too_long
 
 type Exn.err += E of error
 
@@ -25,6 +26,7 @@ let () =
       begin match e with
         | Executable_not_found e -> Fmt.pf f "Executable %S not found" e;
         | Child_error e -> Fmt.pf f "Child_error %a" pp_status e;
+        | Argument_list_too_long -> Fmt.pf f "Argument list too long"
       end;
       true
     | _ -> false
