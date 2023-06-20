@@ -452,6 +452,7 @@ let stdenv ~run_event_loop =
     method cwd = (cwd :> Eio.Fs.dir Eio.Path.t)
     method secure_random = secure_random
     method debug = Eio.Private.Debug.v
+    method backend_id = "linux"
   end
 
 let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =

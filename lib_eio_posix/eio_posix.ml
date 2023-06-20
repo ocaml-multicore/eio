@@ -38,4 +38,5 @@ let run main =
     method cwd = ((Fs.cwd, "") :> Eio.Fs.dir Eio.Path.t)
     method fs = ((Fs.fs, "") :> Eio.Fs.dir Eio.Path.t)
     method secure_random = Flow.secure_random
+    method backend_id = "posix"
   end
