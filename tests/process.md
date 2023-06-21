@@ -165,3 +165,20 @@ A custom environment:
   Process.parse_out mgr Eio.Buf_read.line ["sh"; "-c"; "echo $DISPLAY"] ~env;;
 - : string = ":2"
 ```
+
+Eio's child reaping code doesn't interfere with OCaml's process spawning:
+
+```ocaml
+let rec waitpid_with_retry flags pid =
+  try Unix.waitpid flags pid
+  with Unix.Unix_error(Unix.EINTR, _, _) -> waitpid_with_retry flags pid
+```
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let p = Unix.(create_process "/usr/bin/env" [|"env"; "echo"; "hi"|] stdin stdout stderr) in
+  Eio.Time.Mono.sleep env#mono_clock 0.01;
+  waitpid_with_retry [] p |> snd;;
+hi
+- : Unix.process_status = Unix.WEXITED 0
+```

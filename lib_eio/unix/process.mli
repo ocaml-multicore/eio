@@ -45,3 +45,14 @@ val spawn_unix :
     The arguments are as for {!Eio.Process.spawn},
     except that it takes a list of FD mappings for {!Fork_action.inherit_fds}
     directly, rather than just flows for the standard streams. *)
+
+val sigchld : Eio.Condition.t
+(** {b If} an Eio backend installs a SIGCHLD handler, the handler will broadcast on this condition.
+
+    This allows non-Eio libraries (such as Lwt) to share its signal handler.
+
+    Note: Not all backends install a handler (e.g. eio_linux uses process descriptors instead),
+    so be sure to call {!install_sigchld_handler} if you need to use this. *)
+
+val install_sigchld_handler : unit -> unit
+(** [install_sigchld_handler ()] sets the signal handler for SIGCHLD to broadcast {!sigchld}. *)

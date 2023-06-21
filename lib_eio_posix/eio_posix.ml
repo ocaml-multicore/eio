@@ -21,7 +21,7 @@ type stdenv = Eio_unix.Stdenv.base
 let run main =
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
-  Sys.(set_signal sigchld (Signal_handle (fun (_:int) -> Children.handle_sigchld ())));
+  Eio_unix.Process.install_sigchld_handler ();
   let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> Eio_unix.source) in
   let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> Eio_unix.sink) in
   let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> Eio_unix.sink) in
