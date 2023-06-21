@@ -20,7 +20,7 @@ module Eio_main = struct
 
   (* To avoid non-deterministic output, we run the examples a single domain. *)
   let fake_domain_mgr = object (_ : #Eio.Domain_manager.t)
-    method run fn =
+    method run ?loc fn =
       (* Since we're in the same domain, cancelling the calling fiber will
          cancel the fake spawned one automatically. *)
       let cancelled, _ = Promise.create () in
