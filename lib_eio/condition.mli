@@ -60,6 +60,25 @@ val await_no_mutex : t -> unit
     i.e. you know the condition is still false, and no notification of a change can be sent
     until [await_no_mutex] has finished suspending the fiber. *)
 
+val loop_no_mutex : t -> (unit -> 'a option) -> 'a
+(** [loop_no_mutex t update] runs [update ()] until it returns [Some x], then returns [x].
+
+    If [update ()] returns [None] then it waits until {!broadcast} is called before retrying.
+    If {!broadcast} is called while [update] is running, [update] runs again immediately.
+
+    For example, if [broadcast config_changed] is performed after some configuration file is changed, then
+    you can ensure [load_config] will always eventually have seen the latest configuration like this:
+
+    {[
+      Fiber.fork_daemon ~sw (fun () ->
+        loop_no_mutex config_changed (fun () -> load_config (); None)
+      )
+    ]}
+
+    Note that, since there is no lock, [load_config] may see a half-written update if the configuration
+    is changed again before it finishes reading it,
+    so it should just log the error and wait to be called again. *)
+
 val broadcast : t -> unit
 (** [broadcast t] wakes up any waiting fibers (by appending them to the run-queue to resume later).
 
