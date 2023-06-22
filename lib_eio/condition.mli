@@ -64,3 +64,21 @@ val broadcast : t -> unit
 (** [broadcast t] wakes up any waiting fibers (by appending them to the run-queue to resume later).
 
     If no fibers are waiting, nothing happens. *)
+
+(** {2 Low-level API}
+
+    This is intended only for integrating Eio with other IO libraries. *)
+
+type request
+
+val register_immediate : t -> (unit -> unit) -> request
+(** [register_immediate t fn] will call [fn ()] the next time {!broadcast} is called.
+
+    [fn] runs immediately from the caller's context, which might not be an Eio thread, or may be a signal handler, etc.
+    Therefore, care is needed here. This is typically used to send a wake-up event to some non-Eio library. *)
+
+val cancel : request -> bool
+(** [cancel request] tries to cancel a request created with {!register_unsafe}.
+
+    It returns [true] if the request was cancelled (the callback will never be called),
+    or [false] if the request was already complete (the callback has already been called). *)

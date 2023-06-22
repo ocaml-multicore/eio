@@ -34,3 +34,11 @@ let await t mutex = await_generic ~mutex t
 let await_no_mutex t = await_generic t
 
 let broadcast = Broadcast.resume_all
+
+type request = Broadcast.request option
+
+let register_immediate = Broadcast.suspend
+
+let cancel = function
+  | Some request -> Broadcast.cancel request
+  | None -> false
