@@ -102,3 +102,8 @@ let spawn_unix ~sw (mgr:#mgr) ?cwd ~fds ?env ?executable args =
   let executable = get_executable executable ~args in
   let env = get_env env in
   mgr#spawn_unix ~sw ?cwd ~fds ~env ~executable args
+
+let sigchld = Eio.Condition.create ()
+
+let install_sigchld_handler () =
+  Sys.(set_signal sigchld) (Signal_handle (fun (_:int) -> Eio.Condition.broadcast sigchld))

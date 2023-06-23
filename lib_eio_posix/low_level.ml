@@ -229,7 +229,9 @@ module Process = struct
   type t = {
     pid : int;
     exit_status : Unix.process_status Promise.t;
+    lock : Mutex.t;
   }
+  (* When [lock] is unlocked, [exit_status] is resolved iff the process has been reaped. *)
 
   let exit_status t = t.exit_status
   let pid t = t.pid
@@ -249,36 +251,53 @@ module Process = struct
     fn r w
 
   let signal t signal =
-    (* The lock here ensures we don't signal the PID after reaping it. *)
-    Children.with_lock @@ fun () ->
+    (* We need the lock here so that one domain can't signal the process exactly as another is reaping it. *)
+    Mutex.lock t.lock;
+    Fun.protect ~finally:(fun () -> Mutex.unlock t.lock) @@ fun () ->
     if not (Promise.is_resolved t.exit_status) then (
       Unix.kill t.pid signal
-    )
+    ) (* else process has been reaped and t.pid is invalid *)
 
   external eio_spawn : Unix.file_descr -> Eio_unix.Private.Fork_action.c_action list -> int = "caml_eio_posix_spawn"
+
+  (* Wait for [pid] to exit and then resolve [exit_status] to its status. *)
+  let reap t exit_status =
+    Eio.Condition.loop_no_mutex Eio_unix.Process.sigchld (fun () ->
+         Mutex.lock t.lock;
+         match Unix.waitpid [WNOHANG] t.pid with
+         | 0, _ -> Mutex.unlock t.lock; None                (* Not ready; wait for next SIGCHLD *)
+         | p, status ->
+           assert (p = t.pid);
+           Promise.resolve exit_status status;
+           Mutex.unlock t.lock;
+           Some ()
+      )
 
   let spawn ~sw actions =
     with_pipe @@ fun errors_r errors_w ->
     Eio_unix.Private.Fork_action.with_actions actions @@ fun c_actions ->
     Switch.check sw;
+    let exit_status, set_exit_status = Promise.create () in
     let t =
-      (* We take the lock to ensure that the signal handler won't reap the
-         process before we've registered it. *)
-      Children.with_lock (fun () ->
-          let pid =
-            Fd.use_exn "errors-w" errors_w @@ fun errors_w ->
-            eio_spawn errors_w c_actions
-          in
-          Fd.close errors_w;
-          { pid; exit_status = Children.register pid }
-        )
+      let pid =
+        Fd.use_exn "errors-w" errors_w @@ fun errors_w ->
+        eio_spawn errors_w c_actions
+      in
+      Fd.close errors_w;
+      { pid; exit_status; lock = Mutex.create () }
     in
-    let hook = Switch.on_release_cancellable sw (fun () -> signal t Sys.sigkill) in
-    (* Removing the hook must be done from our own domain, not from the signal handler,
-       so fork a fiber to deal with that. If the switch gets cancelled then this won't
-       run, but then the [on_release] handler will run the hook soon anyway. *)
+    let hook = Switch.on_release_cancellable sw (fun () ->
+        (* Kill process (if still running) *)
+        signal t Sys.sigkill;
+        (* The switch is being released, so either the daemon fiber got
+           cancelled or it hasn't started yet (and never will start). *)
+        if not (Promise.is_resolved t.exit_status) then (
+          (* Do a (non-cancellable) waitpid here to reap the child. *)
+          reap t set_exit_status
+        )
+      ) in
     Fiber.fork_daemon ~sw (fun () ->
-        ignore (Promise.await t.exit_status : Unix.process_status);
+        reap t set_exit_status;
         Switch.remove_hook hook;
         `Stop_daemon
       );
