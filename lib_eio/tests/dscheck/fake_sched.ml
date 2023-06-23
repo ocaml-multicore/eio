@@ -6,17 +6,16 @@ let run fn =
     | Ok x -> Effect.Deep.continue k x
     | Error x -> Effect.Deep.discontinue k x
   in
-  let ctx = ref None in
+  let fiber = lazy (Fiber_context.make_root ()) in
   Effect.Deep.try_with fn ()
       { effc = fun (type a) (e : a Effect.t) : ((a, 'b) Effect.Deep.continuation -> 'b) option ->
           match e with
           | Eio.Private.Effects.Suspend fn ->
             Some (fun cont ->
-              assert (!ctx = None);
-              let c = Fiber_context.make_root () in
-              fn c (continue_result cont);
-              ctx := Some (Fiber_context.cancellation_context c)
+                fn (Lazy.force fiber) (continue_result cont);
             )
           | _ -> None
       };
-  !ctx
+  if Lazy.is_val fiber then
+    Some (Fiber_context.cancellation_context (Lazy.force fiber))
+  else None

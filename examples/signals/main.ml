@@ -8,23 +8,12 @@ let load_config () =
 
 (* $MDX part-begin=main *)
 let main ~config_changed =
-  while true do
-    Fiber.both
-      (fun () ->
-         (* First, we start waiting for SIGHUP.
-            This is so that if we get SIGHUP before we finish loading
-            the old configuration then we'll start again. *)
-         Eio.Condition.await_no_mutex config_changed;
-         traceln "Received SIGHUP";
-         (* We could cancel the loading fiber now, in case it's still running,
-            but in this example we just wait for it to finish by itself. *)
-      )
-      (fun () ->
-         traceln "Reading configuration ('kill -SIGHUP %d' to reload)..." (Unix.getpid ());
-         load_config ();
-         traceln "Finished reading configuration";
-      )
-  done
+  Eio.Condition.loop_no_mutex config_changed (fun () ->
+      traceln "Reading configuration ('kill -SIGHUP %d' to reload)..." (Unix.getpid ());
+      load_config ();
+      traceln "Finished reading configuration";
+      None      (* Keep waiting for futher changes *)
+    )
 (* $MDX part-end *)
 
 let () =

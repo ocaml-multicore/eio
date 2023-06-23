@@ -237,3 +237,81 @@ Cancellation while waiting:
 +Forked fiber unlocking
 Exception: Failure "Simulated error".
 ```
+
+### Looping
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let cond = Eio.Condition.create () in
+  let x = ref 0 in
+  let set v =
+    traceln "setting x=%d" v;
+    x := v; Eio.Condition.broadcast cond
+  in
+  Fiber.both
+     (fun () ->
+        Eio.Condition.loop_no_mutex cond (fun () ->
+          traceln "Checking x...";
+          Fiber.yield ();
+          let seen = !x in
+          traceln "Saw x = %d" seen;
+          if seen = 3 then (traceln "Finished"; Some ())
+          else None
+        )
+     )
+     (fun () ->
+        set 1; Fiber.yield ();
+        set 2; Fiber.yield ();
+        set 3; Fiber.yield ();
+        set 4; Fiber.yield ();
+     );;
++Checking x...
++setting x=1
++Saw x = 1
++setting x=2
++Checking x...
++setting x=3
++Saw x = 3
++Finished
++setting x=4
+- : unit = ()
+```
+
+Cancelling:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let cond = Eio.Condition.create () in
+  Fiber.both
+     (fun () -> Eio.Condition.loop_no_mutex cond (fun () -> traceln "Checking"; None))
+     (fun () -> failwith "Simulated error");;
++Checking
+Exception: Failure "Simulated error".
+```
+
+Cancelling after succeeding:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let cond = Eio.Condition.create () in
+  Fiber.both
+     (fun () -> Eio.Condition.loop_no_mutex cond (fun () -> traceln "Checking"; None))
+     (fun () ->
+        traceln "Broadcasting";
+        Eio.Condition.broadcast cond;
+        failwith "Simulated error"
+     );;
++Checking
++Broadcasting
++Checking
+Exception: Failure "Simulated error".
+```
+
+User function raises:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let cond = Eio.Condition.create () in
+  Eio.Condition.loop_no_mutex cond (fun () -> Fiber.yield (); failwith "Simulated failure");;
+Exception: Failure "Simulated failure".
+```

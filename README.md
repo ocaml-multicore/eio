@@ -37,26 +37,26 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Time](#time)
 * [Multicore Support](#multicore-support)
 * [Synchronisation Tools](#synchronisation-tools)
-  * [Promises](#promises)
-  * [Example: Concurrent Cache](#example-concurrent-cache)
-  * [Streams](#streams)
-  * [Example: Worker Pool](#example-worker-pool)
-  * [Mutexes and Semaphores](#mutexes-and-semaphores)
-  * [Conditions](#conditions)
-  * [Example: Signal handlers](#example-signal-handlers)
+    * [Promises](#promises)
+    * [Example: Concurrent Cache](#example-concurrent-cache)
+    * [Streams](#streams)
+    * [Example: Worker Pool](#example-worker-pool)
+    * [Mutexes and Semaphores](#mutexes-and-semaphores)
+    * [Conditions](#conditions)
+    * [Example: Signal handlers](#example-signal-handlers)
 * [Design Note: Determinism](#design-note-determinism)
 * [Provider Interfaces](#provider-interfaces)
 * [Example Applications](#example-applications)
 * [Integrations](#integrations)
-  * [Async](#async)
-  * [Lwt](#lwt)
-  * [Unix and System Threads](#unix-and-system-threads)
-  * [Domainslib](#domainslib)
-  * [kcas](#kcas)
+    * [Async](#async)
+    * [Lwt](#lwt)
+    * [Unix and System Threads](#unix-and-system-threads)
+    * [Domainslib](#domainslib)
+    * [kcas](#kcas)
 * [Best Practices](#best-practices)
-  * [Switches](#switches-1)
-  * [Casting](#casting)
-  * [Passing env](#passing-env)
+    * [Switches](#switches-1)
+    * [Casting](#casting)
+    * [Passing env](#passing-env)
 * [Further Reading](#further-reading)
 
 <!-- vim-markdown-toc -->
@@ -1492,28 +1492,13 @@ to tell an application to reload its configuration file:
 <!-- $MDX file=examples/signals/main.ml,part=main -->
 ```ocaml
 let main ~config_changed =
-  while true do
-    Fiber.both
-      (fun () ->
-         (* First, we start waiting for SIGHUP.
-            This is so that if we get SIGHUP before we finish loading
-            the old configuration then we'll start again. *)
-         Eio.Condition.await_no_mutex config_changed;
-         traceln "Received SIGHUP";
-         (* We could cancel the loading fiber now, in case it's still running,
-            but in this example we just wait for it to finish by itself. *)
-      )
-      (fun () ->
-         traceln "Reading configuration ('kill -SIGHUP %d' to reload)..." (Unix.getpid ());
-         load_config ();
-         traceln "Finished reading configuration";
-      )
-  done
+  Eio.Condition.loop_no_mutex config_changed (fun () ->
+      traceln "Reading configuration ('kill -SIGHUP %d' to reload)..." (Unix.getpid ());
+      load_config ();
+      traceln "Finished reading configuration";
+      None      (* Keep waiting for futher changes *)
+    )
 ```
-
-Unlike the cancellation case above, where we used `Fiber.first`,
-here we use `Fiber.both` to wait until we have both read the previous version of the configuration
-*and* received a request to reload, then we loop and read it again.
 
 See the `examples/signals` directory for the full code.
 
