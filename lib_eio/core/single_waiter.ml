@@ -1,4 +1,6 @@
-(* A simplified version of [Waiters] that can only handle one waiter and is not thread-safe. *)
+(* Allows a single fiber to wait to be notified by another fiber in the same domain.
+   If multiple fibers need to wait at once, or the notification comes from another domain,
+   this can't be used. *)
 
 type 'a t = {
   mutable wake : ('a, exn) result -> unit;

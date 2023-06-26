@@ -4,7 +4,7 @@ type t = {
   mutable daemon_fibers : int;
   mutable exs : (exn * Printexc.raw_backtrace) option;
   on_release : (unit -> unit) Lwt_dllist.t;
-  waiter : unit Waiters.t;              (* The main [top]/[sub] function may wait here for fibers to finish. *)
+  waiter : unit Single_waiter.t;              (* The main [top]/[sub] function may wait here for fibers to finish. *)
   cancel : Cancel.t;
 }
 
@@ -68,7 +68,7 @@ let dec_fibers t =
   if t.daemon_fibers > 0 && t.fibers = t.daemon_fibers then
     Cancel.cancel t.cancel Exit;
   if t.fibers = 0 then
-    Waiters.wake_all t.waiter ()
+    Single_waiter.wake t.waiter (Ok ())
 
 let with_op t fn =
   inc_fibers t;
@@ -92,7 +92,7 @@ let rec await_idle t =
   (* Wait for fibers to finish: *)
   while t.fibers > 0 do
     Ctf.note_try_read t.id;
-    Waiters.await ~mutex:None t.waiter t.id
+    Single_waiter.await t.waiter t.id
   done;
   (* Call on_release handlers: *)
   let queue = Lwt_dllist.create () in
@@ -125,7 +125,7 @@ let create cancel =
     fibers = 1;         (* The main function counts as a fiber *)
     daemon_fibers = 0;
     exs = None;
-    waiter = Waiters.create ();
+    waiter = Single_waiter.create ();
     on_release = Lwt_dllist.create ();
     cancel;
   }
