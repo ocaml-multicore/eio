@@ -4,6 +4,7 @@ val run : (Eio_unix.Stdenv.base -> 'a) -> 'a
 (** [run fn] runs an event loop and then calls [fn env] within it.
 
     [env] provides access to the process's environment (file-system, network, etc).
+    [env] itself and the resources inside it can be shared safely between Eio domains.
 
     When [fn] ends, the event loop finishes.
 
