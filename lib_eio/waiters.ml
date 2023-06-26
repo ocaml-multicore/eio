@@ -38,8 +38,8 @@ let rec wake_one t v =
 
 let is_empty = Lwt_dllist.is_empty
 
-let await_internal ~mutex (t:'a t) id (ctx:Cancel.fiber_context) enqueue =
-  match Cancel.Fiber_context.get_error ctx with
+let await_internal ~mutex (t:'a t) id ctx enqueue =
+  match Fiber_context.get_error ctx with
   | Some ex ->
     Option.iter Mutex.unlock mutex;
     enqueue (Error ex)
@@ -47,7 +47,7 @@ let await_internal ~mutex (t:'a t) id (ctx:Cancel.fiber_context) enqueue =
     let resolved_waiter = ref Hook.null in
     let finished = Atomic.make false in
     let enqueue x =
-      Ctf.note_read ~reader:id ctx.tid;
+      Ctf.note_read ~reader:id (Fiber_context.tid ctx);
       enqueue x
     in
     let cancel ex =
@@ -56,7 +56,7 @@ let await_internal ~mutex (t:'a t) id (ctx:Cancel.fiber_context) enqueue =
         enqueue (Error ex)
       )
     in
-    Cancel.Fiber_context.set_cancel_fn ctx cancel;
+    Fiber_context.set_cancel_fn ctx cancel;
     let waiter = { enqueue; finished } in
     match mutex with
     | None ->
