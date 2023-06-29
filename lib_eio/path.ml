@@ -8,7 +8,8 @@ let ( / ) (dir, p1) p2 =
   | p1, p2 -> (dir, Filename.concat p1 p2)
 
 let pp f ((t:#Fs.dir), p) =
-  Fmt.pf f "<%t:%s>" t#pp (String.escaped p)
+  if p = "" then Fmt.pf f "<%t>" t#pp
+  else Fmt.pf f "<%t:%s>" t#pp (String.escaped p)
 
 let open_in ~sw ((t:#Fs.dir), path) =
   try t#open_in ~sw path

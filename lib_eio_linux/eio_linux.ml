@@ -397,7 +397,7 @@ class dir ~label (fd : Low_level.dir_fd) = object
     (flow fd :> <Eio.File.rw; Eio.Flow.close>)
 
   method open_dir ~sw path =
-    let fd = Low_level.openat ~sw ~seekable:false fd path
+    let fd = Low_level.openat ~sw ~seekable:false fd (if path = "" then "." else path)
         ~access:`R
         ~flags:Uring.Open_flags.(cloexec + path + directory)
         ~perm:0
@@ -409,7 +409,7 @@ class dir ~label (fd : Low_level.dir_fd) = object
 
   method read_dir path =
     Switch.run @@ fun sw ->
-    let fd = Low_level.open_dir ~sw fd path in
+    let fd = Low_level.open_dir ~sw fd (if path = "" then "." else path) in
     Low_level.read_dir fd
 
   method close =
@@ -437,8 +437,8 @@ let stdenv ~run_event_loop =
   let stdin = source Eio_unix.Fd.stdin in
   let stdout = sink Eio_unix.Fd.stdout in
   let stderr = sink Eio_unix.Fd.stderr in
-  let fs = (new dir ~label:"fs" Fs, ".") in
-  let cwd = (new dir ~label:"cwd" Cwd, ".") in
+  let fs = (new dir ~label:"fs" Fs, "") in
+  let cwd = (new dir ~label:"cwd" Cwd, "") in
   object (_ : stdenv)
     method stdin  = stdin
     method stdout = stdout
