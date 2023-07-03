@@ -365,12 +365,14 @@ Reading directory entries under `cwd` and outside of `cwd`.
   Path.with_open_dir (cwd / "readdir") @@ fun tmpdir ->
   try_mkdir (tmpdir / "test-1");
   try_mkdir (tmpdir / "test-2");
+  try_read_dir tmpdir;
   try_read_dir (tmpdir / ".");
   try_read_dir (tmpdir / "..");
   try_read_dir (tmpdir / "test-3");;
 +mkdir <cwd:readdir> -> ok
 +mkdir <readdir:test-1> -> ok
 +mkdir <readdir:test-2> -> ok
++read_dir <readdir> -> ["test-1"; "test-2"]
 +read_dir <readdir:.> -> ["test-1"; "test-2"]
 +Eio.Io Fs Permission_denied _, reading directory <readdir:..>
 +Eio.Io Fs Not_found _, reading directory <readdir:test-3>
