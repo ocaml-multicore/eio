@@ -318,15 +318,26 @@ let process_mgr = object
     process (Process.spawn ~sw actions)
 end
 
+let wrap_backtrace fn x =
+  match fn x with
+  | x -> Ok x
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Error (ex, bt)
+
+let unwrap_backtrace = function
+  | Ok x -> x
+  | Error (ex, bt) -> Printexc.raise_with_backtrace ex bt
+
 let domain_mgr ~run_event_loop = object
   inherit Eio.Domain_manager.t
 
   method run_raw fn =
     let domain = ref None in
     Sched.enter (fun t k ->
-        domain := Some (Domain.spawn (fun () -> Fun.protect fn ~finally:(fun () -> Sched.enqueue_thread t k ())))
+        domain := Some (Domain.spawn (fun () -> Fun.protect (wrap_backtrace fn) ~finally:(fun () -> Sched.enqueue_thread t k ())))
       );
-    Domain.join (Option.get !domain)
+    unwrap_backtrace (Domain.join (Option.get !domain))
 
   method run fn =
     let domain = ref None in
@@ -337,12 +348,13 @@ let domain_mgr ~run_event_loop = object
             Fun.protect
               (fun () ->
                  let result = ref None in
-                 run_event_loop (fun () -> result := Some (fn ~cancelled)) ();
+                 let fn = wrap_backtrace (fun () -> fn ~cancelled) in
+                 run_event_loop (fun () -> result := Some (fn ())) ();
                  Option.get !result
               )
               ~finally:(fun () -> Sched.enqueue_thread t k ())))
       );
-    Domain.join (Option.get !domain)
+    unwrap_backtrace (Domain.join (Option.get !domain))
 end
 
 let mono_clock = object
