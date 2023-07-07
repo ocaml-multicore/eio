@@ -144,13 +144,15 @@ let resume t node =
   enqueue_thread t k ()
 
 (* Called when poll indicates that an event we requested for [fd] is ready. *)
-let ready t _index fd revents =
+let ready ~invalidate_index t index fd revents =
   if fd == t.eventfd_r then (
     clear_event_fd t
     (* The scheduler will now look at the run queue again and notice any new items. *)
   ) else (
     let waiters = Hashtbl.find t.fd_map fd in
     let pending = Lwt_dllist.create () in
+    if Poll.Flags.(mem revents pollnval) then
+      invalidate_index index;
     if Poll.Flags.(mem revents (pollout + pollhup + pollerr)) then
       Lwt_dllist.transfer_l waiters.write pending;
     if Poll.Flags.(mem revents (pollin + pollhup + pollerr)) then
@@ -209,7 +211,8 @@ let rec next t : [`Exit_scheduler] =
           Ctf.note_resume system_thread;
           Atomic.set t.need_wakeup false;
           Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
-          Poll.iter_ready t.poll nready (ready t);
+          let invalidate_index = Poll.invalidate_index t.poll in
+          Poll.iter_ready t.poll nready (ready ~invalidate_index t);
           next t
         ) else (
           (* Someone added a new job while we were setting [need_wakeup] to [true].
