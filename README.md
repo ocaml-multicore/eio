@@ -221,12 +221,49 @@ Calling an operation that performs an effect (such as `yield`) can switch to a d
 
 ## Tracing
 
-The library can write traces in CTF format, showing when threads (fibers) are created, when they run, and how they interact.
-We can run the previous code with tracing enabled (writing to a new `trace.ctf` file) like this:
+The tracing infrastructure is being switched from the CTF format to using OCaml
+runtime events.
+
+### Starting from OCaml 5.1
+
+The `eio.runtime_events` library provides a set of custom events emitted by 
+eio's runtime. They are written in a ring-buffer and can be consumed by various
+tools. We can run the previous code with tracing enabled like this:
 
 ```ocaml
 # let () =
-    Eio.Ctf.with_tracing @@ fun () ->
+    Eio.Tracing.with_tracing @@ fun () ->
+    Eio_main.run main;;
++x = 1
++y = 1
++x = 2
++y = 2
++x = 3
++y = 3
+```
+
+These events can be consumed using:
+- [Meio][] (Monitoring for Eio) project provides an interactive console-based 
+  UI for exploring running fibers.
+- [Olly][]: traces and statistics. (WIP: https://github.com/tarides/runtime_events_tools/pull/12)
+- [mirage-trace-viewer][]: render an event trace. (WIP: https://github.com/talex5/mirage-trace-viewer/pull/14)
+
+<p align='center'>
+  <img src="./doc/trace.svg"/>
+</p>
+
+This shows the two counting threads as two horizonal lines.
+The white regions indicate when each thread was running.
+Note that the output from `traceln` appears in the trace as well as on the console.
+
+### Before OCaml 5.1
+
+The library can write traces in CTF format, showing when threads (fibers) are created, when they run, and how they interact.
+To write the trace to a new `trace.ctf` file, use `Eio_unix.Ctf.with_tracing`:
+
+```ocaml
+# let () =
+    Eio_unix.Ctf.with_tracing "trace.ctf" @@ fun () ->
     Eio_main.run main;;
 +x = 1
 +y = 1
@@ -239,17 +276,6 @@ We can run the previous code with tracing enabled (writing to a new `trace.ctf` 
 The trace can be viewed using [mirage-trace-viewer][].
 This should work even while the program is still running.
 The file is a ring buffer, so when it gets full, old events will start to be overwritten with new ones.
-
-<p align='center'>
-  <img src="./doc/trace.svg"/>
-</p>
-
-This shows the two counting threads as two horizonal lines.
-The white regions indicate when each thread was running.
-Note that the output from `traceln` appears in the trace as well as on the console.
-
-The [Meio][] (Monitoring for Eio) project provides an interactive console-based UI for exploring running fibers,
-using the new runtime events support in OCaml 5.1.
 
 ## Cancellation
 
@@ -1863,3 +1889,4 @@ Some background about the effects system can be found in:
 [Lambda Capabilities]: https://roscidus.com/blog/blog/2023/04/26/lambda-capabilities/
 [Eio.Process]: https://ocaml-multicore.github.io/eio/eio/Eio/Process/index.html
 [Dev meetings]: https://docs.google.com/document/d/1ZBfbjAkvEkv9ldumpZV5VXrEc_HpPeYjHPW_TiwJe4Q
+[Olly]: https://github.com/tarides/runtime_events_tools

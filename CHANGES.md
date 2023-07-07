@@ -1,36 +1,44 @@
+## dev
+
+New features / API changes:
+
+- Tracing: starting from OCaml 5.1, custom events are used to trace eio programs
+  (@TheLortex #554)
+
+
 ## v0.10
 
 New features / API changes:
 
 - Add `Eio.Process` for cross-platform subprocess support (@patricoferris @talex5 #499, reviewed by @anmonteiro @avsm @haesbaert).
 
-- Add `Eio_unix.Net module` (@talex5 #516, reviewed by @avsm).  
+- Add `Eio_unix.Net module` (@talex5 #516, reviewed by @avsm).
   The Unix network APIs have been cleaned up and moved here, and some missing datagram operations have been added.
   `send` now takes an iovec, not just a single buffer.
 
-- Add support for domain local await (@polytypic @talex5 #494 #503).  
+- Add support for domain local await (@polytypic @talex5 #494 #503).
   Allows sharing e.g. kcas data-structures across Eio and Domainslib domains.
 
-- Add initial eio_windows backend (@patricoferris @talex5 #497 #530 #511 #523 #509, reviewed by @avsm @polytypic).  
+- Add initial eio_windows backend (@patricoferris @talex5 #497 #530 #511 #523 #509, reviewed by @avsm @polytypic).
 
-- Remove eio_luv backend (@talex5 #485).  
+- Remove eio_luv backend (@talex5 #485).
   It was only used on Windows, and has been replaced by eio_windows.
 
-- Unify `Eio_linux.FD` and `Eio_posix.Fd` as `Eio_unix.Fd` (@talex5 #491).  
+- Unify `Eio_linux.FD` and `Eio_posix.Fd` as `Eio_unix.Fd` (@talex5 #491).
   Now that eio_luv is gone, there is no need for different backends to have different types for wrapped file descriptors.
 
-- Move `Eio.Stdenv.t` to `Eio_unix.Stdenv.base` (@talex5 #498).  
+- Move `Eio.Stdenv.t` to `Eio_unix.Stdenv.base` (@talex5 #498).
   Note that the rest of `Eio.Stdenv` is still there; only the definition of a full Unix-like environment has moved.
 
-- Deprecation cleanups (@talex5 #508).  
+- Deprecation cleanups (@talex5 #508).
   Removed some APIs that were already marked as deprecated in Eio 0.8.
 
 Bug fixes:
 
-- eio_linux: fall back to `fork` if `clone3` is unavailable (@talex5 #524, reported by @smondet, reviewed by @avsm).  
+- eio_linux: fall back to `fork` if `clone3` is unavailable (@talex5 #524, reported by @smondet, reviewed by @avsm).
   Docker's default security policy blocks `clone3`.
 
-- Don't call `accept_fork`'s error handler on cancellation (@talex5 #520).  
+- Don't call `accept_fork`'s error handler on cancellation (@talex5 #520).
   This isn't an error and should not be reported.
 
 - Fix `eio_unix_is_blocking` C stub (@patricoferris #505, reviewed by @talex5).
@@ -59,12 +67,12 @@ Other changes:
 
 - Fix MDX tests on OCaml 5.1 (@talex5 #526).
 
-- Add stress test for spawning processes (@talex5 #519).  
+- Add stress test for spawning processes (@talex5 #519).
   This was an attempt to track down the https://github.com/ocaml/ocaml/issues/12253 signals bug.
 
 - `Eio.Process.pp_status` should be polymorphic (@talex5 #518).
 
-- eio_posix: probe for existence of some flags (@talex5 #507, reported by @hannesm).  
+- eio_posix: probe for existence of some flags (@talex5 #507, reported by @hannesm).
   FreeBSD 12 didn't have `O_DSYNC`. Also, add `O_RESOLVE_BENEATH` and `O_PATH` if available.
 
 - Fix race in ctf tests (@talex5 #493).
@@ -73,33 +81,33 @@ Other changes:
 
 New features:
 
-- Add eio_posix backend (@talex5 @haesbaert #448 #477, reviewed by @avsm @patricoferris @polytypic).  
+- Add eio_posix backend (@talex5 @haesbaert #448 #477, reviewed by @avsm @patricoferris @polytypic).
   This replaces eio_luv on all platforms except Windows (which will later switch to its own backend). It is a lot faster, provides access to more modern features (such as `openat`), and can safely share OS resources between domains.
 
-- Add subprocess support (@patricoferris @talex5 #461 #464 #472, reviewed by @haesbaert @avsm).  
+- Add subprocess support (@patricoferris @talex5 #461 #464 #472, reviewed by @haesbaert @avsm).
   This is the low-level API support for eio_linux and eio_posix. A high-level cross-platform API will be added in the next release.
 
-- Add `Fiber.fork_seq` (@talex5 #460, reviewed by @avsm).  
+- Add `Fiber.fork_seq` (@talex5 #460, reviewed by @avsm).
   This is a light-weight alternative to using a single-producer, single-consumer, 0-capacity stream, similar to a Python generator function.
 
 Bug fixes:
 
-- eio_linux: make it safe to share FDs across domains (@talex5 #440, reviewed by @haesbaert).  
+- eio_linux: make it safe to share FDs across domains (@talex5 #440, reviewed by @haesbaert).
   It was previously not safe to share file descriptors between domains because if one domain used an FD just as another was closing it, and the FD got reused, then the original operation could act on the wrong file.
 
-- eio_linux: release uring if Linux is too old (@talex5 #476).  
+- eio_linux: release uring if Linux is too old (@talex5 #476).
   Avoids a small resource leak.
 
-- eio_linux: improve error handling creating pipes and sockets (@talex5 #474, spotted by @avsm).  
+- eio_linux: improve error handling creating pipes and sockets (@talex5 #474, spotted by @avsm).
   If we get an error (e.g. too many FDs) then report it to the calling fiber, instead of exiting the event loop.
 
-- eio_linux: wait for uring to finish before exiting (@talex5 #470, reviewed by @avsm).  
+- eio_linux: wait for uring to finish before exiting (@talex5 #470, reviewed by @avsm).
   If the main fiber raised an exception then it was possible to exit while a cancellation operation was still in progress.
 
-- eio_main: make `EIO_BACKEND` handling more uniform (@talex5 #447).  
+- eio_main: make `EIO_BACKEND` handling more uniform (@talex5 #447).
   Previously this environment variable was only used on Linux. Now all platforms check it.
 
-- Tell dune about `EIO_BACKEND` (@talex5 #442).  
+- Tell dune about `EIO_BACKEND` (@talex5 #442).
   If this changes, dune needs to re-run the tests.
 
 - eio_linux: add some missing close-on-execs (@talex5 #441).
@@ -116,7 +124,7 @@ Documentation:
 
 - Improve worker pool example (@talex5 #454).
 
-- Add more Conditions documentation (@talex5 #436, reviewed by @haesbaert).  
+- Add more Conditions documentation (@talex5 #436, reviewed by @haesbaert).
   This adds a discussion of conditions to the README and provides examples using them to handle signals.
 
 - Condition: fix the example in the docstring (@avsm #468).
@@ -139,7 +147,7 @@ Other changes:
 
 - Use dune.3.7.0 (@patricoferris #457).
 
-- Mint exclusive IDs across domains (@TheLortex #480, reported by @haesbaert, reviewed by @talex5).  
+- Mint exclusive IDs across domains (@TheLortex #480, reported by @haesbaert, reviewed by @talex5).
   The tracing currently only works with a single domain anyway, but this will change when OCaml 5.1 is released.
 
 
@@ -157,18 +165,18 @@ Some build fixes:
 
 New features:
 
-- Add `Eio.Net.run_server` (@bikallem @talex5 #408).  
+- Add `Eio.Net.run_server` (@bikallem @talex5 #408).
   Runs an accept loop in one or more domains, with cancellation and graceful shutdown,
   and an optional maximum number of concurrent connections.
 
-- Add `Buf_read.BE` and `LE` parsers (@Cjen1 #399).  
+- Add `Buf_read.BE` and `LE` parsers (@Cjen1 #399).
   Parse numbers in various binary formats.
 
 - Add `Eio.Buf_read.uint8` (@talex5 #418).
 
 Performance:
 
-- Make `Eio.Condition` lock-free (@talex5 #397 #381).  
+- Make `Eio.Condition` lock-free (@talex5 #397 #381).
   In addition to being faster, this allows using conditions in signal handlers.
 
 - Make `Eio.Semaphore` lock-free (@talex5 @polytypic #398).
@@ -179,10 +187,10 @@ Performance:
 
 Bug fixes:
 
-- eio_linux: call `Uring.submit` as needed (@talex5 @bikallem #428).  
+- eio_linux: call `Uring.submit` as needed (@talex5 @bikallem #428).
   Previously, we could fail to submit a job promptly because the SQE queue was full.
 
-- Fix luv signals (@haesbaert #412).  
+- Fix luv signals (@haesbaert #412).
   `libuv` automatically retries polling if it gets `EINTR`, without giving OCaml signal handlers a chance to run.
 
 - eio_luv: fix some resource leaks (@talex5 @patricoferris #421).
@@ -225,38 +233,38 @@ Other changes:
 
 API changes:
 
-- Unify IO errors as `Eio.Io` (@talex5 #378).  
+- Unify IO errors as `Eio.Io` (@talex5 #378).
   This makes it easy to catch and log all IO errors if desired.
   The exception payload gives the type and can be used for matching specific errors.
   It also allows attaching extra information to exceptions, and various functions were updated to do this.
 
-- Add `Time.Mono` for monotonic clocks (@bikallem @talex5 #338).  
+- Add `Time.Mono` for monotonic clocks (@bikallem @talex5 #338).
   Using the system clock for timeouts, etc can fail if the system time is changed during the wait.
 
-- Allow datagram sockets to be created without a source address (@bikallem @haesbaert #360).  
+- Allow datagram sockets to be created without a source address (@bikallem @haesbaert #360).
   The kernel will allocate an address in this case.
   You can also now control the `reuse_addr` and `reuse_port` options.
 
-- Add `File.stat` and improve `Path.load` (@haesbaert @talex5 #339).  
+- Add `File.stat` and improve `Path.load` (@haesbaert @talex5 #339).
   `Path.load` now uses the file size as the initial buffer size.
 
-- Add `Eio_unix.pipe` (@patricoferris #350).  
+- Add `Eio_unix.pipe` (@patricoferris #350).
   This replaces `Eio_linux.pipe`.
 
-- Avoid short reads from `getrandom(2)` (@haesbaert #344).  
+- Avoid short reads from `getrandom(2)` (@haesbaert #344).
   Guards against buggy user code that might not handle this correctly.
 
-- Rename `Flow.read` to `Flow.single_read` (@talex5 #353).  
+- Rename `Flow.read` to `Flow.single_read` (@talex5 #353).
   This is a low-level function and it is easy to use it incorrectly by ignoring the possibility of short reads.
 
 Bug fixes:
 
-- Eio_luv: Fix non-tail-recursive continue (@talex5 #378).  
+- Eio_luv: Fix non-tail-recursive continue (@talex5 #378).
   Affects the `Socket_of_fd` and `Socketpair` effects.
 
 - Eio_linux: UDP sockets were not created close-on-exec (@talex5 #360).
 
-- Eio_linux: work around io_uring non-blocking bug (@haesbaert #327 #355).  
+- Eio_linux: work around io_uring non-blocking bug (@haesbaert #327 #355).
   The proper fix should be in Linux 6.1.
 
 - `Eio_mock.Backend`: preserve backtraces from `main` (@talex5 #349).
@@ -275,15 +283,15 @@ Documentation:
 
 Backend-specific changes:
 
-- Eio_luv: add low-level process support (@patricoferris #359).  
+- Eio_luv: add low-level process support (@patricoferris #359).
   A future release will add Eio_linux support and a cross-platform API for this.
 
 - Expose `Eio_luv.Low_level.Stream.write` (@patricoferris #359).
 
-- Expose `Eio_luv.Low_level.get_loop` (@talex5 #371).  
+- Expose `Eio_luv.Low_level.get_loop` (@talex5 #371).
   This is needed if you want to create resources directly and then use them with Eio_luv.
 
-- `Eio_linux.Low_level.openfile` is gone (@talex5 #378).  
+- `Eio_linux.Low_level.openfile` is gone (@talex5 #378).
   It was just left-over test code.
 
 
@@ -295,33 +303,33 @@ Changes:
 
 - Add API for seekable read/writes (@nojb #307).
 
-- Add `Flow.write` (@haesbaert #318).  
+- Add `Flow.write` (@haesbaert #318).
   This provides an optimised alternative to `copy` in the case where you are writing from a buffer.
 
-- Add `Net.with_tcp_connect` (@bikallem #302).  
+- Add `Net.with_tcp_connect` (@bikallem #302).
   Convenience function for opening a TCP connection.
 
-- Add `Eio.Time.Timeout` (@talex5 #320).  
+- Add `Eio.Time.Timeout` (@talex5 #320).
   Makes it easier to pass timeouts around.
 
-- Add `Eio_mock.Clock` (@talex5 #328).  
+- Add `Eio_mock.Clock` (@talex5 #328).
   Control time in tests.
 
-- Add `Buf_read.take_while1` and `skip_while1` (@bikallem #309).  
+- Add `Buf_read.take_while1` and `skip_while1` (@bikallem #309).
   These fail if no characters match.
 
 - Make the type parameter for `Promise.t` covariant (@anmonteiro #300).
 
 - Move list functions into a dedicated submodule (@raphael-proust #315).
 
-- Direct implementation of `Flow.source_string` (@c-cube #317).  
+- Direct implementation of `Flow.source_string` (@c-cube #317).
   Slightly faster.
 
 Bug fixes:
 
 - `Condition.broadcast` must interlock as well (@haesbaert #324).
 
-- Split the reads into no more than 2^32-1 for luv (@haesbaert @talex5 @EduardoRFS #343).  
+- Split the reads into no more than 2^32-1 for luv (@haesbaert @talex5 @EduardoRFS #343).
   Luv uses a 32 bit int for buffer sizes and wraps if the value passed is too big.
 
 - eio_luv: allow `Net.connect` to be cancelled (@talex5 @nojb #311).
@@ -343,21 +351,21 @@ Documentation:
 
 New features:
 
-- Add `Eio.Condition` (@TheLortex @talex5 #277).  
+- Add `Eio.Condition` (@TheLortex @talex5 #277).
   Allows a fiber to wait for some condition to become true.
 
-- Add `Eio.Net.getaddrinfo` and `getnameinfo` (@bikallem @talex5 #278 #288 #291).  
+- Add `Eio.Net.getaddrinfo` and `getnameinfo` (@bikallem @talex5 #278 #288 #291).
   Convert between host names and addresses.
 
-- Add `Eio.Debug` (@talex5 #276).  
+- Add `Eio.Debug` (@talex5 #276).
   Currently, this allows overriding the `traceln` function.
 
-- `Buf_write.create`: make switch optional (@talex5 #283).  
+- `Buf_write.create`: make switch optional (@talex5 #283).
   This makes things easier for people porting code from Faraday.
 
 Bug fixes:
 
-- Allow sharing of libuv poll handles (@patricoferris @talex5 #279).  
+- Allow sharing of libuv poll handles (@patricoferris @talex5 #279).
   Luv doesn't allow two callers to watch the same file handle, so we need to handle that in Eio.
 
 Other changes:
@@ -378,20 +386,20 @@ API changes:
 
 New features:
 
-- Fiber-local storage (@SquidDev #256).  
+- Fiber-local storage (@SquidDev #256).
   Attach key/value bindings to fibers. These are inherited across forks.
 
 - `Eio.Path.{unlink,rmdir,rename}` (@talex5 #264 #265).
 
-- `Eio_main.run` can now return a value (@talex5 #263).  
+- `Eio_main.run` can now return a value (@talex5 #263).
   This is useful for e.g. cmdliner.
 
 - `Eio_unix.socketpair` (@talex5 #260).
 
-- `Fiber.fork_daemon` (@talex5 #252).  
+- `Fiber.fork_daemon` (@talex5 #252).
   Create a helper fiber that does not prevent the switch from exiting.
 
-- Add `Fiber.{iter,map,filter,fiter_map}` (@talex5 #248 #250).  
+- Add `Fiber.{iter,map,filter,fiter_map}` (@talex5 #248 #250).
   These are concurrent versions of the corresponding operations in `List`.
 
 Bug fixes:
@@ -404,7 +412,7 @@ Bug fixes:
 
 - Use `Eio.Net.Connection_reset` exception in more places (@talex5 #257).
 
-- Report use of closed FDs better (@talex5 #255).  
+- Report use of closed FDs better (@talex5 #255).
   Using a closed FD could previously cause the whole event loop to exit.
 
 - Some fixes for cancellation (@talex5 #254).
@@ -417,16 +425,16 @@ Documentation:
 
 - Document integrations with Unix, Lwt and Async (@talex5 #247).
 
-- Add a Dockerfile for easy testing (@talex5 #224).  
+- Add a Dockerfile for easy testing (@talex5 #224).
 
 ## v0.3
 
 API changes:
 
-- `Net.accept_sub` is deprecated in favour of `accept_fork` (@talex5 #240).  
+- `Net.accept_sub` is deprecated in favour of `accept_fork` (@talex5 #240).
   `Fiber.fork_on_accept`, which it used internally, has been removed.
 
-- Allow short writes in `Read_source_buffer` (@talex5 #239).  
+- Allow short writes in `Read_source_buffer` (@talex5 #239).
   The reader is no longer required to consume all the data in one go.
   Also, add `Linux_eio.Low_level.writev_single` to expose this behaviour directly.
 
@@ -436,13 +444,13 @@ New features:
 
 - Add `Eio.Mutex` (@TheLortex @talex5 #223).
 
-- Add `Eio.Buf_write` (@talex5 #235).  
+- Add `Eio.Buf_write` (@talex5 #235).
   This is a buffered writer for Eio sinks, based on Faraday.
 
-- Add `Eio_mock` library for testing (@talex5 #228).  
+- Add `Eio_mock` library for testing (@talex5 #228).
   At the moment it has mock flows and networks.
 
-- Add `Eio_mock.Backend` (@talex5 #237 #238).  
+- Add `Eio_mock.Backend` (@talex5 #237 #238).
   Allows running tests without needing a dependency on eio_main.
   Also, as it is single-threaded, it can detect deadlocks in test code instead of just hanging.
 
@@ -462,7 +470,7 @@ Bug fixes / minor changes:
 
 - Allow IO to happen even if a fiber keeps yielding (@TheLortex @talex5 #213).
 
-- Fallback for `traceln` without an effect handler (@talex5 #226).  
+- Fallback for `traceln` without an effect handler (@talex5 #226).
   `traceln` now works outside of an event loop too.
 
 - Check for cancellation when creating a non-protected child context (@talex5 #222).
