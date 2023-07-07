@@ -1,7 +1,7 @@
 let force run fn =
   run ~fallback:(fun (`Msg msg) -> failwith msg) fn
 
-let run  ?(loc = Eio.Private.Ctf.get_caller ()) fn =
+let run  ?(loc = Eio.Private.Tracing.get_caller ()) fn =
   match Sys.getenv_opt "EIO_BACKEND" with
   | Some ("io-uring" | "linux") -> force (Linux_backend.run ~loc) fn
   | Some "posix" -> force (Posix_backend.run ~loc) fn

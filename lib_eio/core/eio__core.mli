@@ -524,13 +524,13 @@ module Cancel : sig
   exception Cancel_hook_failed of exn list
   (** Raised by {!cancel} if any of the cancellation hooks themselves fail. *)
 
-  val sub : ?loc:string -> ?name:string -> ?purpose:Ctf.cancellation_context -> (t -> 'a) -> 'a
+  val sub : ?loc:string -> ?name:string -> ?purpose:Tracing.cancellation_context -> (t -> 'a) -> 'a
   (** [sub fn] installs a new cancellation context [t], runs [fn t] inside it, and then restores the old context.
 
       If the old context is cancelled while [fn] is running then [t] is cancelled too.
       [t] cannot be used after [sub] returns. *)
 
-  val protect : ?loc:string -> ?name:string -> ?purpose:Ctf.cancellation_context -> (unit -> 'a) -> 'a
+  val protect : ?loc:string -> ?name:string -> ?purpose:Tracing.cancellation_context -> (unit -> 'a) -> 'a
   (** [protect fn] runs [fn] in a new cancellation context that isn't cancelled when its parent is.
 
       This can be used to clean up resources on cancellation.
@@ -566,7 +566,7 @@ end
 
 (** @canonical Eio.Private *)
 module Private : sig
-  module Ctf = Ctf
+  module Tracing = Tracing
 
   module Cells = Cells
   module Broadcast = Broadcast
@@ -581,7 +581,7 @@ module Private : sig
     val destroy : t -> unit
     (** [destroy t] removes [t] from its cancellation context. *)
 
-    val tid : t -> Ctf.id
+    val tid : t -> Tracing.id
 
     (** {2 Cancellation}
 

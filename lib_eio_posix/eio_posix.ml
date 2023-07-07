@@ -18,7 +18,7 @@ module Low_level = Low_level
 
 type stdenv = Eio_unix.Stdenv.base
 
-let run ?(loc=Eio.Private.Ctf.get_caller ()) main =
+let run ?(loc=Eio.Private.Tracing.get_caller ()) main =
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
   Eio_unix.Process.install_sigchld_handler ();

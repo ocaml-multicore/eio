@@ -1,5 +1,5 @@
 type t = {
-  id : Ctf.id;
+  id : Tracing.id;
   mutable fibers : int;         (* Total, including daemon_fibers and the main function *)
   mutable daemon_fibers : int;
   mutable exs : (exn * Printexc.raw_backtrace) option;
@@ -51,7 +51,7 @@ let combine_exn ex = function
 let fail ?(bt=Printexc.get_raw_backtrace ()) t ex =
   check_our_domain t;
   if t.exs = None then
-    Ctf.note_resolved t.id ~ex:(Some ex);
+    Tracing.note_resolved t.id ~ex:(Some ex);
   t.exs <- Some (combine_exn (ex, bt) t.exs);
   try
     Cancel.cancel t.cancel ex
@@ -91,7 +91,7 @@ let or_raise = function
 let rec await_idle t =
   (* Wait for fibers to finish: *)
   while t.fibers > 0 do
-    Ctf.note_try_read t.id;
+    Tracing.note_try_read t.id;
     Single_waiter.await t.waiter t.id
   done;
   (* Call on_release handlers: *)
@@ -118,7 +118,7 @@ let maybe_raise_exs t =
   | Some (ex, bt) -> Printexc.raise_with_backtrace ex bt
 
 let create cancel =
-  let id = Ctf.mint_id () in
+  let id = Tracing.mint_id () in
   {
     id;
     fibers = 1;         (* The main function counts as a fiber *)
@@ -134,7 +134,7 @@ let run_internal t fn =
   | v ->
     dec_fibers t;
     await_idle t;
-    Ctf.note_read t.id;
+    Tracing.note_read t.id;
     maybe_raise_exs t;        (* Check for failure while finishing *)
     (* Success. *)
     v
@@ -145,16 +145,16 @@ let run_internal t fn =
     dec_fibers t;
     fail ~bt t ex;
     await_idle t;
-    Ctf.note_read t.id;
+    Tracing.note_read t.id;
     maybe_raise_exs t;
     assert false
 
-let run ?(name="Switch.run") ?(loc = Ctf.get_caller ()) fn =
-  Cancel.sub ~name ~loc ~purpose:Ctf.Switch (fun cc -> run_internal (create cc) fn)
+let run ?(name="Switch.run") ?(loc = Tracing.get_caller ()) fn =
+  Cancel.sub ~name ~loc ~purpose:Tracing.Switch (fun cc -> run_internal (create cc) fn)
 
-let run_protected ?(name="Switch.run_protected") ?(loc = Ctf.get_caller ()) fn =
+let run_protected ?(name="Switch.run_protected") ?(loc = Tracing.get_caller ()) fn =
   let ctx = Effect.perform Cancel.Get_context in
-  Cancel.with_cc ~loc ~name ~ctx ~parent:ctx.cancel_context ~protected:true Ctf.Switch @@ fun cancel ->
+  Cancel.with_cc ~loc ~name ~ctx ~parent:ctx.cancel_context ~protected:true Tracing.Switch @@ fun cancel ->
   run_internal (create cancel) fn
 
 (* Run [fn ()] in [t]'s cancellation context.

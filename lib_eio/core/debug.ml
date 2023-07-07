@@ -15,7 +15,7 @@ let default_traceln ?__POS__:pos fmt =
     Format.pp_close_box f ();
     Format.pp_print_flush f ();
     let msg = Buffer.contents b in
-    Ctf.log msg;
+    Tracing.log msg;
     let lines = String.split_on_char '\n' msg in
     Mutex.lock traceln_mutex;
     Fun.protect ~finally:(fun () -> Mutex.unlock traceln_mutex) @@ fun () ->

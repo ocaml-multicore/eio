@@ -12,8 +12,8 @@ end
 
 module Ctf = struct
   let with_tracing fn =
-    Ctf.Control.start ();
-    Fun.protect ~finally:Ctf.Control.stop fn
+    Tracing.Control.start ();
+    Fun.protect ~finally:Tracing.Control.stop fn
 end
 
 module Semaphore = Semaphore

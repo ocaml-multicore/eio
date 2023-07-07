@@ -44,9 +44,9 @@ module Mono = struct
 end
 
 
-let with_timeout ?(loc = Ctf.get_caller ()) t d =
+let with_timeout ?(loc = Tracing.get_caller ()) t d =
   Fiber.first ~loc (fun () -> sleep t d; Error `Timeout)
-let with_timeout_exn ?(loc = Ctf.get_caller ()) t d =
+let with_timeout_exn ?(loc = Tracing.get_caller ()) t d =
   Fiber.first ~loc (fun () -> sleep t d; raise Timeout)
 
 module Timeout = struct

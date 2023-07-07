@@ -97,7 +97,7 @@ let v = object
       );
     unwrap_backtrace (Domain.join (Option.get !domain))
 
-  method run ?(loc=Eio.Private.Ctf.get_caller ()) fn =
+  method run ?(loc=Eio.Private.Tracing.get_caller ()) fn =
     let domain = ref None in
     Eio.Private.Suspend.enter (fun ctx enqueue ->
         let cancelled, set_cancelled = Promise.create () in

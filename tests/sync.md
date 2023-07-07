@@ -7,7 +7,7 @@
 ```ocaml
 open Eio.Std
 
-module Ctf = Eio.Private.Ctf
+module Tracing = Eio.Private.Tracing
 
 let pp_promise pp f x =
   match Promise.peek x with
@@ -96,10 +96,10 @@ Basic semaphore tests:
     let running = ref 0 in
     let sem = Semaphore.make 2 in
     let fork = Fiber.fork_promise ~sw in
-    let a = fork (fun () -> Ctf.log "a"; Semaphore.acquire sem; incr running) in
-    let b = fork (fun () -> Ctf.log "b"; Semaphore.acquire sem; incr running) in
-    let c = fork (fun () -> Ctf.log "c"; Semaphore.acquire sem; incr running) in
-    let d = fork (fun () -> Ctf.log "d"; Semaphore.acquire sem; incr running) in
+    let a = fork (fun () -> Tracing.log "a"; Semaphore.acquire sem; incr running) in
+    let b = fork (fun () -> Tracing.log "b"; Semaphore.acquire sem; incr running) in
+    let c = fork (fun () -> Tracing.log "c"; Semaphore.acquire sem; incr running) in
+    let d = fork (fun () -> Tracing.log "d"; Semaphore.acquire sem; incr running) in
     traceln "Semaphore means that only %d threads are running" !running;
     Promise.await_exn a;
     Promise.await_exn b;
@@ -132,8 +132,8 @@ Releasing a semaphore when no-one is waiting for it:
     let sem = Semaphore.make 0 in
     Semaphore.release sem;        (* Release with free-counter *)
     traceln "Initial config: %d" (Semaphore.get_value sem);
-    Fiber.fork ~sw (fun () -> Ctf.log "a"; Semaphore.acquire sem);
-    Fiber.fork ~sw (fun () -> Ctf.log "b"; Semaphore.acquire sem);
+    Fiber.fork ~sw (fun () -> Tracing.log "a"; Semaphore.acquire sem);
+    Fiber.fork ~sw (fun () -> Tracing.log "b"; Semaphore.acquire sem);
     traceln "A running: %d" (Semaphore.get_value sem);
     Semaphore.release sem;        (* Release with a non-empty wait-queue *)
     traceln "Now b running: %d" (Semaphore.get_value sem);

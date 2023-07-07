@@ -15,7 +15,7 @@ type state =
    If a function can succeed in a separate domain,
    the user's cancel function is responsible for ensuring that this is done atomically. *)
 type t = {
-  id : Ctf.id;
+  id : Tracing.id;
   mutable state : state;
   children : t Lwt_dllist.t;
   fibers : fiber_context Lwt_dllist.t;
@@ -23,7 +23,7 @@ type t = {
   domain : Domain.id;         (* Prevent access from other domains *)
 }
 and fiber_context = {
-  tid : Ctf.id;
+  tid : Tracing.id;
   mutable cancel_context : t;
   mutable cancel_node : fiber_context Lwt_dllist.node option; (* Our entry in [cancel_context.fibers] *)
   mutable cancel_fn : exn -> unit;  (* Encourage the current operation to finish *)
@@ -86,7 +86,7 @@ let is_finished t =
 
 let move_fiber_to t fiber =
   let new_node = Lwt_dllist.add_r fiber t.fibers in     (* Add to new context *)
-  Ctf.note_parent ~child:fiber.tid ~parent:t.id;
+  Tracing.note_parent ~child:fiber.tid ~parent:t.id;
   fiber.cancel_context <- t;
   Option.iter Lwt_dllist.remove fiber.cancel_node;      (* Remove from old context *)
   fiber.cancel_node <- Some new_node
@@ -95,10 +95,10 @@ let move_fiber_to t fiber =
 let create ?name ?loc ~protected purpose =
   let children = Lwt_dllist.create () in
   let fibers = Lwt_dllist.create () in
-  let id = Ctf.mint_id () in
-  Ctf.note_created id (Ctf.Cancellation_context {purpose; protected});
-  Option.iter (Ctf.note_name id) name;
-  Option.iter (Ctf.note_loc id) loc;
+  let id = Tracing.mint_id () in
+  Tracing.note_created id (Tracing.Cancellation_context {purpose; protected});
+  Option.iter (Tracing.note_name id) name;
+  Option.iter (Tracing.note_loc id) loc;
   {
     id;
     state = Finished;
@@ -113,12 +113,12 @@ let activate t ~parent =
   assert (t.state = Finished);
   assert (parent.state <> Finished);
   t.state <- On;
-  Ctf.note_parent ~child:t.id ~parent:parent.id;
+  Tracing.note_parent ~child:t.id ~parent:parent.id;
   let node = Lwt_dllist.add_r t parent.children in
   fun () ->
     assert (parent.state <> Finished);
     t.state <- Finished;
-    Ctf.note_resolved t.id ~ex:None;
+    Tracing.note_resolved t.id ~ex:None;
     Lwt_dllist.remove node
 
 (* Runs [fn] with a fresh cancellation context. *)
@@ -132,7 +132,7 @@ let with_cc ?(name="Cancel.with_cc") ?loc ~ctx:fiber ~parent ~protected purpose 
   | x            -> cleanup (); x
   | exception ex -> cleanup (); raise ex
 
-let protect ?loc ?(name="Cancel.protect") ?(purpose=Ctf.Protect) fn =
+let protect ?loc ?(name="Cancel.protect") ?(purpose=Tracing.Protect) fn =
   let ctx = Effect.perform Get_context in
   with_cc ~name ?loc ~ctx ~parent:ctx.cancel_context ~protected:true purpose @@ fun _ ->
   (* Note: there is no need to check the new context after [fn] returns;
@@ -179,7 +179,7 @@ let cancel t ex =
     | exns -> raise (Cancel_hook_failed exns)
   )
 
-let sub ?loc ?(name="Cancel.sub") ?(purpose=Ctf.Sub) fn =
+let sub ?loc ?(name="Cancel.sub") ?(purpose=Tracing.Sub) fn =
   let ctx = Effect.perform Get_context in
   let parent = ctx.cancel_context in
   with_cc ?loc ~name ~ctx ~parent ~protected:false purpose @@ fun t ->
@@ -209,9 +209,9 @@ module Fiber_context = struct
     t.cancel_fn <- ignore
 
   let make ?loc ~cc ~vars () =
-    let tid = Ctf.mint_id () in
-    Ctf.note_created ?loc tid Ctf.Task;
-    Ctf.note_parent ~child:tid ~parent:cc.id;
+    let tid = Tracing.mint_id () in
+    Tracing.note_created ?loc tid Tracing.Task;
+    Tracing.note_parent ~child:tid ~parent:cc.id;
     let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = ignore; vars } in
     t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibers);
     t

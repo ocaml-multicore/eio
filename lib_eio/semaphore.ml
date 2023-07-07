@@ -1,18 +1,18 @@
 type t = {
-  id : Ctf.id;
+  id : Tracing.id;
   state : Sem_state.t;
 }
 
 let make n =
-  let id = Ctf.mint_id () in
-  Ctf.note_created id Ctf.Semaphore;
+  let id = Tracing.mint_id () in
+  Tracing.note_created id Tracing.Semaphore;
   {
     id;
     state = Sem_state.create n;
   }
 
 let release t =
-  Ctf.note_signal t.id;
+  Tracing.note_signal t.id;
   Sem_state.release t.state
 
 let acquire t =
@@ -24,7 +24,7 @@ let acquire t =
         match Sem_state.suspend t.state (fun () -> enqueue (Ok ())) with
         | None -> ()   (* Already resumed *)
         | Some request ->
-          Ctf.note_try_read t.id;
+          Tracing.note_try_read t.id;
           match Fiber_context.get_error ctx with
           | Some ex ->
             if Sem_state.cancel request then enqueue (Error ex);
@@ -36,7 +36,7 @@ let acquire t =
               )
       )
   );
-  Ctf.note_read t.id
+  Tracing.note_read t.id
 
 let get_value t =
   max 0 (Atomic.get t.state.state)

@@ -18,12 +18,12 @@ module Suspended = Eio_utils.Suspended
 module Zzz = Eio_utils.Zzz
 module Lf_queue = Eio_utils.Lf_queue
 module Fiber_context = Eio.Private.Fiber_context
-module Ctf = Eio.Private.Ctf
+module Tracing = Eio.Private.Tracing
 module Rcfd = Eio_unix.Private.Rcfd
 
 type exit = [`Exit_scheduler]
 
-let system_thread = Ctf.mint_id ()
+let system_thread = Tracing.mint_id ()
 
 (* The type of items in the run queue. *)
 type runnable =
@@ -134,7 +134,7 @@ let update t waiters fd =
     )
     | `R -> t.poll.to_read <- FdSet.add fd t.poll.to_read
     | `W -> t.poll.to_write <- FdSet.add fd t.poll.to_write
-    | `RW -> 
+    | `RW ->
       t.poll.to_read <- FdSet.add fd t.poll.to_read;
       t.poll.to_write <- FdSet.add fd t.poll.to_write
 
@@ -204,17 +204,17 @@ let rec next t : [`Exit_scheduler] =
           (* At this point we're not going to check [run_q] again before sleeping.
              If [need_wakeup] is still [true], this is fine because we don't promise to do that.
              If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
-          Ctf.(note_hiatus Wait_for_work);
+          Tracing.(note_hiatus Wait_for_work);
           let cons fd acc = fd :: acc in
           let read = FdSet.fold cons t.poll.to_read [] in
           let write = FdSet.fold cons t.poll.to_write [] in
-          match Unix.select read write [] timeout with 
+          match Unix.select read write [] timeout with
           | exception Unix.(Unix_error (EINTR, _, _)) -> next t
           | readable, writeable, _ ->
-            Ctf.note_resume system_thread;
+            Tracing.note_resume system_thread;
             Atomic.set t.need_wakeup false;
             Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
-            List.iter (ready t [ `W ]) writeable; 
+            List.iter (ready t [ `W ]) writeable;
             List.iter (ready t [ `R ]) readable;
             next t
         ) else (
@@ -317,7 +317,7 @@ let enter fn = Effect.perform (Enter fn)
 let run ~extra_effects t main x =
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
-    Ctf.note_switch (Fiber_context.tid fiber);
+    Tracing.note_switch (Fiber_context.tid fiber);
     match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; next t);
         exnc = (fun ex ->

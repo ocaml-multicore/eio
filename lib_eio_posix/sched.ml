@@ -18,13 +18,13 @@ module Suspended = Eio_utils.Suspended
 module Zzz = Eio_utils.Zzz
 module Lf_queue = Eio_utils.Lf_queue
 module Fiber_context = Eio.Private.Fiber_context
-module Ctf = Eio.Private.Ctf
+module Tracing = Eio.Private.Tracing
 module Rcfd = Eio_unix.Private.Rcfd
 module Poll = Iomux.Poll
 
 type exit = [`Exit_scheduler]
 
-let system_thread = Ctf.mint_id ()
+let system_thread = Tracing.mint_id ()
 
 (* The type of items in the run queue. *)
 type runnable =
@@ -202,12 +202,12 @@ let rec next t : [`Exit_scheduler] =
           (* At this point we're not going to check [run_q] again before sleeping.
              If [need_wakeup] is still [true], this is fine because we don't promise to do that.
              If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
-          Ctf.(note_hiatus Wait_for_work);
+          Tracing.(note_hiatus Wait_for_work);
           let nready =
             try Poll.ppoll_or_poll t.poll (t.poll_maxi + 1) timeout
             with Unix.Unix_error (Unix.EINTR, _, "") -> 0
           in
-          Ctf.note_resume system_thread;
+          Tracing.note_resume system_thread;
           Atomic.set t.need_wakeup false;
           Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
           Poll.iter_ready t.poll nready (ready t);
@@ -315,10 +315,10 @@ let with_op t fn x =
 type _ Effect.t += Enter : (t -> 'a Eio_utils.Suspended.t -> [`Exit_scheduler]) -> 'a Effect.t
 let enter fn = Effect.perform (Enter fn)
 
-let run  ?(loc = Ctf.get_caller ()) ~extra_effects t main x =
+let run  ?(loc = Tracing.get_caller ()) ~extra_effects t main x =
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
-    Ctf.note_switch (Fiber_context.tid fiber);
+    Tracing.note_switch (Fiber_context.tid fiber);
     match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; next t);
         exnc = (fun ex ->

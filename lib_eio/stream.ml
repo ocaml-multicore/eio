@@ -2,7 +2,7 @@ module Locking = struct
   type 'a t = {
     mutex : Mutex.t;
 
-    id : Ctf.id;
+    id : Tracing.id;
 
     capacity : int;               (* [capacity > 0] *)
     items : 'a Queue.t;
@@ -29,8 +29,8 @@ module Locking = struct
 
   let create capacity =
     assert (capacity > 0);
-    let id = Ctf.mint_id () in
-    Ctf.note_created id Ctf.Stream;
+    let id = Tracing.mint_id () in
+    Tracing.note_created id Tracing.Stream;
     {
       mutex = Mutex.create ();
       id;

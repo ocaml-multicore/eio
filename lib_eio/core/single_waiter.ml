@@ -19,6 +19,6 @@ let await t id =
   t.wake <- (fun x ->
       Cancel.Fiber_context.clear_cancel_fn ctx;
       t.wake <- ignore;
-      Ctf.note_read ~reader:id ctx.tid;
+      Tracing.note_read ~reader:id ctx.tid;
       enqueue x
     )

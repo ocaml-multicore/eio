@@ -480,11 +480,11 @@ let copy t flow =
   try aux ()
   with End_of_file -> ()
 
-let with_flow ?name ?(loc = Ctf.get_caller ()) ?(initial_size=0x1000) flow fn =
+let with_flow ?name ?(loc = Tracing.get_caller ()) ?(initial_size=0x1000) flow fn =
   Switch.run ?name ~loc @@ fun sw ->
   let t = create ~sw initial_size in
   Fiber.fork ~sw (fun () ->
-    Ctf.set_name "eio.buf_write.with_flow writer";
+    Tracing.set_name "eio.buf_write.with_flow writer";
     copy t flow);
   match fn t with
   | x ->

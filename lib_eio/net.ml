@@ -173,7 +173,7 @@ type connection_handler = stream_socket -> Sockaddr.stream -> unit
 
 let accept ~sw (t : #listening_socket) = t#accept ~sw
 
-let accept_fork ?(loc = Ctf.get_caller ()) ~sw (t : #listening_socket) ~on_error handle =
+let accept_fork ?(loc = Tracing.get_caller ()) ~sw (t : #listening_socket) ~on_error handle =
   let child_started = ref false in
   let flow, addr = accept ~sw t in
   Fun.protect ~finally:(fun () -> if !child_started = false then Flow.close flow)

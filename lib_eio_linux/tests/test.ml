@@ -1,6 +1,6 @@
 open Eio.Std
 
-module Ctf = Eio.Private.Ctf
+module Tracing = Eio.Private.Tracing
 
 let () =
   Logs.(set_level ~all:true (Some Debug));
@@ -78,8 +78,8 @@ let test_direct_copy () =
   let buffer = Buffer.create 20 in
   let to_output = Eio.Flow.buffer_sink buffer in
   Switch.run (fun sw ->
-      Fiber.fork ~sw (fun () -> Ctf.log "copy1"; Eio.Flow.copy from_pipe1 to_pipe2; Eio.Flow.close to_pipe2);
-      Fiber.fork ~sw (fun () -> Ctf.log "copy2"; Eio.Flow.copy from_pipe2 to_output);
+      Fiber.fork ~sw (fun () -> Tracing.log "copy1"; Eio.Flow.copy from_pipe1 to_pipe2; Eio.Flow.close to_pipe2);
+      Fiber.fork ~sw (fun () -> Tracing.log "copy2"; Eio.Flow.copy from_pipe2 to_output);
       Eio.Flow.copy (Eio.Flow.string_source msg) to_pipe1;
       Eio.Flow.close to_pipe1;
     );

@@ -20,7 +20,7 @@
 open Eio.Std
 
 module Fiber_context = Eio.Private.Fiber_context
-module Ctf = Eio.Private.Ctf
+module Tracing = Eio.Private.Tracing
 module Fd = Eio_unix.Fd
 
 module Suspended = Eio_utils.Suspended
@@ -339,7 +339,7 @@ let domain_mgr ~run_event_loop = object
       );
     unwrap_backtrace (Domain.join (Option.get !domain))
 
-  method run ?(loc = Ctf.get_caller ()) fn =
+  method run ?(loc = Tracing.get_caller ()) fn =
     let domain = ref None in
     Sched.enter (fun t k ->
         let cancelled, set_cancelled = Promise.create () in
@@ -519,7 +519,7 @@ let run_event_loop ~loc (type a) ?fallback config (main : _ -> a) arg : a =
   } in
   Sched.run ~loc ~extra_effects st main arg
 
-let run ?(loc=Eio.Private.Ctf.get_caller ()) ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
+let run ?(loc=Eio.Private.Tracing.get_caller ()) ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
   let config = Sched.config ?queue_depth ?n_blocks ?block_size ?polling_timeout () in
   let stdenv = stdenv ~run_event_loop:(run_event_loop ?fallback:None config) in
   (* SIGPIPE makes no sense in a modern application. *)

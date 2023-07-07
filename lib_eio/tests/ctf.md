@@ -4,7 +4,7 @@
 ```ocaml
 # #require "eio";;
 # for _ = 1 to 5 do
-    Printf.printf "%d\n%!" (Eio.Private.Ctf.mint_id () :> int)
+    Printf.printf "%d\n%!" (Eio.Private.Tracing.mint_id () :> int)
   done;;
 1
 2
@@ -20,7 +20,7 @@ A new domain gets a new chunk:
 # Domain.join @@ Domain.spawn
     (fun () ->
       for _ = 1 to 5 do
-        Printf.printf "%d\n%!" (Eio.Private.Ctf.mint_id () :> int)
+        Printf.printf "%d\n%!" (Eio.Private.Tracing.mint_id () :> int)
       done);;
 1024
 1025
@@ -34,12 +34,12 @@ When the original domain exhausts its chunk, it jumps to the next free chunk:
 
 ```ocaml
 # for _ = 1 to 1024 - 9 do
-    Eio.Private.Ctf.mint_id () |> ignore
+    Eio.Private.Tracing.mint_id () |> ignore
   done;;
 - : unit = ()
 
 # for _ = 1 to 5 do
-    Printf.printf "%d\n%!" (Eio.Private.Ctf.mint_id () :> int)
+    Printf.printf "%d\n%!" (Eio.Private.Tracing.mint_id () :> int)
   done;;
 1021
 1022

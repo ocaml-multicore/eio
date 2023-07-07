@@ -47,7 +47,7 @@ let await_internal ~mutex (t:'a t) id ctx enqueue =
     let resolved_waiter = ref Hook.null in
     let finished = Atomic.make false in
     let enqueue x =
-      Ctf.note_read ~reader:id (Fiber_context.tid ctx);
+      Tracing.note_read ~reader:id (Fiber_context.tid ctx);
       enqueue x
     in
     let cancel ex =
