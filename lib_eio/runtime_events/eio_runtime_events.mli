@@ -1,10 +1,6 @@
 (** This library is used to write event traces using OCaml's runtime events infrastructure. *)
 
-type id = private int
-(** Each thread/fiber/promise is identified by a unique ID. *)
-
-val mint_id : unit -> id
-(** [mint_id ()] is a fresh unique [id]. *)
+type id = int
 
 type hiatus_reason = Wait_for_work
 

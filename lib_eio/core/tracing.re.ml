@@ -1,30 +1,62 @@
-(* Copyright (C) 2014, Thomas Leonard *)
+include Tracing_common
+module RE = Eio_runtime_events
 
-(* Note: we expect some kind of logger to process the trace buffer to collect
-   events, but currently we don't have any barriers to ensure that the buffer
-   is in a consistent state (although it usually is). So for now, you should
-   pause tracing before trying to parse the buffer. In particular, GC events
-   complicate things because we may need to add a GC event while in the middle
-   of adding some other event. *)
+let re_hiatus_of_eio_hiatus Wait_for_work = RE.Wait_for_work
 
-include Eio_runtime_events
+let re_cc_of_eio_cc = function
+  | Choose -> RE.Choose
+  | Pick -> Pick
+  | Join -> Join
+  | Switch -> Switch
+  | Protect -> Protect
+  | Sub -> Sub
+  | Root -> Root
 
-let current_thread = ref None
+let re_event_of_eio_event = function
+  | Wait -> RE.Wait
+  | Task -> Task
+  | Bind -> Bind
+  | Try -> Try
+  | Map -> Map
+  | Condition -> Condition
+  | On_success -> On_success
+  | On_failure -> On_failure
+  | On_termination -> On_termination
+  | On_any -> On_any
+  | Ignore_result -> Ignore_result
+  | Async -> Async
+  | Promise -> Promise
+  | Semaphore -> Semaphore
+  | Switch -> Switch
+  | Stream -> Stream
+  | Mutex -> Mutex
+  | Cancellation_context { purpose; protected } ->
+    Cancellation_context {
+      protected;
+      purpose = re_cc_of_eio_cc purpose
+    }
+  | System_thread -> System_thread
 
 module Control = struct
 
   let event_log = ref false
 
-  let stop () =
-    match !event_log with
-    | true -> event_log := false
-    | _ -> failwith "Log is not currently tracing!"
-
   let start () = event_log := true
+
+  let stop () = event_log := false
+
+  type ctf = unit
+
+  let make ~timestamper:_ _ = ()
+
+  let start_ctf () =
+    Printf.eprintf "Ctf tracing is not supported after OCaml 5.1"
+
+  let stop_ctf () = ()
 
 end
 
-module RE = Eio_runtime_events
+let current_thread = ref None
 
 let log name =
   match !Control.event_log, !current_thread with
@@ -55,7 +87,7 @@ let note_created ?label ?loc id ty =
   match !Control.event_log with
   | false -> ()
   | true ->
-    RE.note_created id ty;
+    RE.note_created id (re_event_of_eio_event ty);
     Option.iter (RE.note_name id) label;
     Option.iter (RE.note_location id) loc
 
@@ -76,7 +108,7 @@ let note_hiatus reason =
   | false -> ()
   | true ->
     current_thread := None;
-    RE.note_hiatus reason
+    RE.note_hiatus (re_hiatus_of_eio_hiatus reason)
 
 let note_resume new_current =
   match !Control.event_log with
@@ -110,50 +142,3 @@ let note_signal ?src dst =
     | None, None -> ()
     | Some src, _ -> RE.note_signal ~src dst
     | None, Some src -> RE.note_signal ~src dst
-
-let demangle x = List.flatten (
-  List.map (fun i ->
-    Astring.String.cuts ~sep:"__" i
-    |> List.fold_left (fun a b -> match (a, b) with
-      | [], b -> [b]
-      | v, "" -> v
-      | a::v, s when Astring.Char.Ascii.is_lower s.[0] -> (a^"_"^s) :: v
-      | v, s -> s :: v) []
-    |> List.rev ) x
-  )
-
-let is_outer raw_entry =
-  let slot = Printexc.backtrace_slots_of_raw_entry raw_entry in
-  match slot with
-  | None -> None
-  | Some slots ->
-    Array.find_map (fun slot ->
-      let (let*) = Option.bind in
-      let* loc = Printexc.Slot.location slot in
-      let* name = Printexc.Slot.name slot in
-      let* name = match String.split_on_char '.' name |> demangle with
-        | "Eio_core" :: _ -> None
-        | "Eio" :: _ -> None
-        | "Eio_linux" :: _ -> None
-        | "Eio_luv" :: _ -> None
-        | "Eio_main" :: _ -> None
-        | "Stdlib" :: _ -> None
-        | "Dune_exe" :: v -> Some (String.concat "." v)
-        | v -> Some (String.concat "." v)
-      in
-      Some (Fmt.str "%s (%s:%d)" name loc.filename loc.line_number)
-    ) slots
-
-let dune_exe_strategy stack =
-  let first acc s = match acc with
-    | (Some _ as v) -> v
-    | _ -> is_outer s
-  in
-  List.fold_left first None stack
-
-let get_caller () =
-  let p = Printexc.get_callstack 30 |> Printexc.raw_backtrace_to_string in
-  let stack = Printexc.get_callstack 30 |> Printexc.raw_backtrace_entries |> Array.to_list in
-  match dune_exe_strategy stack with
-  | Some v -> v
-  | None -> p

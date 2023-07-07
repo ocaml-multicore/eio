@@ -1,5 +1,43 @@
-include module type of Eio_runtime_events
+type id = private int
 
+val mint_id : unit -> id
+(** [mint_id ()] is a fresh unique [id]. *)
+
+type hiatus_reason = Wait_for_work
+
+type cancellation_context =
+  | Choose
+  | Pick
+  | Join
+  | Switch
+  | Protect
+  | Sub
+  | Root
+
+type event =
+  | Wait
+  | Task
+  | Bind
+  | Try
+  | Map
+  | Condition
+  | On_success
+  | On_failure
+  | On_termination
+  | On_any
+  | Ignore_result
+  | Async
+  | Promise
+  | Semaphore
+  | Switch
+  | Stream
+  | Mutex
+  | Cancellation_context of {
+    purpose: cancellation_context;
+    protected: bool;
+  }
+  | System_thread
+(** Types of threads or other recorded objects. *)
 
 (** {2 Recording events}
     Libraries and applications can use these functions to make the traces more useful. *)
@@ -55,14 +93,37 @@ val note_signal : ?src:id -> id -> unit
 
 (** {2 Controlling tracing} *)
 
+type log_buffer = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
 module Control : sig
+  (** Using runtime events (only available after OCaml 5.1) *)
+
   val start : unit -> unit
   (** [start t] begins recording events in [t]. *)
 
   val stop : unit -> unit
   (** [stop t] stops recording to [t] (which must be the current trace buffer). *)
+
+  (** Common trace format *)
+
+  type ctf
+
+  val make : timestamper:(log_buffer -> int -> unit) -> log_buffer -> ctf
+  (** [make ~timestamper b] is a trace buffer that record events in [b].
+      In most cases, the {!Ctf_unix} module provides a simpler interface. *)
+
+  val start_ctf : ctf -> unit
+  (** [start_ctf t] begins recording events in [t]. *)
+
+  val stop_ctf : ctf -> unit
+  (** [stop_ctf t] stops recording to [t] (which must be the current trace buffer). *)
 end
 
 (**/**)
 
 val get_caller : unit -> string
+
+module BS : sig
+  val set_int8 : Cstruct.buffer -> int -> int -> unit
+  val set_int64_le : Cstruct.buffer -> int -> int64 -> unit
+end

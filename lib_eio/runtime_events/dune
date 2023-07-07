@@ -1,4 +1,5 @@
 (library
  (name eio_runtime_events)
  (public_name eio.runtime_events)
- (libraries runtime_events))
+ (libraries runtime_events)
+ (enabled_if (>= %{ocaml_version} 5.0.0)))
