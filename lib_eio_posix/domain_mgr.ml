@@ -76,15 +76,26 @@ let run_event_loop fn x =
   in
   Sched.run ~extra_effects sched fn x
 
+let wrap_backtrace fn x =
+  match fn x with
+  | x -> Ok x
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Error (ex, bt)
+
+let unwrap_backtrace = function
+  | Ok x -> x
+  | Error (ex, bt) -> Printexc.raise_with_backtrace ex bt
+
 let v = object
   inherit Eio.Domain_manager.t
 
   method run_raw fn =
     let domain = ref None in
     Eio.Private.Suspend.enter (fun _ctx enqueue ->
-        domain := Some (Domain.spawn (fun () -> Fun.protect fn ~finally:(fun () -> enqueue (Ok ()))))
+        domain := Some (Domain.spawn (fun () -> Fun.protect (wrap_backtrace fn) ~finally:(fun () -> enqueue (Ok ()))))
       );
-    Domain.join (Option.get !domain)
+    unwrap_backtrace (Domain.join (Option.get !domain))
 
   method run fn =
     let domain = ref None in
@@ -92,8 +103,8 @@ let v = object
         let cancelled, set_cancelled = Promise.create () in
         Eio.Private.Fiber_context.set_cancel_fn ctx (Promise.resolve set_cancelled);
         domain := Some (Domain.spawn (fun () ->
-            Fun.protect (run_event_loop (fun () -> fn ~cancelled))
+            Fun.protect (run_event_loop (wrap_backtrace (fun () -> fn ~cancelled)))
               ~finally:(fun () -> enqueue (Ok ()))))
       );
-    Domain.join (Option.get !domain)
+    unwrap_backtrace (Domain.join (Option.get !domain))
 end
