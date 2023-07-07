@@ -145,6 +145,7 @@ let resume t node =
 
 (* Called when poll indicates that an event we requested for [fd] is ready. *)
 let ready t _index fd revents =
+  assert (not Poll.Flags.(mem revents pollnval));
   if fd == t.eventfd_r then (
     clear_event_fd t
     (* The scheduler will now look at the run queue again and notice any new items. *)
@@ -259,6 +260,8 @@ let await_readable t (k : unit Suspended.t) fd =
     if was_empty then update t waiters fd;
     Fiber_context.set_cancel_fn k.fiber (fun ex ->
         Lwt_dllist.remove node;
+        if Lwt_dllist.is_empty waiters.read then
+          update t waiters fd;
         t.active_ops <- t.active_ops - 1;
         enqueue_failed_thread t k ex
       );
@@ -275,6 +278,8 @@ let await_writable t (k : unit Suspended.t) fd =
     if was_empty then update t waiters fd;
     Fiber_context.set_cancel_fn k.fiber (fun ex ->
         Lwt_dllist.remove node;
+        if Lwt_dllist.is_empty waiters.write then
+          update t waiters fd;
         t.active_ops <- t.active_ops - 1;
         enqueue_failed_thread t k ex
       );
