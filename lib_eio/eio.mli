@@ -51,8 +51,10 @@ module Std : sig
     (** Same as {!Eio.traceln}. *)
 end
 
-module Ctf : sig
+module Tracing : sig
   val with_tracing : (unit -> 'a) -> 'a
+  (** [with_tracing fn] runs fn while enabling tracing
+      using runtime events. (available only after OCaml 5.1) *)
 end
 
 (** {1 Cross-platform OS API}
