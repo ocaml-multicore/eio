@@ -126,10 +126,7 @@ let take_nonblocking = function
   | Locking x -> Locking.take_nonblocking x
 
 let select streams =
-  let f_of (stream, f) () = begin
-    let e = take stream in
-    f e
-  end in
+  let f_of (stream, f) () = f (take stream) in
   let fs = List.map f_of streams in
   Fiber.any fs
 
