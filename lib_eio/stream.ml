@@ -125,6 +125,14 @@ let take_nonblocking = function
   | Sync x -> Sync.take_nonblocking x
   | Locking x -> Locking.take_nonblocking x
 
+let select streams =
+  let f_of (stream, f) () = begin
+    let e = take stream in
+    f e
+  end in
+  let fs = List.map f_of streams in
+  Fiber.any fs
+
 let length = function
   | Sync _ -> 0
   | Locking x -> Locking.length x

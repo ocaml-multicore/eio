@@ -40,6 +40,11 @@ val take_nonblocking : 'a t -> 'a option
     Note that if another domain may add to the stream then a [None]
     result may already be out-of-date by the time this returns. *)
 
+val select: ('a t * ('a -> 'b)) list -> 'b
+(** [select] waits for any stream to have an item available. The item
+    is mapped by the provided function and returned. Example:
+    [select [(s1, fun x -> x+1); (s2, fun x -> x+2)] *)
+
 val length : 'a t -> int
 (** [length t] returns the number of items currently in [t]. *)
 
