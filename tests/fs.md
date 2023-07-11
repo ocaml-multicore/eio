@@ -552,6 +552,27 @@ Check reading and writing vectors at arbitrary offsets:
 - : unit = ()
 ```
 
+Reading at the end of a file:
+
+```ocaml
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  let path = cwd / "test.txt" in
+  Path.with_open_out path ~create:(`Or_truncate 0o600) @@ fun file ->
+  Eio.Flow.copy_string "abc" file;
+  let buf = Cstruct.create 10 in
+  let got = Eio.File.pread file [buf] ~file_offset:(Int63.of_int 0) in
+  traceln "Read %S" (Cstruct.to_string buf ~len:got);
+  try
+    ignore (Eio.File.pread file [buf] ~file_offset:(Int63.of_int 3) : int);
+    assert false
+  with End_of_file ->
+    traceln "End-of-file";;
++Read "abc"
++End-of-file
+- : unit = ()
+```
+
 # Cancelling while readable
 
 Ensure reads can be cancelled promptly, even if there is no need to wait:

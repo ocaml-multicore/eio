@@ -65,7 +65,11 @@ let of_fd fd = object (_ : <Eio_unix.Net.stream_socket; Eio.File.rw>)
   method read_methods = []
   method copy src = copy src fd
 
-  method pread ~file_offset bufs = Low_level.preadv ~file_offset fd (Array.of_list bufs)
+  method pread ~file_offset bufs =
+    let got = Low_level.preadv ~file_offset fd (Array.of_list bufs) in
+    if got = 0 then raise End_of_file
+    else got
+
   method pwrite ~file_offset bufs = Low_level.pwritev ~file_offset fd (Array.of_list bufs)
 
   method stat = fstat fd
