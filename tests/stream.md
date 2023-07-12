@@ -357,3 +357,22 @@ Non-blocking take with zero-capacity stream:
 +Got None from stream
 - : unit = ()
 ```
+
+Selecting from multiple channels:
+
+```ocaml
+# run @@ fun () -> Switch.run (fun sw ->
+        let t1, t2 = (S.create 2), (S.create 2) in
+        let selector = [(t1, fun x -> x); (t2, fun x -> x)] in
+        Fiber.fork ~sw (fun () -> S.add t2 "foo");
+        Fiber.fork ~sw (fun () -> traceln "%s" (S.select selector));
+        Fiber.fork ~sw (fun () -> traceln "%s" (S.select selector));
+        Fiber.fork ~sw (fun () -> traceln "%s" (S.select selector));
+        Fiber.fork ~sw (fun () -> S.add t2 "bar");
+        Fiber.fork ~sw (fun () -> S.add t1 "baz");
+        )
++foo
++bar
++baz
+- : unit = ()
+```
