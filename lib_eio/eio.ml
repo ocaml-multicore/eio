@@ -10,6 +10,7 @@ module Condition = Condition
 module Stream = Stream
 module Lazy = Lazy
 module Pool = Pool
+module Workpool = Workpool
 module Exn = Exn
 module Resource = Resource
 module Buf_read = Buf_read
