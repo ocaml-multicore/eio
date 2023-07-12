@@ -294,7 +294,7 @@ module Control = struct
     current_thread := -1
 
   let start () =
-    Printf.eprintf "Runtime events tracing is not supported until OCaml 5.1"
+    Printf.eprintf "Runtime events tracing is not supported until OCaml 5.1\n"
 
   let stop () = ()
 end

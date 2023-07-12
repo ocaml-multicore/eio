@@ -50,7 +50,7 @@ module Control = struct
   let make ~timestamper:_ _ = ()
 
   let start_ctf () =
-    Printf.eprintf "Ctf tracing is not supported after OCaml 5.1"
+    Printf.eprintf "Ctf tracing is not supported after OCaml 5.1\n"
 
   let stop_ctf () = ()
 
