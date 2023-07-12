@@ -1,3 +1,61 @@
+## v0.11
+
+New features / API changes:
+
+- Extend `Eio.Condition` API (@talex5 #563).  
+  - `loop_no_mutex` is a simpler and more efficient way to way for a condition.
+  - `register_immediate` allows integration with other IO libraries.
+
+- Expose `Eio.Stdenv.backend_id` (@bord-o #560, reviewed by @talex5).  
+  Useful in tests to report which backend is being used.
+
+- Remove deprecated features (@talex5 #552, reviewed by @avsm).  
+  These were all already marked as deprecated in v0.10 and are now gone completely:
+  - `Fiber.fork_sub`
+  - `Eio_unix.{FD,Ipaddr,socketpair,getnameinfo}`
+  - `Eio_linux.{FD,get_fd,get_fd_opt}`
+  - `Eio_posix.Low_level.Fd`
+
+- Allow calling `close` more than once (@talex5 #547, requested by @anmonteiro, reviewed by @patricoferris, @avsm).
+
+- Add `close` to socket type (@talex5 #549).  
+  Simplifies the type signatures a bit by avoiding having to mention this everywhere.
+
+Bug fixes:
+
+- Fix handling of empty path strings (@talex5 #569, reported by @SGrondin).  
+  Using "" instead of "." in some places resulted in an error.
+
+- eio_posix: fix update to watched FDs on cancel (@talex5 #574, reported and reviewed by @quernd).  
+  Cancelling the last watcher of an FD didn't remove it from the set passed to `poll`,
+  which could result in constant wake-ups.
+
+- eio_posix: fix `pread` at end-of-file (@talex5 #581, reported by @SGrondin).  
+  It tried to return 0 instead of `End_of_file`, triggering an assertion.
+
+- eio_posix: don't reap non-Eio child processes (@talex5 #562).  
+  This allows spawning processes with e.g. the stdlib or Lwt
+  (but see https://github.com/ocaml-multicore/lwt_eio/pull/19 for Lwt support).
+
+- Preserve backtraces across `Domain_manager.run` (@talex5 #571).  
+  See https://github.com/ocaml/ocaml/issues/12362.
+
+- Correct the backend selection for Cygwin (@dra27 #557).  
+  Use `eio_posix`, not `eio_windows` in this case.
+
+Other changes:
+
+- Simplify dune files with dune 3.9's `build_if` (@talex5 #582).
+
+- Remove `Waiters` from `Eio_core` (@talex5 #567).  
+  `Eio.Switch` no longer uses this so it can finally be removed.
+
+- Use `Fmt.Dump.signal` to format signals (@talex5, @MisterDA #543).
+
+Documentation:
+
+- Add some notes about thread-safety in the documentation (@talex5 #568).
+
 ## v0.10
 
 New features / API changes:

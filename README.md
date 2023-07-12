@@ -79,7 +79,7 @@ Additionally, modern operating systems provide high-performance alternatives to 
 For example, Linux's io_uring system has applications write the operations they want to perform to a ring buffer,
 which Linux handles asynchronously.
 
-Due to this, we anticipate many OCaml users will want to rewrite their IO code once OCaml 5.0 is released.
+Due to this, many OCaml users will want to rewrite their IO code.
 It would be very beneficial to use this opportunity to standardise a single concurrency API for OCaml,
 and we hope that Eio will be that API.
 
