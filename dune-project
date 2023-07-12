@@ -1,4 +1,4 @@
-(lang dune 3.7)
+(lang dune 3.9)
 (name eio)
 (formatting disabled)
 (generate_opam_files true)
