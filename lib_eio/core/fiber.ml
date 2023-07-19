@@ -87,16 +87,22 @@ let await_cancel () =
   Suspend.enter "await_cancel" @@ fun fiber enqueue ->
   Cancel.Fiber_context.set_cancel_fn fiber (fun ex -> enqueue (Error ex))
 
-let any fs =
-  let r = ref `None in
+type 'a any_status =
+  | New
+  | Ex of (exn * Printexc.raw_backtrace)
+  | OK of 'a
+
+let any_gen ~return ~combine fs =
+  let r = ref New in
   let parent_c =
     Cancel.sub_unchecked Any (fun cc ->
         let wrap h =
           match h () with
           | x ->
             begin match !r with
-              | `None -> r := `Ok x; Cancel.cancel cc Not_first
-              | `Ex _ | `Ok _ -> ()
+              | New -> r := OK (return x); Cancel.cancel cc Not_first
+              | OK prev -> r := OK (combine prev x)
+              | Ex _ -> ()
             end
           | exception Cancel.Cancelled _ when not (Cancel.is_on cc) ->
             (* If this is in response to us asking the fiber to cancel then we can just ignore it.
@@ -105,11 +111,11 @@ let any fs =
             ()
           | exception ex ->
             begin match !r with
-              | `None -> r := `Ex (ex, Printexc.get_raw_backtrace ()); Cancel.cancel cc ex
-              | `Ok _ -> r := `Ex (ex, Printexc.get_raw_backtrace ())
-              | `Ex prev ->
+              | New -> r := Ex (ex, Printexc.get_raw_backtrace ()); Cancel.cancel cc ex
+              | OK _ -> r := Ex (ex, Printexc.get_raw_backtrace ())
+              | Ex prev ->
                 let bt = Printexc.get_raw_backtrace () in
-                r := `Ex (Exn.combine prev (ex, bt))
+                r := Ex (Exn.combine prev (ex, bt))
             end
         in
         let vars = Cancel.Fiber_context.get_vars () in
@@ -121,7 +127,7 @@ let any fs =
             let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
             fork_raw new_fiber (fun () ->
                 match wrap f with
-                | x -> Promise.resolve_ok r x
+                | () -> Promise.resolve_ok r ()
                 | exception ex -> Promise.resolve_error r ex
               );
             p :: aux fs
@@ -131,16 +137,21 @@ let any fs =
       )
   in
   match !r, Cancel.get_error parent_c with
-  | `Ok r, None -> r
-  | (`Ok _ | `None), Some ex -> raise ex
-  | `Ex (ex, bt), None -> Printexc.raise_with_backtrace ex bt
-  | `Ex ex1, Some ex2 ->
+  | OK r, None -> r
+  | (OK _ | New), Some ex -> raise ex
+  | Ex (ex, bt), None -> Printexc.raise_with_backtrace ex bt
+  | Ex ex1, Some ex2 ->
     let bt2 = Printexc.get_raw_backtrace () in
     let ex, bt = Exn.combine ex1 (ex2, bt2) in
     Printexc.raise_with_backtrace ex bt
-  | `None, None -> assert false
+  | New, None -> assert false
 
-let first f g = any [f; g]
+let n_any fs =
+  List.rev (any_gen fs ~return:(fun x -> [x]) ~combine:(fun xs x -> x :: xs))
+
+let any ?(combine=(fun x _ -> x)) fs = any_gen fs ~return:Fun.id ~combine
+
+let first ?combine f g = any ?combine [f; g]
 
 let is_cancelled () =
   let ctx = Effect.perform Cancel.Get_context in

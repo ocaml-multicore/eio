@@ -38,7 +38,7 @@ Second finishes, first is cancelled:
 - : unit = ()
 ```
 
-If both succeed, we pick the first one:
+If both succeed and no ~combine, we pick the first one by default:
 
 ```ocaml
 # run @@ fun () ->
@@ -46,6 +46,73 @@ If both succeed, we pick the first one:
     (fun () -> "a")
     (fun () -> "b");;
 +a
+- : unit = ()
+```
+
+If both succeed we let ~combine decide:
+
+```ocaml
+# run @@ fun () ->
+  Fiber.first ~combine:(fun _ x -> x)
+    (fun () -> "a")
+    (fun () -> "b");;
++b
+- : unit = ()
+```
+
+It allows for safe Stream.take races (both):
+
+```ocaml
+# run @@ fun () ->
+  let stream = Eio.Stream.create 1 in
+  Fiber.first ~combine:(fun x y -> x ^ y)
+    (fun () ->
+      Fiber.yield ();
+      Eio.Stream.add stream "b";
+      "a"
+    )
+    (fun () -> Eio.Stream.take stream);;
++ab
+- : unit = ()
+```
+
+It allows for safe Stream.take races (f is first):
+
+```ocaml
+# run @@ fun () ->
+  let stream = Eio.Stream.create 1 in
+  let out =
+    Fiber.first ~combine:(fun x y -> x ^ y)
+      (fun () ->
+        Eio.Stream.add stream "b";
+        Fiber.yield ();
+        "a"
+      )
+      (fun () ->
+        Fiber.yield ();
+        Eio.Stream.take stream)
+  in
+  out ^ Int.to_string (Eio.Stream.length stream);;
++a1
+- : unit = ()
+```
+
+It allows for safe Stream.take races (g is first):
+
+```ocaml
+# run @@ fun () ->
+  let stream = Eio.Stream.create 1 in
+  let out =
+    Fiber.first ~combine:(fun x y -> x ^ y)
+      (fun () ->
+        Eio.Stream.add stream "b";
+        Fiber.yield ();
+        "a"
+      )
+      (fun () -> Eio.Stream.take stream)
+  in
+  out ^ Int.to_string (Eio.Stream.length stream);;
++b0
 - : unit = ()
 ```
 
@@ -198,6 +265,54 @@ Exception: Stdlib.Exit.
 +1
 +2
 +0
+- : unit = ()
+```
+
+`Fiber.any` with combine collects all results:
+
+```ocaml
+# run @@ fun () ->
+  Fiber.any
+    ~combine:(fun x y -> x @ y)
+    (List.init 3 (fun x () -> traceln "%d" x; [x]))
+  |> Fmt.(str "%a" (Dump.list int));;
++0
++1
++2
++[0; 1; 2]
+- : unit = ()
+```
+
+# Fiber.n_any
+
+`Fiber.n_any` behaves just like `Fiber.any` when there's only one result:
+
+```ocaml
+# run @@ fun () ->
+  Fiber.n_any (List.init 3 (fun x () -> traceln "%d" x; Fiber.yield (); x))
+  |> Fmt.(str "%a" (Dump.list int));;
++0
++1
++2
++[0]
+- : unit = ()
+```
+
+`Fiber.n_any` collects all results:
+
+```ocaml
+# run @@ fun () ->
+  (Fiber.n_any (List.init 4 (fun x () ->
+     traceln "%d" x;
+     if x = 1 then Fiber.yield ();
+     x
+  )))
+  |> Fmt.(str "%a" (Dump.list int));;
++0
++1
++2
++3
++[0; 2; 3]
 - : unit = ()
 ```
 
