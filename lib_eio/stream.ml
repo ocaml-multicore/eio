@@ -104,9 +104,15 @@ module Locking = struct
       (* First check if any items are already available and return early if there are. *)
       if not (Queue.is_empty t.items)
       then (
-        cancel_all ();
-        Mutex.unlock t.mutex;
-        enqueue (Ok (f (Queue.take t.items))))
+        (* If no other stream has yielded already, we are the first one. *)
+        if Atomic.compare_and_set finished false true
+        then (
+          (* Therefore, cancel all other waiters and take available item. *)
+          cancel_all ();
+          let item = Queue.take t.items in
+          enqueue (Ok (f item)));
+        Mutex.unlock t.mutex
+      )
       else add_cancel_fn @@
         (* Otherwise, register interest in this stream. *)
         Waiters.cancellable_await_internal ~mutex:(Some t.mutex) t.readers t.id ctx (fun r ->
