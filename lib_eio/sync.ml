@@ -383,6 +383,35 @@ let rec consumer_resume_cell t ~success ~in_transition cell =
     if Atomic.compare_and_set cell old Finished then success req
     else consumer_resume_cell t ~success ~in_transition cell
 
+let take_suspend_select ~enqueue ~ctx ~cancel_all t loc finished =
+  let Short cell | Long (_, cell) = loc in
+  let kc v = begin
+    if (Atomic.compare_and_set finished false true) then (
+      cancel_all ();
+      (* deliver value *)
+      enqueue (Ok v);
+      true
+    ) else (
+      (* reject value, let producer try again *)
+      false
+    )
+  end in
+  add_to_cell t.producers (Slot kc) cell;
+  (* This will be called if another stream has yielded a value. *)
+  let cancel_this () = begin
+    match loc with
+    | Short _ -> ()
+    | Long loc -> ignore (cancel t loc)
+  end in
+  (match loc with
+   | Short _ -> ()
+   | Long loc -> (
+       match Fiber_context.get_error ctx with
+       | Some ex -> if cancel t loc then enqueue (Error ex);
+       | None -> ()
+     ));
+  cancel_this
+
 let take_suspend t loc =
   Suspend.enter_unchecked @@ fun ctx enqueue ->
   let Short cell | Long (_, cell) = loc in
@@ -411,6 +440,35 @@ let take (t : _ t) =
   ) else (
     take_suspend t (Long (Q.next_suspend t.consumers))
   )
+
+let select_of_many (type a) (ts: a t list) =
+  let finished = Atomic.make false in
+  let cancel_fns = ref [] in
+  let add_cancel_fn fn = cancel_fns := (fn :: !cancel_fns) in
+  let cancel_all () = List.iter (fun fn -> fn ()) !cancel_fns in
+  let wait ctx enqueue t = begin
+    if (Atomic.fetch_and_add t.balance (-1)) > 0 then (
+      (* have item, can cancel remaining stream waiters*)
+      if Atomic.compare_and_set finished false true then (
+        cancel_all ();
+        (* Item is available, take it over from producer. *)
+        let cell = Q.next_resume t.producers in
+        let v = consumer_resume_cell t cell
+          ~success:(fun it -> it.kp (Ok true); it.v)
+          ~in_transition:(fun cell -> assert false) in (* todo: find correct way to implement *)
+        enqueue (Ok v)
+      ) else (
+        (* restore old balance, because another stream was ready first. *)
+        ignore (Atomic.fetch_and_add t.balance (+1))
+      )
+    ) else (
+      let cell = Long (Q.next_suspend t.consumers) in
+      let cancel_fn = take_suspend_select ~enqueue ~ctx ~cancel_all t cell finished in
+      add_cancel_fn cancel_fn
+    )
+end in
+  Suspend.enter_unchecked (fun ctx enqueue ->
+    List.iter (wait ctx enqueue) ts)
 
 let reject = Slot (fun _ -> false)
 
