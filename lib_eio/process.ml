@@ -39,9 +39,9 @@ end
 let pid proc = proc#pid
 let await proc = proc#await
 
-let await_exn proc =
+let await_exn ?(is_success = Int.equal 0) proc =
   match proc#await with
-  | `Exited 0 -> ()
+  | `Exited code when is_success code -> ()
   | status -> raise (err (Child_error status))
 
 let signal proc = proc#signal
@@ -84,18 +84,18 @@ let spawn ~sw (t:#mgr) ?cwd ?stdin ?stdout ?stderr ?env ?executable args =
     ?stdout:(stdout :> Flow.sink option)
     ?stderr:(stderr :> Flow.sink option)
 
-let run (t:#mgr) ?cwd ?stdin ?stdout ?stderr ?env ?executable args =
+let run (t:#mgr) ?cwd ?stdin ?stdout ?stderr ?(is_success = Int.equal 0) ?env ?executable args =
   Switch.run @@ fun sw ->
   let child = spawn ~sw t ?cwd ?stdin ?stdout ?stderr ?env ?executable args in
   match await child with
-  | `Exited 0 -> ()
+  | `Exited code when is_success code -> ()
   | status ->
     let ex = err (Child_error status) in
     raise (Exn.add_context ex "running command: %a" pp_args args)
 
 let pipe ~sw (t:#mgr) = t#pipe ~sw
 
-let parse_out (t:#mgr) parse ?cwd ?stdin ?stderr ?env ?executable args =
+let parse_out (t:#mgr) parse ?cwd ?stdin ?stderr ?is_success ?env ?executable args =
   Switch.run @@ fun sw ->
   let r, w = pipe t ~sw in
   try
@@ -103,7 +103,7 @@ let parse_out (t:#mgr) parse ?cwd ?stdin ?stderr ?env ?executable args =
     Flow.close w;
     let output = Buf_read.parse_exn parse r ~max_size:max_int in
     Flow.close r;
-    await_exn child;
+    await_exn ?is_success child;
     output
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in

@@ -49,8 +49,12 @@ val pid : #t -> int
 val await : #t -> exit_status
 (** [await t] waits for process [t] to exit and then reports the status. *)
 
-val await_exn : #t -> unit
-(** Like {! await} except an exception is raised if the status is not [`Exited 0]. *)
+val await_exn : ?is_success:(int -> bool) -> #t -> unit
+(** Like {! await} except an exception is raised if does not return a successful
+    exit status.
+
+    @param is_success Used to determine if an exit code is successful.
+                      Default is [Int.equal 0]. *)
 
 val signal : #t -> int -> unit
 (** [signal t i] sends the signal [i] to process [t].
@@ -113,11 +117,15 @@ val run :
   ?stdin:#Flow.source ->
   ?stdout:#Flow.sink ->
   ?stderr:#Flow.sink ->
+  ?is_success:(int -> bool) ->
   ?env:string array ->
   ?executable:string ->
   string list -> unit
 (** [run] does {!spawn} followed by {!await_exn}, with the advantage that if the process fails then
     the error message includes the command that failed.
+
+    When [is_success] is provided, it is called with the exit code to determine whether it indicates success or failure.
+    Without [is_success], success requires the process to return an exit code of 0.
 
     Note: If [spawn] needed to create extra fibers to copy [stdin], etc, then it also waits for those to finish. *)
 
@@ -127,6 +135,7 @@ val parse_out :
   ?cwd:#Fs.dir Path.t ->
   ?stdin:#Flow.source ->
   ?stderr:#Flow.sink ->
+  ?is_success:(int -> bool) ->
   ?env:string array ->
   ?executable:string ->
   string list -> 'a

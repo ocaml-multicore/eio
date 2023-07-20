@@ -148,6 +148,28 @@ Eio.Io Process Child_error Exited (code 3),
   running command: bash -c "exit 3" "" foo
 ```
 
+Exit code success can be determined by is_success (Process.run):
+
+```ocaml
+# run @@ fun mgr env ->
+  Process.run ~is_success:(Int.equal 3) mgr ["bash"; "-c"; "exit 3"];;
+- : unit = ()
+
+# run @@ fun mgr env ->
+  Process.run ~is_success:(Int.equal 3) mgr ["bash"; "-c"; "exit 0"];;
+Exception:
+Eio.Io Process Child_error Exited (code 0),
+  running command: bash -c "exit 0"
+```
+
+Exit code success can be determined by is_success (Process.parse_out):
+
+```ocaml
+# run @@ fun mgr env ->
+  Process.parse_out ~is_success:(Int.equal 5) mgr Eio.Buf_read.line ["sh"; "-c"; "echo 123; exit 5"];;
+- : string = "123"
+```
+
 The default environment:
 
 ```ocaml
