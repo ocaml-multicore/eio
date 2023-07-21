@@ -456,7 +456,7 @@ let select_of_many (type a) (ts: a t list) =
         let v = consumer_resume_cell t cell
             ~success:(fun it -> it.kp (Ok true); it.v)
             ~in_transition:(fun cell ->
-                (* TODO: Nested suspend - check if this works as planned.*)
+                (* TODO: this fails with an exception as the Suspend effect is unhandled! *)
                 Suspend.enter_unchecked (fun _ctx enqueue' ->
                     let kc v = enqueue' (Ok v); true in
                     add_to_cell t.producers (Slot kc) cell

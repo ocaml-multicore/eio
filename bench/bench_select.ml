@@ -21,7 +21,8 @@ let run_senders ~dom_mgr ?(n_msgs = 100) streams =
       Fiber.fork ~sw (fun () ->
         let id = !count in
         count := !count + 1;
-        Domain_manager.run dom_mgr (fun () -> sender ~id ~n_msgs stream))) streams
+        Domain_manager.run dom_mgr (fun () ->
+          sender ~id ~n_msgs stream))) streams
 
 let receiver ~n_msgs streams =
   for i = 1 to n_msgs do
@@ -34,6 +35,9 @@ let make_streams n =
   let seq = Seq.unfold unfolder n in
   List.of_seq seq
 
+(* Currently fails with exception from ocaml-uring/lib/uring/uring.ml:326
+    https://github.com/ocaml-multicore/ocaml-uring/blob/07482dae72c8e977e4e4e2b2c8bd137e770ee1dd/lib/uring/uring.ml#L327
+*)
 let run env =
   let dom_mgr = domain_mgr env in
   let streams = make_streams sender_fibers in
