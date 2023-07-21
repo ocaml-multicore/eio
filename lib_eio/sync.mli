@@ -50,3 +50,6 @@ val balance : 'a t -> int
 
 val dump : 'a t Fmt.t
 (** [dump] formats the internal state of a channel, for testing and debugging. *)
+
+val select_of_many : 'a t list -> 'a
+(** alpha: [select_of_many] returns an element from the first sync stream to yield an item. *)

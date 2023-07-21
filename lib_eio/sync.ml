@@ -446,7 +446,7 @@ let select_of_many (type a) (ts: a t list) =
   let cancel_fns = ref [] in
   let add_cancel_fn fn = cancel_fns := (fn :: !cancel_fns) in
   let cancel_all () = List.iter (fun fn -> fn ()) !cancel_fns in
-  let wait ctx enqueue t = begin
+  let wait ctx enqueue (t: a t) = begin
     if (Atomic.fetch_and_add t.balance (-1)) > 0 then (
       (* have item, can cancel remaining stream waiters*)
       if Atomic.compare_and_set finished false true then (
@@ -454,8 +454,13 @@ let select_of_many (type a) (ts: a t list) =
         (* Item is available, take it over from producer. *)
         let cell = Q.next_resume t.producers in
         let v = consumer_resume_cell t cell
-          ~success:(fun it -> it.kp (Ok true); it.v)
-          ~in_transition:(fun cell -> assert false) in (* todo: find correct way to implement *)
+            ~success:(fun it -> it.kp (Ok true); it.v)
+            ~in_transition:(fun cell ->
+                (* TODO: Nested suspend - check if this works as planned.*)
+                Suspend.enter_unchecked (fun _ctx enqueue' ->
+                    let kc v = enqueue' (Ok v); true in
+                    add_to_cell t.producers (Slot kc) cell
+                  )) in
         enqueue (Ok v)
       ) else (
         (* restore old balance, because another stream was ready first. *)
@@ -466,9 +471,9 @@ let select_of_many (type a) (ts: a t list) =
       let cancel_fn = take_suspend_select ~enqueue ~ctx ~cancel_all t cell finished in
       add_cancel_fn cancel_fn
     )
-end in
+  end in
   Suspend.enter_unchecked (fun ctx enqueue ->
-    List.iter (wait ctx enqueue) ts)
+      List.iter (wait ctx enqueue) ts)
 
 let reject = Slot (fun _ -> false)
 

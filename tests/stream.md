@@ -357,3 +357,24 @@ Non-blocking take with zero-capacity stream:
 +Got None from stream
 - : unit = ()
 ```
+
+Selecting from multiple sync (0-capacity) channels. Note that this works on the internal
+API, which is usually not exposed.
+
+```ocaml
+# module Sy = Eio__Sync
+module Sy = Eio__Sync
+# run @@ fun () -> Switch.run (fun sw ->
+        let t1, t2 = (Sy.create ()), (Sy.create ()) in
+        Fiber.fork ~sw (fun () -> Sy.put t2 "foo");
+        Fiber.fork ~sw (fun () -> traceln "%s" (Sy.select_of_many [t1; t2]));
+        Fiber.fork ~sw (fun () -> traceln "%s" (Sy.select_of_many [t1; t2]));
+        Fiber.fork ~sw (fun () -> traceln "%s" (Sy.select_of_many [t1; t2]));
+        Fiber.fork ~sw (fun () -> Sy.put t2 "bar");
+        Fiber.fork ~sw (fun () -> Sy.put t1 "baz");
+        )
++foo
++bar
++baz
+- : unit = ()
+```
