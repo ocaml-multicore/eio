@@ -40,11 +40,12 @@ let run env =
   let dom_mgr = domain_mgr env in
   let clock = clock env in
   let streams = make_streams sender_fibers in
+  let selector = List.map (fun s -> (s, fun i -> i)) streams in
   let n_msgs = 10000 in
   Switch.run @@ fun sw ->
   Fiber.fork ~sw (fun () -> run_senders ~dom_mgr ~n_msgs streams);
   let before = Time.now clock in
-  receiver ~n_msgs:(sender_fibers * n_msgs) streams;
+  receiver ~n_msgs:(sender_fibers * n_msgs) selector;
   let after = Time.now clock in
   let elapsed = after -. before in
   let time_per_iter = elapsed /. (Float.of_int @@ sender_fibers * n_msgs) in

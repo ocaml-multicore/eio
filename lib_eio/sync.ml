@@ -389,13 +389,13 @@ let rec consumer_resume_cell t ~success ?in_transition cell =
     if Atomic.compare_and_set cell old Finished then success req
     else consumer_resume_cell t ~success ?in_transition cell
 
-let take_suspend_select ~enqueue ~ctx ~cancel_all t loc finished =
+let take_suspend_select ~enqueue ~ctx ~cancel_all t f loc finished =
   let Short cell | Long (_, cell) = loc in
   let kc v = begin
     if (Atomic.compare_and_set finished false true) then (
       cancel_all ();
       (* deliver value *)
-      enqueue (Ok v);
+      enqueue (Ok (f v));
       true
     ) else (
       (* reject value, let producer try again *)
@@ -447,12 +447,12 @@ let take (t : _ t) =
     take_suspend t (Long (Q.next_suspend t.consumers))
   )
 
-let select_of_many (type a) (ts: a t list) =
+let select_of_many (type a b) (ts: (a t * (a -> b)) list) =
   let finished = Atomic.make false in
   let cancel_fns = ref [] in
   let add_cancel_fn fn = cancel_fns := (fn :: !cancel_fns) in
   let cancel_all () = List.iter (fun fn -> fn ()) !cancel_fns in
-  let wait ctx enqueue (t: a t) = begin
+  let wait ctx enqueue ((t, f): (a t * (a -> b))) = begin
     if (Atomic.fetch_and_add t.balance (-1)) > 0 then (
       (* have item, can cancel remaining stream waiters*)
       if Atomic.compare_and_set finished false true then (
@@ -464,14 +464,14 @@ let select_of_many (type a) (ts: a t list) =
         let v = consumer_resume_cell t cell
             ~success:(fun it -> it.kp (Ok true); it.v)
             ?in_transition:None in
-        enqueue (Ok v)
+        enqueue (Ok (f v))
       ) else (
         (* restore old balance, because another stream was ready first. *)
         ignore (Atomic.fetch_and_add t.balance (+1))
       )
     ) else (
       let cell = Long (Q.next_suspend t.consumers) in
-      let cancel_fn = take_suspend_select ~enqueue ~ctx ~cancel_all t cell finished in
+      let cancel_fn = take_suspend_select ~enqueue ~ctx ~cancel_all t f cell finished in
       add_cancel_fn cancel_fn
     )
   end in
