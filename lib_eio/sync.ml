@@ -374,14 +374,20 @@ let rec put (t : _ t) v =
 (* Taking. *)
 
 (* Mirror of [producer_resume_cell]. *)
-let rec consumer_resume_cell t ~success ~in_transition cell =
+let rec consumer_resume_cell t ~success ?in_transition cell =
   match Atomic.get (cell : _ Cell.t Atomic.t) with
   | Slot _ -> assert false
-  | In_transition -> in_transition cell
-  | Finished -> consumer_resume_cell t ~success ~in_transition (Q.next_resume t.producers)
+  | In_transition -> (
+      match in_transition with
+      | Some in_transition' -> in_transition' cell
+      (* If no [in_transition] function is provided, spin on cell.
+         This only occurs in multi-domain contexts, otherwise [In_transition]
+         is not observed. *)
+      | None -> consumer_resume_cell t ~success ?in_transition cell)
+  | Finished -> consumer_resume_cell t ~success ?in_transition (Q.next_resume t.producers)
   | Item req as old ->
     if Atomic.compare_and_set cell old Finished then success req
-    else consumer_resume_cell t ~success ~in_transition cell
+    else consumer_resume_cell t ~success ?in_transition cell
 
 let take_suspend_select ~enqueue ~ctx ~cancel_all t loc finished =
   let Short cell | Long (_, cell) = loc in
@@ -453,14 +459,11 @@ let select_of_many (type a) (ts: a t list) =
         cancel_all ();
         (* Item is available, take it over from producer. *)
         let cell = Q.next_resume t.producers in
+        (* [in_transition] is [None] so we spin-wait on the item being available.
+           This is a rare scenario. *)
         let v = consumer_resume_cell t cell
             ~success:(fun it -> it.kp (Ok true); it.v)
-            ~in_transition:(fun cell ->
-                (* TODO: this fails with an exception as the Suspend effect is unhandled! *)
-                Suspend.enter_unchecked (fun _ctx enqueue' ->
-                    let kc v = enqueue' (Ok v); true in
-                    add_to_cell t.producers (Slot kc) cell
-                  )) in
+            ?in_transition:None in
         enqueue (Ok v)
       ) else (
         (* restore old balance, because another stream was ready first. *)
