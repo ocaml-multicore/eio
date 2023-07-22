@@ -366,10 +366,12 @@ API, which is usually not exposed.
 module Sy = Eio__Sync
 # run @@ fun () -> Switch.run (fun sw ->
         let t1, t2 = (Sy.create ()), (Sy.create ()) in
+        let identity x = x in
+        let selector = [(t1, identity); (t2, identity)] in
         Fiber.fork ~sw (fun () -> Sy.put t2 "foo");
-        Fiber.fork ~sw (fun () -> traceln "%s" (Sy.select_of_many [t1; t2]));
-        Fiber.fork ~sw (fun () -> traceln "%s" (Sy.select_of_many [t1; t2]));
-        Fiber.fork ~sw (fun () -> traceln "%s" (Sy.select_of_many [t1; t2]));
+        Fiber.fork ~sw (fun () -> traceln "%s" (Sy.select_of_many selector));
+        Fiber.fork ~sw (fun () -> traceln "%s" (Sy.select_of_many selector));
+        Fiber.fork ~sw (fun () -> traceln "%s" (Sy.select_of_many selector));
         Fiber.fork ~sw (fun () -> Sy.put t2 "bar");
         Fiber.fork ~sw (fun () -> Sy.put t1 "baz");
         )
