@@ -130,10 +130,10 @@ module Locking = struct
               ) else (
                 (* remove all other entries of this fiber in other streams' waiters. *)
                 ignore (Waiters.wake_one t.writers ());
-                cancel_all ()
-              ));
-            (* item is returned to waiting caller through enqueue and enter_unchecked. *)
-            enqueue (Result.map f r))
+                cancel_all ();
+                (* item is returned to waiting caller through enqueue and enter_unchecked. *)
+                enqueue (Result.map f r))
+            ));
     end in
     (* Register interest in all streams and return first available item. *)
     let wait_for_stream streams_fns = begin
