@@ -3,7 +3,7 @@ open Eio.Stdenv
 open Eio
 module Sync = Eio__Sync
 
-let sender_fibers = 2
+let sender_fibers = 4
 
 let message = 1234
 
