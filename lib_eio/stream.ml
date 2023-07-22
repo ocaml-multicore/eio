@@ -110,6 +110,7 @@ module Locking = struct
           (* Therefore, cancel all other waiters and take available item. *)
           cancel_all ();
           let item = Queue.take t.items in
+          ignore (Waiters.wake_one t.writers ());
           enqueue (Ok (f item)));
         Mutex.unlock t.mutex
       )
@@ -128,6 +129,7 @@ module Locking = struct
                 Queue.add (Result.get_ok r) t.items
               ) else (
                 (* remove all other entries of this fiber in other streams' waiters. *)
+                ignore (Waiters.wake_one t.writers ());
                 cancel_all ()
               ));
             (* item is returned to waiting caller through enqueue and enter_unchecked. *)
