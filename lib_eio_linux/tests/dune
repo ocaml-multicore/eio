@@ -1,35 +1,59 @@
 (library
  (name eurcp_lib)
- (enabled_if (= %{system} "linux"))
+ (enabled_if ; See https://github.com/ocaml/dune/issues/4895
+   (or (= %{system} "linux")          ; Historically, just Linux-x86
+       (= %{system} "linux_eabihf")   ; Historically, Linux-arm32
+       (= %{system} "linux_elf")      ; Historically, Linux-x86_32
+       (= %{system} "elf")))          ; Historically, Linux-ppc64
  (modules eurcp_lib)
  (libraries eio_linux))
 
 (executable
  (name eurcp)
- (enabled_if (= %{system} "linux"))
+ (enabled_if ; See https://github.com/ocaml/dune/issues/4895
+   (or (= %{system} "linux")          ; Historically, just Linux-x86
+       (= %{system} "linux_eabihf")   ; Historically, Linux-arm32
+       (= %{system} "linux_elf")      ; Historically, Linux-x86_32
+       (= %{system} "elf")))          ; Historically, Linux-ppc64
  (modules eurcp)
  (libraries cmdliner logs.cli logs.fmt fmt.tty fmt.cli eurcp_lib))
 
 (executable
  (name basic_eio_linux)
- (enabled_if (= %{system} "linux"))
+ (enabled_if ; See https://github.com/ocaml/dune/issues/4895
+   (or (= %{system} "linux")          ; Historically, just Linux-x86
+       (= %{system} "linux_eabihf")   ; Historically, Linux-arm32
+       (= %{system} "linux_elf")      ; Historically, Linux-x86_32
+       (= %{system} "elf")))          ; Historically, Linux-ppc64
  (modules basic_eio_linux)
  (libraries logs.fmt fmt.tty eurcp_lib))
 
 (executables
   (names bench_noop)
-  (enabled_if (= %{system} "linux"))
+  (enabled_if ; See https://github.com/ocaml/dune/issues/4895
+    (or (= %{system} "linux")          ; Historically, just Linux-x86
+        (= %{system} "linux_eabihf")   ; Historically, Linux-arm32
+        (= %{system} "linux_elf")      ; Historically, Linux-x86_32
+        (= %{system} "elf")))          ; Historically, Linux-ppc64
   (modules bench_noop)
   (libraries eio_linux))
 
 (test
  (name test)
  (package eio_linux)
- (build_if (= %{system} "linux"))
+ (build_if ; See https://github.com/ocaml/dune/issues/4895
+   (or (= %{system} "linux")          ; Historically, just Linux-x86
+       (= %{system} "linux_eabihf")   ; Historically, Linux-arm32
+       (= %{system} "linux_elf")      ; Historically, Linux-x86_32
+       (= %{system} "elf")))          ; Historically, Linux-ppc64
  (modules test)
  (libraries alcotest eio_linux))
 
 (mdx
   (package eio_linux)
-  (enabled_if (= %{system} "linux"))
+  (enabled_if ; See https://github.com/ocaml/dune/issues/4895
+    (or (= %{system} "linux")          ; Historically, just Linux-x86
+        (= %{system} "linux_eabihf")   ; Historically, Linux-arm32
+        (= %{system} "linux_elf")      ; Historically, Linux-x86_32
+        (= %{system} "elf")))          ; Historically, Linux-ppc64
   (deps (package eio_linux)))
