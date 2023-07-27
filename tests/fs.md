@@ -36,6 +36,11 @@ let try_mkdir path =
   | () -> traceln "mkdir %a -> ok" Path.pp path
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
+let try_mkdirs ?exists_ok path =
+  match Path.mkdirs ?exists_ok path ~perm:0o700 with
+  | () -> traceln "mkdirs %a -> ok" Path.pp path
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+
 let try_rename p1 p2 =
   match Path.rename p1 p2 with
   | () -> traceln "rename %a to %a -> ok" Path.pp p1 Path.pp p2
@@ -209,6 +214,26 @@ Creating directories with nesting, symlinks, etc:
 +Eio.Io Fs Permission_denied _, creating directory <cwd:../foo>
 +Eio.Io Fs Already_exists _, creating directory <cwd:to-subdir>
 +Eio.Io Fs Not_found _, creating directory <cwd:dangle/foo>
+- : unit = ()
+```
+
+# Mkdirs
+
+Recursively creating directories with `mkdirs`.
+
+```ocaml
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  let nested = cwd / "subdir1" / "subdir2" / "subdir3" in
+  try_mkdirs nested;
+  let one_more = Path.(nested / "subdir4") in
+  try_mkdirs one_more;
+  try_mkdirs ~exists_ok:true one_more;
+  try_mkdirs (cwd / ".." / "outside");;
++mkdirs <cwd:subdir1/subdir2/subdir3> -> ok
++Eio.Io Fs Already_exists _, creating directory <cwd:subdir1>
++mkdirs <cwd:subdir1/subdir2/subdir3/subdir4> -> ok
++Eio.Io Fs Permission_denied _, creating directory <cwd:..>
 - : unit = ()
 ```
 

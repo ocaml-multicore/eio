@@ -89,7 +89,11 @@ val with_open_out :
 (** {1 Directories} *)
 
 val mkdir : perm:File.Unix_perm.t -> _ t -> unit
-(** [mkdir ~perm t] creates a new directory [t] with permissions [perm]. *)
+(** [mkdir ?exist_ok ~perm t] creates a new directory [t] with permissions [perm]. *)
+
+val mkdirs : ?exists_ok:bool -> perm:File.Unix_perm.t -> _ t -> unit
+(** Recursively create directories. If [exist_ok] is [false] (the default) then we raise
+    {! Fs.Already_exists}.  *)
 
 val open_dir : sw:Switch.t -> _ t -> <dir; Flow.close> t
 (** [open_dir ~sw t] opens [t].

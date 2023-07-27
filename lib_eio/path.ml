@@ -35,6 +35,27 @@ let mkdir ~perm ((t:#Fs.dir), path) =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "creating directory %a" pp (t, path)
 
+let mkdirs ?(exists_ok=false) ~perm ((t:#Fs.dir), path) =
+  let separate = String.split_on_char (Filename.dir_sep.[0]) in
+  let make_directory p =
+    try (
+      if exists_ok then
+        try t#mkdir ~perm p with Exn.Io ((Fs.E Fs.Already_exists _), _) -> ()
+      else
+        t#mkdir ~perm p
+    ) with Exn.Io _ as ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      Exn.reraise_with_context ex bt "creating directory %a" pp (t, p)
+  in
+  let rec loop acc = function
+    | [] -> ()
+    | x :: xs ->
+      let dir = Filename.concat acc x in
+      make_directory dir;
+      loop dir xs
+  in
+  loop "" (separate path)
+
 let read_dir ((t:#Fs.dir), path) =
   try List.sort String.compare (t#read_dir path)
   with Exn.Io _ as ex ->
