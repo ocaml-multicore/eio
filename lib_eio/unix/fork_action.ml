@@ -17,9 +17,14 @@ let rec with_actions actions fn =
     with_actions xs @@ fun c_actions ->
     fn (c_action :: c_actions)
 
+type c_array
+external make_string_array : int -> c_array = "eio_unix_make_string_array"
 external action_execve : unit -> fork_fn = "eio_unix_fork_execve"
 let action_execve = action_execve ()
-let execve path ~argv ~env = { run = fun k -> k (Obj.repr (action_execve, path, argv, env)) }
+let execve path ~argv ~env =
+  let argv_c_array = make_string_array (Array.length argv) in
+  let env_c_array = make_string_array (Array.length env) in
+  { run = fun k -> k (Obj.repr (action_execve, path, argv_c_array, argv, env_c_array, env)) }
 
 external action_chdir : unit -> fork_fn = "eio_unix_fork_chdir"
 let action_chdir = action_chdir ()
