@@ -761,7 +761,7 @@ To avoid this problem, you can use `Eio.Exn.Backend.show`
 
 to hide the backend-specific part of errors:
 
-<!-- $MDX skip -->
+<!-- $MDX os_type<>Win32 -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
@@ -897,7 +897,7 @@ perhaps with `open_dir` to constrain all access to be within that directory.
 
 Spawning a child process can be done using the [Eio.Process][] module:
 
-<!-- $MDX non-deterministic=command -->
+<!-- $MDX os_type<>Win32 -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
@@ -909,7 +909,7 @@ hello
 There are various optional arguments for setting the process's current directory or connecting up the standard streams.
 For example, we can use `tr` to convert some text to upper-case:
 
-<!-- $MDX non-deterministic=command -->
+<!-- $MDX os_type<>Win32 -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
@@ -922,7 +922,7 @@ ONE TWO THREE
 If you want to capture the output of a process, you can provide a suitable `Eio.Flow.sink` as the `stdout` argument,
 or use the `parse_out` convenience wrapper:
 
-<!-- $MDX non-deterministic=command -->
+<!-- $MDX os_type<>Win32 -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
@@ -932,7 +932,7 @@ or use the `parse_out` convenience wrapper:
 
 All process functions either return the exit status or check that it was zero (success):
 
-<!-- $MDX non-deterministic=command -->
+<!-- $MDX os_type<>Win32 -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in

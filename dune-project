@@ -28,7 +28,7 @@
   (domain-local-await (>= 0.1.0))
   (crowbar (and (>= 0.2) :with-test))
   (mtime (>= 2.0.0))
-  (mdx (and (>= 2.2.0) :with-test))
+  (mdx (and (>= 2.3.1) :with-test))
   (dscheck (and (>= 0.1.0) :with-test))))
 (package
  (name eio_linux)
@@ -38,7 +38,7 @@
  (depends
   (alcotest (and (>= 1.7.0) :with-test))
   (eio (= :version))
-  (mdx (and (>= 2.2.0) :with-test))
+  (mdx (and (>= 2.3.1) :with-test))
   (logs (>= 0.7.0))
   (fmt (>= 0.8.9))
   (cmdliner (and (>= 1.1.0) :with-test))
@@ -51,7 +51,7 @@
  (depends
   (eio (= :version))
   (iomux (>= 0.2))
-  (mdx (and (>= 2.2.0) :with-test))
+  (mdx (and (>= 2.3.1) :with-test))
   (fmt (>= 0.8.9))))
 (package
  (name eio_windows)
@@ -67,7 +67,7 @@
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
  (description "Selects an appropriate Eio backend for the current platform.")
  (depends
-  (mdx (and (>= 2.2.0) :with-test))
+  (mdx (and (>= 2.3.1) :with-test))
   (kcas (and (>= 0.3.0) :with-test))
   (yojson (and (>= 2.0.2) :with-test))
   (eio_linux (and (= :version) (= :os "linux")))
