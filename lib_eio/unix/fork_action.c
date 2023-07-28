@@ -1,3 +1,9 @@
+/* Note: fork actions MUST NOT allocate (either on the OCaml heap or with C malloc).
+ * This is because e.g. we might have forked while another thread in the parent had a lock.
+ * In the child, we inherit a copy of the locked mutex, but no corresponding thread to
+ * release it.
+ */
+
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -6,6 +12,9 @@
 
 #include <caml/mlvalues.h>
 #include <caml/unixsupport.h>
+#include <caml/memory.h>
+#include <caml/custom.h>
+#include <caml/fail.h>
 
 #include "fork_action.h"
 
@@ -42,24 +51,61 @@ void eio_unix_fork_error(int fd, char *fn, char *buf) {
   try_write_all(fd, buf);
 }
 
-static char **make_string_array(int errors, value v_array) {
-  int n = Wosize_val(v_array);
-  char **c = calloc(sizeof(char *), (n + 1));
-  if (!c) {
-    eio_unix_fork_error(errors, "make_string_array", "out of memory");
-    _exit(1);
-  }
+#define String_array_val(v) *((char ***)Data_custom_val(v))
+
+static void finalize_string_array(value v) {
+  free(String_array_val(v));
+  String_array_val(v) = NULL;
+}
+
+static struct custom_operations string_array_ops = {
+  "string.array",
+  finalize_string_array,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+CAMLprim value eio_unix_make_string_array(value v_len) {
+  CAMLparam0();
+  CAMLlocal1(v_str_array);
+  int n = Int_val(v_len);
+  uintnat total;
+
+  if (caml_umul_overflow(sizeof(char *), n + 1, &total))
+    caml_raise_out_of_memory();
+
+  v_str_array = caml_alloc_custom_mem(&string_array_ops, sizeof(char ***), total);
+
+  char **c = calloc(sizeof(char *), n + 1);
+  String_array_val(v_str_array) = c;
+  if (!c)
+    caml_raise_out_of_memory();
+
+  CAMLreturn(v_str_array);
+}
+
+static void fill_string_array(char **c, value v_ocaml_array) {
+  int n = Wosize_val(v_ocaml_array);
+
   for (int i = 0; i < n; i++) {
-    c[i] = (char *) String_val(Field(v_array, i));
+    c[i] = (char *) String_val(Field(v_ocaml_array, i));
   }
+
   c[n] = NULL;
-  return c;
 }
 
 static void action_execve(int errors, value v_config) {
   value v_exe = Field(v_config, 1);
-  char **argv = make_string_array(errors, Field(v_config, 2));
-  char **envp = make_string_array(errors, Field(v_config, 3));
+  char **argv = String_array_val(Field(v_config, 2));
+  char **envp = String_array_val(Field(v_config, 4));
+
+  fill_string_array(argv, Field(v_config, 3));
+  fill_string_array(envp, Field(v_config, 5));
+
   execve(String_val(v_exe), argv, envp);
   eio_unix_fork_error(errors, "execve", strerror(errno));
   _exit(1);

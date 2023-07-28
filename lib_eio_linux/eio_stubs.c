@@ -101,7 +101,7 @@ CAMLprim value caml_eio_getrandom(value v_ba, value v_off, value v_len) {
   ssize_t off = (ssize_t)Long_val(v_off);
   ssize_t len = (ssize_t)Long_val(v_len);
   do {
-    void *buf = Caml_ba_data_val(v_ba) + off;
+    void *buf = (char *)Caml_ba_data_val(v_ba) + off;
     caml_enter_blocking_section();
 #if __GLIBC__ > 2 || __GLIBC_MINOR__ > 24
     ret = getrandom(buf, len, 0);

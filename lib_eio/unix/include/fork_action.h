@@ -1,7 +1,8 @@
 #include <caml/mlvalues.h>
 #include <caml/alloc.h>
 
-/* A function that runs in the forked child process. It must not run any OCaml code or invoke the GC.
+/* A function that runs in the forked child process.
+ * It must not run any OCaml code, invoke the GC, or even call [malloc].
  * If the action fails then it writes an error message to the FD [errors] and calls [_exit].
  * v_args is the c_action tuple (where field 0 is the function itself).
  */
