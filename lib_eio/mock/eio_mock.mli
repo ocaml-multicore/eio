@@ -96,6 +96,8 @@ module Flow : sig
     on_copy_bytes : int Handler.t;
     set_copy_method : copy_method -> unit;
     attach_to_switch : Eio.Switch.t -> unit;
+    getsockopt : 'a . 'a Eio.Net.Sockopt.t -> 'a;
+    setsockopt : 'a . 'a Eio.Net.Sockopt.t -> 'a -> unit;
   >
 
   val make : ?pp:string Fmt.t -> string -> t

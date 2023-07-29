@@ -91,6 +91,13 @@ let listening_socket label =
 
     method close =
       traceln "%s: closed" label
+
+    method getsockopt _opt =
+      traceln "%s: getsockopt" label;
+      failwith "TODO"
+
+    method setsockopt (_: _ Eio.Net.Sockopt.t) _ =
+      traceln "%s: setsockopt TODO" label
   end
 
 let on_accept (l:listening_socket) actions =

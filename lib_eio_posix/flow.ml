@@ -65,6 +65,9 @@ let shutdown fd cmd =
   | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
   | Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 
+let setsockopt fd opt v = Eio_unix.Net.Sockopt.set fd opt v
+let getsockopt fd opt = Eio_unix.Net.Sockopt.get fd opt
+
 let of_fd fd = object (_ : <Eio_unix.Net.stream_socket; Eio.File.rw>)
   method fd = fd
 
@@ -83,6 +86,8 @@ let of_fd fd = object (_ : <Eio_unix.Net.stream_socket; Eio.File.rw>)
   method write bufs = write_bufs fd bufs
   method shutdown cmd = shutdown fd cmd
   method close = Fd.close fd
+  method setsockopt opt v = setsockopt fd opt v
+  method getsockopt opt = getsockopt fd opt
 
   method probe : type a. a Eio.Generic.ty -> a option = function
     | Eio_unix.Resource.FD -> Some fd

@@ -100,10 +100,17 @@ module Sockaddr : sig
   val pp : Format.formatter -> [< t] -> unit
 end
 
+(* Socket options. *)
+module Sockopt : sig
+  type _ t = ..
+end
+
 (** {2 Provider Interfaces} *)
 
 class virtual socket : object (<Generic.close; ..>)
   inherit Generic.t
+  method virtual setsockopt : 'a . 'a Sockopt.t -> 'a -> unit
+  method virtual getsockopt : 'a . 'a Sockopt.t -> 'a
 end
 
 class virtual stream_socket : object
@@ -135,6 +142,16 @@ class virtual t : object
   method virtual getaddrinfo : service:string -> string -> Sockaddr.t list
   method virtual getnameinfo : Sockaddr.t -> (string * string)
 end
+
+(** {2 Socket options} *)
+
+val setsockopt : #socket -> 'a Sockopt.t -> 'a -> unit
+(** [setsockopt s opt v] sets the [opt] option to value [v] on socket [s].
+    See {!Eio_unix.Net.Sockopt} for common Unix socket options. *)
+
+val getsockopt : #socket -> 'a Sockopt.t -> 'a
+(** [getsockopt s opt] retrieves the [opt] option on socket [fd].
+    See {!Eio_unix.Net.Sockopt} for common Unix socket options. *)
 
 (** {2 Out-bound Connections} *)
 

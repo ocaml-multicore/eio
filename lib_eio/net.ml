@@ -157,9 +157,18 @@ module Sockaddr = struct
       Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
+module Sockopt = struct
+  type _ t = ..
+end
+
 class virtual socket = object (_ : <Generic.t; Generic.close; ..>)
   method probe _ = None
+  method virtual setsockopt : 'a . 'a Sockopt.t -> 'a -> unit
+  method virtual getsockopt : 'a . 'a Sockopt.t -> 'a
 end
+
+let setsockopt (s: #socket) opt v = s#setsockopt opt v
+let getsockopt (s: #socket) opt = s#getsockopt opt
 
 class virtual stream_socket = object (_ : #socket)
   inherit Flow.two_way

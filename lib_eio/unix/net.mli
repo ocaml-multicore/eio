@@ -76,6 +76,27 @@ val socketpair_datagram :
     This creates OS-level resources using [socketpair(2)].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
+module Sockopt : sig
+  (** Socket options *)
+
+  type _ Eio.Net.Sockopt.t +=
+    SO_KEEPALIVE : bool Eio.Net.Sockopt.t
+  | SO_REUSEADDR : bool Eio.Net.Sockopt.t
+  | SO_REUSEPORT : bool Eio.Net.Sockopt.t
+  | TCP_CORK : int Eio.Net.Sockopt.t        (* TODO These are Linux-only; move to Eio_linux.Net? *)
+  | TCP_KEEPCNT : int Eio.Net.Sockopt.t
+  | TCP_KEEPIDLE : int Eio.Net.Sockopt.t
+  | TCP_KEEPINTVL : int Eio.Net.Sockopt.t
+  | TCP_DEFER_ACCEPT : int Eio.Net.Sockopt.t
+  | TCP_NODELAY : bool Eio.Net.Sockopt.t
+
+  val set : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a -> unit
+  (** [set fd opt v] sets the [opt] option to value [v] on socket [fd]. *)
+
+  val get : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a
+  (** [get fd opt v] retrieves the [opt] option on socket [fd]. *)
+end
+
 (** {2 Private API for backends} *)
 
 val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)

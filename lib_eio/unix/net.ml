@@ -48,6 +48,62 @@ class virtual t = object
   method getnameinfo = getnameinfo
 end
 
+type socket_int_option =
+    EIO_TCP_CORK
+  | EIO_TCP_KEEPCNT
+  | EIO_TCP_KEEPIDLE
+  | EIO_TCP_KEEPINTVL
+  | EIO_TCP_DEFER_ACCEPT
+  | EIO_TCP_NODELAY
+
+external setsockopt_int : Unix.file_descr -> socket_int_option -> int -> unit =
+  "eio_unix_setsockopt_int"
+external getsockopt_int : Unix.file_descr -> socket_int_option -> int =
+  "eio_unix_getsockopt_int"
+
+module Sockopt = struct
+  type _ Eio.Net.Sockopt.t +=
+  | SO_KEEPALIVE : bool Eio.Net.Sockopt.t
+  | SO_REUSEADDR : bool Eio.Net.Sockopt.t
+  | SO_REUSEPORT : bool Eio.Net.Sockopt.t
+  | TCP_NODELAY : bool Eio.Net.Sockopt.t
+  | TCP_CORK : int Eio.Net.Sockopt.t
+  | TCP_KEEPCNT : int Eio.Net.Sockopt.t
+  | TCP_KEEPIDLE : int Eio.Net.Sockopt.t
+  | TCP_KEEPINTVL : int Eio.Net.Sockopt.t
+  | TCP_DEFER_ACCEPT : int Eio.Net.Sockopt.t
+
+  let set : type a . Fd.t -> a Eio.Net.Sockopt.t -> a -> unit = fun sock k v ->
+    Fd.use_exn "Sockopt.set" sock @@ fun fd ->
+    match k with
+    | TCP_CORK -> setsockopt_int fd EIO_TCP_CORK v
+    | TCP_KEEPCNT -> setsockopt_int fd EIO_TCP_KEEPCNT v
+    | TCP_KEEPIDLE -> setsockopt_int fd EIO_TCP_KEEPIDLE v
+    | TCP_KEEPINTVL -> setsockopt_int fd EIO_TCP_KEEPINTVL v
+    | TCP_DEFER_ACCEPT -> setsockopt_int fd EIO_TCP_DEFER_ACCEPT v
+    | TCP_NODELAY -> setsockopt_int fd EIO_TCP_DEFER_ACCEPT (if v then 1 else 0)
+    | SO_KEEPALIVE -> Unix.(setsockopt fd SO_KEEPALIVE v)
+    | SO_REUSEADDR -> Unix.(setsockopt fd SO_REUSEADDR v)
+    | SO_REUSEPORT -> Unix.(setsockopt fd SO_REUSEPORT v)
+    | _ -> raise (Invalid_argument "TODO pp value")
+
+  let get_descr : type a . Unix.file_descr -> a Eio.Net.Sockopt.t -> a = fun fd k ->
+    match k with
+    | TCP_CORK -> getsockopt_int fd EIO_TCP_CORK
+    | TCP_KEEPCNT -> getsockopt_int fd EIO_TCP_KEEPCNT
+    | TCP_KEEPIDLE -> getsockopt_int fd EIO_TCP_KEEPIDLE
+    | TCP_KEEPINTVL -> getsockopt_int fd EIO_TCP_KEEPINTVL
+    | TCP_DEFER_ACCEPT -> getsockopt_int fd EIO_TCP_DEFER_ACCEPT
+    | TCP_NODELAY -> getsockopt_int fd EIO_TCP_NODELAY = 1
+    | SO_KEEPALIVE -> Unix.(getsockopt fd SO_KEEPALIVE)
+    | SO_REUSEADDR -> Unix.(getsockopt fd SO_REUSEADDR)
+    | SO_REUSEPORT -> Unix.(getsockopt fd SO_REUSEPORT)
+    | _ -> raise (Invalid_argument "TODO pp value")
+
+  let get : type a . Fd.t -> a Eio.Net.Sockopt.t -> a = fun sock k ->
+    Fd.use_exn "Sockopt.get" sock (fun fd -> get_descr fd k)
+end
+
 [@@@alert "-unstable"]
 
 type _ Effect.t +=

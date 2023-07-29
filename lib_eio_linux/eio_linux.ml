@@ -118,6 +118,14 @@ let datagram_socket sock = object
   method recv buf =
     let addr, recv = Low_level.recv_msg sock [buf] in
     Eio_unix.Net.sockaddr_of_unix_datagram (Uring.Sockaddr.get addr), recv
+
+  method setsockopt opt v =
+    (* No uring support for sockopt yet, but will be in the future.
+       https://github.com/axboe/liburing/issues/234#issuecomment-1080605124 *)
+    Eio_unix.Net.Sockopt.set sock opt v
+
+  method getsockopt opt =
+    Eio_unix.Net.Sockopt.get sock opt
 end
 
 let flow fd =
@@ -166,6 +174,12 @@ let flow fd =
       | `Receive -> Unix.SHUTDOWN_RECEIVE
       | `Send -> Unix.SHUTDOWN_SEND
       | `All -> Unix.SHUTDOWN_ALL
+
+    method setsockopt : 'a . 'a Eio.Net.Sockopt.t -> 'a -> unit = fun opt v ->
+      Eio_unix.Net.Sockopt.set fd opt v
+
+    method getsockopt : 'a . 'a Eio.Net.Sockopt.t -> 'a = fun opt ->
+      Eio_unix.Net.Sockopt.get fd opt
   end
 
 let source fd = (flow fd :> source)
@@ -189,6 +203,9 @@ let listening_socket fd = object
   method! probe : type a. a Eio.Generic.ty -> a option = function
     | Eio_unix.Resource.FD -> Some fd
     | _ -> None
+
+  method setsockopt opt v = Eio_unix.Net.Sockopt.set fd opt v
+  method getsockopt opt = Eio_unix.Net.Sockopt.get fd opt
 end
 
 let socket_domain_of = function

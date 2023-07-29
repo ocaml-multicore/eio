@@ -12,6 +12,8 @@ type t = <
   on_copy_bytes : int Handler.t;
   set_copy_method : copy_method -> unit;
   attach_to_switch : Switch.t -> unit;
+  getsockopt : 'a . 'a Eio.Net.Sockopt.t -> 'a;
+  setsockopt : 'a . 'a Eio.Net.Sockopt.t -> 'a -> unit;
 >
 
 let pp_default f s =
@@ -33,6 +35,7 @@ let rec takev len = function
   | [] -> []
   | x :: _ when Cstruct.length x >= len -> [Cstruct.sub x 0 len]
   | x :: xs -> x :: takev (len - Cstruct.length x) xs
+
 
 let make ?(pp=pp_default) label =
   let on_read = Handler.make (`Raise End_of_file) in
@@ -108,6 +111,12 @@ let make ?(pp=pp_default) label =
         Queue.take on_close ()
       done;
       traceln "%s: closed" label
+
+    method getsockopt : 'a . 'a Eio.Net.Sockopt.t -> 'a = fun _ ->
+      failwith label
+
+    method setsockopt : 'a . 'a Eio.Net.Sockopt.t -> 'a -> unit = fun _ ->
+      failwith "TODO"
   end
 
 let on_read (t:t) = Handler.seq t#on_read
