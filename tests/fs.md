@@ -226,13 +226,35 @@ Recursively creating directories with `mkdirs`.
   let cwd = Eio.Stdenv.cwd env in
   let nested = cwd / "subdir1" / "subdir2" / "subdir3" in
   try_mkdirs nested;
+  assert_kind nested `Directory;
   let one_more = Path.(nested / "subdir4") in
   try_mkdirs one_more;
   try_mkdirs ~exists_ok:true one_more;
-  try_mkdirs (cwd / ".." / "outside");;
+  try_mkdirs one_more;
+  assert_kind one_more `Directory;
+  try_mkdirs (cwd / ".." / "outside");
 +mkdirs <cwd:subdir1/subdir2/subdir3> -> ok
-+Eio.Io Fs Already_exists _, creating directory <cwd:subdir1>
 +mkdirs <cwd:subdir1/subdir2/subdir3/subdir4> -> ok
++mkdirs <cwd:subdir1/subdir2/subdir3/subdir4> -> ok
++Eio.Io Fs Already_exists _, creating directory <cwd:subdir1/subdir2/subdir3/subdir4>
++Eio.Io Fs Permission_denied _, opening <cwd:..>, whilst creating directory <cwd:../outside>
+- : unit = ()
+```
+
+Some edge cases for `mkdirs`.
+
+```ocaml
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_mkdirs (cwd / ".");
+  try_mkdirs (cwd / "././");
+  let lots_of_slashes = "./test//////////////test" in
+  try_mkdirs (cwd / lots_of_slashes);
+  assert_kind (cwd / lots_of_slashes) `Directory;
+  try_mkdirs (cwd / "..");;
++Eio.Io Fs Already_exists _, creating directory <cwd:.>
++Eio.Io Fs Already_exists _, creating directory <cwd:././>
++mkdirs <cwd:./test//////////////test> -> ok
 +Eio.Io Fs Permission_denied _, creating directory <cwd:..>
 - : unit = ()
 ```
