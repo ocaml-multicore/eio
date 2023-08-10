@@ -93,7 +93,7 @@ module Impl = struct
   let close = Eio_unix.Fd.close
 end
 
-let handler = Eio_unix.Resource.flow_handler (module Impl)
+let handler = Eio_unix.Pi.flow_handler (module Impl)
 
 let of_fd fd =
   let r = Eio.Resource.T (fd, handler) in

@@ -1,8 +1,8 @@
 open Eio.Std
 
-type stream_socket_ty   = [`Unix_fd | [`Generic | `Unix] Eio.Net.stream_socket_ty]
-type datagram_socket_ty = [`Unix_fd | [`Generic | `Unix] Eio.Net.datagram_socket_ty]
-type listening_socket_ty = [`Unix_fd | [`Generic | `Unix] Eio.Net.listening_socket_ty]
+type stream_socket_ty   = [`Generic | `Unix] Eio.Net.stream_socket_ty
+type datagram_socket_ty = [`Generic | `Unix] Eio.Net.datagram_socket_ty
+type listening_socket_ty = [`Generic | `Unix] Eio.Net.listening_socket_ty
 type 'a stream_socket = ([> stream_socket_ty] as 'a) r
 type 'a datagram_socket = ([> datagram_socket_ty] as 'a) r
 type 'a listening_socket = ([> listening_socket_ty] as 'a) r
@@ -29,19 +29,6 @@ let sockaddr_of_unix_datagram = function
   | Unix.ADDR_INET (host, port) ->
     let host = Ipaddr.of_unix host in
     `Udp (host, port)
-
-module Pi = struct
-  module type STREAM_SOCKET = sig
-    type t
-
-    val send_msg : t -> fds:Fd.t list -> Cstruct.t list -> int
-
-    val recv_msg_with_fds : t -> sw:Switch.t -> max_fds:int -> Cstruct.t list -> int * Fd.t list
-  end
-
-  type (_, _, _) Eio.Resource.pi +=
-    | Stream_socket : ('t, (module STREAM_SOCKET with type t = 't), [> `Platform of [> `Unix] | `Socket | `Stream]) Eio.Resource.pi
-end
 
 let send_msg (Eio.Resource.T (t, ops)) ?(fds=[]) bufs =
   let module X = (val (Eio.Resource.get ops Pi.Stream_socket)) in
@@ -73,15 +60,15 @@ type t = [`Generic | `Unix] Eio.Net.ty r
 [@@@alert "-unstable"]
 
 type _ Effect.t +=
-  | Import_socket_stream : Switch.t * bool * Unix.file_descr -> stream_socket_ty r Effect.t
-  | Import_socket_datagram : Switch.t * bool * Unix.file_descr -> datagram_socket_ty r Effect.t
+  | Import_socket_stream : Switch.t * bool * Unix.file_descr -> [`Unix_fd | stream_socket_ty] r Effect.t
+  | Import_socket_datagram : Switch.t * bool * Unix.file_descr -> [`Unix_fd | datagram_socket_ty] r Effect.t
   | Socketpair_stream : Switch.t * Unix.socket_domain * int ->
-      (stream_socket_ty r * stream_socket_ty r) Effect.t
+      ([`Unix_fd | stream_socket_ty] r * [`Unix_fd | stream_socket_ty] r) Effect.t
   | Socketpair_datagram : Switch.t * Unix.socket_domain * int ->
-      (datagram_socket_ty r * datagram_socket_ty r) Effect.t
+      ([`Unix_fd | datagram_socket_ty] r * [`Unix_fd | datagram_socket_ty] r) Effect.t
 
-let open_stream s = (s : _ stream_socket :> [< stream_socket_ty] r)
-let open_datagram s = (s : _ datagram_socket :> [< datagram_socket_ty] r)
+let open_stream s = (s : _ stream_socket :> [< `Unix_fd | stream_socket_ty] r)
+let open_datagram s = (s : _ datagram_socket :> [< `Unix_fd | datagram_socket_ty] r)
 
 let import_socket_stream ~sw ~close_unix fd =
   open_stream @@ Effect.perform (Import_socket_stream (sw, close_unix, fd))
@@ -95,3 +82,6 @@ let socketpair_stream ~sw ?(domain=Unix.PF_UNIX) ?(protocol=0) () =
 
 let socketpair_datagram ~sw ?(domain=Unix.PF_UNIX) ?(protocol=0) () =
   Effect.perform (Socketpair_datagram (sw, domain, protocol))
+
+let fd socket =
+  Option.get (Resource.fd_opt socket)
