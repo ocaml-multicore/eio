@@ -12,46 +12,72 @@ let socket_domain_of = function
       ~v4:(fun _ -> Unix.PF_INET)
       ~v6:(fun _ -> Unix.PF_INET6)
 
-let listening_socket ~hook fd = object
-  inherit Eio.Net.listening_socket
+module Listening_socket = struct
+  type t = {
+    hook : Switch.hook;
+    fd : Fd.t;
+  }
 
-  method close =
-    Switch.remove_hook hook;
-    Fd.close fd
+  type tag = [`Generic | `Unix]
 
-  method accept ~sw =
-    let client, client_addr = Err.run (Low_level.accept ~sw) fd in
+  let make ~hook fd = { hook; fd }
+
+  let fd t = t.fd
+
+  let close t =
+    Switch.remove_hook t.hook;
+    Fd.close t.fd
+
+  let accept t ~sw =
+    let client, client_addr = Err.run (Low_level.accept ~sw) t.fd in
     let client_addr = match client_addr with
       | Unix.ADDR_UNIX path         -> `Unix path
       | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Net.Ipaddr.of_unix host, port)
     in
-    let flow = (Flow.of_fd client :> Eio.Net.stream_socket) in
+    let flow = (Flow.of_fd client :> _ Eio.Net.stream_socket) in
     flow, client_addr
-
-  method! probe : type a. a Eio.Generic.ty -> a option = function
-    | Eio_unix.Resource.FD -> Some fd
-    | _ -> None
 end
 
-(* todo: would be nice to avoid copying between bytes and cstructs here *)
-let datagram_socket sock = object
-  inherit Eio_unix.Net.datagram_socket
+let listening_handler = Eio_unix.Resource.listening_socket_handler (module Listening_socket)
 
-  method close = Fd.close sock
+let listening_socket ~hook fd =
+  Eio.Resource.T (Listening_socket.make ~hook fd, listening_handler)
 
-  method fd = sock
+module Datagram_socket = struct
+  type tag = [`Generic | `Unix]
 
-  method send ?dst buf =
+  type t = Eio_unix.Fd.t
+
+  let close = Fd.close
+
+  let fd t = t
+
+  let send t ?dst buf =
     let dst = Option.map Eio_unix.Net.sockaddr_to_unix dst in
-    let sent = Err.run (Low_level.send_msg sock ?dst) (Bytes.unsafe_of_string (Cstruct.copyv buf)) in
+    let sent = Err.run (Low_level.send_msg t ?dst) (Bytes.unsafe_of_string (Cstruct.copyv buf)) in
     assert (sent = Cstruct.lenv buf)
 
-  method recv buf =
+  let recv t buf =
     let b = Bytes.create (Cstruct.length buf) in
-    let recv, addr = Err.run (Low_level.recv_msg sock) b in
+    let recv, addr = Err.run (Low_level.recv_msg t) b in
     Cstruct.blit_from_bytes b 0 buf 0 recv;
     Eio_unix.Net.sockaddr_of_unix_datagram addr, recv
+
+  let shutdown t cmd =
+    try
+      Low_level.shutdown t @@ match cmd with
+      | `Receive -> Unix.SHUTDOWN_RECEIVE
+      | `Send -> Unix.SHUTDOWN_SEND
+      | `All -> Unix.SHUTDOWN_ALL
+    with
+    | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
+    | Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 end
+
+let datagram_handler = Eio_unix.Resource.datagram_handler (module Datagram_socket)
+
+let datagram_socket fd =
+  Eio.Resource.T (fd, datagram_handler)
 
 (* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
 let getaddrinfo ~service node =
@@ -110,7 +136,7 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
       Unix.bind fd addr;
       Unix.listen fd backlog
     );
-  listening_socket ~hook sock
+  (listening_socket ~hook sock :> _ Eio.Net.listening_socket_ty r)
 
 let connect ~sw connect_addr =
   let socket_type, addr =
@@ -123,7 +149,7 @@ let connect ~sw connect_addr =
   let sock = Low_level.socket ~sw (socket_domain_of connect_addr) socket_type 0 in
   try
     Low_level.connect sock addr;
-    (Flow.of_fd sock :> Eio.Net.stream_socket)
+    (Flow.of_fd sock :> _ Eio_unix.Net.stream_socket)
   with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 
 let create_datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
@@ -140,13 +166,26 @@ let create_datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
         )
     | `UdpV4 | `UdpV6 -> ()
   end;
-  (datagram_socket sock :> Eio.Net.datagram_socket)
+  datagram_socket sock
 
-let v = object
-  inherit Eio_unix.Net.t
+module Impl = struct
+  type t = unit
+  type tag = [`Generic | `Unix]
 
-  method listen = listen
-  method connect = connect
-  method datagram_socket = create_datagram_socket
-  method getaddrinfo = getaddrinfo
+  let listen () = listen
+
+  let connect () ~sw addr =
+    let socket = connect ~sw addr in
+    (socket :> [`Generic | `Unix] Eio.Net.stream_socket_ty r)
+
+  let datagram_socket () ~reuse_addr ~reuse_port ~sw saddr =
+    let socket = create_datagram_socket ~reuse_addr ~reuse_port ~sw saddr in
+    (socket :> [`Generic | `Unix] Eio.Net.datagram_socket_ty r)
+
+  let getaddrinfo () = getaddrinfo
+  let getnameinfo () = Eio_unix.Net.getnameinfo
 end
+
+let v : Impl.tag Eio.Net.ty r =
+  let handler = Eio.Net.Pi.network (module Impl) in
+  Eio.Resource.T ((), handler)

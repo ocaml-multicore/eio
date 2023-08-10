@@ -4,24 +4,37 @@
 
     To read structured data (e.g. a line at a time), wrap a source using {!Buf_read}. *)
 
-(** {2 Reading} *)
+open Std
 
-type read_method = ..
+(** {2 Types} *)
+
+type source_ty = [`R | `Flow]
+type 'a source = ([> source_ty] as 'a) r
+(** A readable flow provides a stream of bytes. *)
+
+type sink_ty = [`W | `Flow]
+type 'a sink = ([> sink_ty] as 'a) r
+(** A writeable flow accepts a stream of bytes. *)
+
+type shutdown_ty = [`Shutdown]
+type 'a shutdown = ([> shutdown_ty] as 'a) r
+
+type 'a read_method = ..
 (** Sources can offer a list of ways to read them, in order of preference. *)
 
-class virtual source : object
-  inherit Generic.t
-  method read_methods : read_method list
-  method virtual read_into : Cstruct.t -> int
-end
+type shutdown_command = [
+  | `Receive  (** Indicate that no more reads will be done *)
+  | `Send     (** Indicate that no more writes will be done *)
+  | `All      (** Indicate that no more reads or writes will be done *)
+]
 
-val single_read : #source -> Cstruct.t -> int
+(** {2 Reading} *)
+
+val single_read : _ source -> Cstruct.t -> int
 (** [single_read src buf] reads one or more bytes into [buf].
 
     It returns the number of bytes read (which may be less than the
     buffer size even if there is more data to be read).
-    [single_read src] just makes a single call to [src#read_into]
-    (and asserts that the result is in range).
 
     - Use {!read_exact} instead if you want to fill [buf] completely.
     - Use {!Buf_read.line} to read complete lines.
@@ -31,24 +44,18 @@ val single_read : #source -> Cstruct.t -> int
 
     @raise End_of_file if there is no more data to read *)
 
-val read_exact : #source -> Cstruct.t -> unit
+val read_exact : _ source -> Cstruct.t -> unit
 (** [read_exact src dst] keeps reading into [dst] until it is full.
     @raise End_of_file if the buffer could not be filled. *)
 
-val read_methods : #source -> read_method list
-(** [read_methods flow] is a list of extra ways of reading from [flow],
-    with the preferred (most efficient) methods first.
-
-    If no method is suitable, {!read} should be used as the fallback. *)
-
-val string_source : string -> source
+val string_source : string -> source_ty r
 (** [string_source s] is a source that gives the bytes of [s]. *)
 
-val cstruct_source : Cstruct.t list -> source
+val cstruct_source : Cstruct.t list -> source_ty r
 (** [cstruct_source cs] is a source that gives the bytes of [cs]. *)
 
-type read_method += Read_source_buffer of ((Cstruct.t list -> int) -> unit)
-(** If a source offers [Read_source_buffer rsb] then the user can call [rsb fn]
+type 't read_method += Read_source_buffer of ('t -> (Cstruct.t list -> int) -> unit)
+(** If a source offers [Read_source_buffer rsb] then the user can call [rsb t fn]
     to borrow a view of the source's buffers. [fn] returns the number of bytes it consumed.
 
     [rsb] will raise [End_of_file] if no more data will be produced.
@@ -58,16 +65,7 @@ type read_method += Read_source_buffer of ((Cstruct.t list -> int) -> unit)
 
 (** {2 Writing} *)
 
-(** Consumer base class. *)
-class virtual sink : object
-  inherit Generic.t
-  method virtual copy : 'a. (#source as 'a) -> unit
-
-  method write : Cstruct.t list -> unit
-  (** The default implementation is [copy (cstruct_source ...)], but it can be overridden for speed. *)
-end
-
-val write : #sink -> Cstruct.t list -> unit
+val write : _ sink -> Cstruct.t list -> unit
 (** [write dst bufs] writes all bytes from [bufs].
 
     You should not perform multiple concurrent writes on the same flow
@@ -78,33 +76,23 @@ val write : #sink -> Cstruct.t list -> unit
     - {!Buf_write} to combine multiple small writes.
     - {!copy} for bulk transfers, as it allows some extra optimizations. *)
 
-val copy : #source -> #sink -> unit
+val copy : _ source -> _ sink -> unit
 (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
 
-val copy_string : string -> #sink -> unit
+val copy_string : string -> _ sink -> unit
 (** [copy_string s = copy (string_source s)] *)
 
-val buffer_sink : Buffer.t -> sink
+val buffer_sink : Buffer.t -> sink_ty r
 (** [buffer_sink b] is a sink that adds anything sent to it to [b].
 
     To collect data as a cstruct, use {!Buf_read} instead. *)
 
 (** {2 Bidirectional streams} *)
 
-type shutdown_command = [
-  | `Receive  (** Indicate that no more reads will be done *)
-  | `Send     (** Indicate that no more writes will be done *)
-  | `All      (** Indicate that no more reads or writes will be done *)
-]
+type two_way_ty = [source_ty | sink_ty | shutdown_ty]
+type 'a two_way = ([> two_way_ty] as 'a) r
 
-class virtual two_way : object
-  inherit source
-  inherit sink
-
-  method virtual shutdown : shutdown_command -> unit
-end
-
-val shutdown : #two_way -> shutdown_command -> unit
+val shutdown : _ two_way -> shutdown_command -> unit
 (** [shutdown t cmd] indicates that the caller has finished reading or writing [t]
     (depending on [cmd]).
 
@@ -116,7 +104,44 @@ val shutdown : #two_way -> shutdown_command -> unit
     Flows are usually attached to switches and closed automatically when the switch
     finishes. However, it can be useful to close them sooner manually in some cases. *)
 
-class type close = Generic.close
+val close : [> `Close] r -> unit
+(** Alias of {!Resource.close}. *)
 
-val close : #close -> unit
-(** Alias of {!Generic.close}. *)
+(** {2 Provider Interface} *)
+
+module Pi : sig
+  module type SOURCE = sig
+    type t
+    val read_methods : t read_method list
+    val single_read : t -> Cstruct.t -> int
+  end
+
+  module type SINK = sig
+    type t
+    val copy : t -> src:_ source -> unit
+    val write : t -> Cstruct.t list -> unit
+  end
+
+  module type SHUTDOWN = sig
+    type t
+    val shutdown : t -> shutdown_command -> unit
+  end
+
+  val source : (module SOURCE with type t = 't) -> ('t, source_ty) Resource.handler
+  val sink : (module SINK with type t = 't) -> ('t, sink_ty) Resource.handler
+  val shutdown : (module SHUTDOWN with type t = 't) -> ('t, shutdown_ty) Resource.handler
+
+  module type TWO_WAY = sig
+    include SHUTDOWN
+    include SOURCE with type t := t
+    include SINK with type t := t
+  end
+
+  val two_way : (module TWO_WAY with type t = 't) -> ('t, two_way_ty) Resource.handler
+
+  type (_, _, _) Resource.pi +=
+    | Source : ('t, (module SOURCE with type t = 't), [> source_ty]) Resource.pi
+    | Sink : ('t, (module SINK with type t = 't), [> sink_ty]) Resource.pi
+    | Shutdown : ('t, (module SHUTDOWN with type t = 't), [> shutdown_ty]) Resource.pi
+end
+

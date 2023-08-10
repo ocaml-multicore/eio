@@ -216,9 +216,10 @@ the whole batch to be flushed.
 Check flush waits for the write to succeed:
 
 ```ocaml
-let slow_writer = object
-  inherit Eio.Flow.sink
-  method copy src =
+module Slow_writer = struct
+  type t = unit
+
+  let copy t ~src =
     let buf = Cstruct.create 10 in
     try
       while true do
@@ -227,7 +228,12 @@ let slow_writer = object
         traceln "Write %S" (Cstruct.to_string buf ~len)
       done
     with End_of_file -> ()
+
+  let write t bufs = copy t ~src:(Eio.Flow.cstruct_source bufs)
 end
+let slow_writer =
+  let ops = Eio.Flow.Pi.sink (module Slow_writer) in
+  Eio.Resource.T ((), ops)
 ```
 
 ```ocaml

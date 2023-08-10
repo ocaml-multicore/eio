@@ -19,9 +19,9 @@ module Low_level = Low_level
 type stdenv = Eio_unix.Stdenv.base
 
 let run main =
-  let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> Eio_unix.source) in
-  let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> Eio_unix.sink) in
-  let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> Eio_unix.sink) in
+  let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> _ Eio_unix.source) in
+  let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> _ Eio_unix.sink) in
+  let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> _ Eio_unix.sink) in
   Domain_mgr.run_event_loop main @@ object (_ : stdenv)
     method stdin = stdin
     method stdout = stdout
@@ -31,8 +31,8 @@ let run main =
     method mono_clock = Time.mono_clock
     method net = Net.v
     method domain_mgr = Domain_mgr.v
-    method cwd = ((Fs.cwd, "") :> Eio.Fs.dir Eio.Path.t)
-    method fs = ((Fs.fs, "") :> Eio.Fs.dir Eio.Path.t)
+    method cwd = ((Fs.cwd, "") :> Eio.Fs.dir_ty Eio.Path.t)
+    method fs = ((Fs.fs, "") :> Eio.Fs.dir_ty Eio.Path.t)
     method process_mgr = failwith "process operations not supported on Windows yet"
     method secure_random = Flow.secure_random
     method backend_id = "windows"

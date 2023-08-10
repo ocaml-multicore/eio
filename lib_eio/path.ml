@@ -1,4 +1,4 @@
-type 'a t = (#Fs.dir as 'a) * Fs.path
+type 'a t = 'a Fs.dir * Fs.path
 
 let ( / ) (dir, p1) p2 =
   match p1, p2 with
@@ -7,39 +7,50 @@ let ( / ) (dir, p1) p2 =
   | ".", p2 -> (dir, p2)
   | p1, p2 -> (dir, Filename.concat p1 p2)
 
-let pp f ((t:#Fs.dir), p) =
-  if p = "" then Fmt.pf f "<%t>" t#pp
-  else Fmt.pf f "<%t:%s>" t#pp (String.escaped p)
+let pp f (Resource.T (t, ops), p) =
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  if p = "" then Fmt.pf f "<%a>" X.pp t
+  else Fmt.pf f "<%a:%s>" X.pp t (String.escaped p)
 
-let open_in ~sw ((t:#Fs.dir), path) =
-  try t#open_in ~sw path
+let open_in ~sw t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.open_in dir ~sw path
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "opening %a" pp (t, path)
+    Exn.reraise_with_context ex bt "opening %a" pp t
 
-let open_out ~sw ?(append=false) ~create ((t:#Fs.dir), path) =
-  try t#open_out ~sw ~append ~create path
+let open_out ~sw ?(append=false) ~create t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.open_out dir ~sw ~append ~create path
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "opening %a" pp (t, path)
+    Exn.reraise_with_context ex bt "opening %a" pp t
 
-let open_dir ~sw ((t:#Fs.dir), path) =
-  try (t#open_dir ~sw path, "")
+let open_dir ~sw t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.open_dir dir ~sw path, ""
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "opening directory %a" pp (t, path)
+    Exn.reraise_with_context ex bt "opening directory %a" pp t
 
-let mkdir ~perm ((t:#Fs.dir), path) =
-  try t#mkdir ~perm path
+let mkdir ~perm t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.mkdir dir ~perm path
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "creating directory %a" pp (t, path)
+    Exn.reraise_with_context ex bt "creating directory %a" pp t
 
-let read_dir ((t:#Fs.dir), path) =
-  try List.sort String.compare (t#read_dir path)
+let read_dir t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try List.sort String.compare (X.read_dir dir path)
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "reading directory %a" pp (t, path)
+    Exn.reraise_with_context ex bt "reading directory %a" pp t
 
 let with_open_in path fn =
   Switch.run @@ fun sw -> fn (open_in ~sw path)
@@ -77,20 +88,27 @@ let save ?append ~create path data =
   with_open_out ?append ~create path @@ fun flow ->
   Flow.copy_string data flow
 
-let unlink ((t:#Fs.dir), path) =
-  try t#unlink path
+let unlink t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.unlink dir path
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "removing file %a" pp (t, path)
+    Exn.reraise_with_context ex bt "removing file %a" pp t
 
-let rmdir ((t:#Fs.dir), path) =
-  try t#rmdir path
+let rmdir t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.rmdir dir path
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "removing directory %a" pp (t, path)
+    Exn.reraise_with_context ex bt "removing directory %a" pp t
 
-let rename ((t1:#Fs.dir), old_path) (t2, new_path) =
-  try t1#rename old_path (t2 :> Fs.dir) new_path
+let rename t1 t2 =
+  let (dir2, new_path) = t2 in
+  let (Resource.T (dir, ops), old_path) = t1 in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.rename dir old_path (dir2 :> _ Fs.dir) new_path
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "renaming %a to %a" pp (t1, old_path) pp (t2, new_path)
+    Exn.reraise_with_context ex bt "renaming %a to %a" pp t1 pp t2

@@ -1,13 +1,10 @@
-(** Tranditional Unix permissions. *)
+open Std
+
 module Unix_perm = struct
   type t = int
-  (** This is the same as {!Unix.file_perm}, but avoids a dependency on [Unix]. *)
 end
 
-(** Portable file stats. *)
 module Stat = struct
-
-  (** Kind of file from st_mode. **)
   type kind = [
     | `Unknown
     | `Fifo
@@ -19,7 +16,6 @@ module Stat = struct
     | `Socket
   ]
 
-  (** Like stat(2). *)
   type t = {
     dev : Int64.t;
     ino : Int64.t;
@@ -36,62 +32,85 @@ module Stat = struct
   }
 end
 
-(** A file opened for reading. *)
-class virtual ro = object (_ : <Generic.t; Flow.source; ..>)
-  method probe _ = None
-  method read_methods = []
-  method virtual pread : file_offset:Optint.Int63.t -> Cstruct.t list -> int
-  method virtual stat : Stat.t
+type ro_ty = [`File | Flow.source_ty | Resource.close_ty]
+
+type 'a ro = ([> ro_ty] as 'a) r
+
+type rw_ty = [ro_ty | Flow.sink_ty]
+
+type 'a rw = ([> rw_ty] as 'a) r
+
+module Pi = struct
+  module type READ = sig
+    include Flow.Pi.SOURCE
+
+    val pread : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
+    val stat : t -> Stat.t
+    val close : t -> unit
+  end
+
+  module type WRITE = sig
+    include Flow.Pi.SINK
+    include READ with type t := t
+
+    val pwrite : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
+  end
+
+  type (_, _, _) Resource.pi +=
+    | Read : ('t, (module READ with type t = 't), [> ro_ty]) Resource.pi
+    | Write : ('t, (module WRITE with type t = 't), [> rw_ty]) Resource.pi
+
+  let ro (type t) (module X : READ with type t = t) =
+    Resource.handler [
+      H (Flow.Pi.Source, (module X));
+      H (Read, (module X));
+      H (Resource.Close, X.close);
+    ]
+
+  let rw (type t) (module X : WRITE with type t = t) =
+    Resource.handler (
+      H (Flow.Pi.Sink, (module X)) ::
+      H (Write, (module X)) ::
+      Resource.bindings (ro (module X))
+    )
 end
 
-(** A file opened for reading and writing. *)
-class virtual rw = object (_ : <Generic.t; Flow.source; Flow.sink; ..>)
-  inherit ro
-  method virtual pwrite : file_offset:Optint.Int63.t -> Cstruct.t list -> int
-end
+let stat (Resource.T (t, ops)) =
+  let module X = (val (Resource.get ops Pi.Read)) in
+  X.stat t
 
-(** [stat t] returns the {!Stat.t} record associated with [t]. *)
-let stat (t : #ro) = t#stat
-
-(** [size t] returns the size of [t]. *)
 let size t = (stat t).size
 
-(** [pread t ~file_offset bufs] performs a single read of [t] at [file_offset] into [bufs].
-
-    It returns the number of bytes read, which may be less than the space in [bufs],
-    even if more bytes are available. Use {!pread_exact} instead if you require
-    the buffer to be filled.
-
-    To read at the current offset, use {!Flow.single_read} instead. *)
-let pread (t : #ro) ~file_offset bufs =
-  let got = t#pread ~file_offset bufs in
+let pread (Resource.T (t, ops)) ~file_offset bufs =
+  let module X = (val (Resource.get ops Pi.Read)) in
+  let got = X.pread t ~file_offset bufs in
   assert (got > 0 && got <= Cstruct.lenv bufs);
   got
 
-(** [pread_exact t ~file_offset bufs] reads from [t] into [bufs] until [bufs] is full.
+let pread_exact (Resource.T (t, ops)) ~file_offset bufs =
+  let module X = (val (Resource.get ops Pi.Read)) in
+  let rec aux ~file_offset bufs =
+    if Cstruct.lenv bufs > 0 then (
+      let got = X.pread t ~file_offset bufs in
+      let file_offset = Optint.Int63.add file_offset (Optint.Int63.of_int got) in
+      aux ~file_offset (Cstruct.shiftv bufs got)
+    )
+  in
+  aux ~file_offset bufs
 
-    @raise End_of_file if the buffer could not be filled. *)
-let rec pread_exact (t : #ro) ~file_offset bufs =
-  if Cstruct.lenv bufs > 0 then (
-    let got = t#pread ~file_offset bufs in
-    let file_offset = Optint.Int63.add file_offset (Optint.Int63.of_int got) in
-    pread_exact t ~file_offset (Cstruct.shiftv bufs got)
-  )
-
-(** [pwrite_single t ~file_offset bufs] performs a single write operation, writing
-    data from [bufs] to location [file_offset] in [t].
-
-    It returns the number of bytes written, which may be less than the length of [bufs].
-    In most cases, you will want to use {!pwrite_all} instead. *)
-let pwrite_single (t : #rw) ~file_offset bufs =
-  let got = t#pwrite ~file_offset bufs in
+let pwrite_single (Resource.T (t, ops)) ~file_offset bufs =
+  let module X = (val (Resource.get ops Pi.Write)) in
+  let got = X.pwrite t ~file_offset bufs in
   assert (got > 0 && got <= Cstruct.lenv bufs);
   got
 
-(** [pwrite_all t ~file_offset bufs] writes all the data in [bufs] to location [file_offset] in [t]. *)
-let rec pwrite_all (t : #rw) ~file_offset bufs =
-  if Cstruct.lenv bufs > 0 then (
-    let got = t#pwrite ~file_offset bufs in
-    let file_offset = Optint.Int63.add file_offset (Optint.Int63.of_int got) in
-    pwrite_all t ~file_offset (Cstruct.shiftv bufs got)
-  )
+let pwrite_all (Resource.T (t, ops)) ~file_offset bufs =
+  let module X = (val (Resource.get ops Pi.Write)) in
+  let rec aux ~file_offset bufs =
+    if Cstruct.lenv bufs > 0 then (
+      let got = X.pwrite t ~file_offset bufs in
+      let file_offset = Optint.Int63.add file_offset (Optint.Int63.of_int got) in
+      aux ~file_offset (Cstruct.shiftv bufs got)
+    )
+  in
+  aux ~file_offset bufs

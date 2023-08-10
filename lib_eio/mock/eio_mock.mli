@@ -34,6 +34,8 @@
     ]}
 *)
 
+open Eio.Std
+
 (** {2 Configuration} *)
 
 (** Actions that can be performed by mock handlers. *)
@@ -89,14 +91,8 @@ module Flow : sig
     | `Read_source_buffer       (** Use the {!Eio.Flow.Read_source_buffer} optimisation. *)
   ]
 
-  type t = <
-    Eio.Flow.two_way;
-    Eio.Flow.close;
-    on_read : string Handler.t;
-    on_copy_bytes : int Handler.t;
-    set_copy_method : copy_method -> unit;
-    attach_to_switch : Eio.Switch.t -> unit;
-  >
+  type ty = [`Generic | `Mock] Eio.Net.stream_socket_ty
+  type t = ty r
 
   val make : ?pp:string Fmt.t -> string -> t
   (** [make label] is a mock Eio flow.
@@ -116,30 +112,20 @@ end
 
 (** Mock {!Eio.Net} networks and sockets. *)
 module Net : sig
-  type t = <
-    Eio.Net.t;
-    on_listen : Eio.Net.listening_socket Handler.t;
-    on_connect : Eio.Net.stream_socket Handler.t;
-    on_datagram_socket : Eio.Net.datagram_socket Handler.t;
-    on_getaddrinfo : Eio.Net.Sockaddr.t list Handler.t;
-    on_getnameinfo : (string * string) Handler.t;
-  >
+  type t = [`Generic | `Mock] Eio.Net.ty r
 
-  type listening_socket = <
-    Eio.Net.listening_socket;
-    on_accept : (Flow.t * Eio.Net.Sockaddr.stream) Handler.t;
-  >
+  type listening_socket = [`Generic | `Mock] Eio.Net.listening_socket_ty r
 
   val make : string -> t
   (** [make label] is a new mock network. *)
 
-  val on_connect : t -> <Eio.Net.stream_socket; ..> Handler.actions -> unit
+  val on_connect : t -> _ Eio.Net.stream_socket Handler.actions -> unit
   (** [on_connect t actions] configures what to do when a client tries to connect somewhere. *)
 
-  val on_listen : t -> #Eio.Net.listening_socket Handler.actions -> unit
+  val on_listen : t -> _ Eio.Net.listening_socket Handler.actions -> unit
   (** [on_listen t actions] configures what to do when a server starts listening for incoming connections. *)
 
-  val on_datagram_socket : t -> <Eio.Net.datagram_socket; ..> Handler.actions -> unit
+  val on_datagram_socket : t -> _ Eio.Net.datagram_socket Handler.actions -> unit
   (** [on_datagram_socket t actions] configures how to create datagram sockets. *)
 
   val on_getaddrinfo : t -> Eio.Net.Sockaddr.t list Handler.actions -> unit

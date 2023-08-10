@@ -1524,19 +1524,26 @@ See Eio's own tests for examples, e.g., [tests/switch.md](tests/switch.md).
 ## Provider Interfaces
 
 Eio applications use resources by calling functions (such as `Eio.Flow.write`).
-These functions are actually wrappers that call methods on the resources.
+These functions are actually wrappers that look up the implementing module and call
+the appropriate function on that.
 This allows you to define your own resources.
 
 Here's a flow that produces an endless stream of zeros (like "/dev/zero"):
 
 ```ocaml
-let zero = object
-  inherit Eio.Flow.source
+module Zero = struct
+  type t = unit
 
-  method read_into buf =
+  let single_read () buf = 
     Cstruct.memset buf 0;
     Cstruct.length buf
+
+  let read_methods = []         (* Optional optimisations *)
 end
+
+let ops = Eio.Flow.Pi.source (module Zero)
+
+let zero = Eio.Resource.T ((), ops)
 ```
 
 It can then be used like any other Eio flow:
@@ -1548,34 +1555,6 @@ It can then be used like any other Eio flow:
 +Got: "\000\000\000\000"
 - : unit = ()
 ```
-
-The `Flow.source` interface has some extra methods that can be used for optimisations
-(for example, instead of filling a buffer with zeros it could be more efficient to share
-a pre-allocated block of zeros).
-Using `inherit` provides default implementations of these methods that say no optimisations are available.
-It also protects you somewhat from API changes in future, as defaults can be provided for any new methods that get added.
-
-Although it is possible to *use* an object by calling its methods directly,
-it is recommended that you use the functions instead.
-The functions provide type information to the compiler, leading to clearer error messages,
-and may provide extra features or sanity checks.
-
-For example `Eio.Flow.single_read` is defined as:
-
-```ocaml
-let single_read (t : #Eio.Flow.source) buf =
-  let got = t#read_into buf in
-  assert (got > 0 && got <= Cstruct.length buf);
-  got
-```
-
-As an exception to this rule, it is fine to use the methods of `env` directly
-(e.g. using `main env#stdin` instead of `main (Eio.Stdenv.stdin env)`.
-Here, the compiler already has the type from the `Eio_main.run` call immediately above it,
-and `env` is acting as a simple record.
-We avoid doing that in this guide only to avoid alarming OCaml users unfamiliar with object syntax.
-
-See [Dynamic Dispatch](doc/rationale.md#dynamic-dispatch) for more discussion about the use of objects here.
 
 ## Example Applications
 
@@ -1729,9 +1708,8 @@ Of course, you could use `with_open_in` in this case to simplify it further.
 
 ### Casting
 
-Unlike many languages, OCaml does not automatically cast objects (polymorphic records) to super-types as needed.
+Unlike many languages, OCaml does not automatically cast to super-types as needed.
 Remember to keep the type polymorphic in your interface so users don't need to do this manually.
-This is similar to the case with polymorphic variants (where APIs should use `[< ...]` or `[> ...]`).
 
 For example, if you need an `Eio.Flow.source` then users should be able to use a `Flow.two_way`
 without having to cast it first:
@@ -1741,13 +1719,13 @@ without having to cast it first:
 (* BAD - user must cast to use function: *)
 module Message : sig
   type t
-  val read : Eio.Flow.source -> t
+  val read : Eio.Flow.source_ty r -> t
 end
 
 (* GOOD - a Flow.two_way can be used without casting: *)
 module Message : sig
   type t
-  val read : #Eio.Flow.source -> t
+  val read : _ Eio.Flow.source -> t
 end
 ```
 
@@ -1756,19 +1734,17 @@ If you want to store the argument, this may require you to cast internally:
 ```ocaml
 module Foo : sig
   type t
-  val of_source : #Eio.Flow.source -> t
+  val of_source : _ Eio.Flow.source -> t
 end = struct
   type t = {
-    src : Eio.Flow.source;
+    src : Eio.Flow.source_ty r;
   }
 
   let of_source x = {
-    src = (x :> Eio.Flow.source);
+    src = (x :> Eio.Flow.source_ty r);
   }
 end
 ```
-
-Note: the `#type` syntax only works on types defined by classes, whereas the slightly more verbose `<type; ..>` works on all object types.
 
 ### Passing env
 

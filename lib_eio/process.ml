@@ -1,3 +1,5 @@
+open Std
+
 type exit_status = [
   | `Exited of int
   | `Signaled of int
@@ -49,14 +51,14 @@ let signal proc = proc#signal
 class virtual mgr = object
   method virtual pipe :
     sw:Switch.t ->
-    <Flow.source; Flow.close> * <Flow.sink; Flow.close>
+    [Flow.source_ty | Resource.close_ty] r * [Flow.sink_ty | Resource.close_ty] r
 
   method virtual spawn :
     sw:Switch.t ->
-    ?cwd:Fs.dir Path.t ->
-    ?stdin:Flow.source ->
-    ?stdout:Flow.sink ->
-    ?stderr:Flow.sink ->
+    ?cwd:Fs.dir_ty Path.t ->
+    ?stdin:Flow.source_ty r ->
+    ?stdout:Flow.sink_ty r ->
+    ?stderr:Flow.sink_ty r ->
     ?env:string array ->
     ?executable:string ->
     string list ->
@@ -77,12 +79,12 @@ let pp_args = Fmt.hbox (Fmt.list ~sep:Fmt.sp pp_arg)
 
 let spawn ~sw (t:#mgr) ?cwd ?stdin ?stdout ?stderr ?env ?executable args =
   t#spawn ~sw
-    ?cwd:(cwd :> Fs.dir Path.t option)
+    ?cwd:(cwd :> Fs.dir_ty Path.t option)
     ?env
     ?executable args
-    ?stdin:(stdin :> Flow.source option)
-    ?stdout:(stdout :> Flow.sink option)
-    ?stderr:(stderr :> Flow.sink option)
+    ?stdin:(stdin :> Flow.source_ty r option)
+    ?stdout:(stdout :> Flow.sink_ty r option)
+    ?stderr:(stderr :> Flow.sink_ty r option)
 
 let run (t:#mgr) ?cwd ?stdin ?stdout ?stderr ?(is_success = Int.equal 0) ?env ?executable args =
   Switch.run @@ fun sw ->

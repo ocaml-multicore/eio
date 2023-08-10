@@ -29,11 +29,14 @@ module Lf_queue = Eio_utils.Lf_queue
 
 module Low_level = Low_level
 
-type _ Eio.Generic.ty += Dir_fd : Low_level.dir_fd Eio.Generic.ty
-let get_dir_fd_opt t = Eio.Generic.probe t Dir_fd
+(* When renaming, we get a plain [Eio.Fs.dir]. We need extra access to check
+   that the new location is within its sandbox. *)
+type ('t, _, _) Eio.Resource.pi += Dir_fd : ('t, 't -> Low_level.dir_fd, [> `Dir_fd]) Eio.Resource.pi
 
-type source = Eio_unix.source
-type sink   = Eio_unix.sink
+let get_dir_fd_opt (Eio.Resource.T (t, ops)) =
+  match Eio.Resource.get_opt ops Dir_fd with
+  | Some f -> Some (f t)
+  | None -> None
 
 (* When copying between a source with an FD and a sink with an FD, we can share the chunk
    and avoid copying. *)
@@ -83,13 +86,13 @@ let copy_with_rsb rsb dst =
 (* Copy by allocating a chunk from the pre-shared buffer and asking
    the source to write into it. This used when the other methods
    aren't available. *)
-let fallback_copy src dst =
+let fallback_copy (type src) (module Src : Eio.Flow.Pi.SOURCE with type t = src) src dst =
   let fallback () =
     (* No chunks available. Use regular memory instead. *)
     let buf = Cstruct.create 4096 in
     try
       while true do
-        let got = Eio.Flow.single_read src buf in
+        let got = Src.single_read src buf in
         Low_level.writev dst [Cstruct.sub buf 0 got]
       done
     with End_of_file -> ()
@@ -98,98 +101,126 @@ let fallback_copy src dst =
   let chunk_cs = Uring.Region.to_cstruct chunk in
   try
     while true do
-      let got = Eio.Flow.single_read src chunk_cs in
+      let got = Src.single_read src chunk_cs in
       Low_level.write dst chunk got
     done
   with End_of_file -> ()
 
-let datagram_socket sock = object
-  inherit Eio.Net.datagram_socket
+module Datagram_socket = struct
+  type tag = [`Generic | `Unix]
 
-  method fd = sock
+  type t = Eio_unix.Fd.t
 
-  method close = Fd.close sock
+  let fd t = t
 
-  method send ?dst buf =
+  let close = Eio_unix.Fd.close
+
+  let send t ?dst buf =
     let dst = Option.map Eio_unix.Net.sockaddr_to_unix dst in
-    let sent = Low_level.send_msg sock ?dst buf in
+    let sent = Low_level.send_msg t ?dst buf in
     assert (sent = Cstruct.lenv buf)
 
-  method recv buf =
-    let addr, recv = Low_level.recv_msg sock [buf] in
+  let recv t buf =
+    let addr, recv = Low_level.recv_msg t [buf] in
     Eio_unix.Net.sockaddr_of_unix_datagram (Uring.Sockaddr.get addr), recv
+
+  let shutdown t cmd =
+    Low_level.shutdown t @@ match cmd with
+    | `Receive -> Unix.SHUTDOWN_RECEIVE
+    | `Send -> Unix.SHUTDOWN_SEND
+    | `All -> Unix.SHUTDOWN_ALL
 end
 
+let datagram_handler = Eio_unix.Resource.datagram_handler (module Datagram_socket)
+
+let datagram_socket fd =
+  Eio.Resource.T (fd, datagram_handler)
+
+module Flow = struct
+  type tag = [`Generic | `Unix]
+
+  type t = Eio_unix.Fd.t
+
+  let fd t = t
+
+  let close = Eio_unix.Fd.close
+
+  let is_tty t = Fd.use_exn "isatty" t Unix.isatty
+
+  let stat = Low_level.fstat
+
+  let single_read t buf =
+    if is_tty t then (
+      (* Work-around for https://github.com/axboe/liburing/issues/354
+         (should be fixed in Linux 5.14) *)
+      Low_level.await_readable t
+    );
+    Low_level.readv t [buf]
+
+  let pread t ~file_offset bufs =
+    Low_level.readv ~file_offset t bufs
+
+  let pwrite t ~file_offset bufs =
+    Low_level.writev_single ~file_offset t bufs
+
+  let read_methods = []
+
+  let write t bufs = Low_level.writev t bufs
+
+  let copy t ~src =
+    match Eio_unix.Resource.fd_opt src with
+    | Some src -> fast_copy_try_splice src t
+    | None ->
+      let Eio.Resource.T (src, ops) = src in
+      let module Src = (val (Eio.Resource.get ops Eio.Flow.Pi.Source)) in
+      let rec aux = function
+        | Eio.Flow.Read_source_buffer rsb :: _ -> copy_with_rsb (rsb src) t
+        | _ :: xs -> aux xs
+        | [] -> fallback_copy (module Src) src t
+      in
+      aux Src.read_methods
+
+  let shutdown t cmd =
+    Low_level.shutdown t @@ match cmd with
+    | `Receive -> Unix.SHUTDOWN_RECEIVE
+    | `Send -> Unix.SHUTDOWN_SEND
+    | `All -> Unix.SHUTDOWN_ALL
+end
+
+let flow_handler = Eio_unix.Resource.flow_handler (module Flow)
+
 let flow fd =
-  let is_tty = Fd.use_exn "isatty" fd Unix.isatty in
-  object (_ : <source; sink; ..>)
-    method fd = fd
-    method close = Fd.close fd
+  let r = Eio.Resource.T (fd, flow_handler) in
+  (r : [Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r :>
+     [< Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r)
 
-    method stat = Low_level.fstat fd
+let source fd = (flow fd :> _ Eio_unix.source)
+let sink   fd = (flow fd :> _ Eio_unix.sink)
 
-    method probe : type a. a Eio.Generic.ty -> a option = function
-      | Eio_unix.Resource.FD -> Some fd
-      | _ -> None
+module Listening_socket = struct
+  type t = Fd.t
 
-    method read_into buf =
-      if is_tty then (
-        (* Work-around for https://github.com/axboe/liburing/issues/354
-           (should be fixed in Linux 5.14) *)
-        Low_level.await_readable fd
-      );
-      Low_level.readv fd [buf]
+  type tag = [`Generic | `Unix]
 
-    method pread ~file_offset bufs =
-      Low_level.readv ~file_offset fd bufs
+  let fd t = t
 
-    method pwrite ~file_offset bufs =
-      Low_level.writev_single ~file_offset fd bufs
+  let close = Fd.close
 
-    method read_methods = []
-
-    method write bufs = Low_level.writev fd bufs
-
-    method copy src =
-      match Eio_unix.Resource.fd_opt src with
-      | Some src -> fast_copy_try_splice src fd
-      | None ->
-        let rec aux = function
-          | Eio.Flow.Read_source_buffer rsb :: _ -> copy_with_rsb rsb fd
-          | _ :: xs -> aux xs
-          | [] -> fallback_copy src fd
-        in
-        aux (Eio.Flow.read_methods src)
-
-    method shutdown cmd =
-      Low_level.shutdown fd @@ match cmd with
-      | `Receive -> Unix.SHUTDOWN_RECEIVE
-      | `Send -> Unix.SHUTDOWN_SEND
-      | `All -> Unix.SHUTDOWN_ALL
-  end
-
-let source fd = (flow fd :> source)
-let sink   fd = (flow fd :> sink)
-
-let listening_socket fd = object
-  inherit Eio.Net.listening_socket
-
-  method close = Fd.close fd
-
-  method accept ~sw =
+  let accept t ~sw =
     Switch.check sw;
-    let client, client_addr = Low_level.accept ~sw fd in
+    let client, client_addr = Low_level.accept ~sw t in
     let client_addr = match client_addr with
       | Unix.ADDR_UNIX path         -> `Unix path
       | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Net.Ipaddr.of_unix host, port)
     in
-    let flow = (flow client :> Eio.Net.stream_socket) in
+    let flow = (flow client :> _ Eio.Net.stream_socket) in
     flow, client_addr
-
-  method! probe : type a. a Eio.Generic.ty -> a option = function
-    | Eio_unix.Resource.FD -> Some fd
-    | _ -> None
 end
+
+let listening_handler = Eio_unix.Resource.listening_socket_handler (module Listening_socket)
+
+let listening_socket fd =
+  Eio.Resource.T (fd, listening_handler)
 
 let socket_domain_of = function
   | `Unix _ -> Unix.PF_UNIX
@@ -206,12 +237,13 @@ let connect ~sw connect_addr =
   let sock_unix = Unix.socket ~cloexec:true (socket_domain_of connect_addr) Unix.SOCK_STREAM 0 in
   let sock = Fd.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
   Low_level.connect sock addr;
-  (flow sock :> Eio.Net.stream_socket)
+  (flow sock :> _ Eio_unix.Net.stream_socket)
 
-let net = object
-  inherit Eio_unix.Net.t
+module Impl = struct
+  type t = unit
+  type tag = [`Unix | `Generic]
 
-  method listen ~reuse_addr ~reuse_port ~backlog ~sw listen_addr =
+  let listen () ~reuse_addr ~reuse_port ~backlog ~sw listen_addr =
     if reuse_addr then (
       match listen_addr with
       | `Tcp _ -> ()
@@ -238,11 +270,11 @@ let net = object
       Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
     Unix.bind sock_unix addr;
     Unix.listen sock_unix backlog;
-    listening_socket sock
+    (listening_socket sock :> _ Eio.Net.listening_socket_ty r)
 
-  method connect = connect
+  let connect () ~sw addr = (connect ~sw addr :> [`Generic | `Unix] Eio.Net.stream_socket_ty r)
 
-  method datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
+  let datagram_socket () ~reuse_addr ~reuse_port ~sw saddr =
     if reuse_addr then (
       match saddr with
       | `Udp _ | `UdpV4 | `UdpV6 -> ()
@@ -265,10 +297,15 @@ let net = object
       Unix.bind sock_unix addr
     | `UdpV4 | `UdpV6 -> ()
     end;
-    (datagram_socket sock :> Eio.Net.datagram_socket)
+    (datagram_socket sock :> [`Generic | `Unix] Eio.Net.datagram_socket_ty r)
 
-  method getaddrinfo = Low_level.getaddrinfo
+  let getaddrinfo () = Low_level.getaddrinfo
+  let getnameinfo () = Eio_unix.Net.getnameinfo
 end
+
+let net =
+  let handler = Eio.Net.Pi.network (module Impl) in
+  Eio.Resource.T ((), handler)
 
 type stdenv = Eio_unix.Stdenv.base
 
@@ -377,22 +414,31 @@ let clock = object
     Eio.Time.Mono.sleep mono_clock d
 end
 
-class dir ~label (fd : Low_level.dir_fd) = object
-  inherit Eio.Fs.dir
+module rec Dir : sig
+  include Eio.Fs.Pi.DIR
 
-  method! probe : type a. a Eio.Generic.ty -> a option = function
-    | Dir_fd -> Some fd
-    | _ -> None
+  val v : label:string -> Low_level.dir_fd -> t
 
-  method open_in ~sw path =
-    let fd = Low_level.openat ~sw fd path
+  val close : t -> unit
+
+  val fd : t -> Low_level.dir_fd
+end = struct
+  type t = {
+    fd : Low_level.dir_fd;
+    label : string;
+  }
+
+  let v ~label fd = { fd; label }
+
+  let open_in t ~sw path =
+    let fd = Low_level.openat ~sw t.fd path
         ~access:`R
         ~flags:Uring.Open_flags.cloexec
         ~perm:0
     in
-    (flow fd :> <Eio.File.ro; Eio.Flow.close>)
+    (flow fd :> Eio.File.ro_ty r)
 
-  method open_out ~sw ~append ~create path =
+  let open_out t ~sw ~append ~create path =
     let perm, flags =
       match create with
       | `Never            -> 0,    Uring.Open_flags.empty
@@ -401,56 +447,75 @@ class dir ~label (fd : Low_level.dir_fd) = object
       | `Exclusive   perm -> perm, Uring.Open_flags.(creat + excl)
     in
     let flags = if append then Uring.Open_flags.(flags + append) else flags in
-    let fd = Low_level.openat ~sw fd path
+    let fd = Low_level.openat ~sw t.fd path
         ~access:`RW
         ~flags:Uring.Open_flags.(cloexec + flags)
         ~perm
     in
-    (flow fd :> <Eio.File.rw; Eio.Flow.close>)
+    (flow fd :> Eio.File.rw_ty r)
 
-  method open_dir ~sw path =
-    let fd = Low_level.openat ~sw ~seekable:false fd (if path = "" then "." else path)
+  let open_dir t ~sw path =
+    let fd = Low_level.openat ~sw ~seekable:false t.fd (if path = "" then "." else path)
         ~access:`R
         ~flags:Uring.Open_flags.(cloexec + path + directory)
         ~perm:0
     in
     let label = Filename.basename path in
-    (new dir ~label (Low_level.FD fd) :> <Eio.Fs.dir; Eio.Flow.close>)
+    let d = v ~label (Low_level.FD fd) in
+    Eio.Resource.T (d, Dir_handler.v)
 
-  method mkdir ~perm path = Low_level.mkdir_beneath ~perm fd path
+  let mkdir t ~perm path = Low_level.mkdir_beneath ~perm t.fd path
 
-  method read_dir path =
+  let read_dir t path =
     Switch.run @@ fun sw ->
-    let fd = Low_level.open_dir ~sw fd (if path = "" then "." else path) in
+    let fd = Low_level.open_dir ~sw t.fd (if path = "" then "." else path) in
     Low_level.read_dir fd
 
-  method close =
-    match fd with
+  let close t =
+    match t.fd with
     | FD x -> Fd.close x
     | Cwd | Fs -> failwith "Can't close non-FD directory!"
 
-  method unlink path = Low_level.unlink ~rmdir:false fd path
-  method rmdir path = Low_level.unlink ~rmdir:true fd path
+  let unlink t path = Low_level.unlink ~rmdir:false t.fd path
+  let rmdir t path = Low_level.unlink ~rmdir:true t.fd path
 
-  method rename old_path t2 new_path =
+  let rename t old_path t2 new_path =
     match get_dir_fd_opt t2 with
-    | Some fd2 -> Low_level.rename fd old_path fd2 new_path
+    | Some fd2 -> Low_level.rename t.fd old_path fd2 new_path
     | None -> raise (Unix.Unix_error (Unix.EXDEV, "rename-dst", new_path))
 
-  method pp f = Fmt.string f (String.escaped label)
+  let pp f t = Fmt.string f (String.escaped t.label)
+
+  let fd t = t.fd
+end
+and Dir_handler : sig
+  val v : (Dir.t, [`Dir | `Close]) Eio.Resource.handler
+end = struct
+  let v = Eio.Resource.handler [
+      H (Eio.Fs.Pi.Dir, (module Dir));
+      H (Eio.Resource.Close, Dir.close);
+      H (Dir_fd, Dir.fd);
+    ]
 end
 
-let secure_random = object
-  inherit Eio.Flow.source
-  method read_into buf = Low_level.getrandom buf; Cstruct.length buf
+let dir ~label fd = Eio.Resource.T (Dir.v ~label fd, Dir_handler.v)
+
+module Secure_random = struct
+  type t = unit
+  let single_read () buf = Low_level.getrandom buf; Cstruct.length buf
+  let read_methods = []
 end
+
+let secure_random =
+  let ops = Eio.Flow.Pi.source (module Secure_random) in
+  Eio.Resource.T ((), ops)
 
 let stdenv ~run_event_loop =
   let stdin = source Eio_unix.Fd.stdin in
   let stdout = sink Eio_unix.Fd.stdout in
   let stderr = sink Eio_unix.Fd.stderr in
-  let fs = (new dir ~label:"fs" Fs, "") in
-  let cwd = (new dir ~label:"cwd" Cwd, "") in
+  let fs = (dir ~label:"fs" Fs, "") in
+  let cwd = (dir ~label:"cwd" Cwd, "") in
   object (_ : stdenv)
     method stdin  = stdin
     method stdout = stdout
@@ -460,8 +525,8 @@ let stdenv ~run_event_loop =
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = clock
     method mono_clock = mono_clock
-    method fs = (fs :> Eio.Fs.dir Eio.Path.t)
-    method cwd = (cwd :> Eio.Fs.dir Eio.Path.t)
+    method fs = (fs :> Eio.Fs.dir_ty Eio.Path.t)
+    method cwd = (cwd :> Eio.Fs.dir_ty Eio.Path.t)
     method secure_random = secure_random
     method debug = Eio.Private.Debug.v
     method backend_id = "linux"
@@ -476,7 +541,7 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
       | Eio_unix.Net.Import_socket_stream (sw, close_unix, fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~seekable:false ~close_unix fd in
-          continue k (flow fd :> Eio_unix.Net.stream_socket)
+          continue k (flow fd :> _ Eio_unix.Net.stream_socket)
         )
       | Eio_unix.Net.Import_socket_datagram (sw, close_unix, fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~seekable:false ~close_unix fd in
@@ -487,7 +552,7 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
             let a, b = Unix.socketpair ~cloexec:true domain Unix.SOCK_STREAM protocol in
             let a = Fd.of_unix ~sw ~seekable:false ~close_unix:true a |> flow in
             let b = Fd.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
-            ((a :> Eio_unix.Net.stream_socket), (b :> Eio_unix.Net.stream_socket))
+            ((a :> _ Eio_unix.Net.stream_socket), (b :> _ Eio_unix.Net.stream_socket))
           with
           | r -> continue k r
           | exception Unix.Unix_error (code, name, arg) ->
@@ -498,7 +563,7 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
             let a, b = Unix.socketpair ~cloexec:true domain Unix.SOCK_DGRAM protocol in
             let a = Fd.of_unix ~sw ~seekable:false ~close_unix:true a |> datagram_socket in
             let b = Fd.of_unix ~sw ~seekable:false ~close_unix:true b |> datagram_socket in
-            ((a :> Eio_unix.Net.datagram_socket), (b :> Eio_unix.Net.datagram_socket))
+            ((a :> _ Eio_unix.Net.datagram_socket), (b :> _ Eio_unix.Net.datagram_socket))
           with
           | r -> continue k r
           | exception Unix.Unix_error (code, name, arg) ->
@@ -507,8 +572,8 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
           match
             let r, w = Low_level.pipe ~sw in
-            let r = (flow r :> Eio_unix.source) in
-            let w = (flow w :> Eio_unix.sink) in
+            let r = (flow r :> _ Eio_unix.source) in
+            let w = (flow w :> _ Eio_unix.sink) in
             (r, w)
           with
           | r -> continue k r

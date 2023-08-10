@@ -85,8 +85,8 @@ let test_wrap_socket pipe_or_socketpair () =
     | `Pipe -> Unix.pipe ()
     | `Socketpair -> Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0
   in
-  let source = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true r :> Eio.Flow.source) in
-  let sink = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true w :> Eio.Flow.sink) in
+  let source = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true r :> Eio.Flow.source_ty r) in
+  let sink = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true w :> Eio.Flow.sink_ty r) in
   let msg = "Hello" in
   Fiber.both
     (fun () -> Eio.Flow.copy_string (msg ^ "\n") sink)

@@ -1,23 +1,75 @@
+open Std
+
 type shutdown_command = [ `Receive | `Send | `All ]
 
-type read_method = ..
-type read_method += Read_source_buffer of ((Cstruct.t list -> int) -> unit)
+type 't read_method = ..
+type 't read_method += Read_source_buffer of ('t -> (Cstruct.t list -> int) -> unit)
 
-class type close = Generic.close
-let close = Generic.close
+type source_ty = [`R | `Flow]
+type 'a source = ([> source_ty] as 'a) r
 
-class virtual source = object (_ : <Generic.t; ..>)
-  method probe _ = None
-  method read_methods : read_method list = []
-  method virtual read_into : Cstruct.t -> int
+type sink_ty = [`W | `Flow]
+type 'a sink = ([> sink_ty] as 'a) r
+
+type shutdown_ty = [`Shutdown]
+type 'a shutdown = ([> shutdown_ty] as 'a) r
+
+module Pi = struct
+  module type SOURCE = sig
+    type t
+    val read_methods : t read_method list
+    val single_read : t -> Cstruct.t -> int
+  end
+
+  module type SINK = sig
+    type t
+    val copy : t -> src:_ source -> unit
+    val write : t -> Cstruct.t list -> unit
+  end
+
+  module type SHUTDOWN = sig
+    type t
+    val shutdown : t -> shutdown_command -> unit
+  end
+
+  type (_, _, _) Resource.pi +=
+    | Source : ('t, (module SOURCE with type t = 't), [> source_ty]) Resource.pi
+    | Sink : ('t, (module SINK with type t = 't), [> sink_ty]) Resource.pi
+    | Shutdown : ('t, (module SHUTDOWN with type t = 't), [> shutdown_ty]) Resource.pi
+
+
+  let source (type t) (module X : SOURCE with type t = t) =
+    Resource.handler [H (Source, (module X))]
+
+  let sink (type t) (module X : SINK with type t = t) =
+    Resource.handler [H (Sink, (module X))]
+
+  let shutdown (type t) (module X : SHUTDOWN with type t = t) =
+    Resource.handler [ H (Shutdown, (module X))]
+
+  module type TWO_WAY = sig
+    include SHUTDOWN
+    include SOURCE with type t := t
+    include SINK with type t := t
+  end
+
+  let two_way (type t) (module X : TWO_WAY with type t = t) =
+    Resource.handler [
+      H (Shutdown, (module X));
+      H (Source, (module X));
+      H (Sink, (module X));
+    ]
 end
 
-let single_read (t : #source) buf =
-  let got = t#read_into buf in
+open Pi
+
+let close = Resource.close
+
+let single_read (Resource.T (t, ops)) buf =
+  let module X = (val (Resource.get ops Source)) in
+  let got = X.single_read t buf in
   assert (got > 0 && got <= Cstruct.length buf);
   got
-
-let read_methods (t : #source) = t#read_methods
 
 let rec read_exact t buf =
   if Cstruct.length buf > 0 then (
@@ -25,82 +77,93 @@ let rec read_exact t buf =
     read_exact t (Cstruct.shift buf got)
   )
 
-let cstruct_source data : source =
-  object (self)
-    val mutable data = data
+module Cstruct_source = struct
+  type t = Cstruct.t list ref
 
-    inherit source
+  let create data = ref data
 
-    method private read_source_buffer fn =
-      let rec aux () =
-        match data with
-        | [] -> raise End_of_file
-        | x :: xs when Cstruct.length x = 0 -> data <- xs; aux ()
-        | xs ->
-          let n = fn xs in
-          data <- Cstruct.shiftv xs n 
-      in
-      aux ()
+  let read_source_buffer t fn =
+    let rec aux () =
+      match !t with
+      | [] -> raise End_of_file
+      | x :: xs when Cstruct.length x = 0 -> t := xs; aux ()
+      | xs ->
+        let n = fn xs in
+        t := Cstruct.shiftv xs n
+    in
+    aux ()
 
-    method! read_methods =
-      [ Read_source_buffer self#read_source_buffer ]
+  let read_methods =
+    [ Read_source_buffer read_source_buffer ]
 
-    method read_into dst =
-      let avail, src = Cstruct.fillv ~dst ~src:data in
-      if avail = 0 then raise End_of_file;
-      data <- src;
-      avail
-  end
+  let single_read t dst =
+    let avail, src = Cstruct.fillv ~dst ~src:!t in
+    if avail = 0 then raise End_of_file;
+    t := src;
+    avail
 
-let string_source s : source =
-  object
-    val mutable offset = 0
-
-    inherit source
-
-    method read_into dst =
-      if offset = String.length s then raise End_of_file;
-
-      let len = min (Cstruct.length dst) (String.length s - offset) in
-      Cstruct.blit_from_string s offset dst 0 len;
-      offset <- offset + len;
-      len
-  end
-
-class virtual sink = object (self : <Generic.t; ..>)
-  method probe _ = None
-  method virtual copy : 'a. (#source as 'a) -> unit
-  method write bufs = self#copy (cstruct_source bufs)
 end
 
-let write (t : #sink) (bufs : Cstruct.t list) = t#write bufs
+let cstruct_source =
+  let ops = Pi.source (module Cstruct_source) in
+  fun data -> Resource.T (Cstruct_source.create data, ops)
 
-let copy (src : #source) (dst : #sink) = dst#copy src
+module String_source = struct
+  type t = {
+    s : string;
+    mutable offset : int;
+  }
+
+  let single_read t dst =
+    if t.offset = String.length t.s then raise End_of_file;
+    let len = min (Cstruct.length dst) (String.length t.s - t.offset) in
+    Cstruct.blit_from_string t.s t.offset dst 0 len;
+    t.offset <- t.offset + len;
+    len
+
+  let read_methods = []
+
+  let create s = { s; offset = 0 }
+end
+
+let string_source =
+  let ops = Pi.source (module String_source) in
+  fun s -> Resource.T (String_source.create s, ops)
+
+let write (Resource.T (t, ops)) bufs =
+  let module X = (val (Resource.get ops Sink)) in
+  X.write t bufs
+
+let copy src (Resource.T (t, ops)) =
+  let module X = (val (Resource.get ops Sink)) in
+  X.copy t ~src
 
 let copy_string s = copy (string_source s)
 
-let buffer_sink b =
-  object
-    inherit sink
+module Buffer_sink = struct
+  type t = Buffer.t
 
-    method copy src =
-      let buf = Cstruct.create 4096 in
-      try
-        while true do
-          let got = src#read_into buf in
-          Buffer.add_string b (Cstruct.to_string ~len:got buf)
-        done
-      with End_of_file -> ()
+  let copy t ~src:(Resource.T (src, ops)) =
+    let module Src = (val (Resource.get ops Source)) in
+    let buf = Cstruct.create 4096 in
+    try
+      while true do
+        let got = Src.single_read src buf in
+        Buffer.add_string t (Cstruct.to_string ~len:got buf)
+      done
+    with End_of_file -> ()
 
-    method! write bufs =
-      List.iter (fun buf -> Buffer.add_bytes b (Cstruct.to_bytes buf)) bufs
-  end
-
-class virtual two_way = object (_ : <source; sink; ..>)
-  inherit sink
-  method read_methods = []
-
-  method virtual shutdown : shutdown_command -> unit
+  let write t bufs =
+    List.iter (fun buf -> Buffer.add_bytes t (Cstruct.to_bytes buf)) bufs
 end
 
-let shutdown (t : #two_way) = t#shutdown
+let buffer_sink =
+  let ops = Pi.sink (module Buffer_sink) in
+  fun b -> Resource.T (b, ops)
+
+type two_way_ty = [source_ty | sink_ty | shutdown_ty]
+type 'a two_way = ([> two_way_ty] as 'a) r
+
+let shutdown (Resource.T (t, ops)) cmd =
+  let module X = (val (Resource.get ops Shutdown)) in
+  X.shutdown t cmd

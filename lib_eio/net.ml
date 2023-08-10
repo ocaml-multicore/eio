@@ -1,3 +1,5 @@
+open Std
+
 type connection_failure =
   | Refused of Exn.Backend.t
   | No_matching_addresses
@@ -157,30 +159,114 @@ module Sockaddr = struct
       Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
-class virtual socket = object (_ : <Generic.t; Generic.close; ..>)
-  method probe _ = None
+type socket_ty = [`Socket | `Close]
+type 'a socket = ([> socket_ty] as 'a) r
+
+type 'tag stream_socket_ty = [`Stream | `Platform of 'tag | `Shutdown | socket_ty | Flow.source_ty | Flow.sink_ty]
+type 'a stream_socket = 'a r
+  constraint 'a = [> [> `Generic] stream_socket_ty]
+
+type 'tag listening_socket_ty = [ `Accept | `Platform of 'tag | socket_ty]
+type 'a listening_socket = 'a r
+  constraint 'a = [> [> `Generic] listening_socket_ty]
+
+type 'a connection_handler = 'a stream_socket -> Sockaddr.stream -> unit
+
+type 'tag datagram_socket_ty = [`Datagram | `Platform of 'tag | `Shutdown | socket_ty]
+type 'a datagram_socket = 'a r
+  constraint 'a = [> [> `Generic] datagram_socket_ty]
+
+type 'tag ty = [`Network | `Platform of 'tag]
+type 'a t = 'a r
+  constraint 'a = [> [> `Generic] ty]
+
+module Pi = struct
+  module type STREAM_SOCKET = sig
+    type tag
+    include Flow.Pi.SHUTDOWN
+    include Flow.Pi.SOURCE with type t := t
+    include Flow.Pi.SINK with type t := t
+    val close : t -> unit
+  end
+
+  let stream_socket (type t tag) (module X : STREAM_SOCKET with type t = t and type tag = tag) =
+    Resource.handler @@
+    H (Resource.Close, X.close) ::
+    Resource.bindings (Flow.Pi.two_way (module X))
+
+  module type DATAGRAM_SOCKET = sig
+    type tag
+    include Flow.Pi.SHUTDOWN
+    val send : t -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
+    val recv : t -> Cstruct.t -> Sockaddr.datagram * int
+    val close : t -> unit
+  end
+
+  type (_, _, _) Resource.pi +=
+    | Datagram_socket : ('t, (module DATAGRAM_SOCKET with type t = 't), [> _ datagram_socket_ty]) Resource.pi
+
+  let datagram_socket (type t tag) (module X : DATAGRAM_SOCKET with type t = t and type tag = tag) =
+    Resource.handler @@
+    Resource.bindings (Flow.Pi.shutdown (module X)) @ [
+      H (Datagram_socket, (module X));
+      H (Resource.Close, X.close)
+    ]
+
+  module type LISTENING_SOCKET = sig
+    type t
+    type tag
+
+    val accept : t -> sw:Switch.t -> tag stream_socket_ty r * Sockaddr.stream
+    val close : t -> unit
+  end
+
+  type (_, _, _) Resource.pi +=
+    | Listening_socket : ('t, (module LISTENING_SOCKET with type t = 't and type tag = 'tag), [> 'tag listening_socket_ty]) Resource.pi
+
+  let listening_socket (type t tag) (module X : LISTENING_SOCKET with type t = t and type tag = tag) =
+    Resource.handler [
+      H (Resource.Close, X.close);
+      H (Listening_socket, (module X))
+    ]
+
+  module type NETWORK = sig
+    type t
+    type tag
+
+    val listen : t -> reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> tag listening_socket_ty r
+    val connect : t -> sw:Switch.t -> Sockaddr.stream -> tag stream_socket_ty r
+    val datagram_socket :
+      t
+      -> reuse_addr:bool
+      -> reuse_port:bool
+      -> sw:Switch.t
+      -> [Sockaddr.datagram | `UdpV4 | `UdpV6]
+      -> tag datagram_socket_ty r
+
+    val getaddrinfo : t -> service:string -> string -> Sockaddr.t list
+    val getnameinfo : t -> Sockaddr.t -> (string * string)
+  end
+
+  type (_, _, _) Resource.pi +=
+    | Network : ('t, (module NETWORK with type t = 't and type tag = 'tag), [> 'tag ty]) Resource.pi
+
+  let network (type t tag) (module X : NETWORK with type t = t and type tag = tag) =
+    Resource.handler [
+      H (Network, (module X));
+    ]
 end
 
-class virtual stream_socket = object (_ : #socket)
-  inherit Flow.two_way
-end
+let accept ~sw (type tag) (Resource.T (t, ops) : [> tag listening_socket_ty] r) =
+  let module X = (val (Resource.get ops Pi.Listening_socket)) in
+  X.accept t ~sw
 
-class virtual listening_socket = object (_ : <Generic.close; ..>)
-  inherit socket
-  method virtual accept : sw:Switch.t -> stream_socket * Sockaddr.stream
-end
-
-type connection_handler = stream_socket -> Sockaddr.stream -> unit
-
-let accept ~sw (t : #listening_socket) = t#accept ~sw
-
-let accept_fork ~sw (t : #listening_socket) ~on_error handle =
+let accept_fork ~sw (t : [> 'a listening_socket_ty] r) ~on_error handle =
   let child_started = ref false in
   let flow, addr = accept ~sw t in
   Fun.protect ~finally:(fun () -> if !child_started = false then Flow.close flow)
     (fun () ->
        Fiber.fork ~sw (fun () ->
-           match child_started := true; handle (flow :> stream_socket) addr with
+           match child_started := true; handle (flow :> 'a stream_socket_ty r) addr with
            | x -> Flow.close flow; x
            | exception (Cancel.Cancelled _ as ex) ->
              Flow.close flow;
@@ -191,42 +277,37 @@ let accept_fork ~sw (t : #listening_socket) ~on_error handle =
          )
     )
 
-class virtual datagram_socket = object
-  inherit socket
-  method virtual send : ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
-  method virtual recv : Cstruct.t -> Sockaddr.datagram * int
-end
+let send (Resource.T (t, ops)) ?dst bufs =
+  let module X = (val (Resource.get ops Pi.Datagram_socket)) in
+  X.send t ?dst bufs
 
-let send (t:#datagram_socket) = t#send
-let recv (t:#datagram_socket) = t#recv
+let recv (Resource.T (t, ops)) buf =
+  let module X = (val (Resource.get ops Pi.Datagram_socket)) in
+  X.recv t buf
 
-class virtual t = object
-  method virtual listen : reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> listening_socket
-  method virtual connect : sw:Switch.t -> Sockaddr.stream -> stream_socket
-  method virtual datagram_socket :
-       reuse_addr:bool
-    -> reuse_port:bool
-    -> sw:Switch.t
-    -> [Sockaddr.datagram | `UdpV4 | `UdpV6]
-    -> datagram_socket
+let listen (type tag) ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:[> tag ty] r) =
+  let (Resource.T (t, ops)) = t in
+  let module X = (val (Resource.get ops Pi.Network)) in
+  X.listen t ~reuse_addr ~reuse_port ~backlog ~sw
 
-  method virtual getaddrinfo : service:string -> string -> Sockaddr.t list
-  method virtual getnameinfo : Sockaddr.t -> (string * string)
-end
-
-let listen ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:#t) = t#listen ~reuse_addr ~reuse_port ~backlog ~sw
-
-let connect ~sw (t:#t) addr =
-  try t#connect ~sw addr
+let connect (type tag) ~sw (t:[> tag ty] r) addr =
+  let (Resource.T (t, ops)) = t in
+  let module X = (val (Resource.get ops Pi.Network)) in
+  try X.connect t ~sw addr
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "connecting to %a" Sockaddr.pp addr
 
-let datagram_socket ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:#t) addr =
+let datagram_socket (type tag) ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:[> tag ty] r) addr =
+  let (Resource.T (t, ops)) = t in
+  let module X = (val (Resource.get ops Pi.Network)) in
   let addr = (addr :> [Sockaddr.datagram | `UdpV4 | `UdpV6]) in 
-  t#datagram_socket ~reuse_addr ~reuse_port ~sw addr
+  X.datagram_socket t ~reuse_addr ~reuse_port ~sw addr
 
-let getaddrinfo ?(service="") (t:#t) hostname = t#getaddrinfo ~service hostname
+let getaddrinfo (type tag) ?(service="") (t:[> tag ty] r) hostname =
+  let (Resource.T (t, ops)) = t in
+  let module X = (val (Resource.get ops Pi.Network)) in
+  X.getaddrinfo t ~service hostname
 
 let getaddrinfo_stream ?service t hostname =
   getaddrinfo ?service t hostname
@@ -242,9 +323,12 @@ let getaddrinfo_datagram ?service t hostname =
       | _ -> None
     )
 
-let getnameinfo (t:#t) sockaddr = t#getnameinfo sockaddr
+let getnameinfo (type tag) (t:[> tag ty] r) sockaddr =
+  let (Resource.T (t, ops)) = t in
+  let module X = (val (Resource.get ops Pi.Network)) in
+  X.getnameinfo t sockaddr
 
-let close = Generic.close
+let close = Resource.close
 
 let with_tcp_connect ?(timeout=Time.Timeout.none) ~host ~service t f =
   Switch.run @@ fun sw ->
