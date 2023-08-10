@@ -62,7 +62,7 @@ let chdir path =
 
 let assert_kind path kind =
   Path.with_open_in path @@ fun file ->
-  assert ((Eio.File.stat file).kind = kind)
+  assert (Eio.File.kind file = kind)
 ```
 
 # Basic test cases
@@ -524,9 +524,10 @@ Unconfined:
 ```ocaml
 let try_stat path =
   let stat ~follow =
-    match Eio.Path.stat ~follow path with
-    | info -> Fmt.str "@[<h>%a@]" Eio.File.Stat.pp_kind info.kind
-    | exception Eio.Io (e, _) -> Fmt.str "@[<h>%a@]" Eio.Exn.pp_err e
+    try
+      Eio.Path.stat ~follow path [Kind] @@ fun kind ->
+      Fmt.str "@[<h>%a@]" Eio.File.pp_kind kind
+    with Eio.Io (e, _) -> Fmt.str "@[<h>%a@]" Eio.Exn.pp_err e
   in
   let a = stat ~follow:false in
   let b = stat ~follow:true in

@@ -52,7 +52,7 @@ let chdir path =
 
 let assert_kind path kind =
   Path.with_open_in path @@ fun file ->
-  assert ((Eio.File.stat file).kind = kind)
+  assert (Eio.File.kind file = kind)
 
 let test_create_and_read env () =
   let cwd = Eio.Stdenv.cwd env in

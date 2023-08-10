@@ -6,7 +6,7 @@ let n_stat = 100000
 
 let run_fiber file =
   for _ = 1 to n_stat do
-    let info = (Eio.File.stat file).kind in
+    let info = (Eio.File.stat file [Kind]) Fun.id in
     assert (info = `Regular_file)
   done
 

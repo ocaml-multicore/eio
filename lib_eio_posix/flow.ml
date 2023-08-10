@@ -11,32 +11,33 @@ let float_of_time s ns =
   if floor f = s then f
   else Float.pred f
 
-let eio_of_stat x =
-  { Eio.File.Stat.
-    dev    = Low_level.dev x;
-    ino    = Low_level.ino x;
-    kind   = Low_level.kind x;
-    perm   = Low_level.perm x;
-    nlink  = Low_level.nlink x;
-    uid    = Low_level.uid x;
-    gid    = Low_level.gid x;
-    rdev   = Low_level.rdev x;
-    size   = Low_level.size x |> Optint.Int63.of_int64;
-    atime  = float_of_time (Low_level.atime_sec x) (Low_level.atime_nsec x);
-    mtime  = float_of_time (Low_level.mtime_sec x) (Low_level.mtime_nsec x);
-    ctime  = float_of_time (Low_level.ctime_sec x) (Low_level.ctime_nsec x);
-  }
-
 module Impl = struct
   type tag = [`Generic | `Unix]
 
   type t = Eio_unix.Fd.t
 
-  let stat t =
+  let stat t k =
+    let open Eio.File in
+    let x = Low_level.create_stat () in
+    Low_level.fstat ~buf:x t;
     try
-      let x = Low_level.create_stat () in
-      Low_level.fstat ~buf:x t;
-      eio_of_stat x
+      let rec fn : type a b. (a, b) stats -> a -> b = fun v acc ->
+        match v with
+        | Dev :: tl -> fn tl @@ acc (Low_level.dev x)
+        | Ino :: tl -> fn tl @@ acc (Low_level.ino x)
+        | Kind :: tl -> fn tl @@ acc (Low_level.kind x)
+        | Perm :: tl -> fn tl @@ acc (Low_level.perm x)
+        | Nlink :: tl -> fn tl @@ acc (Low_level.nlink x)
+        | Uid :: tl -> fn tl @@ acc (Low_level.uid x)
+        | Gid :: tl -> fn tl @@ acc (Low_level.gid x)
+        | Rdev :: tl -> fn tl @@ acc (Low_level.rdev x)
+        | Size :: tl -> fn tl @@ acc (Low_level.size x)
+        | Atime :: tl -> fn tl @@ acc (float_of_time (Low_level.atime_sec x) (Low_level.atime_nsec x))
+        | Mtime :: tl -> fn tl @@ acc (float_of_time (Low_level.mtime_sec x) (Low_level.mtime_nsec x))
+        | Ctime :: tl -> fn tl @@ acc (float_of_time (Low_level.ctime_sec x) (Low_level.ctime_nsec x))
+        | [] -> acc
+      in
+      fn k
     with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
 
   let single_write t bufs =

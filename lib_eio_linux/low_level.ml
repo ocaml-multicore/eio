@@ -303,36 +303,6 @@ let openat ~sw ?seekable ~access ~flags ~perm dir path =
   | Cwd -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.beneath path
   | Fs -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.empty path
 
-let fstat t =
-  (* todo: use uring  *)
-  try
-    let ust = Fd.use_exn "fstat" t Unix.LargeFile.fstat in
-    let st_kind : Eio.File.Stat.kind =
-      match ust.st_kind with
-      | Unix.S_REG  -> `Regular_file
-      | Unix.S_DIR  -> `Directory
-      | Unix.S_CHR  -> `Character_special
-      | Unix.S_BLK  -> `Block_device
-      | Unix.S_LNK  -> `Symbolic_link
-      | Unix.S_FIFO -> `Fifo
-      | Unix.S_SOCK -> `Socket
-    in
-    Eio.File.Stat.{
-      dev     = ust.st_dev   |> Int64.of_int;
-      ino     = ust.st_ino   |> Int64.of_int;
-      kind    = st_kind;
-      perm    = ust.st_perm;
-      nlink   = ust.st_nlink |> Int64.of_int;
-      uid     = ust.st_uid   |> Int64.of_int;
-      gid     = ust.st_gid   |> Int64.of_int;
-      rdev    = ust.st_rdev  |> Int64.of_int;
-      size    = ust.st_size  |> Optint.Int63.of_int64;
-      atime   = ust.st_atime;
-      mtime   = ust.st_mtime;
-      ctime   = ust.st_ctime;
-    }
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
-
 external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
 
 external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit = "caml_eio_renameat"

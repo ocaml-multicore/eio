@@ -137,15 +137,31 @@ end = struct
     with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.unlink ?dirfd ~dir:true) path
 
-  let stat t ~follow path =
-    let buf = Low_level.create_stat () in
+  let stat t ~follow path k =
+    let r = Low_level.create_stat () in
     if follow then (
-      Err.run (Low_level.fstatat ~buf ~follow:true) (resolve t path);
+      Err.run (Low_level.fstatat ~buf:r ~follow:true) (resolve t path);
     ) else (
       with_parent_dir t path @@ fun dirfd path ->
-      Err.run (Low_level.fstatat ~buf ?dirfd ~follow:false) path;
+      Err.run (Low_level.fstatat ~buf:r ?dirfd ~follow:false) path;
     );
-    Flow.eio_of_stat buf
+    let open Eio.File in
+    let rec fn : type a b. (a, b) stats -> a -> b = fun v acc ->
+      match v with
+      | Dev :: tl -> fn tl @@ acc (Low_level.dev r)
+      | Ino :: tl -> fn tl @@ acc (Low_level.ino r)
+      | Kind :: tl -> fn tl @@ acc (Low_level.kind r)
+      | Perm :: tl -> fn tl @@ acc (Low_level.perm r)
+      | Nlink :: tl -> fn tl @@ acc (Low_level.nlink r)
+      | Uid :: tl -> fn tl @@ acc (Low_level.uid r)
+      | Gid :: tl -> fn tl @@ acc (Low_level.gid r)
+      | Rdev :: tl -> fn tl @@ acc (Low_level.rdev r)
+      | Size :: tl -> fn tl @@ acc (Low_level.size r)
+      | Atime :: tl -> fn tl @@ acc (Flow.float_of_time (Low_level.atime_sec r) (Low_level.atime_nsec r))
+      | Mtime :: tl -> fn tl @@ acc (Flow.float_of_time (Low_level.mtime_sec r) (Low_level.mtime_nsec r))
+      | Ctime :: tl -> fn tl @@ acc (Flow.float_of_time (Low_level.ctime_sec r) (Low_level.ctime_nsec r))
+      | [] -> acc
+    in fn k
 
   let read_dir t path =
     (* todo: need fdopendir here to avoid races *)

@@ -136,6 +136,57 @@ let datagram_handler = Eio_unix.Pi.datagram_handler (module Datagram_socket)
 let datagram_socket fd =
   Eio.Resource.T (fd, datagram_handler)
 
+let float_of_time s ns =
+  let s = Int64.to_float s in
+  let f = s +. (float ns /. 1e9) in
+  (* It's possible that we might round up to the next second.
+     Since some algorithms only care about the seconds part,
+     make sure the integer part is always [s]: *)
+  if floor f = s then f
+  else Float.pred f
+
+let stat_mask_of_list f =
+  let module M = Uring.Statx.Mask in
+  let module U = Eio.File in
+  let rec mask : type a b . (a,b) U.stats -> M.t -> M.t = fun v acc ->
+    match v with
+    | U.Dev :: tl -> mask tl acc
+    | U.Ino :: tl -> mask tl M.(acc + M.ino)
+    | U.Kind :: tl -> mask tl M.(acc + M.type')
+    | U.Perm :: tl -> mask tl M.(acc + M.mode)
+    | U.Nlink :: tl -> mask tl M.(acc + M.nlink)
+    | U.Uid :: tl -> mask tl M.(acc + M.uid)
+    | U.Gid :: tl -> mask tl M.(acc + M.gid)
+    | U.Rdev :: tl -> mask tl acc
+    | U.Size :: tl -> mask tl M.(acc + M.size)
+    | U.Atime :: tl -> mask tl M.(acc + M.atime)
+    | U.Ctime :: tl -> mask tl M.(acc + M.ctime)
+    | U.Mtime :: tl -> mask tl M.(acc + M.mtime)
+    | [] -> acc
+  in
+  mask f M.type' (* TODO this could be empty as well, but needs uring#100 *)
+
+let stat_results (f : (_, _) Eio.File.stats) statx k =
+  let module X = Uring.Statx in
+  let module U = Eio.File in
+  let rec fn : type a b. (a, b) U.stats -> a -> b = fun v acc ->
+    match v with
+    | U.Dev :: tl -> fn tl @@ acc (X.dev statx)
+    | U.Ino :: tl -> fn tl @@ acc (X.ino statx)
+    | U.Kind :: tl -> fn tl @@ acc (X.kind statx)
+    | U.Perm :: tl -> fn tl @@ acc (X.perm statx)
+    | U.Nlink :: tl -> fn tl @@ acc (X.nlink statx)
+    | U.Uid :: tl -> fn tl @@ acc (X.uid statx)
+    | U.Gid :: tl -> fn tl @@ acc (X.gid statx)
+    | U.Rdev :: tl -> fn tl @@ acc (X.rdev statx)
+    | U.Size :: tl -> fn tl @@ acc (X.size statx)
+    | U.Atime :: tl -> fn tl @@ acc (float_of_time (X.atime_sec statx) (X.atime_nsec statx))
+    | U.Mtime :: tl -> fn tl @@ acc (float_of_time (X.mtime_sec statx) (X.mtime_nsec statx))
+    | U.Ctime :: tl -> fn tl @@ acc (float_of_time (X.ctime_sec statx) (X.ctime_nsec statx))
+    | [] -> acc
+  in
+  fn f k
+
 module Flow = struct
   type tag = [`Generic | `Unix]
 
@@ -147,7 +198,12 @@ module Flow = struct
 
   let is_tty t = Fd.use_exn "isatty" t Unix.isatty
 
-  let stat = Low_level.fstat
+  let stat t f k =
+    let module X = Uring.Statx in
+    let mask = stat_mask_of_list f in
+    let statx = X.create () in
+    Low_level.statx ~fd:t ~mask "" statx X.Flags.empty_path;
+    stat_results f statx k
 
   let single_read t buf =
     if is_tty t then (
@@ -526,33 +582,11 @@ end = struct
   let unlink t path = Low_level.unlink ~rmdir:false t.fd path
   let rmdir t path = Low_level.unlink ~rmdir:true t.fd path
 
-  let float_of_time s ns =
-    let s = Int64.to_float s in
-    let f = s +. (float ns /. 1e9) in
-    (* It's possible that we might round up to the next second.
-       Since some algorithms only care about the seconds part,
-       make sure the integer part is always [s]: *)
-    if floor f = s then f
-    else Float.pred f
-
-  let stat t ~follow path =
-    let module X = Uring.Statx in
-    let x = X.create () in
-    Low_level.statx_confined ~follow ~mask:X.Mask.basic_stats t.fd path x;
-    { Eio.File.Stat.
-      dev    = X.dev x;
-      ino    = X.ino x;
-      kind   = X.kind x;
-      perm   = X.perm x;
-      nlink  = X.nlink x;
-      uid    = X.uid x;
-      gid    = X.gid x;
-      rdev   = X.rdev x;
-      size   = X.size x |> Optint.Int63.of_int64;
-      atime  = float_of_time (X.atime_sec x) (X.atime_nsec x);
-      mtime  = float_of_time (X.mtime_sec x) (X.mtime_nsec x);
-      ctime  = float_of_time (X.ctime_sec x) (X.ctime_nsec x);
-    }
+  let stat t ~follow path f k =
+    let mask = stat_mask_of_list f in
+    let statx = Uring.Statx.create () in
+    Low_level.statx_confined t.fd path ~follow ~mask statx;
+    stat_results f statx k
 
   let rename t old_path t2 new_path =
     match get_dir_fd_opt t2 with

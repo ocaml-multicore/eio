@@ -60,7 +60,7 @@ module Pi = struct
     val mkdir : t -> perm:File.Unix_perm.t -> path -> unit
     val open_dir : t -> sw:Switch.t -> path -> [`Close | dir_ty] r
     val read_dir : t -> path -> string list
-    val stat : t -> follow:bool -> string -> File.Stat.t
+    val stat : t -> follow:bool -> string -> ('a,'b) File.stats -> 'a -> 'b
     val unlink : t -> path -> unit
     val rmdir : t -> path -> unit
     val rename : t -> path -> _ dir -> path -> unit

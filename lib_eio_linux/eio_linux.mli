@@ -153,9 +153,6 @@ module Low_level : sig
   val await_writable : fd -> unit
   (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
-  val fstat : fd -> Eio.File.Stat.t
-  (** Like {!Unix.LargeFile.fstat}. *)
-
   val statx : ?fd:fd -> mask:Uring.Statx.Mask.t -> string -> Uring.Statx.t -> Uring.Statx.Flags.t -> unit
   (** [statx t ?fd ~mask path buf flags] stats [path], which is resolved relative to [fd]
       (or the current directory if [fd] is not given).

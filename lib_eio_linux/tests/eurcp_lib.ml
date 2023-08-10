@@ -45,7 +45,9 @@ let run_cp block_size queue_depth infile outfile () =
       ~resolve:Uring.Resolve.empty
       ~perm:0o644
   in
-  let insize = (U.fstat infd).size in
+  let buf = Uring.Statx.create () in
+  U.statx ~fd:infd "" ~mask:Uring.Statx.Mask.size buf Uring.Statx.Flags.empty_path;
+  let insize = Uring.Statx.size buf |> Int63.of_int64 in
   Logs.debug (fun l -> l "eurcp: %s -> %s size %a queue %d bs %d"
                  infile
                  outfile

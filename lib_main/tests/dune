@@ -1,0 +1,3 @@
+(executable
+  (name eio_stat)
+  (libraries eio_main))

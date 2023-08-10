@@ -7,10 +7,10 @@ module Impl = struct
 
   type t = Eio_unix.Fd.t
 
-  let stat t =
+  let stat t k =
     try
       let ust = Low_level.fstat t in
-      let st_kind : Eio.File.Stat.kind =
+      let st_kind : Eio.File.kind =
         match ust.st_kind with
         | Unix.S_REG  -> `Regular_file
         | Unix.S_DIR  -> `Directory
@@ -20,20 +20,23 @@ module Impl = struct
         | Unix.S_FIFO -> `Fifo
         | Unix.S_SOCK -> `Socket
       in
-      Eio.File.Stat.{
-        dev     = ust.st_dev   |> Int64.of_int;
-        ino     = ust.st_ino   |> Int64.of_int;
-        kind    = st_kind;
-        perm    = ust.st_perm;
-        nlink   = ust.st_nlink |> Int64.of_int;
-        uid     = ust.st_uid   |> Int64.of_int;
-        gid     = ust.st_gid   |> Int64.of_int;
-        rdev    = ust.st_rdev  |> Int64.of_int;
-        size    = ust.st_size  |> Optint.Int63.of_int64;
-        atime   = ust.st_atime;
-        mtime   = ust.st_mtime;
-        ctime   = ust.st_ctime;
-      }
+      let rec fn : type a b. (a, b) Eio.File.stats -> a -> b = fun v acc ->
+        match v with
+        | Dev :: tl -> fn tl @@ acc (ust.st_dev |> Int64.of_int)
+        | Ino :: tl -> fn tl @@ acc (ust.st_ino |> Int64.of_int)
+        | Kind :: tl -> fn tl @@ acc st_kind
+        | Perm :: tl -> fn tl @@ acc ust.st_perm
+        | Nlink :: tl -> fn tl @@ acc (ust.st_nlink |> Int64.of_int)
+        | Uid :: tl -> fn tl @@ acc (ust.st_uid |> Int64.of_int)
+        | Gid :: tl -> fn tl @@ acc (ust.st_gid |> Int64.of_int)
+        | Rdev :: tl -> fn tl @@ acc (ust.st_rdev |> Int64.of_int)
+        | Size :: tl -> fn tl @@ acc ust.st_size
+        | Atime :: tl -> fn tl @@ acc ust.st_atime
+        | Mtime :: tl -> fn tl @@ acc ust.st_mtime
+        | Ctime :: tl -> fn tl @@ acc ust.st_ctime
+        | [] -> acc
+      in
+      fn k
     with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
 
   let write_all t bufs =

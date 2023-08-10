@@ -145,14 +145,14 @@ end = struct
     with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.unlink ?dirfd ~dir:true) path
 
-  let stat t ~follow path =
+  let stat t ~follow path k =
     Switch.run @@ fun sw ->
     let open Low_level in
     let flags = Low_level.Flags.Open.(generic_read + synchronise) in
     let dis = Flags.Disposition.open_if in
     let create = Flags.Create.non_directory in
     let fd = Err.run (openat ~sw ~nofollow:(not follow) (resolve t path) flags dis) create in
-    Flow.Impl.stat fd
+    Flow.Impl.stat fd k
 
   let read_dir t path =
     (* todo: need fdopendir here to avoid races *)
