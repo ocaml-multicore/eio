@@ -30,6 +30,7 @@ module Ctf = Ctf_unix
 
 module Process = Process
 module Net = Net
+module Pi = Pi
 
 module Stdenv = struct
   type base = <

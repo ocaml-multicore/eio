@@ -98,8 +98,8 @@ let test_wrap_socket pipe_or_socketpair () =
 let test_eio_socketpair () =
   Switch.run @@ fun sw ->
   let a, b = Eio_unix.Net.socketpair_stream ~sw () in
-  ignore (Eio_unix.Resource.fd a : Eio_unix.Fd.t);
-  ignore (Eio_unix.Resource.fd b : Eio_unix.Fd.t);
+  ignore (Eio_unix.Net.fd a : Eio_unix.Fd.t);
+  ignore (Eio_unix.Net.fd b : Eio_unix.Fd.t);
   Eio.Flow.copy_string "foo" a;
   Eio.Flow.close a;
   let msg = Eio.Buf_read.of_flow b ~max_size:10 |> Eio.Buf_read.take_all in

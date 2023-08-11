@@ -131,7 +131,7 @@ module Datagram_socket = struct
     | `All -> Unix.SHUTDOWN_ALL
 end
 
-let datagram_handler = Eio_unix.Resource.datagram_handler (module Datagram_socket)
+let datagram_handler = Eio_unix.Pi.datagram_handler (module Datagram_socket)
 
 let datagram_socket fd =
   Eio.Resource.T (fd, datagram_handler)
@@ -185,14 +185,21 @@ module Flow = struct
     | `Receive -> Unix.SHUTDOWN_RECEIVE
     | `Send -> Unix.SHUTDOWN_SEND
     | `All -> Unix.SHUTDOWN_ALL
+
+  let send_msg t ~fds data =
+    Low_level.send_msg t ~fds data
+
+  let recv_msg_with_fds t ~sw ~max_fds data =
+    let _addr, n, fds = Low_level.recv_msg_with_fds t ~sw ~max_fds data in
+    n, fds
 end
 
-let flow_handler = Eio_unix.Resource.flow_handler (module Flow)
+let flow_handler = Eio_unix.Pi.flow_handler (module Flow)
 
 let flow fd =
   let r = Eio.Resource.T (fd, flow_handler) in
-  (r : [Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r :>
-     [< Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r)
+  (r : [`Unix_fd | Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r :>
+     [< `Unix_fd | Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r)
 
 let source fd = (flow fd :> _ Eio_unix.source)
 let sink   fd = (flow fd :> _ Eio_unix.sink)
@@ -217,7 +224,7 @@ module Listening_socket = struct
     flow, client_addr
 end
 
-let listening_handler = Eio_unix.Resource.listening_socket_handler (module Listening_socket)
+let listening_handler = Eio_unix.Pi.listening_socket_handler (module Listening_socket)
 
 let listening_socket fd =
   Eio.Resource.T (fd, listening_handler)

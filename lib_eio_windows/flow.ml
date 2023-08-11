@@ -74,17 +74,21 @@ module Impl = struct
 
   let pwrite t ~file_offset bufs = Low_level.pwritev ~file_offset t (Array.of_list bufs)
 
+  let send_msg _t ~fds:_ _data = failwith "Not implemented on Windows"
+
+  let recv_msg_with_fds _t ~sw:_ ~max_fds:_ _data = failwith "Not implemented on Windows"
+
   let fd t = t
 
   let close = Eio_unix.Fd.close
 end
 
-let handler = Eio_unix.Resource.flow_handler (module Impl)
+let handler = Eio_unix.Pi.flow_handler (module Impl)
 
 let of_fd fd =
   let r = Eio.Resource.T (fd, handler) in
-  (r : [Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r :>
-     [< Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r)
+  (r : [`Unix_fd | Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r :>
+     [< `Unix_fd | Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r)
 
 module Secure_random = struct
   type t = unit

@@ -470,8 +470,8 @@ Exception: Failure "Simulated error".
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let a, b = Eio_unix.Net.socketpair_stream ~sw () in
-  ignore (Eio_unix.Resource.fd a : Eio_unix.Fd.t);
-  ignore (Eio_unix.Resource.fd b : Eio_unix.Fd.t);
+  ignore (Eio_unix.Net.fd a : Eio_unix.Fd.t);
+  ignore (Eio_unix.Net.fd b : Eio_unix.Fd.t);
   Eio.Flow.copy_string "foo" a;
   Eio.Flow.close a;
   let msg = Eio.Buf_read.of_flow b ~max_size:10 |> Eio.Buf_read.take_all in
@@ -746,8 +746,8 @@ Eio.Io Net Connection_failure Timeout,
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let a, b = Eio_unix.Net.socketpair_datagram ~sw ~domain:Unix.PF_UNIX () in
-  ignore (Eio_unix.Resource.fd a : Eio_unix.Fd.t);
-  ignore (Eio_unix.Resource.fd b : Eio_unix.Fd.t);
+  ignore (Eio_unix.Net.fd a : Eio_unix.Fd.t);
+  ignore (Eio_unix.Net.fd b : Eio_unix.Fd.t);
   let l = [ "foo"; "bar"; "foobar"; "cellar door"; "" ] in
   let buf = Cstruct.create 32 in
   let write bufs = Eio.Net.send a (List.map Cstruct.of_string bufs) in

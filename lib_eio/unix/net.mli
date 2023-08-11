@@ -4,14 +4,35 @@ open Eio.Std
 
     These extend the types in {!Eio.Net} with support for file descriptors. *)
 
-type stream_socket_ty   = [`Unix_fd | [`Generic | `Unix] Eio.Net.stream_socket_ty]
-type datagram_socket_ty = [`Unix_fd | [`Generic | `Unix] Eio.Net.datagram_socket_ty]
-type listening_socket_ty = [`Unix_fd | [`Generic | `Unix] Eio.Net.listening_socket_ty]
+type stream_socket_ty   = [`Generic | `Unix] Eio.Net.stream_socket_ty
+type datagram_socket_ty = [`Generic | `Unix] Eio.Net.datagram_socket_ty
+type listening_socket_ty = [`Generic | `Unix] Eio.Net.listening_socket_ty
 type 'a stream_socket = ([> stream_socket_ty] as 'a) r
 type 'a datagram_socket = ([> datagram_socket_ty] as 'a) r
 type 'a listening_socket = ([> listening_socket_ty] as 'a) r
 
 type t = [`Generic | `Unix] Eio.Net.ty r
+
+(** {2 Passing file descriptors} *)
+
+val send_msg :
+  [> `Platform of [>`Unix] | `Socket | `Stream] r ->
+  ?fds:Fd.t list ->
+  Cstruct.t list -> unit
+(** Like {!Eio.Flow.write}, but allows passing file descriptors (for Unix-domain sockets). *)
+
+val recv_msg_with_fds :
+  [> `Platform of [>`Unix] | `Socket | `Stream] r ->
+  sw:Switch.t ->
+  max_fds:int ->
+  Cstruct.t list ->
+  int * Fd.t list
+(** Like {!Eio.Flow.single_read}, but also allows receiving file descriptors (for Unix-domain sockets).
+
+    @param max_fds The maximum number of file descriptors to accept (additional ones will be closed). *)
+
+val fd : [> `Platform of [> `Unix] | `Socket] r -> Fd.t
+(** [fd socket] is the underlying FD of [socket]. *)
 
 (** {2 Unix address conversions}
 
@@ -34,7 +55,7 @@ end
 
 (** {2 Creating or importing sockets} *)
 
-val import_socket_stream : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> stream_socket_ty r
+val import_socket_stream : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [`Unix_fd | stream_socket_ty] r
 (** [import_socket_stream ~sw ~close_unix:true fd] is an Eio flow that uses [fd].
 
     It can be cast to e.g. {!source} for a one-way flow.
@@ -42,7 +63,7 @@ val import_socket_stream : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> 
 
     The [close_unix] and [sw] arguments are passed to {!Fd.of_unix}. *)
 
-val import_socket_datagram : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> datagram_socket_ty r
+val import_socket_datagram : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [`Unix_fd | datagram_socket_ty] r
 (** [import_socket_datagram ~sw ~close_unix:true fd] is an Eio datagram socket that uses [fd].
 
     The socket object will be closed when [sw] finishes.
@@ -54,7 +75,7 @@ val socketpair_stream :
   ?domain:Unix.socket_domain ->
   ?protocol:int ->
   unit ->
-  stream_socket_ty r * stream_socket_ty r
+  [`Unix_fd | stream_socket_ty] r * [`Unix_fd | stream_socket_ty] r
 (** [socketpair_stream ~sw ()] returns a connected pair of flows, such that writes to one can be read by the other.
 
     This creates OS-level resources using [socketpair(2)].
@@ -65,7 +86,7 @@ val socketpair_datagram :
   ?domain:Unix.socket_domain ->
   ?protocol:int ->
   unit ->
-  datagram_socket_ty r * datagram_socket_ty r
+  [`Unix_fd | datagram_socket_ty] r * [`Unix_fd | datagram_socket_ty] r
 (** [socketpair_datagram ~sw ()] returns a connected pair of flows, such that writes to one can be read by the other.
 
     This creates OS-level resources using [socketpair(2)].
@@ -78,11 +99,11 @@ val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
 
 type _ Effect.t +=
   | Import_socket_stream :
-      Switch.t * bool * Unix.file_descr -> stream_socket_ty r Effect.t            (** See {!import_socket_stream} *)
+      Switch.t * bool * Unix.file_descr -> [`Unix_fd | stream_socket_ty] r Effect.t     (** See {!import_socket_stream} *)
   | Import_socket_datagram :
-      Switch.t * bool * Unix.file_descr -> datagram_socket_ty r Effect.t          (** See {!import_socket_datagram} *)
+      Switch.t * bool * Unix.file_descr -> [`Unix_fd | datagram_socket_ty] r Effect.t   (** See {!import_socket_datagram} *)
   | Socketpair_stream : Eio.Switch.t * Unix.socket_domain * int ->
-      (stream_socket_ty r * stream_socket_ty r) Effect.t                          (** See {!socketpair_stream} *)
+      ([`Unix_fd | stream_socket_ty] r * [`Unix_fd | stream_socket_ty] r) Effect.t      (** See {!socketpair_stream} *)
   | Socketpair_datagram : Eio.Switch.t * Unix.socket_domain * int ->
-      (datagram_socket_ty r * datagram_socket_ty r) Effect.t                      (** See {!socketpair_datagram} *)
+      ([`Unix_fd | datagram_socket_ty] r * [`Unix_fd | datagram_socket_ty] r) Effect.t  (** See {!socketpair_datagram} *)
 [@@alert "-unstable"]

@@ -38,7 +38,7 @@ module Listening_socket = struct
     flow, client_addr
 end
 
-let listening_handler = Eio_unix.Resource.listening_socket_handler (module Listening_socket)
+let listening_handler = Eio_unix.Pi.listening_socket_handler (module Listening_socket)
 
 let listening_socket ~hook fd =
   Eio.Resource.T (Listening_socket.make ~hook fd, listening_handler)
@@ -72,7 +72,7 @@ module Datagram_socket = struct
     | Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 end
 
-let datagram_handler = Eio_unix.Resource.datagram_handler (module Datagram_socket)
+let datagram_handler = Eio_unix.Pi.datagram_handler (module Datagram_socket)
 
 let datagram_socket fd =
   Eio.Resource.T (fd, datagram_handler)

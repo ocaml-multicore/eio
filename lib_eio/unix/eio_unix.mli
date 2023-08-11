@@ -28,37 +28,6 @@ module Resource : sig
   (** [fd_opt t] returns the FD being wrapped by a generic resource, if any.
 
       This just probes [t] using {!extension-FD}. *)
-
-  module type FLOW = sig
-    include Eio.Net.Pi.STREAM_SOCKET
-    include Eio.File.Pi.WRITE with type t := t
-
-    val fd : t -> Fd.t
-  end
-
-  val flow_handler :
-    (module FLOW with type t = 't and type tag = 'tag) ->
-    ('t, [`Unix_fd | 'tag Eio.Net.stream_socket_ty | Eio.File.rw_ty]) Eio.Resource.handler
-
-  module type DATAGRAM_SOCKET = sig
-    include Eio.Net.Pi.DATAGRAM_SOCKET
-
-    val fd : t -> Fd.t
-  end
-
-  val datagram_handler :
-    (module DATAGRAM_SOCKET with type t = 't and type tag = 'tag) ->
-    ('t, [`Unix_fd | 'tag Eio.Net.datagram_socket_ty]) Eio.Resource.handler
-
-  module type LISTENING_SOCKET = sig
-    include Eio.Net.Pi.LISTENING_SOCKET
-
-    val fd : t -> Fd.t
-  end
-
-  val listening_socket_handler :
-    (module LISTENING_SOCKET with type t = 't and type tag = 'tag) ->
-    ('t, [`Unix_fd | 'tag Eio.Net.listening_socket_ty]) Eio.Resource.handler
 end
 
 module Net = Net
@@ -129,3 +98,5 @@ module Private : sig
 end
 
 module Ctf = Ctf_unix
+
+module Pi = Pi

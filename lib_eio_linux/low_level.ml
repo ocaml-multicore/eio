@@ -263,10 +263,7 @@ let recv_msg_with_fds ~sw ~max_fds fd buf =
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "recv_msg" ""
   );
-  let fds =
-    Uring.Msghdr.get_fds msghdr
-    |> List.map (fun fd -> Fd.of_unix ~sw ~close_unix:true fd)
-  in
+  let fds = Uring.Msghdr.get_fds msghdr |> Fd.of_unix_list ~sw in
   addr, res, fds
 
 let with_chunk ~fallback fn =

@@ -14,6 +14,10 @@ val of_unix : sw:Switch.t -> ?blocking:bool -> ?seekable:bool -> close_unix:bool
     @param seekable The value to be returned by {!is_seekable}. Defaults to probing if needed.
     @param close_unix Whether {!close} also closes [fd] (this should normally be [true]). *)
 
+val of_unix_list : sw:Switch.t -> Unix.file_descr list -> t list
+(** [of_unix_list ~sw fds] is like [List.map (of_unix ~sw ~close_unix:true) fds],
+    except that if [sw] is off then it closes all the FDs. *)
+
 (** {2 Using FDs} *)
 
 val use : t -> (Unix.file_descr -> 'a) -> if_closed:(unit -> 'a) -> 'a
