@@ -71,8 +71,8 @@ module Stdenv : sig
     net : [`Unix | `Generic] Eio.Net.ty r;
     domain_mgr : Eio.Domain_manager.t;
     process_mgr : Process.mgr;
-    clock : Eio.Time.clock;
-    mono_clock : Eio.Time.Mono.t;
+    clock : float Eio.Time.clock_ty r;
+    mono_clock : Eio.Time.Mono.ty r;
     fs : Eio.Fs.dir_ty Eio.Path.t;
     cwd : Eio.Fs.dir_ty Eio.Path.t;
     secure_random : Eio.Flow.source_ty r;
@@ -89,7 +89,7 @@ module Private : sig
   type _ Effect.t += 
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
-    | Get_monotonic_clock : Eio.Time.Mono.t Effect.t
+    | Get_monotonic_clock : Eio.Time.Mono.ty r Effect.t
     | Pipe : Eio.Switch.t -> (source_ty r * sink_ty r) Effect.t    (** See {!pipe} *)
 
   module Rcfd = Rcfd

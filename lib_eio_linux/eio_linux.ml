@@ -401,25 +401,34 @@ let domain_mgr ~run_event_loop = object
     unwrap_backtrace (Domain.join (Option.get !domain))
 end
 
-let mono_clock = object
-  inherit Eio.Time.Mono.t
+module Mono_clock = struct
+  type t = unit
+  type time = Mtime.t
 
-  method now = Mtime_clock.now ()
-
-  method sleep_until = Low_level.sleep_until
+  let now () = Mtime_clock.now ()
+  let sleep_until () time = Low_level.sleep_until time
 end
 
-let clock = object
-  inherit Eio.Time.clock
+let mono_clock : Mtime.t Eio.Time.clock_ty r =
+  let handler = Eio.Time.Pi.clock (module Mono_clock) in
+  Eio.Resource.T ((), handler)
 
-  method now = Unix.gettimeofday ()
+module Clock = struct
+  type t = unit
+  type time = float
 
-  method sleep_until time =
+  let now () = Unix.gettimeofday ()
+
+  let sleep_until () time =
     (* todo: use the realtime clock directly instead of converting to monotonic time.
        That is needed to handle adjustments to the system clock correctly. *)
     let d = time -. Unix.gettimeofday () in
     Eio.Time.Mono.sleep mono_clock d
 end
+
+let clock : float Eio.Time.clock_ty r =
+  let handler = Eio.Time.Pi.clock (module Clock) in
+  Eio.Resource.T ((), handler)
 
 module rec Dir : sig
   include Eio.Fs.Pi.DIR

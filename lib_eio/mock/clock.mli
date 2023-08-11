@@ -1,11 +1,11 @@
+open Eio.Std
+
+type 'time ty = [`Mock | 'time Eio.Time.clock_ty]
+
 module type S = sig
   type time
 
-  type t = <
-    time Eio.Time.clock_base;
-    advance : unit;
-    set_time : time -> unit;
-  >
+  type t = time ty r
 
   val make : unit -> t
   (** [make ()] is a new clock.

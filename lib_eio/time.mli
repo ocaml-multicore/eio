@@ -1,19 +1,17 @@
-class virtual ['a] clock_base : object
-  method virtual now : 'a
-  method virtual sleep_until : 'a -> unit
-end
+open Std
 
-class virtual clock : object
-  inherit [float] clock_base
-end
+type 'a clock_ty = [`Clock of 'a]
+type 'a clock_base = 'a r constraint 'a = [> _ clock_ty]
 
-val now : #clock -> float
+type 'a clock = ([> float clock_ty] as 'a) r
+
+val now : _ clock -> float
 (** [now t] is the current time since 00:00:00 GMT, Jan. 1, 1970 - in seconds - according to [t]. *)
 
-val sleep_until : #clock -> float -> unit
+val sleep_until : _ clock -> float -> unit
 (** [sleep_until t time] waits until the given time is reached. *)
 
-val sleep : #clock -> float -> unit
+val sleep : _ clock -> float -> unit
 (** [sleep t d] waits for [d] seconds. *)
 
 (** Monotonic clocks. *)
@@ -24,20 +22,19 @@ module Mono : sig
 
       A monotonic clock may or may not include time while the computer is suspended. *)
 
-  class virtual t : object
-    inherit [Mtime.t] clock_base
-  end
+  type ty = Mtime.t clock_ty
+  type 'a t = ([> ty] as 'a) r
 
-  val now : #t -> Mtime.t
+  val now : _ t -> Mtime.t
   (** [now t] is the current time according to [t]. *)
 
-  val sleep_until : #t -> Mtime.t -> unit
+  val sleep_until : _ t -> Mtime.t -> unit
   (** [sleep_until t time] waits until [time] before returning. *)
 
-  val sleep : #t -> float -> unit
+  val sleep : _ t -> float -> unit
   (** [sleep t d] waits for [d] seconds. *)
 
-  val sleep_span : #t -> Mtime.span -> unit
+  val sleep_span : _ t -> Mtime.span -> unit
   (** [sleep_span t d] waits for duration [d]. *)
 end
 
@@ -45,10 +42,10 @@ end
 
 exception Timeout
 
-val with_timeout : #clock -> float -> (unit -> ('a, 'e) result) -> ('a, [> `Timeout] as 'e) result
+val with_timeout : _ clock -> float -> (unit -> ('a, 'e) result) -> ('a, [> `Timeout] as 'e) result
 (** [with_timeout clock d fn] runs [fn ()] but cancels it after [d] seconds. *)
 
-val with_timeout_exn : #clock -> float -> (unit -> 'a) -> 'a
+val with_timeout_exn : _ clock -> float -> (unit -> 'a) -> 'a
 (** [with_timeout_exn clock d fn] runs [fn ()] but cancels it after [d] seconds,
     raising exception {!exception-Timeout}. *)
 
@@ -56,11 +53,11 @@ val with_timeout_exn : #clock -> float -> (unit -> 'a) -> 'a
 module Timeout : sig
   type t
 
-  val v : #Mono.t -> Mtime.Span.t -> t
+  val v : _ Mono.t -> Mtime.Span.t -> t
   (** [v clock duration] is a timeout of [duration], as measured by [clock].
       Internally, this is just the tuple [(clock, duration)]. *)
 
-  val seconds : #Mono.t -> float -> t
+  val seconds : _ Mono.t -> float -> t
   (** [seconds clock duration] is a timeout of [duration] seconds, as measured by [clock]. *)
 
   val none : t
@@ -76,4 +73,22 @@ module Timeout : sig
   val pp : t Fmt.t
   (** [pp] formats a timeout as a duration (e.g. "5s").
       This is intended for use in error messages and logging and is rounded. *)
+end
+
+module Pi : sig
+  module type CLOCK = sig
+    type t
+    type time
+
+    val now : t -> time
+    val sleep_until : t -> time -> unit
+  end
+
+  type (_, _, _) Resource.pi +=
+      Clock : ('t, (module CLOCK with type t = 't and type time = 'time),
+         [> 'time clock_ty ]) Resource.pi
+
+  val clock :
+    (module CLOCK with type t = 't and type time = 'time) ->
+    ('t, [> 'time clock_ty]) Resource.handler
 end
