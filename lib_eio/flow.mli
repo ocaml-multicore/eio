@@ -76,6 +76,9 @@ val write : _ sink -> Cstruct.t list -> unit
     - {!Buf_write} to combine multiple small writes.
     - {!copy} for bulk transfers, as it allows some extra optimizations. *)
 
+val single_write : _ sink -> Cstruct.t list -> int
+(** [single_write dst bufs] writes at least one byte from [bufs] and returns the number of bytes written. *)
+
 val copy : _ source -> _ sink -> unit
 (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
 
@@ -119,7 +122,7 @@ module Pi : sig
   module type SINK = sig
     type t
     val copy : t -> src:_ source -> unit
-    val write : t -> Cstruct.t list -> unit
+    val single_write : t -> Cstruct.t list -> int
   end
 
   module type SHUTDOWN = sig

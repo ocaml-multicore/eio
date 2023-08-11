@@ -8,9 +8,6 @@ open Eio.Std
 module Write = Eio.Buf_write
 
 let flow = Eio_mock.Flow.make "flow"
-
-let flow_rsb = Eio_mock.Flow.make "flow"
-let () = Eio_mock.Flow.set_copy_method flow_rsb `Read_source_buffer
 ```
 
 ## A simple run-through
@@ -44,12 +41,12 @@ If supported by the flow, we can avoid copying:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  Write.with_flow flow_rsb @@ fun w ->
+  Write.with_flow flow @@ fun w ->
   Write.string w "Hello";
   Write.char w ' ';
   Write.schedule_cstruct w (Cstruct.of_string "world");
   Write.char w '!';;
-+flow: wrote (rsb) ["Hello "; "world"; "!"]
++flow: wrote ["Hello "; "world"; "!"]
 - : unit = ()
 ```
 
@@ -78,7 +75,7 @@ With pausing
   Fiber.yield ();
   Write.unpause w;
   Write.string w "world";;
-+flow: wrote "Hello... world"
++flow: wrote ["Hello... "; "world"]
 - : unit = ()
 ```
 
@@ -139,13 +136,13 @@ With pausing
     Write.char   t 'e'
   in
   traceln "With room:";
-  Write.with_flow flow_rsb f;
+  Write.with_flow flow f;
   traceln "Without room:";
-  Write.with_flow ~initial_size:1 flow_rsb f;;
+  Write.with_flow ~initial_size:1 flow f;;
 +With room:
-+flow: wrote (rsb) ["testtestte"]
++flow: wrote "testtestte"
 +Without room:
-+flow: wrote (rsb) ["te"; "st"; "te"; "st"; "te"]
++flow: wrote ["te"; "st"; "te"; "st"; "te"]
 - : unit = ()
 ```
 
@@ -182,32 +179,29 @@ Eio_mock.Flow.on_copy_bytes flow [
 - : unit = ()
 ```
 
-Multiple flushes.
-Note: ideally the flushes here would complete as soon as enough data has been flushed,
-but currently Eio.Flow.sink doesn't allow short writes and so Buf_write has to wait for
-the whole batch to be flushed.
+Multiple flushes:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  Eio_mock.Flow.on_copy_bytes flow_rsb [
+  Eio_mock.Flow.on_copy_bytes flow [
     `Yield_then (`Return 1);
     `Yield_then (`Return 2);
     `Yield_then (`Return 2);
     `Yield_then (`Return 2);
   ];
-  Write.with_flow flow_rsb @@ fun t ->
+  Write.with_flow flow @@ fun t ->
   Fiber.all [
     (fun () -> Write.string t "ab"; Write.flush t; traceln "1st flush");
     (fun () -> Write.string t "cd"; Write.flush t; traceln "2nd flush");
     (fun () -> Write.string t "ef"; Write.flush t; traceln "3rd flush");
   ];
   traceln "Done";;
-+flow: wrote (rsb) ["a"]
-+flow: wrote (rsb) ["b"; "c"]
-+flow: wrote (rsb) ["d"; "e"]
-+flow: wrote (rsb) ["f"]
++flow: wrote "a"
++flow: wrote ["b"; "c"]
 +1st flush
++flow: wrote ["d"; "e"]
 +2nd flush
++flow: wrote "f"
 +3rd flush
 +Done
 - : unit = ()
@@ -229,7 +223,9 @@ module Slow_writer = struct
       done
     with End_of_file -> ()
 
-  let write t bufs = copy t ~src:(Eio.Flow.cstruct_source bufs)
+  let single_write t bufs =
+    copy t ~src:(Eio.Flow.cstruct_source bufs);
+    Cstruct.lenv bufs
 end
 let slow_writer =
   let ops = Eio.Flow.Pi.sink (module Slow_writer) in
@@ -261,8 +257,8 @@ let slow_writer =
   Write.schedule_cstruct t (Cstruct.of_string "end");
   Fiber.yield ();
   traceln "Should all be flushed by now.";;;
-+flow: wrote "onetwo"
-+flow: wrote "onetwo"
++flow: wrote ["one"; "two"]
++flow: wrote ["one"; "two"]
 +flow: wrote "end"
 +Should all be flushed by now.
 - : unit = ()

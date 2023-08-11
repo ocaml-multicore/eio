@@ -473,8 +473,8 @@ let rec await_batch t =
 let copy t flow =
   let rec aux () =
     let iovecs = await_batch t in
-    Flow.write flow iovecs;             (* todo: add a Flow.single_write and use that. *)
-    shift t (Cstruct.lenv iovecs);
+    let wrote = Flow.single_write flow iovecs in
+    shift t wrote;
     aux ()
   in
   try aux ()

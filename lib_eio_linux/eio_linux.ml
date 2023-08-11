@@ -165,7 +165,7 @@ module Flow = struct
 
   let read_methods = []
 
-  let write t bufs = Low_level.writev t bufs
+  let single_write t bufs = Low_level.writev_single t bufs
 
   let copy t ~src =
     match Eio_unix.Resource.fd_opt src with

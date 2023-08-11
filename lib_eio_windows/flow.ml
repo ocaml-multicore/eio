@@ -36,16 +36,21 @@ module Impl = struct
       }
     with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
 
-  let write t bufs =
+  let write_all t bufs =
     try Low_level.writev t bufs
     with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
+
+  (* todo: provide a way to do a single write *)
+  let single_write t bufs =
+    write_all t bufs;
+    Cstruct.lenv bufs
 
   let copy dst ~src =
     let buf = Cstruct.create 4096 in
     try
       while true do
         let got = Eio.Flow.single_read src buf in
-        write dst [Cstruct.sub buf 0 got]
+        write_all dst [Cstruct.sub buf 0 got]
       done
     with End_of_file -> ()
 
