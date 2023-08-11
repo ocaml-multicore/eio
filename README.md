@@ -842,7 +842,8 @@ let try_mkdir path =
 The checks also apply to following symlinks:
 
 ```ocaml
-# Unix.symlink "dir1" "link-to-dir1"; Unix.symlink "/tmp" "link-to-tmp";;
+# Unix.symlink "dir1" "link-to-dir1";
+  Unix.symlink (Filename.get_temp_dir_name ()) "link-to-tmp";;
 - : unit = ()
 
 # Eio_main.run @@ fun env ->
