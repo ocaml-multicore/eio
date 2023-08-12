@@ -73,8 +73,15 @@ let wakeup t =
   Rcfd.use t.eventfd
     ~if_closed:ignore       (* Domain has shut down (presumably after handling the event) *)
     (fun fd ->
-       (* This can fail if the pipe is full, but then a wake up is pending anyway. *)
-       ignore (Unix.single_write fd wake_buffer 0 1 : int);
+       try
+         ignore (Unix.single_write fd wake_buffer 0 1 : int)
+       with
+       | Unix.Unix_error ((Unix.EAGAIN | EWOULDBLOCK), _, _) ->
+         (* If the pipe is full then a wake up is pending anyway. *)
+         ()
+       | Unix.Unix_error (Unix.EPIPE, _, _) ->
+         (* We're shutting down; the event has already been processed. *)
+         ()
     )
 
 (* Safe to call from anywhere (other systhreads, domains, signal handlers, GC finalizers) *)
