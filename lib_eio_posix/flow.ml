@@ -36,7 +36,13 @@ module Impl = struct
       }
     with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
 
-  let write t bufs =
+  let single_write t bufs =
+    try
+      Low_level.writev t (Array.of_list bufs)
+    with Unix.Unix_error (code, name, arg) ->
+      raise (Err.wrap code name arg)
+
+  let write_all t bufs =
     try
       let rec loop = function
         | [] -> ()
@@ -52,7 +58,7 @@ module Impl = struct
     try
       while true do
         let got = Eio.Flow.single_read src buf in
-        write dst [Cstruct.sub buf 0 got]
+        write_all dst [Cstruct.sub buf 0 got]
       done
     with End_of_file -> ()
 

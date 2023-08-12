@@ -37,14 +37,25 @@ module Mock_flow = struct
     | x :: _ when Cstruct.length x >= len -> [Cstruct.sub x 0 len]
     | x :: xs -> x :: takev (len - Cstruct.length x) xs
 
-  (* Test optimised copying using Read_source_buffer *)
-  let copy_rsb_iovec t src =
+  let write ~pp t bufs =
     let size = Handler.run t.on_copy_bytes in
-    let len = min (Cstruct.lenv src) size in
-    let bufs = takev len src in
-    traceln "%s: wrote (rsb) @[<v>%a@]" t.label (Fmt.Dump.list (Fmt.using Cstruct.to_string t.pp)) bufs;
+    let len = min (Cstruct.lenv bufs) size in
+    let bufs = takev len bufs in
+    traceln "%s: wrote %a" t.label pp bufs;
     len
 
+  let single_write t bufs =
+    let pp f = function
+      | [buf] -> Fmt.pf f "@[<v>%a@]" t.pp (Cstruct.to_string buf)
+      | bufs -> Fmt.pf f "@[<v>%a@]" (Fmt.Dump.list (Fmt.using Cstruct.to_string t.pp)) bufs
+    in
+    write ~pp t bufs
+
+  let copy_rsb_iovec t bufs =
+    let pp f bufs = Fmt.pf f "(rsb) @[<v>%a@]" (Fmt.Dump.list (Fmt.using Cstruct.to_string t.pp)) bufs in
+    write ~pp t bufs
+
+  (* Test optimised copying using Read_source_buffer *)
   let copy_rsb t rsb =
     try while true do rsb (copy_rsb_iovec t) done
     with End_of_file -> ()
@@ -83,9 +94,6 @@ module Mock_flow = struct
       in
       if not (List.exists try_rsb Src.read_methods) then
         Fmt.failwith "Source does not offer Read_source_buffer optimisation"
-
-  let write t bufs =
-    copy t ~src:(Eio.Flow.cstruct_source bufs)
 
   let shutdown t cmd =
     traceln "%s: shutdown %s" t.label @@

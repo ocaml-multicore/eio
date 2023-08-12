@@ -24,7 +24,7 @@ module Pi = struct
   module type SINK = sig
     type t
     val copy : t -> src:_ source -> unit
-    val write : t -> Cstruct.t list -> unit
+    val single_write : t -> Cstruct.t list -> int
   end
 
   module type SHUTDOWN = sig
@@ -130,9 +130,19 @@ let string_source =
   let ops = Pi.source (module String_source) in
   fun s -> Resource.T (String_source.create s, ops)
 
+let single_write (Resource.T (t, ops)) bufs =
+  let module X = (val (Resource.get ops Sink)) in
+  X.single_write t bufs
+
 let write (Resource.T (t, ops)) bufs =
   let module X = (val (Resource.get ops Sink)) in
-  X.write t bufs
+  let rec aux = function
+    | [] -> ()
+    | bufs ->
+      let wrote = X.single_write t bufs in
+      aux (Cstruct.shiftv bufs wrote)
+  in
+  aux bufs
 
 let copy src (Resource.T (t, ops)) =
   let module X = (val (Resource.get ops Sink)) in
@@ -153,8 +163,10 @@ module Buffer_sink = struct
       done
     with End_of_file -> ()
 
-  let write t bufs =
-    List.iter (fun buf -> Buffer.add_bytes t (Cstruct.to_bytes buf)) bufs
+  let single_write t bufs =
+    let old_length = Buffer.length t in
+    List.iter (fun buf -> Buffer.add_bytes t (Cstruct.to_bytes buf)) bufs;
+    Buffer.length t - old_length
 end
 
 let buffer_sink =
