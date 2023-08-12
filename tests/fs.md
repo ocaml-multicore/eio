@@ -17,8 +17,10 @@ open Eio.Std
 
 let ( / ) = Path.( / )
 
-let run fn =
+let run ?clear:(paths = []) fn =
   Eio_main.run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p)) paths;
   fn env
 
 let try_read_file path =
@@ -69,13 +71,26 @@ let try_rmtree ?missing_ok path =
 let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
+
+let try_stat path =
+  let stat ~follow =
+    match Eio.Path.stat ~follow path with
+    | info -> Fmt.str "@[<h>%a@]" Eio.File.Stat.pp_kind info.kind
+    | exception Eio.Io (e, _) -> Fmt.str "@[<h>%a@]" Eio.Exn.pp_err e
+  in
+  let a = stat ~follow:false in
+  let b = stat ~follow:true in
+  if a = b then
+    traceln "%a -> %s" Eio.Path.pp path a
+  else
+    traceln "%a -> %s / %s" Eio.Path.pp path a b
 ```
 
 # Basic test cases
 
 Creating a file and reading it back:
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["test-file"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   Path.save ~create:(`Exclusive 0o666) (cwd / "test-file") "my-data";
   traceln "Got %S" @@ Path.load (cwd / "test-file");;
@@ -179,7 +194,7 @@ Appending to an existing file:
 # Mkdir
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["subdir"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "subdir");
   try_mkdir (cwd / "subdir/nested");
@@ -188,19 +203,18 @@ Appending to an existing file:
 +mkdir <cwd:subdir> -> ok
 +mkdir <cwd:subdir/nested> -> ok
 - : unit = ()
-# Unix.unlink "subdir/nested/test-file"; Unix.rmdir "subdir/nested"; Unix.rmdir "subdir";;
+# Unix.unlink "subdir/nested/test-file";
+  Unix.rmdir "subdir/nested";
+  Unix.rmdir "subdir";;
 - : unit = ()
 ```
 
 Creating directories with nesting, symlinks, etc:
 ```ocaml
-# Unix.symlink "/" "to-root";;
-- : unit = ()
-# Unix.symlink "subdir" "to-subdir";;
-- : unit = ()
-# Unix.symlink "foo" "dangle";;
-- : unit = ()
-# run @@ fun env ->
+# run ~clear:["to-subdir"; "to-root"; "dangle"] @@ fun env ->
+  Unix.symlink "/" "to-root";
+  Unix.symlink "subdir" "to-subdir";
+  Unix.symlink "foo" "dangle";
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "subdir");
   try_mkdir (cwd / "to-subdir/nested");
@@ -265,7 +279,7 @@ let split path = Eio.Path.split (fake_dir, path) |> Option.map (fun ((_, dirname
 Recursively creating directories with `mkdirs`.
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["subdir1"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let nested = cwd / "subdir1" / "subdir2" / "subdir3" in
   try_mkdirs nested;
@@ -287,7 +301,7 @@ Recursively creating directories with `mkdirs`.
 Some edge cases for `mkdirs`.
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["test"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdirs (cwd / ".");
   try_mkdirs (cwd / "././");
@@ -307,7 +321,7 @@ Some edge cases for `mkdirs`.
 You can remove a file using unlink:
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["file"; "subdir/file2"] @@ fun env ->
   Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
   Path.save ~create:(`Exclusive 0o600) (cwd / "file") "data";
@@ -352,12 +366,67 @@ Removing something that doesn't exist or is out of scope:
 - : unit = ()
 ```
 
+Reads and writes follow symlinks, but unlink operates on the symlink itself:
+
+```ocaml
+# run ~clear:["link1"; "linkdir"; "linkroot"; "dir1"; "file2"] @@ fun env ->
+  Switch.run @@ fun sw ->
+  let cwd = Eio.Stdenv.cwd env in
+  let fs = Eio.Stdenv.fs env in
+
+  try_mkdir (cwd / "dir1");
+  let file1 = cwd / "dir1" / "file1" in
+  let file2 = cwd / "file2" in
+  try_write_file ~create:(`Exclusive 0o600) file1 "data1";
+  try_write_file ~create:(`Exclusive 0o400) file2 "data2";
+  Unix.symlink "dir1/file1" "link1";
+  Unix.symlink "../file2" "dir1/link2";
+  Unix.symlink "dir1" "linkdir";
+  Unix.symlink "/" "linkroot";
+  try_read_file file1;
+  try_read_file (cwd / "link1");
+  try_read_file (cwd / "linkdir" / "file1");
+
+  try_stat file1;
+  try_stat (cwd / "link1");
+  try_stat (cwd / "linkdir");
+  try_stat (cwd / "linkroot");
+  try_stat (fs / "linkroot");
+
+  Fun.protect ~finally:(fun () -> chdir "..") (fun () ->
+    chdir "dir1";
+    try_read_file (cwd / "file1");
+    (* Should remove link itself even though it's poiting outside of cwd *)
+    Path.unlink (cwd / "link2")
+  );
+  try_read_file file2;
+  Path.unlink (cwd / "link1");
+  Path.unlink (cwd / "linkdir");
+  Path.unlink (cwd / "linkroot")
++mkdir <cwd:dir1> -> ok
++write <cwd:dir1/file1> -> ok
++write <cwd:file2> -> ok
++read <cwd:dir1/file1> -> "data1"
++read <cwd:link1> -> "data1"
++read <cwd:linkdir/file1> -> "data1"
++<cwd:dir1/file1> -> regular file
++<cwd:link1> -> symbolic link / regular file
++<cwd:linkdir> -> symbolic link / directory
++<cwd:linkroot> -> symbolic link / Fs Permission_denied _
++<fs:linkroot> -> symbolic link / directory
++chdir "dir1"
++read <cwd:file1> -> "data1"
++chdir ".."
++read <cwd:file2> -> "data2"
+- : unit = ()
+```
+
 # Rmdir
 
 Similar to `unlink`, but works on directories:
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["d1"; "subdir/d2"; "subdir/d3"] @@ fun env ->
   Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "d1");
@@ -405,7 +474,7 @@ Removing something that doesn't exist or is out of scope:
 # Recursive removal
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["foo"] @@ fun env ->
   Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
   let foo = cwd / "foo" in
@@ -431,7 +500,7 @@ Removing something that doesn't exist or is out of scope:
 
 Create a sandbox, write a file with it, then read it from outside:
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["sandbox"] @@ fun env ->
   Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "sandbox");
@@ -450,7 +519,7 @@ Create a sandbox, write a file with it, then read it from outside:
 We create a directory and chdir into it.
 Using `cwd` we can't access the parent, but using `fs` we can:
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["fs-test"; "outside-cwd"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let fs = Eio.Stdenv.fs env in
   try_mkdir (cwd / "fs-test");
@@ -476,7 +545,7 @@ Using `cwd` we can't access the parent, but using `fs` we can:
 Reading directory entries under `cwd` and outside of `cwd`.
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["readdir"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "readdir");
   Path.with_open_dir (cwd / "readdir") @@ fun tmpdir ->
@@ -499,7 +568,8 @@ Reading directory entries under `cwd` and outside of `cwd`.
 An error from the underlying directory, not the sandbox:
 
 ```ocaml
-# Unix.mkdir "test-no-access" 0;;
+# run ~clear:["test-no-access"] @@ fun env ->
+  Unix.mkdir "test-no-access" 0;;
 - : unit = ()
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -530,7 +600,7 @@ Exception: Eio.Io Fs Permission_denied _,
 ## Streamling lines
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["test-data"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   Path.save ~create:(`Exclusive 0o600) (cwd / "test-data") "one\ntwo\nthree";
   Path.with_lines (cwd / "test-data") (fun lines ->
@@ -609,7 +679,7 @@ let try_rename t =
 Confined:
 
 ```ocaml
-# run @@ fun env -> try_rename env#cwd;;
+# run ~clear:["tmp"; "dir"] @@ fun env -> try_rename env#cwd;;
 +mkdir <cwd:tmp> -> ok
 +rename <cwd:tmp> to <cwd:dir> -> ok
 +write <cwd:foo> -> ok
@@ -639,22 +709,7 @@ Unconfined:
 # Stat
 
 ```ocaml
-let try_stat path =
-  let stat ~follow =
-    match Eio.Path.stat ~follow path with
-    | info -> Fmt.str "@[<h>%a@]" Eio.File.Stat.pp_kind info.kind
-    | exception Eio.Io (e, _) -> Fmt.str "@[<h>%a@]" Eio.Exn.pp_err e
-  in
-  let a = stat ~follow:false in
-  let b = stat ~follow:true in
-  if a = b then
-    traceln "%a -> %s" Eio.Path.pp path a
-  else
-    traceln "%a -> %s / %s" Eio.Path.pp path a b
-```
-
-```ocaml
-# run @@ fun env ->
+# run ~clear:["stat_subdir"; "stat_reg"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   Switch.run @@ fun sw ->
   try_mkdir (cwd / "stat_subdir");
@@ -666,10 +721,10 @@ let try_stat path =
 - : unit = ()
 ```
 
-Fstatat:
+# Fstatat:
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["stat_subdir2"; "symlink"; "broken-symlink"; "parent-symlink"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   Switch.run @@ fun sw ->
   try_mkdir (cwd / "stat_subdir2");
@@ -701,7 +756,7 @@ Fstatat:
 Check reading and writing vectors at arbitrary offsets:
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["test.txt"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let path = cwd / "test.txt" in
   Path.with_open_out path ~create:(`Exclusive 0o600) @@ fun file ->
@@ -741,7 +796,7 @@ Reading at the end of a file:
 Ensure reads can be cancelled promptly, even if there is no need to wait:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# run @@ fun env ->
   Eio.Path.with_open_out (env#fs / "/dev/zero") ~create:`Never @@ fun null ->
   Fiber.both
      (fun () ->
@@ -755,7 +810,7 @@ Exception: Failure "Simulated error".
 # Native paths
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# run ~clear:["native-sub"] @@ fun env ->
   let cwd = Sys.getcwd () ^ "/" in
   let test x =
     let native = Eio.Path.native x in
@@ -800,7 +855,7 @@ Exception: Failure "Simulated error".
 # Seek, truncate and sync
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# run @@ fun env ->
   Eio.Path.with_open_out (env#cwd / "seek-test") ~create:(`If_missing 0o700) @@ fun file ->
   Eio.File.truncate file (Int63.of_int 10);
   assert ((Eio.File.stat file).size = (Int63.of_int 10));

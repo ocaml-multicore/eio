@@ -110,7 +110,7 @@ let kind ~follow t =
 let is_file t =
   kind ~follow:true t = `Regular_file
 
-let is_directory t = 
+let is_directory t =
   kind ~follow:true t = `Directory
 
 let with_open_in path fn =

@@ -780,6 +780,16 @@ To append to the string part, it's convenient to use the `/` operator:
 let ( / ) = Eio.Path.( / )
 ```
 
+<!--
+Cleanup previous runs due to [dune runtest --watch] not doing it
+```ocaml
+Eio_main.run @@ fun env ->
+let cwd = Eio.Stdenv.cwd env in
+["link-to-dir1"; "link-to-tmp"; "test.txt"; "dir1"]
+|> List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p))
+```
+-->
+
 `env` provides two initial paths:
 
 - `cwd` restricts access to files beneath the current working directory.
