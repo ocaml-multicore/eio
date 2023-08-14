@@ -39,6 +39,9 @@ module Stream = Stream
 (** Delayed evaluation. *)
 module Lazy = Lazy
 
+(** A pool of resources. *)
+module Pool = Pool
+
 (** Cancelling fibers. *)
 module Cancel = Eio__core.Cancel
 
