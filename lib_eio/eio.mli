@@ -203,7 +203,7 @@ module Stdenv : sig
       To use this, see {!Process}.
   *)
 
-  val process_mgr : <process_mgr : #Process.mgr as 'a; ..> -> 'a
+  val process_mgr : <process_mgr : _ Process.mgr as 'a; ..> -> 'a
   (** [process_mgr t] allows you to manage child processes. *)
 
   (** {1 Domains (using multiple CPU cores)}

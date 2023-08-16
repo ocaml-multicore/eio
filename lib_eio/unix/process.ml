@@ -69,23 +69,59 @@ let get_env = function
   | Some e -> e
   | None -> Unix.environment ()
 
-class virtual mgr = object (self)
-  inherit Eio.Process.mgr
+type ty = [ `Generic | `Unix ] Eio.Process.ty
+type 'a t = ([> ty] as 'a) r
 
-  method pipe ~sw =
-    (Private.pipe sw :> ([Eio.Resource.close_ty | Eio.Flow.source_ty] r *
-                         [Eio.Resource.close_ty | Eio.Flow.sink_ty] r))
+type mgr_ty = [`Generic | `Unix] Eio.Process.mgr_ty
+type 'a mgr = ([> mgr_ty] as 'a) r
 
-  method virtual spawn_unix :
+module Pi = struct
+  module type MGR = sig
+    include Eio.Process.Pi.MGR
+
+    val spawn_unix :
+      t ->
+      sw:Switch.t ->
+      ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
+      env:string array ->
+      fds:(int * Fd.t * Fork_action.blocking) list ->
+      executable:string ->
+      string list ->
+      ty r
+  end
+
+  type (_, _, _) Eio.Resource.pi +=
+    | Mgr_unix : ('t, (module MGR with type t = 't), [> mgr_ty]) Eio.Resource.pi
+
+  let mgr_unix (type t tag) (module X : MGR with type t = t and type tag = tag) =
+    Eio.Resource.handler [
+      H (Eio.Process.Pi.Mgr, (module X));
+      H (Mgr_unix, (module X));
+    ]
+end
+
+module Make_mgr (X : sig
+  type t
+
+  val spawn_unix :
+    t ->
     sw:Switch.t ->
     ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
     env:string array ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     executable:string ->
     string list ->
-    Eio.Process.t
+    ty r
+end) = struct
+  type t = X.t
 
-  method spawn ~sw ?cwd ?stdin ?stdout ?stderr ?env ?executable args =
+  type tag = [ `Generic | `Unix ]
+
+  let pipe _ ~sw =
+    (Private.pipe sw :> ([Eio.Resource.close_ty | Eio.Flow.source_ty] r *
+    [Eio.Resource.close_ty | Eio.Flow.sink_ty] r))
+
+  let spawn v ~sw ?cwd ?stdin ?stdout ?stderr ?env ?executable args =
     let executable = get_executable executable ~args in
     let env = get_env env in
     with_close_list @@ fun to_close ->
@@ -97,13 +133,16 @@ class virtual mgr = object (self)
       1, stdout_fd, `Blocking;
       2, stderr_fd, `Blocking;
     ] in
-    self#spawn_unix ~sw ?cwd ~env ~fds ~executable args
+    X.spawn_unix v ~sw ?cwd ~env ~fds ~executable args
+
+  let spawn_unix = X.spawn_unix
 end
 
-let spawn_unix ~sw (mgr:#mgr) ?cwd ~fds ?env ?executable args =
+let spawn_unix ~sw (Eio.Resource.T (v, ops)) ?cwd ~fds ?env ?executable args =
+  let module X = (val (Eio.Resource.get ops Pi.Mgr_unix)) in
   let executable = get_executable executable ~args in
   let env = get_env env in
-  mgr#spawn_unix ~sw ?cwd ~fds ~env ~executable args
+  X.spawn_unix v ~sw ?cwd ~fds ~env ~executable args
 
 let sigchld = Eio.Condition.create ()
 
