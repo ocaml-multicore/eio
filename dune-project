@@ -29,7 +29,6 @@
   (crowbar (and (>= 0.2) :with-test))
   (mtime (>= 2.0.0))
   (mdx (and (>= 2.2.0) :with-test))
-  (alcotest (and (>= 1.4.0) :with-test))
   (dscheck (and (>= 0.1.0) :with-test))))
 (package
  (name eio_linux)
@@ -37,7 +36,7 @@
  (description "An Eio implementation for Linux using io-uring.")
  (allow_empty)  ; Work-around for dune bug #6938
  (depends
-  (alcotest (and (>= 1.4.0) :with-test))
+  (alcotest (and (>= 1.7.0) :with-test))
   (eio (= :version))
   (mdx (and (>= 2.2.0) :with-test))
   (logs (>= 0.7.0))
@@ -62,7 +61,7 @@
  (depends
   (eio (= :version))
   (kcas (and (>= 0.3.0) :with-test))
-  (alcotest (and (>= 1.4.0) :with-test))))
+  (alcotest (and (>= 1.7.0) :with-test))))
 (package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")

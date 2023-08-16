@@ -22,7 +22,6 @@ depends: [
   "crowbar" {>= "0.2" & with-test}
   "mtime" {>= "2.0.0"}
   "mdx" {>= "2.2.0" & with-test}
-  "alcotest" {>= "1.4.0" & with-test}
   "dscheck" {>= "0.1.0" & with-test}
   "odoc" {with-doc}
 ]
