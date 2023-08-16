@@ -139,7 +139,7 @@ let test_read_exact () =
     ~resolve:Uring.Resolve.empty
     "test.data"
   in
-  Eio_linux.Low_level.with_chunk ~fallback:(fun () -> assert false) @@ fun chunk ->
+  Eio_linux.Low_level.with_chunk ~fallback:Alcotest.skip @@ fun chunk ->
   (* Try to read one byte too far. If it's not updating the file offset, it will
      succeed. *)
   let len = String.length msg + 1 in
