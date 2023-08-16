@@ -588,3 +588,48 @@ Ensure reads can be cancelled promptly, even if there is no need to wait:
      (fun () -> failwith "Simulated error");;
 Exception: Failure "Simulated error".
 ```
+
+# Native paths
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let cwd = Sys.getcwd () ^ "/" in
+  let test x =
+    let native = Eio.Path.native x in
+    let result =
+      native |> Option.map @@ fun native ->
+      if String.starts_with ~prefix:cwd native then
+        "./" ^ String.sub native (String.length cwd) (String.length native - String.length cwd)
+      else native
+    in
+    traceln "%a -> %a" Eio.Path.pp x Fmt.(Dump.option string) result
+  in
+  test env#fs;
+  test (env#fs / "/");
+  test (env#fs / "/etc/hosts");
+  test (env#fs / ".");
+  test (env#fs / "foo/bar");
+  test env#cwd;
+  test (env#cwd / "..");
+  let sub = env#cwd / "native-sub" in
+  Eio.Path.mkdir sub ~perm:0o700;
+  Eio.Path.with_open_dir sub @@ fun sub ->
+  test sub;
+  test (sub / "foo.txt");
+  test (sub / ".");
+  test (sub / "..");
+  test (sub / "/etc/passwd");
++<fs> -> Some .
++<fs:/> -> Some /
++<fs:/etc/hosts> -> Some /etc/hosts
++<fs:.> -> Some .
++<fs:foo/bar> -> Some ./foo/bar
++<cwd> -> Some .
++<cwd:..> -> Some ./..
++<native-sub> -> Some ./native-sub/
++<native-sub:foo.txt> -> Some ./native-sub/foo.txt
++<native-sub:.> -> Some ./native-sub/.
++<native-sub:..> -> Some ./native-sub/..
++<native-sub:/etc/passwd> -> Some /etc/passwd
+- : unit = ()
+```

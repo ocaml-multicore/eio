@@ -9,6 +9,7 @@ type error =
   | Not_found of Exn.Backend.t
   | Permission_denied of Exn.Backend.t
   | File_too_large
+  | Not_native of string          (** Raised by {!Path.native_exn}. *)
 
 type Exn.err += E of error
 
@@ -24,6 +25,7 @@ let () =
           | Not_found e -> Fmt.pf f "Not_found %a" Exn.Backend.pp e
           | Permission_denied e -> Fmt.pf f "Permission_denied %a" Exn.Backend.pp e
           | File_too_large -> Fmt.pf f "File_too_large"
+          | Not_native m -> Fmt.pf f "Not_native %S" m
         end;
         true
       | _ -> false
@@ -62,6 +64,7 @@ module Pi = struct
     val rmdir : t -> path -> unit
     val rename : t -> path -> _ dir -> path -> unit
     val pp : t Fmt.t
+    val native : t -> string -> string option
   end
 
   type (_, _, _) Resource.pi +=

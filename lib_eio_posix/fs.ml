@@ -161,6 +161,21 @@ end = struct
     Eio.Resource.T (d, Handler.v)
 
   let pp f t = Fmt.string f (String.escaped t.label)
+
+  let native_internal t path =
+    if Filename.is_relative path then (
+      let p =
+        if t.dir_path = "." then path
+        else Filename.concat t.dir_path path
+      in
+      if p = "" then "."
+      else if p = "." then p
+      else if Filename.is_implicit p then "./" ^ p
+      else p
+    ) else path
+
+  let native t path =
+    Some (native_internal t path)
 end
 and Handler : sig
   val v : (Dir.t, [`Dir | `Close]) Eio.Resource.handler
