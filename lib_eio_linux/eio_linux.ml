@@ -424,7 +424,7 @@ end
 module rec Dir : sig
   include Eio.Fs.Pi.DIR
 
-  val v : label:string -> Low_level.dir_fd -> t
+  val v : label:string -> path:string -> Low_level.dir_fd -> t
 
   val close : t -> unit
 
@@ -433,9 +433,10 @@ end = struct
   type t = {
     fd : Low_level.dir_fd;
     label : string;
+    path : string;
   }
 
-  let v ~label fd = { fd; label }
+  let v ~label ~path fd = { fd; label; path }
 
   let open_in t ~sw path =
     let fd = Low_level.openat ~sw t.fd path
@@ -461,6 +462,15 @@ end = struct
     in
     (flow fd :> Eio.File.rw_ty r)
 
+  let native_internal t path =
+    if Filename.is_relative path then (
+      let p = Filename.concat t.path path in
+      if p = "" then "."
+      else if p = "." then p
+      else if Filename.is_implicit p then "./" ^ p
+      else p
+    ) else path
+
   let open_dir t ~sw path =
     let fd = Low_level.openat ~sw ~seekable:false t.fd (if path = "" then "." else path)
         ~access:`R
@@ -468,7 +478,7 @@ end = struct
         ~perm:0
     in
     let label = Filename.basename path in
-    let d = v ~label (Low_level.FD fd) in
+    let d = v ~label ~path:(native_internal t path) (Low_level.FD fd) in
     Eio.Resource.T (d, Dir_handler.v)
 
   let mkdir t ~perm path = Low_level.mkdir_beneath ~perm t.fd path
@@ -494,6 +504,9 @@ end = struct
   let pp f t = Fmt.string f (String.escaped t.label)
 
   let fd t = t.fd
+
+  let native t path =
+    Some (native_internal t path)
 end
 and Dir_handler : sig
   val v : (Dir.t, [`Dir | `Close]) Eio.Resource.handler
@@ -505,7 +518,7 @@ end = struct
     ]
 end
 
-let dir ~label fd = Eio.Resource.T (Dir.v ~label fd, Dir_handler.v)
+let dir ~label ~path fd = Eio.Resource.T (Dir.v ~label ~path fd, Dir_handler.v)
 
 module Secure_random = struct
   type t = unit
@@ -521,8 +534,8 @@ let stdenv ~run_event_loop =
   let stdin = source Eio_unix.Fd.stdin in
   let stdout = sink Eio_unix.Fd.stdout in
   let stderr = sink Eio_unix.Fd.stderr in
-  let fs = (dir ~label:"fs" Fs, "") in
-  let cwd = (dir ~label:"cwd" Cwd, "") in
+  let fs = (dir ~label:"fs" ~path:"" Fs, "") in
+  let cwd = (dir ~label:"cwd" ~path:"" Cwd, "") in
   object (_ : stdenv)
     method stdin  = stdin
     method stdout = stdout

@@ -169,6 +169,9 @@ end = struct
     Eio.Resource.T (d, Handler.v)
 
   let pp f t = Fmt.string f (String.escaped t.label)
+
+  let native _t _path =
+    failwith "TODO: Windows native"
 end
 and Handler : sig
   val v : (Dir.t, [`Dir | `Close]) Eio.Resource.handler

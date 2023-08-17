@@ -23,6 +23,9 @@
     {[
       Eio.Path.load (fs / "/etc/passwd")
     ]}
+
+    In Eio, the directory separator is always "/", even on Windows.
+    Use {!native} to convert to a native path.
 *)
 
 open Std
@@ -40,6 +43,23 @@ val ( / ) : 'a t -> string -> 'a t
 
 val pp : _ t Fmt.t
 (** [pp] formats a [_ t] as "<label:path>", suitable for logging. *)
+
+val native : _ t -> string option
+(** [native t] returns a path that can be used to refer to [t] with the host
+    platform's native string-based file-system APIs, if available.
+    This is intended for interoperability with non-Eio libraries.
+
+    This does not check for confinement (the resulting path might not be accessible
+    via [t] itself). Also, if a directory was opened with {!open_dir} and later
+    renamed, this might use the old name.
+
+    Using strings as paths is not secure if components in the path can be
+    replaced by symlinks while the path is being used. For example, if you
+    try to write to "/home/mal/output.txt" just as mal replaces "output.txt"
+    with a symlink to "/etc/passwd". *)
+
+val native_exn : _ t -> string
+(** Like {!native}, but raise a suitable exception if the path is not a native path. *)
 
 (** {1 Reading files} *)
 

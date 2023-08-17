@@ -12,6 +12,15 @@ let pp f (Resource.T (t, ops), p) =
   if p = "" then Fmt.pf f "<%a>" X.pp t
   else Fmt.pf f "<%a:%s>" X.pp t (String.escaped p)
 
+let native (Resource.T (t, ops), p) =
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  X.native t p
+
+let native_exn t =
+  match native t with
+  | Some p -> p
+  | None -> raise (Fs.err (Not_native (Fmt.str "%a" pp t)))
+
 let open_in ~sw t =
   let (Resource.T (dir, ops), path) = t in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
