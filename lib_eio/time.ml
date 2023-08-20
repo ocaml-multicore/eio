@@ -1,24 +1,42 @@
+open Std
+
 exception Timeout
 
-class virtual ['a] clock_base = object
-  method virtual now : 'a
-  method virtual sleep_until : 'a -> unit
+type 'a clock_ty = [`Clock of 'a]
+type 'a clock_base = 'a r constraint 'a = [> _ clock_ty]
+
+module Pi = struct
+  module type CLOCK = sig
+    type t
+    type time
+    val now : t -> time
+    val sleep_until : t -> time -> unit
+  end
+
+  type (_, _, _) Resource.pi +=
+    | Clock : ('t, (module CLOCK with type t = 't and type time = 'time), [> 'time clock_ty]) Resource.pi
+
+  let clock (type t time) (module X : CLOCK with type t = t and type time = time) =
+    Resource.handler [ H (Clock, (module X)) ]
 end
 
-class virtual clock = object
-  inherit [float] clock_base
-end
+type 'a clock = ([> float clock_ty] as 'a) r
 
-let now (t : _ #clock_base) = t#now
+let now (type time) (t : [> time clock_ty] r) =
+  let Resource.T (t, ops) = t in
+  let module X = (val (Resource.get ops Pi.Clock)) in
+  X.now t
 
-let sleep_until (t : _ #clock_base) time = t#sleep_until time
+let sleep_until (type time) (t : [> time clock_ty] r) time =
+  let Resource.T (t, ops) = t in
+  let module X = (val (Resource.get ops Pi.Clock)) in
+  X.sleep_until t time
 
 let sleep t d = sleep_until t (now t +. d)
 
 module Mono = struct
-  class virtual t = object
-    inherit [Mtime.t] clock_base
-  end
+  type ty = Mtime.t clock_ty
+  type 'a t = ([> ty] as 'a) r
 
   let now = now
   let sleep_until = sleep_until
@@ -39,7 +57,7 @@ module Mono = struct
       else Mtime.Span.of_uint64_ns (Int64.of_float ns)
     ) else Mtime.Span.zero      (* Also happens for NaN and negative infinity *)
 
-  let sleep (t : #t) s =
+  let sleep t s =
     sleep_span t (span_of_s s)
 end
 
@@ -48,11 +66,11 @@ let with_timeout_exn t d = Fiber.first (fun () -> sleep t d; raise Timeout)
 
 module Timeout = struct
   type t =
-    | Timeout of Mono.t * Mtime.Span.t
+    | Timeout of Mono.ty r * Mtime.Span.t
     | Unlimited
 
   let none = Unlimited
-  let v clock time = Timeout ((clock :> Mono.t), time)
+  let v clock time = Timeout ((clock :> Mono.ty r), time)
 
   let seconds clock time =
     v clock (Mono.span_of_s time)

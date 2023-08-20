@@ -213,10 +213,10 @@ module Stdenv : sig
       To use this, see {!Time}.
   *)
 
-  val clock : <clock : #Time.clock as 'a; ..> -> 'a
+  val clock : <clock : _ Time.clock as 'a; ..> -> 'a
   (** [clock t] is the system clock (used to get the current time and date). *)
 
-  val mono_clock : <mono_clock : #Time.Mono.t as 'a; ..> -> 'a
+  val mono_clock : <mono_clock : _ Time.Mono.t as 'a; ..> -> 'a
   (** [mono_clock t] is a monotonic clock (used for measuring intervals). *)
 
   (** {1 Randomness} *)
