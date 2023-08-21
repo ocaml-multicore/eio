@@ -284,6 +284,9 @@ module Fiber : sig
       Many operations automatically check this before starting.
       @raise Cancel.Cancelled if the fiber's context has been cancelled. *)
 
+  val is_cancelled : unit -> bool
+  (** [is_cancelled ()] is [true] iff {!check} would raise an exception. *)
+
   val yield : unit -> unit
   (** [yield ()] asks the scheduler to switch to the next runnable task.
       The current task remains runnable, but goes to the back of the queue.

@@ -144,6 +144,10 @@ let any fs =
 
 let first f g = any [f; g]
 
+let is_cancelled () =
+  let ctx = Effect.perform Cancel.Get_context in
+  not (Cancel.is_on ctx.cancel_context)
+
 let check () =
   let ctx = Effect.perform Cancel.Get_context in
   Cancel.check ctx.cancel_context
