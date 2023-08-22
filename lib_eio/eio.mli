@@ -36,6 +36,9 @@ module Condition = Condition
 (** A stream/queue. *)
 module Stream = Stream
 
+(** Delayed evaluation. *)
+module Lazy = Lazy
+
 (** Cancelling fibers. *)
 module Cancel = Eio__core.Cancel
 

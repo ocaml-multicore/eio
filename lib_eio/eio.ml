@@ -8,6 +8,7 @@ module Semaphore = Semaphore
 module Mutex = Eio_mutex
 module Condition = Condition
 module Stream = Stream
+module Lazy = Lazy
 module Exn = Exn
 module Resource = Resource
 module Flow = Flow
