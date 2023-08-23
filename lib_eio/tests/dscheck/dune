@@ -4,10 +4,11 @@
 (copy_files# (files ../../sync.ml))
 (copy_files# (files ../../unix/rcfd.ml))
 (copy_files# (files ../../condition.ml))
+(copy_files# (files ../../pool.ml))
 (copy_files# (files ../../core/broadcast.ml))
 
 (executables
-  (names test_cells test_semaphore test_sync test_rcfd test_condition)
+  (names test_cells test_semaphore test_sync test_rcfd test_condition test_pool)
   (libraries dscheck optint fmt eio))
 
 (rule
@@ -34,3 +35,8 @@
   (alias dscheck)
   (package eio)
   (action (run %{exe:test_condition.exe})))
+
+(rule
+  (alias dscheck)
+  (package eio)
+  (action (run %{exe:test_pool.exe})))

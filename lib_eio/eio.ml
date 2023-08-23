@@ -9,6 +9,7 @@ module Mutex = Eio_mutex
 module Condition = Condition
 module Stream = Stream
 module Lazy = Lazy
+module Pool = Pool
 module Exn = Exn
 module Resource = Resource
 module Flow = Flow
