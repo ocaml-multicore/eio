@@ -1,4 +1,5 @@
 #require "eio_main";;
+#require "eio.mock";;
 
 module Eio_main = struct
   open Eio.Std
@@ -28,18 +29,9 @@ module Eio_main = struct
     let handler = Eio.Time.Pi.clock (module Fake_clock) in
     fun real_clock -> Eio.Resource.T (Fake_clock.make real_clock, handler)
 
-  (* To avoid non-deterministic output, we run the examples a single domain. *)
-  let fake_domain_mgr = object (_ : #Eio.Domain_manager.t)
-    method run fn =
-      (* Since we're in the same domain, cancelling the calling fiber will
-         cancel the fake spawned one automatically. *)
-      let cancelled, _ = Promise.create () in
-      fn ~cancelled
-
-    method run_raw fn = fn ()
-  end
-
   let run fn =
+    (* To avoid non-deterministic output, we run the examples a single domain. *)
+    let fake_domain_mgr = Eio_mock.Domain_manager.create () in
     Eio_main.run @@ fun env ->
     fn @@ object
       method net         = env#net

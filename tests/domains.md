@@ -7,7 +7,7 @@
 ```ocaml
 open Eio.Std
 
-let run (fn : Eio.Domain_manager.t -> unit) =
+let run (fn : Eio.Domain_manager.ty r -> unit) =
   Eio_main.run @@ fun env ->
   fn (Eio.Stdenv.domain_mgr env)
 ```

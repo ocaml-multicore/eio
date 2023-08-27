@@ -860,42 +860,18 @@ Non-graceful shutdown, closing all connections still in progress:
 Exception: Failure "Simulated error".
 ```
 
-To test support for multiple domains, we just run everything in one domain
-to keep the output deterministic. We override `traceln` to log the (fake)
-domain ID too:
-
-```ocaml
-let with_domain_tracing id fn =
-  let traceln ?__POS__ fmt =
-    Eio.Private.Debug.default_traceln ?__POS__ ("[%d] " ^^ fmt) id
-  in
-  Fiber.with_binding Eio.Private.Debug.v#traceln { traceln } fn
-
-let fake_domain_mgr () = object (_ : #Eio.Domain_manager.t)
-  val mutable next_domain_id = 1
-
-  method run fn =
-    let self = next_domain_id in
-    next_domain_id <- next_domain_id + 1;
-    let cancelled, _ = Promise.create () in
-    with_domain_tracing self (fun () -> fn ~cancelled)
-
-  method run_raw _ = assert false
-end
-```
-
 Handling the connections with 3 domains, with a graceful shutdown:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  with_domain_tracing 0 @@ fun () ->
+  Eio_mock.Domain_manager.run @@ fun fake_domain_mgr ->
   let n_domains = 3 in
   let listening_socket = mock_listener ~n_clients:10 ~n_domains in
   let stop, set_stop = Promise.create () in
   Fiber.both
     (fun () ->
       Eio.Net.run_server listening_socket handle_connection
-        ~additional_domains:(fake_domain_mgr (), n_domains - 1)
+        ~additional_domains:(fake_domain_mgr, n_domains - 1)
         ~max_connections:10
         ~on_error:raise
         ~stop
@@ -938,13 +914,13 @@ Handling the connections with 3 domains, aborting immediately:
 
 ```ocaml
 # Eio_mock.Backend.run @@ fun () ->
-  with_domain_tracing 0 @@ fun () ->
+  Eio_mock.Domain_manager.run @@ fun fake_domain_mgr ->
   let n_domains = 3 in
   let listening_socket = mock_listener ~n_clients:10 ~n_domains in
   Fiber.both
     (fun () ->
       Eio.Net.run_server listening_socket handle_connection
-        ~additional_domains:(fake_domain_mgr (), n_domains - 1)
+        ~additional_domains:(fake_domain_mgr, n_domains - 1)
         ~max_connections:10
         ~on_error:raise
     )

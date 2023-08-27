@@ -75,31 +75,7 @@ module Net = Net
 module Process = Process
 
 (** Parallel computation across multiple CPU cores. *)
-module Domain_manager : sig
-  class virtual t : object
-    method virtual run_raw : 'a. (unit -> 'a) -> 'a
-
-    method virtual run : 'a. (cancelled:exn Promise.t -> 'a) -> 'a
-    (** [t#run fn] runs [fn ~cancelled] in a new domain.
-
-        If the calling fiber is cancelled, [cancelled] becomes resolved to the {!Cancel.Cancelled} exception.
-        [fn] should cancel itself in this case. *)
-  end
-
-  val run : #t -> (unit -> 'a) -> 'a
-  (** [run t f] runs [f ()] in a newly-created domain and returns the result.
-
-      Other fibers in the calling domain can run in parallel with the new domain.
-
-      Warning: [f] must only access thread-safe values from the calling domain,
-      but this is not enforced by the type system.
-
-      If the calling fiber is cancelled, this is propagated to the spawned domain. *)
-
-  val run_raw : #t -> (unit -> 'a) -> 'a
-  (** [run_raw t f] is like {!run}, but does not run an event loop in the new domain,
-      and so cannot perform IO, fork fibers, etc. *)
-end
+module Domain_manager = Domain_manager
 
 (** Clocks, time, sleeping and timeouts. *)
 module Time = Time
@@ -143,6 +119,9 @@ module Debug : sig
       It must not switch fibers, as tracing must not affect scheduling.
       If the system is not ready to receive the trace output,
       the whole domain must block until it is. *)
+
+  val with_trace_prefix : (Format.formatter -> unit) -> (unit -> 'a) -> 'a
+  (** [with_trace_prefix fmt fn] runs [fn ()] with a traceln that outputs [fmt] before each message. *)
 
   type t = <
     traceln : traceln Fiber.key;
@@ -211,7 +190,7 @@ module Stdenv : sig
       To use this, see {!Domain_manager}.
   *)
 
-  val domain_mgr : <domain_mgr : #Domain_manager.t as 'a; ..> -> 'a
+  val domain_mgr : <domain_mgr : _ Domain_manager.t as 'a; ..> -> 'a
   (** [domain_mgr t] allows running code on other cores. *)
 
   (** {1 Time}

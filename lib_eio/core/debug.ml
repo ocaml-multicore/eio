@@ -24,13 +24,21 @@ let default_traceln ?__POS__:pos fmt =
   in
   Format.kdprintf k ("@[" ^^ fmt)
 
-let traceln ?__POS__ fmt =
-  let traceln =
-    match Fiber.get traceln_key with
-    | Some { traceln } -> traceln
-    | None
-    | exception (Effect.Unhandled _) -> default_traceln
+let get () =
+  match Fiber.get traceln_key with
+  | Some traceln -> traceln
+  | None
+  | exception (Effect.Unhandled _) -> { traceln = default_traceln }
+
+let with_trace_prefix prefix fn =
+  let { traceln } = get () in
+  let traceln ?__POS__ fmt =
+    traceln ?__POS__ ("%t" ^^ fmt) prefix
   in
+  Fiber.with_binding traceln_key { traceln } fn
+
+let traceln ?__POS__ fmt =
+  let { traceln } = get () in
   traceln ?__POS__ fmt
 
 type t = <

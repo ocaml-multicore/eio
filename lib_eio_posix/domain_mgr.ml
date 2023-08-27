@@ -87,17 +87,17 @@ let unwrap_backtrace = function
   | Ok x -> x
   | Error (ex, bt) -> Printexc.raise_with_backtrace ex bt
 
-let v = object
-  inherit Eio.Domain_manager.t
+module Impl = struct
+  type t = unit
 
-  method run_raw fn =
+  let run_raw () fn =
     let domain = ref None in
     Eio.Private.Suspend.enter (fun _ctx enqueue ->
         domain := Some (Domain.spawn (fun () -> Fun.protect (wrap_backtrace fn) ~finally:(fun () -> enqueue (Ok ()))))
       );
     unwrap_backtrace (Domain.join (Option.get !domain))
 
-  method run fn =
+  let run () fn =
     let domain = ref None in
     Eio.Private.Suspend.enter (fun ctx enqueue ->
         let cancelled, set_cancelled = Promise.create () in
@@ -108,3 +108,7 @@ let v = object
       );
     unwrap_backtrace (Domain.join (Option.get !domain))
 end
+
+let v =
+  let handler = Eio.Domain_manager.Pi.mgr (module Impl) in
+  Eio.Resource.T ((), handler)
