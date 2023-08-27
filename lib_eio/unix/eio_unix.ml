@@ -39,7 +39,7 @@ module Stdenv = struct
     stderr : sink_ty r;
     net : [`Unix | `Generic] Eio.Net.ty r;
     domain_mgr : Eio.Domain_manager.t;
-    process_mgr : Process.mgr;
+    process_mgr : Process.mgr_ty r;
     clock : float Eio.Time.clock_ty r;
     mono_clock : Eio.Time.Mono.ty r;
     fs : Eio.Fs.dir_ty Eio.Path.t;

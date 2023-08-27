@@ -2,44 +2,62 @@
 
 open Eio.Std
 
-class virtual mgr : object
-  inherit Eio.Process.mgr
+(** {2 Types}
 
-  method pipe :
-    sw:Switch.t ->
-    [Eio.Flow.source_ty | Eio.Resource.close_ty] r * [Eio.Flow.sink_ty | Eio.Resource.close_ty] r
+    These extend the types in {!Eio.Process} with support for file descriptors. *)
 
-  method virtual spawn_unix :
+type ty = [ `Generic | `Unix ] Eio.Process.ty
+type 'a t = ([> ty] as 'a) r
+
+type mgr_ty = [`Generic | `Unix] Eio.Process.mgr_ty
+type 'a mgr = ([> mgr_ty] as 'a) r
+
+module Pi : sig
+  module type MGR = sig
+    include Eio.Process.Pi.MGR
+
+    val spawn_unix :
+      t ->
+      sw:Switch.t ->
+      ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
+      env:string array ->
+      fds:(int * Fd.t * Fork_action.blocking) list ->
+      executable:string ->
+      string list ->
+      ty r
+  end
+
+  type (_, _, _) Eio.Resource.pi +=
+    | Mgr_unix : ('t, (module MGR with type t = 't), [> mgr_ty]) Eio.Resource.pi
+
+  val mgr_unix :
+    (module MGR with type t = 't and type tag = 'tag) ->
+    ('t, 'tag Eio.Process.mgr_ty) Eio.Resource.handler
+end
+
+module Make_mgr (X : sig
+  type t
+
+  val spawn_unix :
+    t ->
     sw:Switch.t ->
     ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
     env:string array ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     executable:string ->
     string list ->
-    Eio.Process.t
-
-  method spawn :
-    sw:Switch.t ->
-    ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
-    ?stdin:Eio.Flow.source_ty r ->
-    ?stdout:Eio.Flow.sink_ty r ->
-    ?stderr:Eio.Flow.sink_ty r ->
-    ?env:string array ->
-    ?executable:string ->
-    string list ->
-    Eio.Process.t
-    (** The default implementation uses {!spawn_unix}. *)
-end
+    ty r
+end) : Pi.MGR with type t = X.t and type tag = [`Generic | `Unix]
 
 val spawn_unix :
     sw:Switch.t ->
-    #mgr ->
+    _ mgr ->
     ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     ?env:string array ->
     ?executable:string ->
     string list ->
-    Eio.Process.t
+    ty r
 (** [spawn_unix ~sw mgr ~fds args] spawns a child process running the command [args].
 
     The arguments are as for {!Eio.Process.spawn},
