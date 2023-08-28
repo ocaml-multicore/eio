@@ -145,6 +145,9 @@ end
 (** A mock {!Eio.Time} clock for testing timeouts. *)
 module Clock = Clock
 
+(** A mock {!Eio.Domain_manager} that runs everything in a single domain. *)
+module Domain_manager = Domain_manager
+
 (** {2 Backend for mocks}
 
     The mocks can be used with any backend, but if you don't need any IO then you can use this one

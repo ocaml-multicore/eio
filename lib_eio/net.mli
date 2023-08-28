@@ -209,7 +209,7 @@ val accept_fork :
 
 val run_server :
   ?max_connections:int ->
-  ?additional_domains:(#Domain_manager.t * int) ->
+  ?additional_domains:(_ Domain_manager.t * int) ->
   ?stop:'a Promise.t ->
   on_error:(exn -> unit) ->
   [> 'tag listening_socket_ty ] r ->

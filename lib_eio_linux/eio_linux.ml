@@ -386,19 +386,23 @@ let unwrap_backtrace = function
   | Ok x -> x
   | Error (ex, bt) -> Printexc.raise_with_backtrace ex bt
 
-let domain_mgr ~run_event_loop = object
-  inherit Eio.Domain_manager.t
+module Domain_mgr = struct
+  type t = {
+    run_event_loop : (unit -> unit) -> unit -> unit;
+  }
 
-  method run_raw fn =
+  let make ~run_event_loop = { run_event_loop }
+
+  let run_raw _t fn =
     let domain = ref None in
     Sched.enter (fun t k ->
         domain := Some (Domain.spawn (fun () -> Fun.protect (wrap_backtrace fn) ~finally:(fun () -> Sched.enqueue_thread t k ())))
       );
     unwrap_backtrace (Domain.join (Option.get !domain))
 
-  method run fn =
+  let run t fn =
     let domain = ref None in
-    Sched.enter (fun t k ->
+    Sched.enter (fun sched k ->
         let cancelled, set_cancelled = Promise.create () in
         Fiber_context.set_cancel_fn k.fiber (Promise.resolve set_cancelled);
         domain := Some (Domain.spawn (fun () ->
@@ -406,13 +410,17 @@ let domain_mgr ~run_event_loop = object
               (fun () ->
                  let result = ref None in
                  let fn = wrap_backtrace (fun () -> fn ~cancelled) in
-                 run_event_loop (fun () -> result := Some (fn ())) ();
+                 t.run_event_loop (fun () -> result := Some (fn ())) ();
                  Option.get !result
               )
-              ~finally:(fun () -> Sched.enqueue_thread t k ())))
+              ~finally:(fun () -> Sched.enqueue_thread sched k ())))
       );
     unwrap_backtrace (Domain.join (Option.get !domain))
 end
+
+let domain_mgr ~run_event_loop =
+  let handler = Eio.Domain_manager.Pi.mgr (module Domain_mgr) in
+  Eio.Resource.T (Domain_mgr.make ~run_event_loop, handler)
 
 module Mono_clock = struct
   type t = unit

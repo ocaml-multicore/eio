@@ -3,6 +3,7 @@ module Handler = Handler
 module Flow = Flow
 module Net = Net
 module Clock = Clock
+module Domain_manager = Domain_manager
 module Backend = Backend
 
 type Eio.Exn.Backend.t += Simulated_failure

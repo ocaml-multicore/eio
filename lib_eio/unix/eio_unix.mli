@@ -69,7 +69,7 @@ module Stdenv : sig
     stdout : sink_ty r;
     stderr : sink_ty r;
     net : [`Unix | `Generic] Eio.Net.ty r;
-    domain_mgr : Eio.Domain_manager.t;
+    domain_mgr : Eio.Domain_manager.ty r;
     process_mgr : Process.mgr_ty r;
     clock : float Eio.Time.clock_ty r;
     mono_clock : Eio.Time.Mono.ty r;

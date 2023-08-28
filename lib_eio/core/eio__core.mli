@@ -715,6 +715,9 @@ module Private : sig
       ('a, Format.formatter, unit, unit) format4 -> 'a
     (** Writes trace logging using the current fiber's configured traceln function. *)
 
+    val with_trace_prefix : (Format.formatter -> unit) -> (unit -> 'a) -> 'a
+    (** [with_trace_prefix fmt fn] runs [fn ()] with a traceln that outputs [fmt] before each message. *)
+
     val traceln_mutex : Stdlib.Mutex.t
     (** The mutex used to prevent two domains writing to stderr at once.
 
