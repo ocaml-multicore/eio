@@ -1,3 +1,66 @@
+## v0.12
+
+New features / API changes:
+
+- Replace objects with variants (@talex5 @patricoferris #553 #605 #608, reviewed by @avsm).  
+  Some potential users found object types confusing, so we now use an alternative scheme for OS resources.
+  For users of the resources, the only thing that changes is the types:
+
+  - Instead of taking an argument of type `#foo`, you should now take `_ foo`.
+  - Instead of returning a value of type `foo`, you should now return `foo_ty Eio.Resource.t`.
+
+  To provide your own implementation of an interface, you now provide a module rather than an object.
+  For example, to provide your own source flow, use `Eio.Flow.Pi.source (module My_source)`.
+
+  If you want to define your own interfaces, see the `Eio.Resource` module documentation.
+
+- Add `Eio.Pool` (@talex5 @darrenldl #602, reviewed by @patricoferris).  
+  A lock-free pool of resources. This is similar to `Lwt_pool`.
+
+- Add `Eio.Lazy` (@talex5 #609, reviewed by @SGrondin).  
+  If one fiber tries to force a lazy value while another is already doing it,
+  this will wait for the first one to finish rather than raising an exception (as `Stdlib.Lazy` does).
+
+- Add `Eio.Path.native` (@talex5 #603, reviewed by @patricoferris).  
+  This is useful when interacting with non-Eio libraries, for spawning sub-processes, and for displaying paths to users.
+
+- Add `Flow.single_write` (@talex5 #598).
+
+- Add `Eio.Flow.Pi.simple_copy` (@talex5 #611).  
+  Provides an easy way to implement the `copy` operation when making your own sink.
+
+- Eio_unix: add FD passing (@talex5 #522).  
+  Allows opening a file and passing the handle over a Unix-domain socket.
+
+- Add `Process.run ?is_success` to control definition of success (@SGrondin #586, reviewed by @talex5).
+
+- Add `Eio_mock.Domain_manager` (@talex5 #610).  
+  This mock domain manager runs everything in a single domain, allowing tests to remain deterministic.
+
+- Add `Eio.Debug.with_trace_prefix` (@talex5 #610).
+  Allows prefixing all `traceln` output. The mock domain manager uses this to indicate which fake domain is running.
+
+Bug fixes:
+
+- Fork actions must not allocate (@talex5 #593).  
+  When using multiple domains, child processes could get stuck if they forked while another domain held the malloc lock.
+
+- eio_posix: ignore some errors writing to the wake-up pipe (@talex5 #600).  
+  If the pipe is full or closed, the wake-up should simply be ignored.
+
+Build/test fixes:
+
+- Fix some MDX problems on Windows (@polytypic #597).
+
+- The README depends on kcas (@talex5 #606).
+
+- Clarify configuration for lib_eio_linux and enable tests on other arches (@dra27 #592).
+
+- eio_linux tests: skip fixed buffer test if not available (@talex5 #604).
+
+- eio_windows: update available line to win32 (@talex5 #588 #591).
+
+
 ## v0.11
 
 New features / API changes:
