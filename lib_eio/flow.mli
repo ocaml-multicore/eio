@@ -121,8 +121,13 @@ module Pi : sig
 
   module type SINK = sig
     type t
-    val copy : t -> src:_ source -> unit
+
     val single_write : t -> Cstruct.t list -> int
+
+    val copy : t -> src:_ source -> unit
+    (** [copy t ~src] allows for optimising copy operations.
+
+        If you have no optimisations, you can use {!simple_copy} to implement this using {!single_write}. *)
   end
 
   module type SHUTDOWN = sig
@@ -146,5 +151,8 @@ module Pi : sig
     | Source : ('t, (module SOURCE with type t = 't), [> source_ty]) Resource.pi
     | Sink : ('t, (module SINK with type t = 't), [> sink_ty]) Resource.pi
     | Shutdown : ('t, (module SHUTDOWN with type t = 't), [> shutdown_ty]) Resource.pi
+
+  val simple_copy : single_write:('t -> Cstruct.t list -> int) -> 't -> src:_ source -> unit
+  (** [simple_copy ~single_write] implements {!SINK}'s [copy] API using [single_write]. *)
 end
 

@@ -42,25 +42,7 @@ module Impl = struct
     with Unix.Unix_error (code, name, arg) ->
       raise (Err.wrap code name arg)
 
-  let write_all t bufs =
-    try
-      let rec loop = function
-        | [] -> ()
-        | bufs ->
-          let wrote = Low_level.writev t (Array.of_list bufs) in
-          loop (Cstruct.shiftv bufs wrote)
-      in
-      loop bufs
-    with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
-
-  let copy dst ~src =
-    let buf = Cstruct.create 4096 in
-    try
-      while true do
-        let got = Eio.Flow.single_read src buf in
-        write_all dst [Cstruct.sub buf 0 got]
-      done
-    with End_of_file -> ()
+  let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
 
   let single_read t buf =
     match Low_level.readv t [| buf |] with

@@ -45,14 +45,7 @@ module Impl = struct
     write_all t bufs;
     Cstruct.lenv bufs
 
-  let copy dst ~src =
-    let buf = Cstruct.create 4096 in
-    try
-      while true do
-        let got = Eio.Flow.single_read src buf in
-        write_all dst [Cstruct.sub buf 0 got]
-      done
-    with End_of_file -> ()
+  let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
 
   let single_read t buf =
     match Low_level.read_cstruct t buf with
