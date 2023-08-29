@@ -23,8 +23,8 @@ module Pi = struct
 
   module type SINK = sig
     type t
-    val copy : t -> src:_ source -> unit
     val single_write : t -> Cstruct.t list -> int
+    val copy : t -> src:_ source -> unit
   end
 
   module type SHUTDOWN = sig
@@ -36,7 +36,6 @@ module Pi = struct
     | Source : ('t, (module SOURCE with type t = 't), [> source_ty]) Resource.pi
     | Sink : ('t, (module SINK with type t = 't), [> sink_ty]) Resource.pi
     | Shutdown : ('t, (module SHUTDOWN with type t = 't), [> shutdown_ty]) Resource.pi
-
 
   let source (type t) (module X : SOURCE with type t = t) =
     Resource.handler [H (Source, (module X))]
@@ -59,6 +58,22 @@ module Pi = struct
       H (Source, (module X));
       H (Sink, (module X));
     ]
+
+  let simple_copy ~single_write t ~src:(Resource.T (src, src_ops)) =
+    let rec write_all buf =
+      if not (Cstruct.is_empty buf) then (
+        let sent = single_write t [buf] in
+        write_all (Cstruct.shift buf sent)
+      )
+    in
+    let module Src = (val (Resource.get src_ops Source)) in
+    try
+      let buf = Cstruct.create 4096 in
+      while true do
+        let got = Src.single_read src buf in
+        write_all (Cstruct.sub buf 0 got)
+      done
+    with End_of_file -> ()
 end
 
 open Pi
@@ -153,20 +168,12 @@ let copy_string s = copy (string_source s)
 module Buffer_sink = struct
   type t = Buffer.t
 
-  let copy t ~src:(Resource.T (src, ops)) =
-    let module Src = (val (Resource.get ops Source)) in
-    let buf = Cstruct.create 4096 in
-    try
-      while true do
-        let got = Src.single_read src buf in
-        Buffer.add_string t (Cstruct.to_string ~len:got buf)
-      done
-    with End_of_file -> ()
-
   let single_write t bufs =
     let old_length = Buffer.length t in
     List.iter (fun buf -> Buffer.add_bytes t (Cstruct.to_bytes buf)) bufs;
     Buffer.length t - old_length
+
+  let copy t ~src = Pi.simple_copy ~single_write t ~src
 end
 
 let buffer_sink =
