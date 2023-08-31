@@ -1758,8 +1758,8 @@ In many cases, it's clearer (if a little more verbose) to take the resources you
 ```ocaml
 module Status : sig
   val check :
-    clock:#Eio.Time.clock ->
-    net:#Eio.Net.t ->
+    clock:_ Eio.Time.clock ->
+    net:_ Eio.Net.t ->
     bool
 end
 ```
@@ -1776,16 +1776,15 @@ If you define the type explicitly, you can describe why you need each resource t
 <!-- $MDX skip -->
 ```ocaml
 module Status : sig
-  type 'a env = <
-    net : #Eio.Net.t;             (** To connect to the servers *)
-    clock : #Eio.Time.clock;      (** Needed for timeouts *)
+  type 'a env = 'a constraint 'a = <
+    net : _ Eio.Net.t;             (** To connect to the servers *)
+    clock : _ Eio.Time.clock;      (** Needed for timeouts *)
     ..
   > as 'a
 
   val check : _ env -> bool
 end
 ```
-
 
 ## Further Reading
 
