@@ -94,6 +94,53 @@ module Locking = struct
       Mutex.unlock t.mutex;
       Some v
 
+  let select_of_many streams_fns =
+    let finished = Atomic.make false in
+    let cancel_fns = ref [] in
+    let add_cancel_fn fn = cancel_fns := fn :: !cancel_fns in
+    let cancel_all () = List.iter (fun fn -> fn ()) !cancel_fns in
+    let wait ctx enqueue (t, f) = begin
+      Mutex.lock t.mutex;
+      (* First check if any items are already available and return early if there are. *)
+      if not (Queue.is_empty t.items)
+      then (
+        (* If no other stream has yielded already, we are the first one. *)
+        if Atomic.compare_and_set finished false true
+        then (
+          (* Therefore, cancel all other waiters and take available item. *)
+          cancel_all ();
+          let item = Queue.take t.items in
+          ignore (Waiters.wake_one t.writers ());
+          enqueue (Ok (f item)));
+        Mutex.unlock t.mutex
+      )
+      else add_cancel_fn @@
+        (* Otherwise, register interest in this stream. *)
+        Waiters.cancellable_await_internal ~mutex:(Some t.mutex) t.readers t.id ctx (fun r ->
+            if Result.is_ok r then (
+              if not (Atomic.compare_and_set finished false true) then (
+                (* Another stream has yielded an item in the meantime. However, as
+                   we have been waiting on this stream it must have been empty.
+
+                   As the stream's mutex was held since before last checking for an item,
+                   the queue must be empty.
+                *)
+                assert ((Queue.length t.items) < t.capacity);
+                Queue.add (Result.get_ok r) t.items
+              ) else (
+                (* remove all other entries of this fiber in other streams' waiters. *)
+                ignore (Waiters.wake_one t.writers ());
+                cancel_all ();
+                (* item is returned to waiting caller through enqueue and enter_unchecked. *)
+                enqueue (Result.map f r))
+            ));
+    end in
+    (* Register interest in all streams and return first available item. *)
+    let wait_for_stream streams_fns = begin
+      Suspend.enter_unchecked (fun ctx enqueue -> List.iter (wait ctx enqueue) streams_fns)
+    end in
+    wait_for_stream streams_fns
+
   let length t =
     Mutex.lock t.mutex;
     let len = Queue.length t.items in
@@ -124,6 +171,13 @@ let take = function
 let take_nonblocking = function
   | Sync x -> Sync.take_nonblocking x
   | Locking x -> Locking.take_nonblocking x
+
+let select streams =
+  let filter s = match s with
+    | (Sync _, _) -> assert false
+    | (Locking x, f) -> (x, f)
+  in
+  Locking.select_of_many (List.map filter streams)
 
 let length = function
   | Sync _ -> 0

@@ -27,8 +27,8 @@ val await :
     If [t] can be used from multiple domains:
     - [mutex] must be set to the mutex to use to unlock it.
     - [mutex] must be already held when calling this function, which will unlock it before blocking.
-    When [await] returns, [mutex] will have been unlocked.
-    @raise Cancel.Cancelled if the fiber's context is cancelled *)
+      When [await] returns, [mutex] will have been unlocked.
+      @raise Cancel.Cancelled if the fiber's context is cancelled *)
 
 val await_internal :
   mutex:Mutex.t option ->
@@ -40,3 +40,12 @@ val await_internal :
     Note: [enqueue] is called from the triggering domain,
           which is currently calling {!wake_one} or {!wake_all}
           and must therefore be holding [mutex]. *)
+
+val cancellable_await_internal :
+  mutex:Mutex.t option ->
+  'a t -> Ctf.id -> Fiber_context.t ->
+  (('a, exn) result -> unit) -> (unit -> unit)
+(** Like [await_internal], but returns a function which, when called,
+    removes the current fiber continuation from the waiters list.
+    This is used when a fiber is waiting for multiple [Waiter]s simultaneously,
+    and needs to remove itself from other waiters once it has been enqueued by one.*)
