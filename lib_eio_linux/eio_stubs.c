@@ -19,6 +19,8 @@
 // We need caml_convert_signal_number
 #define CAML_INTERNALS
 
+#include "primitives.h"
+
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/alloc.h>

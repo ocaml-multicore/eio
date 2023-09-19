@@ -13,3 +13,16 @@
  (targets config.ml)
  (enabled_if (= %{os_type} "Unix"))
  (action (run ./include/discover.exe)))
+
+(rule
+ (enabled_if (and (= %{os_type} "Unix") %{bin-available:lintcstubs_arity_cmt}))
+ (action
+  (with-stdout-to
+   primitives.h.new
+   (run %{bin:lintcstubs_arity_cmt} %{dep:.eio_posix.objs/byte/eio_posix__Low_level.cmt}))))
+
+(rule
+ (enabled_if (and (= %{os_type} "Unix") %{bin-available:lintcstubs_arity_cmt}))
+ (alias runtest)
+ (action
+  (diff primitives.h primitives.h.new)))
