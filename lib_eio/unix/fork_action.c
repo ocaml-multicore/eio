@@ -4,6 +4,8 @@
  * release it.
  */
 
+#include "primitives.h"
+
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>

@@ -12,3 +12,28 @@
   (include_dirs ../lib_eio/unix/include)
   (names eio_stubs))
  (libraries eio eio.utils eio.unix uring logs fmt))
+
+(rule
+ (enabled_if
+   (and
+     %{bin-available:lintcstubs_arity_cmt}
+     (or (= %{system} "linux")          ; Historically, just Linux-x86
+         (= %{system} "linux_eabihf")   ; Historically, Linux-arm32
+         (= %{system} "linux_elf")      ; Historically, Linux-x86_32
+         (= %{system} "elf"))))         ; Historically, Linux-ppc64
+ (action
+  (with-stdout-to
+   primitives.h.new
+   (run %{bin:lintcstubs_arity_cmt} %{dep:.eio_linux.objs/byte/eio_linux__Low_level.cmt} %{dep:.eio_linux.objs/byte/eio_linux__Sched.cmt}))))
+
+(rule
+ (enabled_if
+   (and
+     %{bin-available:lintcstubs_arity_cmt}
+     (or (= %{system} "linux")          ; Historically, just Linux-x86
+         (= %{system} "linux_eabihf")   ; Historically, Linux-arm32
+         (= %{system} "linux_elf")      ; Historically, Linux-x86_32
+         (= %{system} "elf"))))         ; Historically, Linux-ppc64
+ (alias runtest)
+ (action
+  (diff primitives.h primitives.h.new)))
