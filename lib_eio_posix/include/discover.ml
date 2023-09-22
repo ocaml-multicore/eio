@@ -40,6 +40,7 @@ let () =
             "O_TRUNC", Int;
 
             "AT_FDCWD", Int;
+            "AT_SYMLINK_NOFOLLOW", Int;
           ])
         |> List.map (function
             | name, C.C_define.Value.Int v when List.mem name optional_flags ->
