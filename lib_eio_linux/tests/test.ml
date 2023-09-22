@@ -155,6 +155,49 @@ let test_expose_backend () =
   let backend = Eio.Stdenv.backend_id env in
   assert (backend = "linux")
 
+let kind_t = Alcotest.of_pp Uring.Statx.pp_kind
+
+let test_statx () =
+  let module X = Uring.Statx in
+  Eio_linux.run ~queue_depth:4 @@ fun env ->
+  let ( / ) = Eio.Path.( / ) in
+  let path = env#cwd / "test2.data" in
+  Eio.Path.with_open_out path ~create:(`Exclusive 0o600) @@ fun file ->
+  Eio.Flow.copy_string "hello" file;
+  let buf = Uring.Statx.create () in
+  let test expected_len ~flags ?fd path =
+    Eio_linux.Low_level.statx ~mask:X.Mask.(type' + size) ?fd path buf flags;
+    Alcotest.check kind_t "kind" `Regular_file (Uring.Statx.kind buf);
+    Alcotest.(check int64) "size" expected_len (Uring.Statx.size buf)
+  in
+  (* Lookup via cwd *)
+  test 5L ~flags:X.Flags.empty ?fd:None "test2.data";
+  Eio.Flow.copy_string "+" file;
+  (* Lookup via file FD *)
+  Switch.run (fun sw ->
+      let fd = Eio_linux.Low_level.openat2 ~sw
+          ~access:`R
+          ~flags:Uring.Open_flags.empty
+          ~perm:0
+          ~resolve:Uring.Resolve.empty
+          "test2.data"
+      in
+      test 6L ~flags:X.Flags.empty_path ~fd ""
+    );
+  (* Lookup via directory FD *)
+  Eio.Flow.copy_string "+" file;
+  Switch.run (fun sw ->
+      let fd = Eio_linux.Low_level.openat2 ~sw
+          ~access:`R
+          ~flags:Uring.Open_flags.path
+          ~perm:0
+          ~resolve:Uring.Resolve.empty
+          "."
+      in
+      test 7L ~flags:X.Flags.empty_path ~fd "test2.data"
+    );
+  ()
+
 let () =
   let open Alcotest in
   run "eio_linux" [
@@ -167,5 +210,6 @@ let () =
       test_case "no_sqe"        `Quick test_no_sqe;
       test_case "read_exact"    `Quick test_read_exact;
       test_case "expose_backend"    `Quick test_expose_backend;
+      test_case "statx"         `Quick test_statx;
     ];
   ]

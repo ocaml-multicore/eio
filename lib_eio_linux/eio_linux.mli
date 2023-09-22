@@ -156,6 +156,12 @@ module Low_level : sig
   val fstat : fd -> Eio.File.Stat.t
   (** Like {!Unix.LargeFile.fstat}. *)
 
+  val statx : ?fd:fd -> mask:Uring.Statx.Mask.t -> string -> Uring.Statx.t -> Uring.Statx.Flags.t -> unit
+  (** [statx t ?fd ~mask path buf flags] stats [path], which is resolved relative to [fd]
+      (or the current directory if [fd] is not given).
+
+      The results are written to [buf]. *)
+
   val read_dir : fd -> string list
   (** [read_dir dir] reads all directory entries from [dir].
       The entries are not returned in any particular order
