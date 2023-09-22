@@ -56,6 +56,15 @@ let rec enqueue_openat2 ((access, flags, perm, resolve, fd, path) as args) st ac
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_openat2 args st action) st.io_q
 
+let rec enqueue_statx ((fd, path, buf, flags, mask) as args) st action =
+  Ctf.label "statx";
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.statx st.uring ?fd ~mask path buf flags (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_statx args st action) st.io_q
+
 let rec enqueue_unlink ((dir, fd, path) as args) st action =
   Ctf.label "unlinkat";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
@@ -359,6 +368,16 @@ let with_parent_dir op dir path fn =
       Fd.use_exn op parent @@ fun parent ->
       fn parent leaf
     )
+
+let statx ?fd ~mask path buf flags =
+  let res =
+    match fd with
+    | None -> Sched.enter (enqueue_statx (None, path, buf, flags, mask)) 
+    | Some fd ->
+      Fd.use_exn "statx" fd @@ fun fd ->
+      Sched.enter (enqueue_statx (Some fd, path, buf, flags, mask))
+  in
+  if res <> 0 then raise @@ Err.wrap_fs (Uring.error_of_errno res) "statx" path
 
 let mkdir_beneath ~perm dir path =
   (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
