@@ -526,6 +526,34 @@ end = struct
   let unlink t path = Low_level.unlink ~rmdir:false t.fd path
   let rmdir t path = Low_level.unlink ~rmdir:true t.fd path
 
+  let float_of_time s ns =
+    let s = Int64.to_float s in
+    let f = s +. (float ns /. 1e9) in
+    (* It's possible that we might round up to the next second.
+       Since some algorithms only care about the seconds part,
+       make sure the integer part is always [s]: *)
+    if floor f = s then f
+    else Float.pred f
+
+  let stat t ~follow path =
+    let module X = Uring.Statx in
+    let x = X.create () in
+    Low_level.statx_confined ~follow ~mask:X.Mask.basic_stats t.fd path x;
+    { Eio.File.Stat.
+      dev    = X.dev x;
+      ino    = X.ino x;
+      kind   = X.kind x;
+      perm   = X.perm x;
+      nlink  = X.nlink x;
+      uid    = X.uid x;
+      gid    = X.gid x;
+      rdev   = X.rdev x;
+      size   = X.size x |> Optint.Int63.of_int64;
+      atime  = float_of_time (X.atime_sec x) (X.atime_nsec x);
+      mtime  = float_of_time (X.mtime_sec x) (X.mtime_nsec x);
+      ctime  = float_of_time (X.ctime_sec x) (X.ctime_nsec x);
+    }
+
   let rename t old_path t2 new_path =
     match get_dir_fd_opt t2 with
     | Some fd2 -> Low_level.rename t.fd old_path fd2 new_path

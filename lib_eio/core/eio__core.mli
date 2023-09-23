@@ -433,6 +433,9 @@ module Exn : sig
       This is similar to {!Fmt.exn}, but can do a better job on {!Io} exceptions
       because it can format them directly without having to convert to a string first. *)
 
+  val pp_err : err Fmt.t
+  (** [pp_err] formats an error code. *)
+
   (** Extensible backend-specific exceptions. *)
   module Backend : sig
     type t = ..
