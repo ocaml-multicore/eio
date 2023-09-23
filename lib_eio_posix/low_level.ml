@@ -113,13 +113,6 @@ let getrandom { Cstruct.buffer; off; len } =
   in_worker_thread @@ fun () ->
   loop 0
 
-let fstat fd =
-  Fd.use_exn "fstat" fd Unix.LargeFile.fstat
-
-let lstat path =
-  in_worker_thread @@ fun () ->
-  Unix.LargeFile.lstat path
-
 let realpath path =
   in_worker_thread @@ fun () ->
   Unix.realpath path
@@ -227,6 +220,41 @@ let rename ?old_dir old_path ?new_dir new_path =
   with_dirfd "rename-new" new_dir @@ fun new_dir ->
   in_worker_thread @@ fun () ->
   eio_renameat old_dir old_path new_dir new_path
+
+type stat
+external create_stat : unit -> stat = "caml_eio_posix_make_stat"
+external eio_fstatat : stat -> Unix.file_descr -> string -> int -> unit = "caml_eio_posix_fstatat"
+external eio_fstat   : stat -> Unix.file_descr -> unit = "caml_eio_posix_fstat"
+
+let fstat ~buf fd =
+  Fd.use_exn "fstat" fd @@ fun fd ->
+  eio_fstat buf fd
+
+let fstatat ~buf ?dirfd ~follow path =
+  in_worker_thread @@ fun () ->
+  let flags = if follow then 0 else Config.at_symlink_nofollow in
+  with_dirfd "fstatat" dirfd @@ fun dirfd ->
+  eio_fstatat buf dirfd path flags
+
+external blksize : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_blksize_bytes" "ocaml_eio_posix_stat_blksize_native" [@@noalloc]
+external nlink   : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_nlink_bytes" "ocaml_eio_posix_stat_nlink_native" [@@noalloc]
+external uid     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_uid_bytes" "ocaml_eio_posix_stat_uid_native" [@@noalloc]
+external gid     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_gid_bytes" "ocaml_eio_posix_stat_gid_native" [@@noalloc]
+external ino     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_ino_bytes" "ocaml_eio_posix_stat_ino_native" [@@noalloc]
+external size    : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_size_bytes" "ocaml_eio_posix_stat_size_native" [@@noalloc]
+external rdev    : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_rdev_bytes" "ocaml_eio_posix_stat_rdev_native" [@@noalloc]
+external dev     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_dev_bytes" "ocaml_eio_posix_stat_dev_native" [@@noalloc]
+external perm    : stat -> (int [@untagged]) = "ocaml_eio_posix_stat_perm_bytes" "ocaml_eio_posix_stat_perm_native" [@@noalloc]
+external mode    : stat -> (int [@untagged]) = "ocaml_eio_posix_stat_mode_bytes" "ocaml_eio_posix_stat_mode_native" [@@noalloc]
+external kind    : stat -> Eio.File.Stat.kind = "ocaml_eio_posix_stat_kind"
+
+external atime_sec : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_atime_sec_bytes" "ocaml_eio_posix_stat_atime_sec_native" [@@noalloc]
+external ctime_sec : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_ctime_sec_bytes" "ocaml_eio_posix_stat_ctime_sec_native" [@@noalloc]
+external mtime_sec : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_mtime_sec_bytes" "ocaml_eio_posix_stat_mtime_sec_native" [@@noalloc]
+
+external atime_nsec : stat -> int = "ocaml_eio_posix_stat_atime_nsec" [@@noalloc]
+external ctime_nsec : stat -> int = "ocaml_eio_posix_stat_ctime_nsec" [@@noalloc]
+external mtime_nsec : stat -> int = "ocaml_eio_posix_stat_mtime_nsec" [@@noalloc]
 
 let pipe ~sw =
   let unix_r, unix_w = Unix.pipe ~cloexec:true () in
