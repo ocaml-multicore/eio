@@ -59,10 +59,6 @@ let try_rmdir path =
 let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
-
-let assert_kind path kind =
-  Path.with_open_in path @@ fun file ->
-  assert ((Eio.File.stat file).kind = kind)
 ```
 
 # Basic test cases
@@ -224,7 +220,9 @@ You can remove a file using unlink:
   Path.save ~create:(`Exclusive 0o600) (cwd / "subdir/file2") "data2";
   try_read_file (cwd / "file");
   try_read_file (cwd / "subdir/file2");
+  assert (Eio.Path.kind ~follow:true (cwd / "file") = `Regular_file);
   try_unlink (cwd / "file");
+  assert (Eio.Path.kind ~follow:true (cwd / "file") = `Not_found);
   try_unlink (cwd / "subdir/file2");
   try_read_file (cwd / "file");
   try_read_file (cwd / "subdir/file2");
@@ -541,9 +539,9 @@ let try_stat path =
   let cwd = Eio.Stdenv.cwd env in
   Switch.run @@ fun sw ->
   try_mkdir (cwd / "stat_subdir");
-  assert_kind (cwd / "stat_subdir") `Directory;
+  assert (Eio.Path.is_directory (cwd / "stat_subdir"));
   try_write_file (cwd / "stat_reg") "kingbula" ~create:(`Exclusive 0o600);
-  assert_kind (cwd / "stat_reg") `Regular_file;;
+  assert (Eio.Path.is_file (cwd / "stat_reg"));
 +mkdir <cwd:stat_subdir> -> ok
 +write <cwd:stat_reg> -> ok
 - : unit = ()
@@ -565,6 +563,7 @@ Fstatat:
   try_stat (cwd / "..");
   Unix.symlink ".." "parent-symlink";
   try_stat (cwd / "parent-symlink");
+  try_stat (cwd / "missing1" / "missing2");
 +mkdir <cwd:stat_subdir2> -> ok
 +<cwd:stat_subdir2> -> directory
 +<cwd:symlink> -> symbolic link / directory
@@ -572,6 +571,7 @@ Fstatat:
 +<cwd> -> directory
 +<cwd:..> -> Fs Permission_denied _
 +<cwd:parent-symlink> -> symbolic link / Fs Permission_denied _
++<cwd:missing1/missing2> -> Fs Not_found _
 - : unit = ()
 ```
 

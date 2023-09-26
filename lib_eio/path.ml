@@ -69,6 +69,16 @@ let stat ~follow t =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "examining %a" pp t
 
+let kind ~follow t =
+  try ((stat ~follow t).kind :> [File.Stat.kind | `Not_found])
+  with Exn.Io (Fs.E Not_found _, _) -> `Not_found
+
+let is_file t =
+  kind ~follow:true t = `Regular_file
+
+let is_directory t = 
+  kind ~follow:true t = `Directory
+
 let with_open_in path fn =
   Switch.run @@ fun sw -> fn (open_in ~sw path)
 

@@ -128,13 +128,28 @@ val read_dir : _ t -> string list
 
     Note: The special Unix entries "." and ".." are not included in the results. *)
 
-(** {2 Metadata} *)
+(** {1 Metadata} *)
 
 val stat : follow:bool -> _ t -> File.Stat.t
 (** [stat ~follow t] returns metadata about the file [t].
 
     If [t] is a symlink, the information returned is about the target if [follow = true],
     otherwise it is about the link itself. *)
+
+val kind : follow:bool -> _ t -> [ File.Stat.kind | `Not_found ]
+(** [kind ~follow t] is the type of [t], or [`Not_found] if it doesn't exist.
+
+    @param follow If [true] and [t] is a symlink, return the type of the target rather than [`Symbolic_link]. *)
+
+val is_file : _ t -> bool
+(** [is_file t] is [true] if [t] is a regular file, and [false] if it doesn't exist or has a different type.
+
+    [is_file t] is [kind ~follow:true t = `Regular_file]. *)
+
+val is_directory : _ t -> bool
+(** [is_directory t] is [true] if [t] is a directory, and [false] if it doesn't exist or has a different type.
+
+    [is_directory t] is [kind ~follow:true t = `Directory]. *)
 
 (** {1 Other} *)
 
