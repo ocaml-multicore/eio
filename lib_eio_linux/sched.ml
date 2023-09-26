@@ -522,9 +522,10 @@ let with_sched ?(fallback=no_fallback) config fn =
   | exception Unix.Unix_error(Unix.ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
   | uring ->
     let probe = Uring.get_probe uring in
-    if not (Uring.op_supported probe Uring.Op.shutdown) then (
+    if not (Uring.op_supported probe Uring.Op.msg_ring) then (
+      (* statx is unrealiable before 5.18. *)
       Uring.exit uring;
-      fallback (`Msg "Linux >= 5.11 is required for io_uring support")
+      fallback (`Msg "Linux >= 5.18 is required for io_uring support")
     ) else (
       match
         let mem =

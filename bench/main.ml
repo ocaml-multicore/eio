@@ -1,3 +1,5 @@
+open Eio.Std
+
 let benchmarks = [
   "Promise", Bench_promise.run;
   "Cancel", Bench_cancel.run;
@@ -39,6 +41,7 @@ let () =
       "metrics", `List metrics;
     ]
   in
+  traceln "Using backend %S" env#backend_id;
   Fmt.pr "%a@." (Yojson.Safe.pretty_print ~std:true) @@ `Assoc [
     "results", `List (List.map run benchmarks);
   ]
