@@ -350,24 +350,42 @@ let getrandom { Cstruct.buffer; off; len } =
   in
   loop 0
 
-(* [with_parent_dir dir path fn] runs [fn parent (basename path)],
-   where [parent] is a path FD for [path]'s parent, resolved using [Resolve.beneath]. *)
-let with_parent_dir op dir path fn =
+(* [with_parent_dir_fd dir path fn] runs [fn parent (basename path)],
+   where [parent] is a path FD for [path]'s parent, resolved using [Resolve.beneath].
+
+   If [basename path] is ".." then we treat it as if path had "/." on the end,
+   to avoid the special case.
+
+   todo: Optimise this by doing [fn AT_FDCWD path] if [dir = Fs].
+*)
+let with_parent_dir_fd dir path fn =
   let dir_path = Filename.dirname path in
   let leaf = Filename.basename path in
   Switch.run (fun sw ->
-      let parent =
-        match dir with
-        | FD d when dir_path = "." -> d
-        | _ ->
+      match dir with
+      | _ when leaf = ".." ->
+        let fd =
+          openat ~sw ~seekable:false dir path   (* Open the full path *)
+            ~access:`R
+            ~flags:Uring.Open_flags.(cloexec + path + directory)
+            ~perm:0
+        in
+        fn fd "."
+      | FD d when dir_path = "." -> fn d leaf
+      | _ ->
+        let parent =
           openat ~sw ~seekable:false dir dir_path
             ~access:`R
             ~flags:Uring.Open_flags.(cloexec + path + directory)
             ~perm:0
-      in
-      Fd.use_exn op parent @@ fun parent ->
-      fn parent leaf
+        in
+        fn parent leaf
     )
+
+let with_parent_dir op dir path fn =
+  with_parent_dir_fd dir path @@ fun parent leaf ->
+  Fd.use_exn op parent @@ fun parent ->
+  fn parent leaf
 
 let statx ?fd ~mask path buf flags =
   let res =
@@ -378,6 +396,23 @@ let statx ?fd ~mask path buf flags =
       Sched.enter (enqueue_statx (Some fd, path, buf, flags, mask))
   in
   if res <> 0 then raise @@ Err.wrap_fs (Uring.error_of_errno res) "statx" path
+
+let statx_confined ~mask ~follow fd path buf =
+  let module X = Uring.Statx in
+  let flags = if follow then X.Flags.empty else X.Flags.symlink_nofollow in
+  match fd with
+  | Fs -> statx ~mask path buf flags
+  | Cwd | FD _ when not follow ->
+    with_parent_dir_fd fd path @@ fun parent leaf ->
+    statx ~mask ~fd:parent leaf buf flags
+  | Cwd | FD _ ->
+    Switch.run @@ fun sw ->
+    let fd = openat ~sw ~seekable:false fd (if path = "" then "." else path)
+        ~access:`R
+        ~flags:Uring.Open_flags.(cloexec + path)
+        ~perm:0
+    in
+    statx ~fd ~mask "" buf Uring.Statx.Flags.(flags + empty_path)
 
 let mkdir_beneath ~perm dir path =
   (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)

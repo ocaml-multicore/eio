@@ -520,6 +520,22 @@ Unconfined:
 ```
 
 # Stat
+
+```ocaml
+let try_stat path =
+  let stat ~follow =
+    match Eio.Path.stat ~follow path with
+    | info -> Fmt.str "@[<h>%a@]" Eio.File.Stat.pp_kind info.kind
+    | exception Eio.Io (e, _) -> Fmt.str "@[<h>%a@]" Eio.Exn.pp_err e
+  in
+  let a = stat ~follow:false in
+  let b = stat ~follow:true in
+  if a = b then
+    traceln "%a -> %s" Eio.Path.pp path a
+  else
+    traceln "%a -> %s / %s" Eio.Path.pp path a b
+```
+
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -530,6 +546,32 @@ Unconfined:
   assert_kind (cwd / "stat_reg") `Regular_file;;
 +mkdir <cwd:stat_subdir> -> ok
 +write <cwd:stat_reg> -> ok
+- : unit = ()
+```
+
+Fstatat:
+
+```ocaml
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  Switch.run @@ fun sw ->
+  try_mkdir (cwd / "stat_subdir2");
+  Unix.symlink "stat_subdir2" "symlink";
+  Unix.symlink "missing" "broken-symlink";
+  try_stat (cwd / "stat_subdir2");
+  try_stat (cwd / "symlink");
+  try_stat (cwd / "broken-symlink");
+  try_stat cwd;
+  try_stat (cwd / "..");
+  Unix.symlink ".." "parent-symlink";
+  try_stat (cwd / "parent-symlink");
++mkdir <cwd:stat_subdir2> -> ok
++<cwd:stat_subdir2> -> directory
++<cwd:symlink> -> symbolic link / directory
++<cwd:broken-symlink> -> symbolic link / Fs Not_found _
++<cwd> -> directory
++<cwd:..> -> Fs Permission_denied _
++<cwd:parent-symlink> -> symbolic link / Fs Permission_denied _
 - : unit = ()
 ```
 

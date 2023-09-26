@@ -21,6 +21,9 @@ module Stat : sig
   ]
   (** Kind of file from st_mode. **)
 
+  val pp_kind : kind Fmt.t
+  (** Pretty printer for {! kind}. *)
+
   type t = {
     dev : Int64.t;
     ino : Int64.t;
@@ -36,6 +39,9 @@ module Stat : sig
     ctime : float;
   }
   (** Like stat(2). *)
+
+  val pp : t Fmt.t
+  (** Pretty printer for {! t}. *)
 end
 
 type ro_ty = [`File | Flow.source_ty | Resource.close_ty]

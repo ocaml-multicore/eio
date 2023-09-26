@@ -137,6 +137,16 @@ end = struct
     with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.unlink ?dirfd ~dir:true) path
 
+  let stat t ~follow path =
+    let buf = Low_level.create_stat () in
+    if follow then (
+      Err.run (Low_level.fstatat ~buf ~follow:true) (resolve t path);
+    ) else (
+      with_parent_dir t path @@ fun dirfd path ->
+      Err.run (Low_level.fstatat ~buf ?dirfd ~follow:false) path;
+    );
+    Flow.eio_of_stat buf
+
   let read_dir t path =
     (* todo: need fdopendir here to avoid races *)
     let path = resolve t path in

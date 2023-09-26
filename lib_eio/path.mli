@@ -128,6 +128,14 @@ val read_dir : _ t -> string list
 
     Note: The special Unix entries "." and ".." are not included in the results. *)
 
+(** {2 Metadata} *)
+
+val stat : follow:bool -> _ t -> File.Stat.t
+(** [stat ~follow t] returns metadata about the file [t].
+
+    If [t] is a symlink, the information returned is about the target if [follow = true],
+    otherwise it is about the link itself. *)
+
 (** {1 Other} *)
 
 val unlink : _ t -> unit

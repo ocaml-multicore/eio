@@ -42,8 +42,8 @@ type create = [
 
 type dir_ty = [`Dir]
 type 'a dir = ([> dir_ty] as 'a) r
-
 (** Note: use the functions in {!Path} to access directories. *)
+
 module Pi = struct
   module type DIR = sig
     type t
@@ -60,6 +60,7 @@ module Pi = struct
     val mkdir : t -> perm:File.Unix_perm.t -> path -> unit
     val open_dir : t -> sw:Switch.t -> path -> [`Close | dir_ty] r
     val read_dir : t -> path -> string list
+    val stat : t -> follow:bool -> string -> File.Stat.t
     val unlink : t -> path -> unit
     val rmdir : t -> path -> unit
     val rename : t -> path -> _ dir -> path -> unit

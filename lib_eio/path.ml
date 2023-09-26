@@ -61,6 +61,14 @@ let read_dir t =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "reading directory %a" pp t
 
+let stat ~follow t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.stat ~follow dir path
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "examining %a" pp t
+
 let with_open_in path fn =
   Switch.run @@ fun sw -> fn (open_in ~sw path)
 
