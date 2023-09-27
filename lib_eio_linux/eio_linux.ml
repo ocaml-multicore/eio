@@ -536,23 +536,34 @@ end = struct
     else Float.pred f
 
   let stat t ~follow path =
-    let module X = Uring.Statx in
-    let x = X.create () in
-    Low_level.statx_confined ~follow ~mask:X.Mask.basic_stats t.fd path x;
-    { Eio.File.Stat.
-      dev    = X.dev x;
-      ino    = X.ino x;
-      kind   = X.kind x;
-      perm   = X.perm x;
-      nlink  = X.nlink x;
-      uid    = X.uid x;
-      gid    = X.gid x;
-      rdev   = X.rdev x;
-      size   = X.size x |> Optint.Int63.of_int64;
-      atime  = float_of_time (X.atime_sec x) (X.atime_nsec x);
-      mtime  = float_of_time (X.mtime_sec x) (X.mtime_nsec x);
-      ctime  = float_of_time (X.ctime_sec x) (X.ctime_nsec x);
-    }
+    if !Sched.statx_works then (
+      let module X = Uring.Statx in
+      let x = X.create () in
+      Low_level.statx_confined ~follow ~mask:X.Mask.basic_stats t.fd path x;
+      { Eio.File.Stat.
+        dev    = X.dev x;
+        ino    = X.ino x;
+        kind   = X.kind x;
+        perm   = X.perm x;
+        nlink  = X.nlink x;
+        uid    = X.uid x;
+        gid    = X.gid x;
+        rdev   = X.rdev x;
+        size   = X.size x |> Optint.Int63.of_int64;
+        atime  = float_of_time (X.atime_sec x) (X.atime_nsec x);
+        mtime  = float_of_time (X.mtime_sec x) (X.mtime_nsec x);
+        ctime  = float_of_time (X.ctime_sec x) (X.ctime_nsec x);
+      }
+    ) else (
+      (* Linux < 5.18 *)
+      Switch.run @@ fun sw ->
+      let fd = Low_level.openat ~sw ~seekable:false t.fd (if path = "" then "." else path)
+          ~access:`R
+          ~flags:Uring.Open_flags.(cloexec + path + (if follow then empty else nofollow))
+          ~perm:0
+      in
+      Flow.stat fd
+    )
 
   let rename t old_path t2 new_path =
     match get_dir_fd_opt t2 with
