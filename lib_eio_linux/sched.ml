@@ -11,6 +11,8 @@ module Lf_queue = Eio_utils.Lf_queue
 
 let system_thread = Ctf.mint_id ()
 
+let statx_works = ref false     (* Before Linux 5.18, statx is unreliable *)
+
 type exit = [`Exit_scheduler]
 
 type file_offset = [
@@ -526,6 +528,7 @@ let with_sched ?(fallback=no_fallback) config fn =
       Uring.exit uring;
       fallback (`Msg "Linux >= 5.11 is required for io_uring support")
     ) else (
+      statx_works := Uring.op_supported probe Uring.Op.msg_ring;
       match
         let mem =
           let fixed_buf_len = block_size * n_blocks in
