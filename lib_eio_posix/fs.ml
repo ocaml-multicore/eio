@@ -72,17 +72,14 @@ end = struct
     if t.sandbox then (
       if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
       let dir, leaf = Filename.dirname path, Filename.basename path in
-      if leaf = ".." then (
-        (* We could be smarter here and normalise the path first, but '..'
-           doesn't make sense for any of the current uses of [with_parent_dir]
-           anyway. *)
-        raise (Eio.Fs.err (Permission_denied (Err.Invalid_leaf leaf)))
-      ) else (
-        let dir = resolve t dir in
-        Switch.run @@ fun sw ->
-        let dirfd = Low_level.openat ~sw ~mode:0 dir Low_level.Open_flags.(directory + rdonly + nofollow) in
-        fn (Some dirfd) leaf
-      )
+      let dir, leaf =
+        if leaf = ".." then path, "."
+        else dir, leaf
+      in
+      let dir = resolve t dir in
+      Switch.run @@ fun sw ->
+      let dirfd = Low_level.openat ~sw ~mode:0 dir Low_level.Open_flags.(directory + rdonly + nofollow) in
+      fn (Some dirfd) leaf
     ) else fn None path
 
   let v ~label ~sandbox dir_path = { dir_path; sandbox; label; closed = false }

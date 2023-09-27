@@ -21,6 +21,38 @@ let native_exn t =
   | Some p -> p
   | None -> raise (Fs.err (Not_native (Fmt.str "%a" pp t)))
 
+(* Drop the first [n] characters from [s]. *)
+let string_drop s n =
+  String.sub s n (String.length s - n)
+
+(* "/foo/bar//" -> "/foo/bar"
+   "///" -> "/"
+   "foo/bar" -> "foo/bar"
+ *)
+let remove_trailing_slashes s =
+  let rec aux i =
+    if i <= 1 || s.[i - 1] <> '/' then (
+      if i = String.length s then s
+      else String.sub s 0 i
+    ) else aux (i - 1)
+  in
+  aux (String.length s)
+
+let split (dir, p) =
+  match remove_trailing_slashes p with
+  | "" -> None
+  | "/" -> None
+  | p ->
+    match String.rindex_opt p '/' with
+    | None -> Some ((dir, ""), p)
+    | Some idx ->
+      let basename = string_drop p (idx + 1) in
+      let dirname =
+        if idx = 0 then "/"
+        else remove_trailing_slashes (String.sub p 0 idx)
+      in
+      Some ((dir, dirname), basename)
+
 let open_in ~sw t =
   let (Resource.T (dir, ops), path) = t in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
@@ -139,3 +171,16 @@ let rename t1 t2 =
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "renaming %a to %a" pp t1 pp t2
+
+let rec mkdirs ?(exists_ok=false) ~perm t =
+  (* Check parent exists first. *)
+  split t |> Option.iter (fun (parent, _) ->
+      match is_directory parent with
+      | true -> ()
+      | false -> mkdirs ~perm ~exists_ok:true parent
+      | exception (Exn.Io _ as ex) ->
+        let bt = Printexc.get_raw_backtrace () in
+        Exn.reraise_with_context ex bt "creating directory %a" pp t
+    );
+  try mkdir ~perm t
+  with Exn.Io (Fs.E Already_exists _, _) when exists_ok && is_directory t -> ()

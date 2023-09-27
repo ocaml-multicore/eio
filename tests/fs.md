@@ -36,6 +36,11 @@ let try_mkdir path =
   | () -> traceln "mkdir %a -> ok" Path.pp path
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
+let try_mkdirs ?exists_ok path =
+  match Path.mkdirs ?exists_ok path ~perm:0o700 with
+  | () -> traceln "mkdirs %a -> ok" Path.pp path
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+
 let try_rename p1 p2 =
   match Path.rename p1 p2 with
   | () -> traceln "rename %a to %a -> ok" Path.pp p1 Path.pp p2
@@ -205,6 +210,90 @@ Creating directories with nesting, symlinks, etc:
 +Eio.Io Fs Permission_denied _, creating directory <cwd:../foo>
 +Eio.Io Fs Already_exists _, creating directory <cwd:to-subdir>
 +Eio.Io Fs Not_found _, creating directory <cwd:dangle/foo>
+- : unit = ()
+```
+
+# Split
+
+```ocaml
+let fake_dir : Eio.Fs.dir_ty r = Eio.Resource.T ((), Eio.Resource.handler [])
+let split path = Eio.Path.split (fake_dir, path) |> Option.map (fun ((_, dirname), basename) -> dirname, basename)
+```
+
+```ocaml
+# split "foo/bar";
+- : (string * string) option = Some ("foo", "bar")
+
+# split "/foo/bar";
+- : (string * string) option = Some ("/foo", "bar")
+
+# split "/foo/bar/baz";
+- : (string * string) option = Some ("/foo/bar", "baz")
+
+# split "/foo/bar//baz/";
+- : (string * string) option = Some ("/foo/bar", "baz")
+
+# split "bar";
+- : (string * string) option = Some ("", "bar")
+
+# split "/bar";
+- : (string * string) option = Some ("/", "bar")
+
+# split ".";
+- : (string * string) option = Some ("", ".")
+
+# split "./";
+- : (string * string) option = Some ("", ".")
+
+# split "";
+- : (string * string) option = None
+
+# split "/";
+- : (string * string) option = None
+
+# split "///";
+- : (string * string) option = None
+```
+
+# Mkdirs
+
+Recursively creating directories with `mkdirs`.
+
+```ocaml
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  let nested = cwd / "subdir1" / "subdir2" / "subdir3" in
+  try_mkdirs nested;
+  assert (Eio.Path.is_directory nested);
+  let one_more = Path.(nested / "subdir4") in
+  try_mkdirs one_more;
+  try_mkdirs ~exists_ok:true one_more;
+  try_mkdirs one_more;
+  assert (Eio.Path.is_directory one_more);
+  try_mkdirs (cwd / ".." / "outside");
++mkdirs <cwd:subdir1/subdir2/subdir3> -> ok
++mkdirs <cwd:subdir1/subdir2/subdir3/subdir4> -> ok
++mkdirs <cwd:subdir1/subdir2/subdir3/subdir4> -> ok
++Eio.Io Fs Already_exists _, creating directory <cwd:subdir1/subdir2/subdir3/subdir4>
++Eio.Io Fs Permission_denied _, examining <cwd:..>, creating directory <cwd:../outside>
+- : unit = ()
+```
+
+Some edge cases for `mkdirs`.
+
+```ocaml
+# run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_mkdirs (cwd / ".");
+  try_mkdirs (cwd / "././");
+  let lots_of_slashes = "./test//////////////test" in
+  try_mkdirs (cwd / lots_of_slashes);
+  assert (Eio.Path.is_directory (cwd / lots_of_slashes));
+  try_mkdirs (cwd / "..");;
++Eio.Io Fs Already_exists _, creating directory <cwd:.>
++Eio.Io Fs Already_exists _, creating directory <cwd:././>
++mkdirs <cwd:./test//////////////test> -> ok
++Eio.Io Fs Permission_denied _, creating directory <cwd:..>
 - : unit = ()
 ```
 
@@ -561,6 +650,7 @@ Fstatat:
   try_stat (cwd / "broken-symlink");
   try_stat cwd;
   try_stat (cwd / "..");
+  try_stat (cwd / "stat_subdir2/..");
   Unix.symlink ".." "parent-symlink";
   try_stat (cwd / "parent-symlink");
   try_stat (cwd / "missing1" / "missing2");
@@ -570,6 +660,7 @@ Fstatat:
 +<cwd:broken-symlink> -> symbolic link / Fs Not_found _
 +<cwd> -> directory
 +<cwd:..> -> Fs Permission_denied _
++<cwd:stat_subdir2/..> -> directory
 +<cwd:parent-symlink> -> symbolic link / Fs Permission_denied _
 +<cwd:missing1/missing2> -> Fs Not_found _
 - : unit = ()

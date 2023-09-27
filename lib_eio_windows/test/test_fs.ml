@@ -23,6 +23,11 @@ let try_mkdir path =
   | () -> traceln "mkdir %a -> ok" Path.pp path
   | exception ex -> raise ex
 
+let try_mkdirs ?exists_ok path =
+  match Path.mkdirs ?exists_ok path ~perm:0o700 with
+  | () -> traceln "mkdirs %a -> ok" Path.pp path
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+
 let try_rename p1 p2 =
   match Path.rename p1 p2 with
   | () -> traceln "rename %a to %a -> ok" Path.pp p1 Path.pp p2
@@ -75,7 +80,7 @@ let test_exclusive env () =
   Eio.traceln "fiest";
   Path.save ~create:(`Exclusive 0o666) path "first-write";
   Eio.traceln "next";
-  try 
+  try
     Path.save ~create:(`Exclusive 0o666) path "first-write";
     Eio.traceln "nope";
     failwith "Should have failed"
@@ -84,7 +89,7 @@ let test_exclusive env () =
 let test_if_missing env () =
   let cwd = Eio.Stdenv.cwd env in
   let test_file = (cwd / "test-file") in
-  with_temp_file test_file @@ fun test_file -> 
+  with_temp_file test_file @@ fun test_file ->
   Path.save ~create:(`If_missing 0o666) test_file "1st-write-original";
   Path.save ~create:(`If_missing 0o666) test_file "2nd-write";
   Alcotest.(check string) "same contents" "2nd-write-original" (Path.load test_file)
@@ -92,7 +97,7 @@ let test_if_missing env () =
 let test_trunc env () =
   let cwd = Eio.Stdenv.cwd env in
   let test_file = (cwd / "test-file") in
-  with_temp_file test_file @@ fun test_file -> 
+  with_temp_file test_file @@ fun test_file ->
   Path.save ~create:(`Or_truncate 0o666) test_file "1st-write-original";
   Path.save ~create:(`Or_truncate 0o666) test_file "2nd-write";
   Alcotest.(check string) "same contents" "2nd-write" (Path.load test_file)
@@ -125,8 +130,21 @@ let test_mkdir env () =
   Unix.rmdir "subdir\\nested";
   Unix.rmdir "subdir"
 
+let test_mkdirs env () =
+  let cwd = Eio.Stdenv.cwd env in
+  let nested = cwd / "subdir1" / "subdir2" / "subdir3" in
+  try_mkdirs nested;
+  let one_more = Path.(nested / "subdir4") in
+  (try
+    try_mkdirs one_more
+  with Eio.Io (Eio.Fs.E (Already_exists _), _) -> ());
+  try_mkdirs ~exists_ok:true one_more;
+  try
+    try_mkdirs (cwd / ".." / "outside")
+  with Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ()
+
 let test_symlink env () =
-  (* 
+  (*
     Important note: assuming that neither "another" nor
     "to-subdir" exist, the following program will behave
     differently if you don't have the ~to_dir flag.
@@ -134,11 +152,11 @@ let test_symlink env () =
     With [to_dir] set to [true] we get the desired UNIX behaviour,
     without it [Unix.realpath] will actually show the parent directory
     of "another". Presumably this is because Windows distinguishes
-    between file symlinks and directory symlinks. Fun. 
+    between file symlinks and directory symlinks. Fun.
 
   {[ Unix.symlink ~to_dir:true "another" "to-subdir";
      Unix.mkdir "another" 0o700;
-     print_endline @@ Unix.realpath "to-subdir" |} 
+     print_endline @@ Unix.realpath "to-subdir" |}
   *)
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "sandbox");
@@ -186,13 +204,13 @@ let test_unlink env () =
   try_unlink (cwd / "file");
   try_unlink (cwd / "subdir\\file2");
   let () =
-    try 
+    try
       try_read_file (cwd / "file");
       failwith "file should not exist"
     with Eio.Io (Eio.Fs.E (Not_found _), _) -> ()
   in
   let () =
-    try 
+    try
       try_read_file (cwd / "subdir\\file2");
       failwith "file should not exist"
     with Eio.Io (Eio.Fs.E (Not_found _), _) -> ()
@@ -201,7 +219,7 @@ let test_unlink env () =
   (* Supposed to use symlinks here. *)
   try_unlink (cwd / "subdir\\file2");
   let () =
-    try 
+    try
       try_read_file (cwd / "subdir\\file2");
       failwith "file should not exist"
     with Eio.Io (Eio.Fs.E (Not_found _), _) -> ()
@@ -211,13 +229,13 @@ let test_unlink env () =
 let try_failing_unlink env () =
   let cwd = Eio.Stdenv.cwd env in
   let () =
-    try 
+    try
       try_unlink (cwd / "missing");
       failwith "Expected not found!"
     with Eio.Io (Eio.Fs.E (Not_found _), _) -> ()
   in
   let () =
-    try 
+    try
       try_unlink (cwd / "..\\foo");
       failwith "Expected permission denied!"
     with Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ()
@@ -233,13 +251,13 @@ let test_remove_dir env () =
   try_rmdir (cwd / "d1");
   try_rmdir (cwd / "subdir\\d2");
   let () =
-    try 
+    try
       try_read_dir (cwd / "d1");
       failwith "Expected not found"
     with Eio.Io (Eio.Fs.E (Not_found _), _) -> ()
-  in 
+  in
   let () =
-    try 
+    try
       try_read_dir (cwd / "subdir\\d2");
       failwith "Expected not found"
     with Eio.Io (Eio.Fs.E (Not_found _), _) -> ()
