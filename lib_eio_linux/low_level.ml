@@ -341,6 +341,27 @@ external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrand
 
 external eio_getdents : Unix.file_descr -> string list = "caml_eio_getdents"
 
+let lseek fd off cmd =
+  Fd.use_exn "lseek" fd @@ fun fd ->
+  let cmd =
+    match cmd with
+    | `Set -> Unix.SEEK_SET
+    | `Cur -> Unix.SEEK_CUR
+    | `End -> Unix.SEEK_END
+  in
+  Unix.LargeFile.lseek fd (Optint.Int63.to_int64 off) cmd
+  |> Optint.Int63.of_int64
+
+let fsync fd =
+  (* todo: https://github.com/ocaml-multicore/ocaml-uring/pull/103 *)
+  Eio_unix.run_in_systhread @@ fun () ->
+  Fd.use_exn "fsync" fd Unix.fsync
+
+let ftruncate fd len =
+  Eio_unix.run_in_systhread @@ fun () ->
+  Fd.use_exn "ftruncate" fd @@ fun fd ->
+  Unix.LargeFile.ftruncate fd (Optint.Int63.to_int64 len)
+
 let getrandom { Cstruct.buffer; off; len } =
   let rec loop n =
     if n = len then

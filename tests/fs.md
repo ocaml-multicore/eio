@@ -675,3 +675,23 @@ Exception: Failure "Simulated error".
 +<native-sub:/etc/passwd> -> Some /etc/passwd
 - : unit = ()
 ```
+
+# Seek, truncate and sync
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Path.with_open_out (env#cwd / "seek-test") ~create:(`If_missing 0o700) @@ fun file ->
+  Eio.File.truncate file (Int63.of_int 10);
+  assert ((Eio.File.stat file).size = (Int63.of_int 10));
+  let pos = Eio.File.seek file (Int63.of_int 3) `Set in
+  traceln "seek from start: %a" Int63.pp pos;
+  let pos = Eio.File.seek file (Int63.of_int 2) `Cur in
+  traceln "relative seek: %a" Int63.pp pos;
+  let pos = Eio.File.seek file (Int63.of_int (-1)) `End in
+  traceln "seek from end: %a" Int63.pp pos;
+  Eio.File.sync file;    (* (no way to check if this actually worked, but ensure it runs) *)
++seek from start: 3
++relative seek: 5
++seek from end: 9
+- : unit = ()
+```

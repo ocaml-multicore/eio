@@ -34,6 +34,10 @@ val send_msg : fd -> ?dst:Unix.sockaddr -> bytes -> int
 
 val getrandom : Cstruct.t -> unit
 
+val lseek : fd -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
+val fsync : fd -> unit
+val ftruncate : fd -> Optint.Int63.t -> unit
+
 val fstat : fd -> Unix.LargeFile.stats
 val lstat : string -> Unix.LargeFile.stats
 

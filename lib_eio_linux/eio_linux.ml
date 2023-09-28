@@ -192,6 +192,10 @@ module Flow = struct
   let recv_msg_with_fds t ~sw ~max_fds data =
     let _addr, n, fds = Low_level.recv_msg_with_fds t ~sw ~max_fds data in
     n, fds
+
+  let seek = Low_level.lseek
+  let sync = Low_level.fsync
+  let truncate = Low_level.ftruncate
 end
 
 let flow_handler = Eio_unix.Pi.flow_handler (module Flow)

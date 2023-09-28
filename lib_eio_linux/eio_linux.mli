@@ -167,6 +167,21 @@ module Low_level : sig
       The entries are not returned in any particular order
       (not even necessarily the order in which Linux returns them). *)
 
+  val lseek : fd -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
+  (** Set and/or get the current file position.
+
+      Like {!Unix.lseek}. *)
+
+  val fsync : fd -> unit
+  (** Flush file buffers to disk.
+
+      Like {!Unix.fsync}. *)
+
+  val ftruncate : fd -> Optint.Int63.t -> unit
+  (** Set the length of a file.
+
+      Like {!Unix.ftruncate}. *)
+
   (** {1 Sockets} *)
 
   val accept : sw:Switch.t -> fd -> (fd * Unix.sockaddr)
