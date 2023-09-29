@@ -72,6 +72,7 @@ module Pi = struct
 
     val pread : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
     val stat : t -> Stat.t
+    val seek : t -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
     val close : t -> unit
   end
 
@@ -80,6 +81,8 @@ module Pi = struct
     include READ with type t := t
 
     val pwrite : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
+    val sync : t -> unit
+    val truncate : t -> Optint.Int63.t -> unit
   end
 
   type (_, _, _) Resource.pi +=
@@ -140,3 +143,15 @@ let pwrite_all (Resource.T (t, ops)) ~file_offset bufs =
     )
   in
   aux ~file_offset bufs
+
+let seek (Resource.T (t, ops)) off cmd =
+  let module X = (val (Resource.get ops Pi.Read)) in
+  X.seek t off cmd
+
+let sync (Resource.T (t, ops)) =
+  let module X = (val (Resource.get ops Pi.Write)) in
+  X.sync t
+
+let truncate (Resource.T (t, ops)) len =
+  let module X = (val (Resource.get ops Pi.Write)) in
+  X.truncate t len

@@ -79,6 +79,10 @@ module Impl = struct
     let _addr, n, fds = Low_level.recv_msg_with_fds t ~sw ~max_fds (Array.of_list data) in
     n, fds
 
+  let seek = Low_level.lseek
+  let sync = Low_level.fsync
+  let truncate = Low_level.ftruncate
+
   let fd t = t
 
   let close = Eio_unix.Fd.close

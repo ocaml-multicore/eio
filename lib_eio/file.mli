@@ -1,5 +1,7 @@
 open Std
 
+(** {2 Types} *)
+
 (** Traditional Unix permissions. *)
 module Unix_perm : sig
   type t = int
@@ -54,36 +56,15 @@ type rw_ty = [ro_ty | Flow.sink_ty]
 type 'a rw = ([> rw_ty] as 'a) r
 (** A file opened for reading and writing. *)
 
-module Pi : sig
-  module type READ = sig
-    include Flow.Pi.SOURCE
-
-    val pread : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
-    val stat : t -> Stat.t
-    val close : t -> unit
-  end
-
-  module type WRITE = sig
-    include Flow.Pi.SINK
-    include READ with type t := t
-
-    val pwrite : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
-  end
-
-  type (_, _, _) Resource.pi +=
-    | Read : ('t, (module READ with type t = 't), [> ro_ty]) Resource.pi
-    | Write : ('t, (module WRITE with type t = 't), [> rw_ty]) Resource.pi
-
-  val ro : (module READ with type t = 't) -> ('t, ro_ty) Resource.handler
-
-  val rw : (module WRITE with type t = 't) -> ('t, rw_ty) Resource.handler
-end
+(** {2 Metadata} *)
 
 val stat : _ ro -> Stat.t
 (** [stat t] returns the {!Stat.t} record associated with [t]. *)
 
 val size : _ ro -> Optint.Int63.t
 (** [size t] returns the size of [t]. *)
+
+(** {2 Reading and writing} *)
 
 val pread : _ ro -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
 (** [pread t ~file_offset bufs] performs a single read of [t] at [file_offset] into [bufs].
@@ -108,3 +89,48 @@ val pwrite_single : _ rw -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
 
 val pwrite_all : _ rw -> file_offset:Optint.Int63.t -> Cstruct.t list -> unit
 (** [pwrite_all t ~file_offset bufs] writes all the data in [bufs] to location [file_offset] in [t]. *)
+
+val seek : _ ro -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
+(** Set and/or get the current file position.
+
+    Like {!Unix.lseek}. *)
+
+val sync : _ rw -> unit
+(** Flush file buffers to disk.
+
+    Like {!Unix.fsync}. *)
+
+val truncate : _ rw -> Optint.Int63.t -> unit
+(** Set the length of a file.
+
+    Like {!Unix.ftruncate}. *)
+
+(** {2 Provider Interface} *)
+
+module Pi : sig
+  module type READ = sig
+    include Flow.Pi.SOURCE
+
+    val pread : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
+    val stat : t -> Stat.t
+    val seek : t -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
+    val close : t -> unit
+  end
+
+  module type WRITE = sig
+    include Flow.Pi.SINK
+    include READ with type t := t
+
+    val pwrite : t -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
+    val sync : t -> unit
+    val truncate : t -> Optint.Int63.t -> unit
+  end
+
+  type (_, _, _) Resource.pi +=
+    | Read : ('t, (module READ with type t = 't), [> ro_ty]) Resource.pi
+    | Write : ('t, (module WRITE with type t = 't), [> rw_ty]) Resource.pi
+
+  val ro : (module READ with type t = 't) -> ('t, ro_ty) Resource.handler
+
+  val rw : (module WRITE with type t = 't) -> ('t, rw_ty) Resource.handler
+end

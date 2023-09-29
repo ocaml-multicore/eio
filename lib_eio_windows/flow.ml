@@ -76,6 +76,10 @@ module Impl = struct
 
   let recv_msg_with_fds _t ~sw:_ ~max_fds:_ _data = failwith "Not implemented on Windows"
 
+  let seek = Low_level.lseek
+  let sync = Low_level.fsync
+  let truncate = Low_level.ftruncate
+
   let fd t = t
 
   let close = Eio_unix.Fd.close

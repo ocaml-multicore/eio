@@ -256,6 +256,26 @@ external atime_nsec : stat -> int = "ocaml_eio_posix_stat_atime_nsec" [@@noalloc
 external ctime_nsec : stat -> int = "ocaml_eio_posix_stat_ctime_nsec" [@@noalloc]
 external mtime_nsec : stat -> int = "ocaml_eio_posix_stat_mtime_nsec" [@@noalloc]
 
+let lseek fd off cmd =
+  Fd.use_exn "lseek" fd @@ fun fd ->
+  let cmd =
+    match cmd with
+    | `Set -> Unix.SEEK_SET
+    | `Cur -> Unix.SEEK_CUR
+    | `End -> Unix.SEEK_END
+  in
+  Unix.LargeFile.lseek fd (Optint.Int63.to_int64 off) cmd
+  |> Optint.Int63.of_int64
+
+let fsync fd =
+  Eio_unix.run_in_systhread @@ fun () ->
+  Fd.use_exn "fsync" fd Unix.fsync
+
+let ftruncate fd len =
+  Eio_unix.run_in_systhread @@ fun () ->
+  Fd.use_exn "ftruncate" fd @@ fun fd ->
+  Unix.LargeFile.ftruncate fd (Optint.Int63.to_int64 len)
+
 let pipe ~sw =
   let unix_r, unix_w = Unix.pipe ~cloexec:true () in
   let r = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_r in

@@ -35,6 +35,10 @@ val send_msg : fd -> ?fds:fd list -> ?dst:Unix.sockaddr -> Cstruct.t array -> in
 
 val getrandom : Cstruct.t -> unit
 
+val lseek : fd -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
+val fsync : fd -> unit
+val ftruncate : fd -> Optint.Int63.t -> unit
+
 type stat
 
 val create_stat : unit -> stat
