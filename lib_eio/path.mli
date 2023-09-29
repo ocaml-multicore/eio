@@ -61,6 +61,26 @@ val native : _ t -> string option
 val native_exn : _ t -> string
 (** Like {!native}, but raise a suitable exception if the path is not a native path. *)
 
+val split : 'a t -> ('a t * string) option
+(** [split t] returns [Some (dir, basename)], where [basename] is the last path component in [t]
+    and [dir] is [t] without [basename].
+
+    [dir / basename] refers to the same path as [t].
+
+    [split t = None] if there is nothing to split.
+
+    For example:
+
+    - [split (root, "foo/bar") = Some ((root, "foo"), "bar")]
+    - [split (root, "/foo/bar") = Some ((root, "/foo"), "bar")]
+    - [split (root, "/foo/bar/baz") = Some ((root, "/foo/bar"), "baz")]
+    - [split (root, "/foo/bar//baz/") = Some ((root, "/foo/bar"), "baz")]
+    - [split (root, "bar") = Some ((root, ""), "bar")]
+    - [split (root, ".") = Some ((root, ""), ".")]
+    - [split (root, "") = None]
+    - [split (root, "/") = None]
+*)
+
 (** {1 Reading files} *)
 
 val load : _ t -> string
@@ -111,6 +131,13 @@ val with_open_out :
 
 val mkdir : perm:File.Unix_perm.t -> _ t -> unit
 (** [mkdir ~perm t] creates a new directory [t] with permissions [perm]. *)
+
+val mkdirs : ?exists_ok:bool -> perm:File.Unix_perm.t -> _ t -> unit
+(** [mkdirs ~perm t] creates directory [t] along with any missing ancestor directories, recursively.
+
+    All created directories get permissions [perm], but existing directories do not have their permissions changed.
+
+    @param exist_ok If [false] (the default) then we raise {! Fs.Already_exists} if [t] is already a directory. *)
 
 val open_dir : sw:Switch.t -> _ t -> [`Close | dir_ty] t
 (** [open_dir ~sw t] opens [t].
