@@ -72,7 +72,9 @@ let open_out ~sw ?(append=false) ~create t =
 let open_dir ~sw t =
   let (Resource.T (dir, ops), path) = t in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
-  try X.open_dir dir ~sw path, ""
+  try
+    let sub = X.open_dir dir ~sw path, "" in
+    (sub : [`Close | `Dir] t :> [< `Close | `Dir] t)
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "opening directory %a" pp t
@@ -162,6 +164,19 @@ let rmdir t =
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "removing directory %a" pp t
+
+let rec rmtree (t : Fs.dir_ty t) =
+  with_open_dir t (fun t ->
+      read_dir t |> List.iter (fun name ->
+          let item = t / name in
+          match kind ~follow:false item with
+          | `Directory -> rmtree item
+          | _ -> unlink item
+        )
+    );
+  rmdir t
+
+let rmtree = (rmtree : Fs.dir_ty t -> unit :> [> Fs.dir_ty] t -> unit)
 
 let rename t1 t2 =
   let (dir2, new_path) = t2 in
