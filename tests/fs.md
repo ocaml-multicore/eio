@@ -61,6 +61,11 @@ let try_rmdir path =
   | () -> traceln "rmdir %a -> ok" Path.pp path
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
+let try_rmtree path =
+  match Path.rmtree path with
+  | () -> traceln "rmtree %a -> ok" Path.pp path
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+
 let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
@@ -394,6 +399,23 @@ Removing something that doesn't exist or is out of scope:
 +Eio.Io Fs Permission_denied _, removing directory <cwd:../foo>
 +Eio.Io Fs Not_found _, removing directory <cwd:to-subdir/foo>
 +Eio.Io Fs Permission_denied _, removing directory <cwd:to-root/foo>
+- : unit = ()
+```
+
+# Recursive removal
+
+```ocaml
+# run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let cwd = Eio.Stdenv.cwd env in
+  let foo = cwd / "foo" in
+  try_mkdirs (foo / "bar"/ "baz");
+  try_write_file ~create:(`Exclusive 0o600) (foo / "bar/file1") "data";
+  try_rmtree foo;
+  assert (Path.kind ~follow:false foo = `Not_found);
++mkdirs <cwd:foo/bar/baz> -> ok
++write <cwd:foo/bar/file1> -> ok
++rmtree <cwd:foo> -> ok
 - : unit = ()
 ```
 
