@@ -61,8 +61,8 @@ let try_rmdir path =
   | () -> traceln "rmdir %a -> ok" Path.pp path
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
-let try_rmtree path =
-  match Path.rmtree path with
+let try_rmtree ?missing_ok path =
+  match Path.rmtree ?missing_ok path with
   | () -> traceln "rmtree %a -> ok" Path.pp path
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
@@ -413,9 +413,17 @@ Removing something that doesn't exist or is out of scope:
   try_write_file ~create:(`Exclusive 0o600) (foo / "bar/file1") "data";
   try_rmtree foo;
   assert (Path.kind ~follow:false foo = `Not_found);
+  traceln "A second rmtree is OK with missing_ok:";
+  try_rmtree ~missing_ok:true foo;
+  traceln "But not without:";
+  try_rmtree ~missing_ok:false foo;
 +mkdirs <cwd:foo/bar/baz> -> ok
 +write <cwd:foo/bar/file1> -> ok
 +rmtree <cwd:foo> -> ok
++A second rmtree is OK with missing_ok:
++rmtree <cwd:foo> -> ok
++But not without:
++Eio.Io Fs Not_found _, removing file <cwd:foo>
 - : unit = ()
 ```
 

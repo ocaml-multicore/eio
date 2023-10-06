@@ -192,8 +192,13 @@ val rmdir : _ t -> unit
 
     Note: this usually requires the directory to be empty. *)
 
-val rmtree : _ t -> unit
-(** [rmtree t] removes directory [t] and its contents, recursively. *)
+val rmtree : ?missing_ok:bool -> _ t -> unit
+(** [rmtree t] removes [t] (and its contents, recursively, if it's a directory).
+
+    @param missing_ok If [false] (the default), raise an {!Fs.Not_found} IO error if [t] doesn't exist.
+                      If [true], ignore missing items.
+                      This applies recursively, allowing two processes
+                      to attempt to remove a tree at the same time. *)
 
 val rename : _ t -> _ t -> unit
 (** [rename old_t new_t] atomically unlinks [old_t] and links it as [new_t].

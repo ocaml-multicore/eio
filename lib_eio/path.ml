@@ -165,18 +165,30 @@ let rmdir t =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "removing directory %a" pp t
 
-let rec rmtree (t : Fs.dir_ty t) =
-  with_open_dir t (fun t ->
-      read_dir t |> List.iter (fun name ->
-          let item = t / name in
-          match kind ~follow:false item with
-          | `Directory -> rmtree item
-          | _ -> unlink item
-        )
-    );
-  rmdir t
+let catch_missing ~missing_ok fn x =
+  if missing_ok then
+    try fn x
+    with Exn.Io (Fs.E Not_found _, _) -> ()
+  else fn x
 
-let rmtree = (rmtree : Fs.dir_ty t -> unit :> [> Fs.dir_ty] t -> unit)
+let rec rmtree ~missing_ok t =
+  match kind ~follow:false t with
+  | `Directory ->
+    Switch.run (fun sw ->
+        match
+          let t = open_dir ~sw t in
+          t, read_dir t
+        with
+        | t, items -> List.iter (fun x -> rmtree ~missing_ok (t / x)) items
+        | exception Exn.Io (Fs.E Not_found _, _) when missing_ok -> ()
+    );
+    catch_missing ~missing_ok rmdir t
+  | `Not_found when missing_ok -> ()
+  | _ ->
+    catch_missing ~missing_ok unlink t
+
+let rmtree ?(missing_ok=false) t =
+  rmtree ~missing_ok (t :> Fs.dir_ty t)
 
 let rename t1 t2 =
   let (dir2, new_path) = t2 in
