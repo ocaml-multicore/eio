@@ -16,8 +16,10 @@ let () = Eio.Exn.Backend.show := false
 
 let ( / ) = Eio.Path.( / )
 
-let run fn =
+let run ?clear:(paths = []) fn =
   Eio_main.run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p)) paths;
   fn env#process_mgr env
 
 let status_to_string = Fmt.to_to_string Eio.Process.pp_status
@@ -57,12 +59,12 @@ A switch will stop a process when it is released:
 Passing in flows allows you to redirect the child process' stdout:
 
 ```ocaml
-# run @@ fun mgr env ->
+# run ~clear:["process-test.txt"] @@ fun mgr env ->
   let fs = Eio.Stdenv.fs env in
-  let filename = "process-test.txt" in
-  Eio.Path.(with_open_out ~create:(`Exclusive 0o600) (fs / filename)) @@ fun stdout ->
+  let path = fs / "process-test.txt" in
+  Eio.Path.(with_open_out ~create:(`Exclusive 0o600) path) @@ fun stdout ->
   Process.run mgr ~stdout [ "echo"; "Hello" ];
-  Eio.Path.(load (fs / filename));;
+  Eio.Path.(load path);;
 - : string = "Hello\n"
 ```
 
@@ -120,8 +122,9 @@ Changing directory (unconfined):
 Changing directory (confined):
 
 ```ocaml
-# run @@ fun mgr env ->
-  let subdir = env#cwd / "proc-sub-dir" in
+# run ~clear:["proc-sub-dir"] @@ fun mgr env ->
+  let cwd = Eio.Stdenv.cwd env in
+  let subdir = cwd / "proc-sub-dir" in
   Eio.Path.mkdir subdir ~perm:0o700;
   Eio.Path.with_open_dir subdir @@ fun subdir ->
   Eio.Path.save (subdir / "test-cwd") "test-data" ~create:(`Exclusive 0o600);

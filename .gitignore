@@ -1,3 +1,5 @@
 _build
+_opam
+.ocamlformat
 .*.swp
 *.install
