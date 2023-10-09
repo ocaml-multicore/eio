@@ -12,8 +12,13 @@ module Lazy = Lazy
 module Pool = Pool
 module Exn = Exn
 module Resource = Resource
-module Flow = Flow
 module Buf_read = Buf_read
+module Flow = struct
+  include Flow
+
+  let read_all flow =
+    Buf_read.(parse_exn take_all) flow ~max_size:max_int
+end
 module Buf_write = Buf_write
 module Net = Net
 module Process = Process

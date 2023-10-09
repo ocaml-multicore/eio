@@ -60,7 +60,12 @@ module Std = Std
 module Resource = Resource
 
 (** Byte streams. *)
-module Flow = Flow
+module Flow : sig
+  include module type of Flow
+
+  val read_all : _ source -> string
+  (** [read_all src] is a convenience wrapper to read an entire flow efficiently. *)
+end
 
 (** Buffered input and parsing *)
 module Buf_read = Buf_read
