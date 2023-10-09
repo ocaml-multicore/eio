@@ -10,7 +10,7 @@ doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "3.9"}
-  "ocaml" {>= "5.0.0"}
+  "ocaml" {>= "5.1.0"}
   "bigstringaf" {>= "0.9.0"}
   "cstruct" {>= "6.0.1"}
   "lwt-dllist"
@@ -26,9 +26,6 @@ depends: [
   "odoc" {with-doc}
 ]
 conflicts: [
-  "ocaml-base-compiler" {< "5.0.0~beta1"}
-  "ocaml-variants" {< "5.0.0~beta1"}
-  "ocaml-system" {< "5.0.0~beta1"}
   "seq" {< "0.3"}
 ]
 build: [
