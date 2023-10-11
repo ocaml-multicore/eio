@@ -241,7 +241,8 @@ Exception: End_of_file.
 
 ```ocaml
 # let bflow = R.of_flow mock_flow ~max_size:100 |> R.as_flow;;
-val bflow : Eio.Flow.source_ty Eio.Std.r = Eio__.Resource.T (<poly>, <abstr>)
+val bflow : Eio__Flow.source_ty Eio.Std.r =
+  Eio__.Resource.T (<poly>, <abstr>)
 # next := ["foo"; "bar"]; read bflow 2;;
 +mock_flow returning 3 bytes
 +Read "fo"

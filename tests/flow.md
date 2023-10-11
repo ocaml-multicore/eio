@@ -108,6 +108,22 @@ Copying from src using `Read_source_buffer`:
 - : unit = ()
 ```
 
+## read_all
+
+```ocaml
+# run @@ fun () ->
+  let each = String.init 256 Char.chr in
+  let data = List.init 40 (fun _ -> Cstruct.of_string each) in
+  let got = Eio.Flow.read_all (mock_source data) in
+  traceln "Input length: %d\nOutput length: %d\nEqual: %b"
+    (Cstruct.lenv data) (String.length got) (String.equal got (Cstruct.copyv data));
+  ;;
++Input length: 10240
++Output length: 10240
++Equal: true
+- : unit = ()
+```
+
 ## write
 
 ```ocaml
