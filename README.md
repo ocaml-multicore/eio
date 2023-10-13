@@ -226,7 +226,7 @@ We can run the previous code with tracing enabled (writing to a new `trace.ctf` 
 
 ```ocaml
 # let () =
-    Eio_unix.Ctf.with_tracing "trace.ctf" @@ fun () ->
+    Eio_unix.Trace.with_tracing "trace.ctf" @@ fun () ->
     Eio_main.run main;;
 +x = 1
 +y = 1

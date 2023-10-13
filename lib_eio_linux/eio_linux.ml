@@ -20,7 +20,7 @@
 open Eio.Std
 
 module Fiber_context = Eio.Private.Fiber_context
-module Ctf = Eio.Private.Ctf
+module Trace = Eio.Private.Trace
 module Fd = Eio_unix.Fd
 
 module Suspended = Eio_utils.Suspended

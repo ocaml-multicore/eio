@@ -571,7 +571,7 @@ end
 
 (** @canonical Eio.Private *)
 module Private : sig
-  module Ctf = Ctf
+  module Trace = Trace
 
   module Cells = Cells
   module Broadcast = Broadcast
@@ -586,7 +586,7 @@ module Private : sig
     val destroy : t -> unit
     (** [destroy t] removes [t] from its cancellation context. *)
 
-    val tid : t -> Ctf.id
+    val tid : t -> Trace.id
 
     (** {2 Cancellation}
 

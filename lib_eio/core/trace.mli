@@ -1,7 +1,7 @@
 (** This library is used to write event traces in mirage-profile's CTF format. *)
 
 type id = private int
-(** Each thread/fiber/promise is identified by a unique ID. *) 
+(** Each thread/fiber/promise is identified by a unique ID. *)
 
 (** {2 Recording events}
     Libraries and applications can use these functions to make the traces more useful. *)
@@ -93,7 +93,7 @@ module Control : sig
 
   val make : timestamper:(log_buffer -> int -> unit) -> log_buffer -> t
   (** [make ~timestamper b] is a trace buffer that record events in [b].
-      In most cases, the {!Ctf_unix} module provides a simpler interface. *)
+      In most cases, the {!Eio_unix.Trace} module provides a simpler interface. *)
 
   val start : t -> unit
   (** [start t] begins recording events in [t]. *)

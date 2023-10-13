@@ -6,7 +6,7 @@ type state =
 exception Poisoned of exn
 
 type t = {
-  id : Ctf.id;
+  id : Trace.id;
   mutex : Mutex.t;
   mutable state : state;                        (* Owned by [t.mutex] *)
   waiters : [`Take | `Error of exn] Waiters.t;  (* Owned by [t.mutex] *)
@@ -19,8 +19,8 @@ type t = {
 
 (* {R} t = create () {mutex t R} *)
 let create () =
-  let id = Ctf.mint_id () in
-  Ctf.note_created id Ctf.Mutex;
+  let id = Trace.mint_id () in
+  Trace.note_created id Trace.Mutex;
   {
     id;
     mutex = Mutex.create ();
@@ -33,7 +33,7 @@ let create () =
 let unlock t =
   Mutex.lock t.mutex;
   (* We now have ownership of [t.state] and [t.waiters]. *)
-  Ctf.note_signal t.id;
+  Trace.note_signal t.id;
   match t.state with
   | Unlocked -> 
     Mutex.unlock t.mutex;
@@ -55,7 +55,7 @@ let lock t =
   Mutex.lock t.mutex;
   match t.state with
   | Locked ->
-    Ctf.note_try_read t.id;
+    Trace.note_try_read t.id;
     begin match Waiters.await ~mutex:(Some t.mutex) t.waiters t.id with
       | `Error ex -> raise ex   (* Poisoned; stop waiting *)
       | `Take ->
@@ -64,7 +64,7 @@ let lock t =
         ()
     end
   | Unlocked -> 
-    Ctf.note_read t.id;
+    Trace.note_read t.id;
     t.state <- Locked;          (* We transfer R from the state to our caller. *)
     (* {locked t * R} *)
     Mutex.unlock t.mutex
@@ -77,11 +77,11 @@ let try_lock t =
   Mutex.lock t.mutex;
   match t.state with
   | Locked ->
-    Ctf.note_try_read t.id;
+    Trace.note_try_read t.id;
     Mutex.unlock t.mutex;
     false
   | Unlocked -> 
-    Ctf.note_read t.id;
+    Trace.note_read t.id;
     t.state <- Locked;          (* We transfer R from the state to our caller. *)
     Mutex.unlock t.mutex;
     (* {locked t * R} *)
