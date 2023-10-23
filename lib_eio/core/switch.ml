@@ -51,7 +51,7 @@ let combine_exn ex = function
 let fail ?(bt=Printexc.get_raw_backtrace ()) t ex =
   check_our_domain t;
   if t.exs = None then
-    Trace.resolve t.id ~ex:(Some ex);
+    Trace.resolve_error t.id ex;
   t.exs <- Some (combine_exn (ex, bt) t.exs);
   try
     Cancel.cancel t.cancel ex

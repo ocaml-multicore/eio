@@ -23,8 +23,6 @@ module Rcfd = Eio_unix.Private.Rcfd
 
 type exit = [`Exit_scheduler]
 
-let system_thread = Trace.mint_id ()
-
 (* The type of items in the run queue. *)
 type runnable =
   | IO : runnable                                       (* Reminder to check for IO *)
@@ -204,14 +202,16 @@ let rec next t : [`Exit_scheduler] =
           (* At this point we're not going to check [run_q] again before sleeping.
              If [need_wakeup] is still [true], this is fine because we don't promise to do that.
              If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
-          Trace.hiatus ();
+          Trace.suspend Begin;
           let cons fd acc = fd :: acc in
           let read = FdSet.fold cons t.poll.to_read [] in
           let write = FdSet.fold cons t.poll.to_write [] in
           match Unix.select read write [] timeout with 
-          | exception Unix.(Unix_error (EINTR, _, _)) -> next t
+          | exception Unix.(Unix_error (EINTR, _, _)) ->
+            Trace.suspend End;
+            next t
           | readable, writeable, _ ->
-            Trace.resume system_thread;
+            Trace.suspend End;
             Atomic.set t.need_wakeup false;
             Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
             List.iter (ready t [ `W ]) writeable; 

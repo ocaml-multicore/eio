@@ -38,7 +38,7 @@ let rec wake_one t v =
 
 let is_empty = Lwt_dllist.is_empty
 
-let await_internal ~mutex (t:'a t) id ctx enqueue =
+let await_internal ~mutex (t:'a t) ctx enqueue =
   match Fiber_context.get_error ctx with
   | Some ex ->
     Option.iter Mutex.unlock mutex;
@@ -46,10 +46,6 @@ let await_internal ~mutex (t:'a t) id ctx enqueue =
   | None ->
     let resolved_waiter = ref Hook.null in
     let finished = Atomic.make false in
-    let enqueue x =
-      Trace.read ~reader:id (Fiber_context.tid ctx);
-      enqueue x
-    in
     let cancel ex =
       if Atomic.compare_and_set finished false true then (
         Hook.remove !resolved_waiter;
@@ -66,5 +62,5 @@ let await_internal ~mutex (t:'a t) id ctx enqueue =
       Mutex.unlock mutex
 
 (* Returns a result if the wait succeeds, or raises if cancelled. *)
-let await ~mutex waiters id =
-  Suspend.enter_unchecked (await_internal ~mutex waiters id)
+let await ~mutex waiters =
+  Suspend.enter_unchecked (await_internal ~mutex waiters)
