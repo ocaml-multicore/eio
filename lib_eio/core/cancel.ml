@@ -195,7 +195,7 @@ module Fiber_context = struct
 
   let make ~cc ~vars =
     let tid = Trace.mint_id () in
-    Trace.note_created tid Trace.Task;
+    Trace.create tid Fiber;
     let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = ignore; vars } in
     t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibers);
     t

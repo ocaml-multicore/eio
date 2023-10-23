@@ -26,19 +26,19 @@ let create_with_id id =
 
 let create ?label () =
   let id = Trace.mint_id () in
-  Trace.note_created ?label id Trace.Promise;
+  Trace.create ?label id Promise;
   create_with_id id
 
 let create_resolved x =
   let id = Trace.mint_id () in
-  Trace.note_created id Trace.Promise;
+  Trace.create id Promise;
   to_public_promise { id; state = Atomic.make (Resolved x) }
 
 let await t =
   let t = of_public_promise t in
   match Atomic.get t.state with
   | Resolved x ->
-    Trace.note_read t.id;
+    Trace.read t.id;
     x
   | Unresolved b ->
     Suspend.enter (fun ctx enqueue ->
@@ -53,7 +53,7 @@ let await t =
           | Unresolved _ ->
             (* We observed the promise to be still unresolved after registering a waiter.
                Therefore any resolution must happen after we were registered and we will be notified. *)
-            Trace.note_try_read t.id;
+            Trace.try_read t.id;
             Cancel.Fiber_context.set_cancel_fn ctx (fun ex ->
                 if Broadcast.cancel request then enqueue (Error ex)
                 (* else already resumed *)
@@ -61,7 +61,7 @@ let await t =
       );
     match Atomic.get t.state with
     | Resolved x ->
-      Trace.note_read t.id;
+      Trace.read t.id;
       x
     | Unresolved _ -> assert false
 
@@ -76,7 +76,7 @@ let resolve t v =
     | Resolved _ -> invalid_arg "Can't resolve already-resolved promise"
     | Unresolved b as prev ->
       if Atomic.compare_and_set t.state prev (Resolved v) then (
-        Trace.note_resolved t.id ~ex:None;
+        Trace.resolve t.id ~ex:None;
         Broadcast.resume_all b
       ) else (
         (* Otherwise, the promise was already resolved. Retry (to get the error). *)

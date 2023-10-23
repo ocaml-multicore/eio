@@ -19,10 +19,10 @@ let fork ~sw f =
     Switch.with_op sw @@ fun () ->
     match f () with
     | () ->
-      Trace.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
+      Trace.resolve (Cancel.Fiber_context.tid new_fiber) ~ex:None
     | exception ex ->
       Switch.fail sw ex;  (* The [with_op] ensures this will succeed *)
-      Trace.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
+      Trace.resolve (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
   ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
 
 let fork_daemon ~sw f =
@@ -35,13 +35,13 @@ let fork_daemon ~sw f =
     match f () with
     | `Stop_daemon ->
       (* The daemon asked to stop. *)
-      Trace.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
+      Trace.resolve (Cancel.Fiber_context.tid new_fiber) ~ex:None
     | exception Cancel.Cancelled Exit when not (Cancel.is_on sw.cancel) ->
       (* The daemon was cancelled because all non-daemon fibers are finished. *)
-      Trace.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:None
+      Trace.resolve (Cancel.Fiber_context.tid new_fiber) ~ex:None
     | exception ex ->
       Switch.fail sw ex;  (* The [with_daemon] ensures this will succeed *)
-      Trace.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
+      Trace.resolve (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
   ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
 
 let fork_promise ~sw f =

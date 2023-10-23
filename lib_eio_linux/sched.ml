@@ -244,9 +244,9 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
             (* At this point we're not going to check [run_q] again before sleeping.
                If [need_wakeup] is still [true], this is fine because we don't promise to do that.
                If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
-            Trace.(note_hiatus Wait_for_work);
+            Trace.hiatus ();
             let result = Uring.wait ?timeout uring in
-            Trace.note_resume system_thread;
+            Trace.resume system_thread;
             Atomic.set st.need_wakeup false;
             Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
             match result with
@@ -388,7 +388,7 @@ let monitor_event_fd t =
 let run ~extra_effects st main arg =
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
-    Trace.note_switch (Fiber_context.tid fiber);
+    Trace.fiber (Fiber_context.tid fiber);
     match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; schedule st);
         exnc = (fun ex ->

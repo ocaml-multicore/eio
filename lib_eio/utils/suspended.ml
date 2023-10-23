@@ -11,9 +11,9 @@ type 'a t = {
 let tid t = Eio.Private.Fiber_context.tid t.fiber
 
 let continue t v =
-  Trace.note_switch (tid t);
+  Trace.fiber (tid t);
   continue t.k v
 
 let discontinue t ex =
-  Trace.note_switch (tid t);
+  Trace.fiber (tid t);
   discontinue t.k ex

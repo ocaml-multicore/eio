@@ -30,7 +30,7 @@ module Locking = struct
   let create capacity =
     assert (capacity > 0);
     let id = Trace.mint_id () in
-    Trace.note_created id Trace.Stream;
+    Trace.create id Stream;
     {
       mutex = Mutex.create ();
       id;

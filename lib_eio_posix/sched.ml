@@ -209,12 +209,12 @@ let rec next t : [`Exit_scheduler] =
           (* At this point we're not going to check [run_q] again before sleeping.
              If [need_wakeup] is still [true], this is fine because we don't promise to do that.
              If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
-          Trace.(note_hiatus Wait_for_work);
+          Trace.hiatus ();
           let nready =
             try Poll.ppoll_or_poll t.poll (t.poll_maxi + 1) timeout
             with Unix.Unix_error (Unix.EINTR, _, "") -> 0
           in
-          Trace.note_resume system_thread;
+          Trace.fiber system_thread;
           Atomic.set t.need_wakeup false;
           Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
           Poll.iter_ready t.poll nready (ready t);
@@ -325,7 +325,7 @@ let enter fn = Effect.perform (Enter fn)
 let run ~extra_effects t main x =
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
-    Trace.note_switch (Fiber_context.tid fiber);
+    Trace.fiber (Fiber_context.tid fiber);
     match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; next t);
         exnc = (fun ex ->

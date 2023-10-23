@@ -9,79 +9,47 @@ type id = private int
 val label : string -> unit
 (** [label msg] attaches text [msg] to the current thread. *)
 
-val note_increase : string -> int -> unit
-(** [note_increase counter delta] records that [counter] increased by [delta].
-    If [delta] is negative, this records a decrease. *)
-
-val note_counter_value : string -> int -> unit
-(** [note_counter_value counter value] records that [counter] is now [value]. *)
-
-val should_resolve : id -> unit
-(** [should_resolve id] records that [id] is expected to resolve, and should be highlighted if it doesn't. *)
-
 (** {2 Recording system events}
     These are normally only called by the scheduler. *)
 
-type hiatus_reason =
-  | Wait_for_work
-  | Suspend
-  | Hibernate
-
-type event =
-  | Wait
-  | Task
-  | Bind
-  | Try
-  | Choose
-  | Pick
-  | Join
-  | Map
-  | Condition
-  | On_success
-  | On_failure
-  | On_termination
-  | On_any
-  | Ignore_result
-  | Async
+type ty =
+  | Fiber
   | Promise
   | Semaphore
   | Switch
   | Stream
   | Mutex
-(** Types of threads or other recorded objects. *)
+(** Types of recorded objects. *)
 
 val mint_id : unit -> id
 (** [mint_id ()] is a fresh unique [id]. *)
 
-val note_created : ?label:string -> id -> event -> unit
-(** [note_created t id ty] records the creation of [id]. *)
+val create : ?label:string -> id -> ty -> unit
+(** [create t id ty] records the creation of [id]. *)
 
-val note_read : ?reader:id -> id -> unit
-(** [note_read src] records that promise [src]'s value was read.
+val read : ?reader:id -> id -> unit
+(** [read src] records that promise [src]'s value was read.
     @param reader The thread doing the read (default is the current thread). *)
 
-val note_try_read : id -> unit
-(** [note_try_read src] records that the current thread wants to read from [src] (which is not currently ready). *)
+val try_read : id -> unit
+(** [try_read src] records that the current thread wants to read from [src] (which is not currently ready). *)
 
-val note_switch : id -> unit
-(** [note_switch id] records that [id] is now the current thread. *)
+val fiber : id -> unit
+(** [fiber id] records that fiber [id] is now running. *)
 
-val note_hiatus : hiatus_reason -> unit
-(** [note_hiatus r] records that the system will sleep for reason [r]. *)
+val hiatus : unit -> unit
+(** [hiatus ()] records that the system will sleep for reason [r]. *)
 
-val note_resume : id -> unit
-(** [note_resume id] records that the system has resumed (used after {!note_hiatus}),
+val resume : id -> unit
+(** [resume id] records that the system has resumed (used after {!hiatus}),
     and is now running [id]. *)
 
-val note_fork : unit -> id
-(** [note_fork ()] records that a new thread has been forked and returns a fresh ID for it. *)
-
-val note_resolved : id -> ex:exn option -> unit
-(** [note_resolved id ~ex] records that [id] is now resolved.
+val resolve : id -> ex:exn option -> unit
+(** [resolve id ~ex] records that [id] is now resolved.
     If [ex = None] then [id] was successful, otherwise it failed with exception [ex]. *)
 
-val note_signal : ?src:id -> id -> unit
-(** [note_signal ~src dst] records that [dst] was signalled.
+val signal : ?src:id -> id -> unit
+(** [signal ~src dst] records that [dst] was signalled.
     @param src The thread sending the signal (default is the current thread). *)
 
 (** {2 Controlling tracing} *)

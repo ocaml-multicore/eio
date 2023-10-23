@@ -51,7 +51,7 @@ let combine_exn ex = function
 let fail ?(bt=Printexc.get_raw_backtrace ()) t ex =
   check_our_domain t;
   if t.exs = None then
-    Trace.note_resolved t.id ~ex:(Some ex);
+    Trace.resolve t.id ~ex:(Some ex);
   t.exs <- Some (combine_exn (ex, bt) t.exs);
   try
     Cancel.cancel t.cancel ex
@@ -91,7 +91,7 @@ let or_raise = function
 let rec await_idle t =
   (* Wait for fibers to finish: *)
   while t.fibers > 0 do
-    Trace.note_try_read t.id;
+    Trace.try_read t.id;
     Single_waiter.await t.waiter t.id
   done;
   (* Call on_release handlers: *)
@@ -119,7 +119,7 @@ let maybe_raise_exs t =
 
 let create cancel =
   let id = Trace.mint_id () in
-  Trace.note_created id Trace.Switch;
+  Trace.create id Switch;
   {
     id;
     fibers = 1;         (* The main function counts as a fiber *)
@@ -135,7 +135,7 @@ let run_internal t fn =
   | v ->
     dec_fibers t;
     await_idle t;
-    Trace.note_read t.id;
+    Trace.read t.id;
     maybe_raise_exs t;        (* Check for failure while finishing *)
     (* Success. *)
     v
@@ -146,7 +146,7 @@ let run_internal t fn =
     dec_fibers t;
     fail ~bt t ex;
     await_idle t;
-    Trace.note_read t.id;
+    Trace.read t.id;
     maybe_raise_exs t;
     assert false
 

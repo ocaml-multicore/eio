@@ -47,27 +47,8 @@ let mint_id () =
   Domain.DLS.set next_id_key next_id_local_succ;
   next_id_local
 
-type hiatus_reason =
-  | Wait_for_work
-  | Suspend
-  | Hibernate
-
-type event =
-  | Wait
-  | Task
-  | Bind
-  | Try
-  | Choose
-  | Pick
-  | Join
-  | Map
-  | Condition
-  | On_success
-  | On_failure
-  | On_termination
-  | On_any
-  | Ignore_result
-  | Async
+type ty =
+  | Fiber
   | Promise
   | Semaphore
   | Switch
@@ -80,21 +61,7 @@ let current_thread = ref (-1)
 
 let int_of_thread_type t =
   match t with
-  | Wait -> 0
-  | Task -> 1
-  | Bind -> 2
-  | Try -> 3
-  | Choose -> 4
-  | Pick -> 5
-  | Join -> 6
-  | Map -> 7
-  | Condition -> 8
-  | On_success -> 9
-  | On_failure -> 10
-  | On_termination -> 11
-  | On_any -> 12
-  | Ignore_result -> 13
-  | Async -> 14
+  | Fiber -> 1
   | Promise -> 15
   | Semaphore -> 16
   | Switch -> 17
@@ -207,12 +174,12 @@ module Control = struct
   let op_fails = 3
   (* let op_becomes = 4 *)
   let op_label = 5
-  let op_increase = 6
+  (* let op_increase = 6 *)
   let op_switch = 7
   (* let op_gc = 8 *)
   (* let op_old_signal = 9 *)
   let op_try_read = 10
-  let op_counter_value = 11
+  (* let op_counter_value = 11 *)
   let op_read_later = 12
   let op_signal = 13
 
@@ -329,20 +296,6 @@ module Control = struct
     |> write_string log.log msg
     |> end_event
 
-  let note_increase log counter amount =
-    add_event log op_increase (17 + String.length counter)
-    |> write_tid log.log !current_thread
-    |> write64 log.log (Int64.of_int amount)
-    |> write_string log.log counter
-    |> end_event
-
-  let note_counter_value log counter value =
-    add_event log op_counter_value (17 + String.length counter)
-    |> write_tid log.log !current_thread
-    |> write64 log.log (Int64.of_int value)
-    |> write_string log.log counter
-    |> end_event
-
   let note_switch log new_current =
     if new_current <> !current_thread then (
       current_thread := new_current;
@@ -397,42 +350,34 @@ let label name =
   | None -> ()
   | Some log -> Control.note_label log !current_thread name
 
-let note_fork () =
-  let child = mint_id () in
-  begin match !Control.event_log with
-    | None -> ()
-    | Some log -> Control.note_created log child Task
-  end;
-  child
-
-let note_created ?label id ty =
+let create ?label id ty =
   match !Control.event_log with
   | None -> ()
   | Some log ->
     Control.note_created log id ty;
     Option.iter (Control.note_label log id) label
 
-let note_switch new_current =
+let fiber new_current =
   match !Control.event_log with
   | None -> ()
   | Some log -> Control.note_switch log new_current
 
-let note_hiatus _reason =
+let hiatus () =
   match !Control.event_log with
   | None -> ()
   | Some log -> Control.note_suspend log ()
 
-let note_resume new_current =
+let resume new_current =
   match !Control.event_log with
   | None -> ()
   | Some log -> Control.note_switch log new_current
 
-let note_try_read input =
+let try_read input =
   match !Control.event_log with
   | None -> ()
   | Some log -> Control.note_try_read log !current_thread input
 
-let note_read ?reader input =
+let read ?reader input =
   match !Control.event_log with
   | None -> ()
   | Some log ->
@@ -443,12 +388,12 @@ let note_read ?reader input =
     in
     Control.note_read log ~reader input
 
-let note_resolved id ~ex =
+let resolve id ~ex =
   match !Control.event_log with
   | None -> ()
   | Some log -> Control.note_resolved log id ~ex
 
-let note_signal ?src dst =
+let signal ?src dst =
   match !Control.event_log with
   | None -> ()
   | Some log ->
@@ -458,18 +403,3 @@ let note_signal ?src dst =
       | Some x -> x
     in
     Control.note_signal ~src log dst
-
-let note_increase counter amount =
-  match !Control.event_log with
-  | None -> ()
-  | Some log -> Control.note_increase log counter amount
-
-let note_counter_value counter value =
-  match !Control.event_log with
-  | None -> ()
-  | Some log -> Control.note_counter_value log counter value
-
-let should_resolve thread =
-  match !Control.event_log with
-  | None -> ()
-  | Some log -> Control.note_label log thread "__should_resolve" (* Hack! *)
