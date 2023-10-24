@@ -22,7 +22,7 @@ type t = {
   domain : Domain.id;         (* Prevent access from other domains *)
 }
 and fiber_context = {
-  tid : Ctf.id;
+  tid : Trace.id;
   mutable cancel_context : t;
   mutable cancel_node : fiber_context Lwt_dllist.node option; (* Our entry in [cancel_context.fibers] *)
   mutable cancel_fn : exn -> unit;  (* Encourage the current operation to finish *)
@@ -194,8 +194,8 @@ module Fiber_context = struct
     t.cancel_fn <- ignore
 
   let make ~cc ~vars =
-    let tid = Ctf.mint_id () in
-    Ctf.note_created tid Ctf.Task;
+    let tid = Trace.mint_id () in
+    Trace.create tid Fiber;
     let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = ignore; vars } in
     t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibers);
     t

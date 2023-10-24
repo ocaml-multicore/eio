@@ -1,10 +1,10 @@
 open Bigarray
 
-module Ctf = Eio.Private.Ctf
+module Trace = Eio.Private.Trace
 
 let timestamper log_buffer ofs =
   let ns = Mtime.to_uint64_ns @@ Mtime_clock.now () in
-  Ctf.BS.set_int64_le log_buffer ofs ns
+  Trace.BS.set_int64_le log_buffer ofs ns
 
 let mmap_buffer ~size path =
   let fd = Unix.(openfile path [O_RDWR; O_CREAT; O_TRUNC] 0o644) in
@@ -16,6 +16,6 @@ let mmap_buffer ~size path =
 
 let with_tracing ?(size=0x100000) path fn =
   let buffer = mmap_buffer ~size path in
-  let trace_config = Ctf.Control.make ~timestamper buffer in
-  Ctf.Control.start trace_config;
-  Fun.protect fn ~finally:(fun () -> Ctf.Control.stop trace_config)
+  let trace_config = Trace.Control.make ~timestamper buffer in
+  Trace.Control.start trace_config;
+  Fun.protect fn ~finally:(fun () -> Trace.Control.stop trace_config)
