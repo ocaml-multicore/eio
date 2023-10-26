@@ -56,12 +56,14 @@ let lock t =
   match t.state with
   | Locked ->
     Trace.try_read t.id;
-    begin match Waiters.await ~mutex:(Some t.mutex) t.waiters t.id with
-      | `Error ex -> raise ex   (* Poisoned; stop waiting *)
+    begin match Waiters.await ~mutex:(Some t.mutex) t.waiters with
+      | `Error ex ->
+        Trace.read t.id;
+        raise ex   (* Poisoned; stop waiting *)
       | `Take ->
         (* The unlocker didn't change the state, so it's still Locked, as required.
            {locked t * R} *)
-        ()
+        Trace.read t.id
     end
   | Unlocked -> 
     Trace.read t.id;

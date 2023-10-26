@@ -21,8 +21,8 @@ val is_empty : 'a t -> bool
 
 val await :
   mutex:Mutex.t option ->
-  'a t -> Trace.id -> 'a
-(** [await ~mutex t id] suspends the current fiber and adds its continuation to [t].
+  'a t -> 'a
+(** [await ~mutex t] suspends the current fiber and adds its continuation to [t].
     When the waiter is woken, the fiber is resumed and returns the result.
     If [t] can be used from multiple domains:
     - [mutex] must be set to the mutex to use to unlock it.
@@ -32,9 +32,9 @@ val await :
 
 val await_internal :
   mutex:Mutex.t option ->
-  'a t -> Trace.id -> Fiber_context.t ->
+  'a t -> Fiber_context.t ->
   (('a, exn) result -> unit) -> unit
-(** [await_internal ~mutex t id ctx enqueue] is like [await], but the caller has to suspend the fiber.
+(** [await_internal ~mutex t ctx enqueue] is like [await], but the caller has to suspend the fiber.
     This also allows wrapping the [enqueue] function.
     Calls [enqueue (Error (Cancelled _))] if cancelled.
     Note: [enqueue] is called from the triggering domain,

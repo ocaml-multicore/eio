@@ -1,0 +1,3 @@
+(executable
+  (name main)
+  (libraries eio.runtime_events eio_main))

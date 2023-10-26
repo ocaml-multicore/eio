@@ -221,24 +221,66 @@ Calling an operation that performs an effect (such as `yield`) can switch to a d
 
 ## Tracing
 
-The library can write traces in CTF format, showing when threads (fibers) are created, when they run, and how they interact.
-We can run the previous code with tracing enabled (writing to a new `trace.ctf` file) like this:
+When OCaml's tracing is turned on, Eio writes events about many actions,
+such as creating fibers or resolving promises.
 
-```ocaml
-# let () =
-    Eio_unix.Trace.with_tracing "trace.ctf" @@ fun () ->
-    Eio_main.run main;;
-+x = 1
-+y = 1
-+x = 2
-+y = 2
-+x = 3
-+y = 3
+[examples/trace](./examples/trace/) shows how to consume the events manually:
+
+<!-- $MDX skip -->
+```sh
+$ dune exec -- ./examples/trace/main.exe
++tracer: starting                      
+30926487700447:ring 0: create fiber 0
+30926487702032:ring 0: running fiber 0
+30926487705057:ring 0: create switch 1
+30926487707264:ring 0: create fiber 2
+30926487707512:ring 0: running fiber 2
+30926487720213:ring 0: log "tracer: starting"
++server: starting
++client: connecting socket...
++server: got connection from client
++server: read "Hello" from socket
+30926487769298:ring 0: running fiber 0
+30926487769877:ring 0: create fiber 3
+30926487770083:ring 0: running fiber 3
+30926487771198:ring 0: create switch 4
+30926487807888:ring 0: create switch 5
+30926487808329:ring 0: create fiber 6
+30926487808555:ring 0: running fiber 6
+30926487812219:ring 0: log "server: starting"
+30926487818883:ring 0: running fiber 3
+30926487819091:ring 0: create fiber 7
+30926487819155:ring 0: running fiber 7
+30926487822428:ring 0: log "client: connecting socket..."
+30926487901604:ring 0: running fiber 3
+30926487904947:ring 0: running fiber 0
+30926487907318:ring 0: running fiber 6
+30926487917202:ring 0: log "server: got connection from client"
+30926487929993:ring 0: running fiber 6
+30926487941403:ring 0: running fiber 7
+30926487948000:ring 0: running fiber 7
+30926487971898:ring 0: resolve 7
+30926487974810:ring 0: running fiber 6
+30926487975215:ring 0: running fiber 6
+30926487977869:ring 0: running fiber 6
+30926487984514:ring 0: log "server: read \"Hello\" from socket"
+30926487990785:ring 0: resolve 6
+30926487991752:ring 0: running fiber 3
+30926488022310:ring 0: resolve 3
+30926497839725:ring 0: running fiber 2
++tracer: stopping
 ```
 
-The trace can be viewed using [mirage-trace-viewer][].
-This should work even while the program is still running.
-The file is a ring buffer, so when it gets full, old events will start to be overwritten with new ones.
+Note that the output from `traceln` appears in the trace as well as on the console.
+
+There are various third-party tools that can consume this data
+(but may currently require patches to support the new system):
+
+- [Meio][] (Monitoring for Eio) provides an interactive console-based UI for exploring running fibers.
+- [Olly][] can save Perfetto traces and report statistics.
+- [mirage-trace-viewer][] renders traces visually.
+
+For example, this is how mirage-trace-viewer renders the counting example above:
 
 <p align='center'>
   <img src="./doc/trace.svg"/>
@@ -246,10 +288,6 @@ The file is a ring buffer, so when it gets full, old events will start to be ove
 
 This shows the two counting threads as two horizonal lines.
 The white regions indicate when each thread was running.
-Note that the output from `traceln` appears in the trace as well as on the console.
-
-The [Meio][] (Monitoring for Eio) project provides an interactive console-based UI for exploring running fibers,
-using the new runtime events support in OCaml 5.1.
 
 ## Cancellation
 
@@ -1849,3 +1887,4 @@ Some background about the effects system can be found in:
 [Lambda Capabilities]: https://roscidus.com/blog/blog/2023/04/26/lambda-capabilities/
 [Eio.Process]: https://ocaml-multicore.github.io/eio/eio/Eio/Process/index.html
 [Dev meetings]: https://docs.google.com/document/d/1ZBfbjAkvEkv9ldumpZV5VXrEc_HpPeYjHPW_TiwJe4Q
+[Olly]: https://github.com/tarides/runtime_events_tools

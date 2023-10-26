@@ -9,8 +9,6 @@ module Suspended = Eio_utils.Suspended
 module Zzz = Eio_utils.Zzz
 module Lf_queue = Eio_utils.Lf_queue
 
-let system_thread = Trace.mint_id ()
-
 let statx_works = ref false     (* Before Linux 5.18, statx is unreliable *)
 
 type exit = [`Exit_scheduler]
@@ -119,7 +117,7 @@ let rec enqueue_job t fn =
 
 (* Cancellations always come from the same domain, so no need to send wake events here. *)
 let rec enqueue_cancel job t =
-  Trace.label "cancel";
+  Trace.log "cancel";
   match enqueue_job t (fun () -> Uring.cancel t.uring job Cancel_job) with
   | None -> Queue.push (fun t -> enqueue_cancel job t) t.io_q
   | Some _ -> ()
@@ -162,7 +160,7 @@ let submit_pending_io st =
   match Queue.take_opt st.io_q with
   | None -> ()
   | Some fn ->
-    Trace.label "submit_pending_io";
+    Trace.log "submit_pending_io";
     fn st
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
@@ -183,7 +181,7 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as re
     )
   in
   if retry then (
-    Trace.label "await-sqe";
+    Trace.log "await-sqe";
     (* wait until an sqe is available *)
     Queue.push (fun st -> submit_rw_req st req) io_q
   )
@@ -244,9 +242,9 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
             (* At this point we're not going to check [run_q] again before sleeping.
                If [need_wakeup] is still [true], this is fine because we don't promise to do that.
                If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
-            Trace.hiatus ();
+            Trace.suspend Begin;
             let result = Uring.wait ?timeout uring in
-            Trace.resume system_thread;
+            Trace.suspend End;
             Atomic.set st.need_wakeup false;
             Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
             match result with
@@ -338,7 +336,7 @@ let free_buf st buf =
   | Some k -> enqueue_thread st k buf
 
 let rec enqueue_poll_add fd poll_mask st action =
-  Trace.label "poll_add";
+  Trace.log "poll_add";
   let retry = with_cancel_hook ~action st (fun () ->
       Uring.poll_add st.uring fd poll_mask (Job action)
     )
@@ -347,7 +345,7 @@ let rec enqueue_poll_add fd poll_mask st action =
     Queue.push (fun st -> enqueue_poll_add fd poll_mask st action) st.io_q
 
 let rec enqueue_poll_add_unix fd poll_mask st action cb =
-  Trace.label "poll_add";
+  Trace.log "poll_add";
   let retry = with_cancel_hook ~action st (fun () ->
       Uring.poll_add st.uring fd poll_mask (Job_fn (action, cb))
     )
@@ -357,7 +355,7 @@ let rec enqueue_poll_add_unix fd poll_mask st action cb =
 
 let rec enqueue_readv args st action =
   let (file_offset,fd,bufs) = args in
-  Trace.label "readv";
+  Trace.log "readv";
   let retry = with_cancel_hook ~action st (fun () ->
       Uring.readv st.uring ~file_offset fd bufs (Job action))
   in

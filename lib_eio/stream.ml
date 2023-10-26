@@ -52,7 +52,7 @@ module Locking = struct
       ) else (
         (* The queue is full. Wait for our turn first. *)
         Suspend.enter_unchecked @@ fun ctx enqueue ->
-        Waiters.await_internal ~mutex:(Some t.mutex) t.writers t.id ctx (fun r ->
+        Waiters.await_internal ~mutex:(Some t.mutex) t.writers ctx (fun r ->
             (* This is called directly from [wake_one] and so we have the lock.
                We're still running in [wake_one]'s domain here. *)
             if Result.is_ok r then (
@@ -69,7 +69,9 @@ module Locking = struct
     match Queue.take_opt t.items with
     | None ->
       (* There aren't any items, so we need to wait for one. *)
-      Waiters.await ~mutex:(Some t.mutex) t.readers t.id
+      let x = Waiters.await ~mutex:(Some t.mutex) t.readers in
+      Trace.read t.id;
+      x
     | Some v ->
       (* If anyone was waiting for space, let the next one go.
          [is_empty writers || length items = t.capacity - 1] *)

@@ -76,7 +76,7 @@ let resolve t v =
     | Resolved _ -> invalid_arg "Can't resolve already-resolved promise"
     | Unresolved b as prev ->
       if Atomic.compare_and_set t.state prev (Resolved v) then (
-        Trace.resolve t.id ~ex:None;
+        Trace.resolve t.id;
         Broadcast.resume_all b
       ) else (
         (* Otherwise, the promise was already resolved. Retry (to get the error). *)
