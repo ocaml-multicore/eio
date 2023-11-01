@@ -1,3 +1,44 @@
+## v0.13
+
+New features / API changes:
+
+- Add `Flow.read_all` (@SGrondin #596, reviewed by @talex5 @rbjorklin).
+
+- Add `Path.stat` (@patricoferris @talex5 @avsm #617 #618 #624 #620, reviewed by @SGrondin).
+
+- Add `Path.rmtree` (@talex5 #627 #628, reviewed by @SGrondin).
+
+- Add `Path.mkdirs` and `Path.split` (@patricoferris @talex5 #625).
+
+- Add `Eio.File.{seek,sync,truncate}` (@talex5 #626).
+
+- Add `Eio.Path.{kind,is_file,is_directory}` (@patricoferris @talex5 #623, reviewed by @avsm).
+
+- Switch from CTF to OCaml 5.1 runtime events (@TheLortex @patricoferris @talex5 #634 #635, reviewed by @avsm).
+  This is a minimal initial version.
+
+Documentation:
+
+- Document `File.Stat` record fields (@avsm @talex5 #621).
+
+- Update README section about `env` (@talex5 #614, reported by @jonsterling).
+
+Build and test changes:
+
+- Add `File.stat` benchmark (@talex5 #616).
+
+- Add `Path.stat` benchmark (@patricoferris @talex5 #630).
+
+- eio_linux: mark as only available on Linux (@talex5 #629).
+
+- Make MDX tests idempotent (@SGrondin #601, reviewed by @talex5).
+
+- Allow trailing whitespace in CHANGES.md (@talex5 #632).
+
+- Update minimum OCaml version to 5.1 (@talex5 #631).
+
+- Generate prototypes for C stubs from ml files (@talex5 #615).
+
 ## v0.12
 
 New features / API changes:
