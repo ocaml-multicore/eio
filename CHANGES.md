@@ -39,6 +39,8 @@ Build and test changes:
 
 - Generate prototypes for C stubs from ml files (@talex5 #615).
 
+- Don't try to compile uring support on centos 7 (@talex5 #638, reported by @zenfey).
+
 ## v0.12
 
 New features / API changes:
