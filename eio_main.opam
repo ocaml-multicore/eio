@@ -13,7 +13,9 @@ depends: [
   "mdx" {>= "2.2.0" & with-test}
   "kcas" {>= "0.3.0" & with-test}
   "yojson" {>= "2.0.2" & with-test}
-  "eio_linux" {= version & os = "linux"}
+  "eio_linux"
+    {= version & os = "linux" &
+     (os-distribution != "centos" | os-version > "7")}
   "eio_posix" {= version & os != "win32"}
   "eio_windows" {= version & os = "win32"}
   "odoc" {with-doc}

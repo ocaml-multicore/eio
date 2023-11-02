@@ -66,7 +66,10 @@
   (mdx (and (>= 2.2.0) :with-test))
   (kcas (and (>= 0.3.0) :with-test))
   (yojson (and (>= 2.0.2) :with-test))
-  (eio_linux (and (= :version) (= :os "linux")))
+  (eio_linux (and
+               (= :version)
+               (= :os "linux")
+               (or (<> :os-distribution "centos") (> :os-version 7))))
   (eio_posix (and (= :version) (<> :os "win32")))
   (eio_windows (and (= :version) (= :os "win32")))))
 (using mdx 0.2)
