@@ -16,8 +16,6 @@ type err += Multiple_io of (err * context * Printexc.raw_backtrace) list
 
 exception Cancelled of exn
 
-exception Cancel_hook_failed of exn list
-
 let create err = Io (err, { steps = [] })
 
 let add_context ex fmt =
@@ -90,7 +88,6 @@ let () =
   Printexc.register_printer @@ function
   | Io _ as ex -> Some (Fmt.str "@[<v>%a@]" pp ex)
   | Multiple exns -> Some (Fmt.str "%a" pp_multiple exns)
-  | Cancel_hook_failed exns -> Some ("During cancellation:\n" ^ String.concat "\nand\n" (List.map Printexc.to_string exns))
   | Cancelled ex -> Some ("Cancelled: " ^ Printexc.to_string ex)
   | _ -> None
 

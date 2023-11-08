@@ -1,5 +1,4 @@
 exception Cancelled = Exn.Cancelled
-exception Cancel_hook_failed = Exn.Cancel_hook_failed
 
 type state =
   | On
@@ -156,12 +155,16 @@ let cancel t ex =
       x.cancel_fn <- ignore;
       match fn cex with
       | () -> aux xs
-      | exception ex2 -> ex2 :: aux xs
+      | exception ex2 ->
+        let bt = Printexc.get_raw_backtrace () in
+        (ex2, bt) :: aux xs
   in
   if fibers <> [] then (
     match aux fibers with
     | [] -> ()
-    | exns -> raise (Cancel_hook_failed exns)
+    | ex :: exs ->
+      let ex, bt = List.fold_left Exn.combine ex exs in
+      Printexc.raise_with_backtrace ex bt
   )
 
 let sub fn =

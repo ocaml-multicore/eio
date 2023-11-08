@@ -76,10 +76,10 @@ They are run against whichever backend `Eio_main.run` selects, and therefore mus
 
 `lib_eio/tests` tests some internal data structures, such as the lock-free cells abstraction.
 The `.md` files in that directory provide a simple walk-through to demonstrate the basic operation,
-while `lib_eio/tests/dscheck` uses [dscheck][] to perform exhaustive testing of all atomic interleavings
+while `lib_eio/tests/dscheck` uses [dscheck][] to perform exhaustive testing of all atomic interleavings.
 
 At the time of writing, dscheck has some performance problems that make it unusable by default, so
-you must use the version in https://github.com/ocaml-multicore/dscheck/pull/3 instead.
+you must use the version in https://github.com/ocaml-multicore/dscheck/pull/22 instead.
 
 ### Benchmarks
 
