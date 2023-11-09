@@ -55,7 +55,7 @@ let fail ?(bt=Printexc.get_raw_backtrace ()) t ex =
   t.exs <- Some (combine_exn (ex, bt) t.exs);
   try
     Cancel.cancel t.cancel ex
-  with Exn.Cancel_hook_failed _ as ex ->
+  with ex ->
     let bt = Printexc.get_raw_backtrace () in
     t.exs <- Some (combine_exn (ex, bt) t.exs)
 

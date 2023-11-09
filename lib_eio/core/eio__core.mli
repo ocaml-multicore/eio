@@ -526,9 +526,6 @@ module Cancel : sig
 
       The nested exception is only intended for debug-level logging and should generally be ignored. *)
 
-  exception Cancel_hook_failed of exn list
-  (** Raised by {!cancel} if any of the cancellation hooks themselves fail. *)
-
   val sub : (t -> 'a) -> 'a
   (** [sub fn] installs a new cancellation context [t], runs [fn t] inside it, and then restores the old context.
 
@@ -561,9 +558,7 @@ module Cancel : sig
       If [t] is already cancelled then this does nothing.
 
       Note that the caller of this function is still responsible for handling the error somehow
-      (e.g. reporting it to the user); it does not become the responsibility of the cancelled thread(s).
-
-      @raise Cancel_hook_failed if one or more hooks fail. *)
+      (e.g. reporting it to the user); it does not become the responsibility of the cancelled thread(s). *)
 
   val dump : t Fmt.t
   (** Show the cancellation sub-tree rooted at [t], for debugging. *)
