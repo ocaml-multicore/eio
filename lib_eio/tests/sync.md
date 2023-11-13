@@ -19,6 +19,7 @@ let put t v =
       match T.put t v with
       | () -> Fmt.pr "Sent %s@." v
       | exception (Eio.Cancel.Cancelled _) -> Fmt.pr "Send of %s was cancelled@." v
+      | exception (Invalid_argument msg) -> Fmt.pr "Error adding %s: %s@." v msg
     )
   |> Option.map (fun ctx ->
     Fmt.pr "Waiting for a consumer for %s@." v;
@@ -29,7 +30,8 @@ let take t label =
   Fake_sched.run
     (fun () ->
       match T.take t with
-      | v -> Fmt.pr "%s: Took %s@." label v
+      | Error `Closed -> Fmt.pr "%s: Stream was closed@." label
+      | Ok v -> Fmt.pr "%s: Took %s@." label v
       | exception (Eio.Cancel.Cancelled _) -> Fmt.pr "%s: Take cancelled@." label
     )
   |> Option.map (fun ctx ->
@@ -331,4 +333,65 @@ Sync (balance=0)
       In_transition
     End
 - : unit = ()
+```
+
+## Closing
+
+Closing cancels any waiting producers:
+
+```ocaml
+# let t : string T.t = T.create ();;
+val t : string T.t = <abstr>
+
+# put t "A" |> Option.get;;
+Waiting for a consumer for A
+- : Eio.Cancel.t = <abstr>
+
+# T.close t;;
+Error adding A: Stream closed
+- : unit = ()
+
+# show t;;
+Sync (balance=(closed))
+  Consumers:
+    Segment 0 (prev=None, pointers=2, cancelled=0):
+      In_transition (suspend) (resume)
+      In_transition
+      In_transition
+      In_transition
+    End
+  Producers:
+    Segment 0 (prev=None, pointers=2, cancelled=0):
+      Finished
+      In_transition (suspend) (resume)
+      In_transition
+      In_transition
+    End
+- : unit = ()
+
+# put t "B";;
+Error adding B: Stream closed
+- : Eio.Cancel.t option = None
+```
+
+Closing cancels any waiting consumers:
+
+```ocaml
+# let t : string T.t = T.create ();;
+val t : string T.t = <abstr>
+
+# take t "A";;
+A: Waiting for producer
+- : Eio.Cancel.t option = Some <abstr>
+
+# T.close t;;
+A: Stream was closed
+- : unit = ()
+
+# take t "B";;
+B: Stream was closed
+- : Eio.Cancel.t option = None
+
+# T.take_nonblocking t;;
+- : (string, [> `Closed | `Would_block ]) result = Error `Closed
 ```

@@ -120,12 +120,15 @@ let add t v =
   | Locking x -> Locking.add x v
 
 let take = function
-  | Sync x -> Sync.take x
+  | Sync x -> Sync.take x |> Result.get_ok     (* todo: allow closing streams *)
   | Locking x -> Locking.take x
 
 let take_nonblocking = function
-  | Sync x -> Sync.take_nonblocking x
   | Locking x -> Locking.take_nonblocking x
+  | Sync x ->
+    match Sync.take_nonblocking x with
+    | Ok x -> Some x
+    | Error `Closed | Error `Would_block -> None
 
 let length = function
   | Sync _ -> 0
