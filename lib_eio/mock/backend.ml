@@ -19,6 +19,10 @@ let schedule t : exit =
   | Some f -> f ()
   | None -> Exit_scheduler      (* Finished (or deadlocked) *)
 
+type _ Effect.t += Suspend_until_stable : (('a -> 'a) -> 'a) -> 'a Effect.t
+
+let yield_until_stable () = Effect.perform (Suspend_until_stable (fun _ -> ()))
+
 (* Run [main] in an Eio main loop. *)
 let run main =
   let t = { run_q = Lf_queue.create () } in
@@ -48,6 +52,13 @@ let run main =
                 );
               (* Switch to the next runnable fiber while this one's blocked. *)
               schedule t
+            )
+          | Suspend_until_stable f ->
+            Some (fun k ->
+              let Exit_scheduler = schedule t in
+              let result = f Fun.id in
+              Fiber_context.clear_cancel_fn fiber;
+              Effect.Deep.continue k result
             )
           | Eio.Private.Effects.Fork (new_fiber, f) -> Some (fun k ->
               (* Arrange for the forking fiber to run immediately after the new one. *)

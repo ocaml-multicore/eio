@@ -416,9 +416,9 @@ The number of concurrent fibers can be limited:
        finish 1 "one";
        Fiber.yield ();
        finish 2 "two";
-       Fiber.yield (); Fiber.yield ();
+       Eio_mock.Backend.yield_until_stable ();
        finish 0 "zero";
-       Fiber.yield (); Fiber.yield ();
+       Eio_mock.Backend.yield_until_stable ();
        finish 3 "three";
     );;
 +Start 0
@@ -468,9 +468,9 @@ Simple iteration:
        finish 1;
        Fiber.yield ();
        finish 2;
-       Fiber.yield (); Fiber.yield ();
+       Eio_mock.Backend.yield_until_stable ();
        finish 0;
-       Fiber.yield (); Fiber.yield ();
+       Eio_mock.Backend.yield_until_stable ();
        finish 3;
     );;
 +Start 0

@@ -10,3 +10,5 @@ exception Deadlock_detected
 val run : (unit -> 'a) -> 'a
 (** [run fn] runs an event loop and then calls [fn env] within it.
     @raise Deadlock_detected if the run queue becomes empty but [fn] hasn't returned. *)
+
+val yield_until_stable : unit -> unit
