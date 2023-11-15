@@ -982,16 +982,24 @@ The standard environment provides a [clock][Eio.Time] with the usual POSIX time:
 ```ocaml
 # Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
-  traceln "The time is now %f" (Eio.Time.now clock);
-  Eio.Time.sleep clock 1.0;
   traceln "The time is now %f" (Eio.Time.now clock);;
 +The time is now 1623940778.270336
-+The time is now 1623940779.270336
 - : unit = ()
 ```
 
-You might like to replace this clock with a mock for tests.
-In fact, this README does just that! See [doc/prelude.ml](doc/prelude.ml) for the fake clock used in the example above.
+The mock backend provides a mock clock that advances automatically where there is nothing left to do:
+
+```ocaml
+# Eio_mock.Backend.run_full @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  traceln "Sleeping for five seconds...";
+  Eio.Time.sleep clock 5.0;
+  traceln "Resumed";;
++Sleeping for five seconds...
++mock time is now 5
++Resumed
+- : unit = ()
+```
 
 ## Multicore Support
 

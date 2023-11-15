@@ -7,6 +7,8 @@ exception Deadlock_detected
 type exit = Exit_scheduler
 
 type stdenv = <
+  clock : Clock.t;
+  mono_clock : Clock.Mono.t;
   debug : Eio.Debug.t;
   backend_id: string;
 >
@@ -16,21 +18,45 @@ type t = {
      [Lf_queue] is like [Stdlib.Queue], but is thread-safe (lock-free) and
      allows pushing items to the head too, which we need. *)
   run_q : (unit -> exit) Lf_queue.t;
+
+  mono_clock : Clock.Mono.t;
 }
 
+module Wall_clock = struct
+  type t = Clock.Mono.t
+  type time = float
+    
+  let wall_of_mtime m = Int64.to_float (Mtime.to_uint64_ns m) /. 1e9
+  let wall_to_mtime w = Mtime.of_uint64_ns (Int64.of_float (w *. 1e9))
+
+  let now t = wall_of_mtime (Eio.Time.Mono.now t)
+  let sleep_until t time = Eio.Time.Mono.sleep_until t (wall_to_mtime time)
+end
+
+let wall_clock =
+  let handler = Eio.Time.Pi.clock (module Wall_clock) in
+  fun mono_clock -> Eio.Resource.T (mono_clock, handler)
+
 (* Resume the next runnable fiber, if any. *)
-let schedule t : exit =
+let rec schedule t : exit =
   match Lf_queue.pop t.run_q with
   | Some f -> f ()
-  | None -> Exit_scheduler      (* Finished (or deadlocked) *)
+  | None ->
+    (* Nothing is runnable. Try advancing the clock. *)
+    if Clock.Mono.try_advance t.mono_clock then schedule t
+    else Exit_scheduler      (* Finished (or deadlocked) *)
 
 (* Run [main] in an Eio main loop. *)
 let run_full main =
+  let mono_clock = Clock.Mono.make () in
+  let clock = wall_clock mono_clock in
   let stdenv = object (_ : stdenv)
+    method clock = clock
+    method mono_clock = mono_clock
     method debug = Eio.Private.Debug.v
     method backend_id = "mock"
   end in
-  let t = { run_q = Lf_queue.create () } in
+  let t = { run_q = Lf_queue.create (); mono_clock } in
   let rec fork ~new_fiber:fiber fn =
     (* Create a new fiber and run [fn] in it. *)
     Effect.Deep.match_with fn ()
