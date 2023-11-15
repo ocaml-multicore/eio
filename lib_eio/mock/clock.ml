@@ -9,6 +9,7 @@ module type S = sig
 
   val make : unit -> t
   val advance : t -> unit
+  val try_advance : t -> bool
   val set_time : t -> time -> unit
 end
 
@@ -80,10 +81,10 @@ module Make(T : TIME) : S with type time := T.t = struct
       t.now <- time;
       traceln "mock time is now %a" T.pp t.now
 
-    let advance t =
+    let try_advance t =
       match Q.min t.q with
-      | None -> invalid_arg "No further events scheduled on mock clock"
-      | Some (_, v) -> set_time t v.time
+      | None -> false
+      | Some (_, v) -> set_time t v.time; true
 
     type (_, _, _) Eio.Resource.pi += Raw : ('t, 't -> t, T.t ty) Eio.Resource.pi
     let raw (Eio.Resource.T (t, ops)) = Eio.Resource.get ops Raw t
@@ -99,7 +100,12 @@ module Make(T : TIME) : S with type time := T.t = struct
     Eio.Resource.T (Impl.make (), handler)
 
   let set_time t v = Impl.set_time (Impl.raw t) v
-  let advance t = Impl.advance (Impl.raw t)
+
+  let try_advance t = Impl.try_advance (Impl.raw t)
+
+  let advance t =
+    if not (try_advance t) then
+      invalid_arg "No further events scheduled on mock clock"
 end
 
 module Old_time = struct

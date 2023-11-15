@@ -683,22 +683,16 @@ Eio.Io Net Connection_failure Refused _,
 First attempt times out:
 
 ```ocaml
-# Eio_mock.Backend.run @@ fun () ->
-  let clock = Eio_mock.Clock.Mono.make () in
+# Eio_mock.Backend.run_full @@ fun env ->
+  let clock = env#mono_clock in
   let timeout = Eio.Time.Timeout.seconds clock 10. in
   Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
   let mock_flow = Eio_mock.Flow.make "flow" in
   Eio_mock.Net.on_connect net [`Run Fiber.await_cancel; `Return mock_flow];
-  Fiber.both
-    (fun () ->
-       Eio.Net.with_tcp_connect ~timeout ~host:"www.example.com" ~service:"http" net (fun conn ->
-          let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
-          Eio.Flow.copy_string req conn
-       )
-    )
-    (fun () ->
-       Eio_mock.Clock.Mono.advance clock
-     );;
+  Eio.Net.with_tcp_connect ~timeout ~host:"www.example.com" ~service:"http" net (fun conn ->
+     let req = "GET / HTTP/1.1\r\nHost:www.example.com:80\r\n\r\n" in
+     Eio.Flow.copy_string req conn
+  )
 +mock-net: getaddrinfo ~service:http www.example.com
 +mock-net: connect to tcp:127.0.0.1:80
 +mock time is now 10
@@ -713,23 +707,14 @@ First attempt times out:
 Both attempts time out:
 
 ```ocaml
-# Eio_mock.Backend.run @@ fun () ->
-  let clock = Eio_mock.Clock.Mono.make () in
+# Eio_mock.Backend.run_full @@ fun env ->
+  let clock = env#mono_clock in
   let timeout = Eio.Time.Timeout.seconds clock 10. in
   Eio_mock.Net.on_getaddrinfo net [`Return [addr1; addr2]];
   Eio_mock.Net.on_connect net [`Run Fiber.await_cancel; `Run Fiber.await_cancel];
-  Fiber.both
-    (fun () ->
-       Eio.Net.with_tcp_connect ~timeout ~host:"www.example.com" ~service:"http" net (fun _ ->
-          assert false
-       )
-    )
-    (fun () ->
-       Eio_mock.Clock.Mono.advance clock;
-       Fiber.yield ();
-       Fiber.yield ();
-       Eio_mock.Clock.Mono.advance clock
-     );;
+  Eio.Net.with_tcp_connect ~timeout ~host:"www.example.com" ~service:"http" net (fun _ ->
+    assert false
+  )
 +mock-net: getaddrinfo ~service:http www.example.com
 +mock-net: connect to tcp:127.0.0.1:80
 +mock time is now 10
