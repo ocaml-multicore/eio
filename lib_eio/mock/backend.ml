@@ -6,6 +6,11 @@ exception Deadlock_detected
 (* The scheduler could just return [unit], but this is clearer. *)
 type exit = Exit_scheduler
 
+type stdenv = <
+  debug : Eio.Debug.t;
+  backend_id: string;
+>
+
 type t = {
   (* Suspended fibers waiting to run again.
      [Lf_queue] is like [Stdlib.Queue], but is thread-safe (lock-free) and
@@ -20,7 +25,11 @@ let schedule t : exit =
   | None -> Exit_scheduler      (* Finished (or deadlocked) *)
 
 (* Run [main] in an Eio main loop. *)
-let run main =
+let run_full main =
+  let stdenv = object (_ : stdenv)
+    method debug = Eio.Private.Debug.v
+    method backend_id = "mock"
+  end in
   let t = { run_q = Lf_queue.create () } in
   let rec fork ~new_fiber:fiber fn =
     (* Create a new fiber and run [fn] in it. *)
@@ -67,7 +76,10 @@ let run main =
     Domain_local_await.using
       ~prepare_for_await:Eio.Private.Dla.prepare_for_await
       ~while_running:(fun () ->
-        fork ~new_fiber (fun () -> result := Some (main ()))) in
+        fork ~new_fiber (fun () -> result := Some (main stdenv))) in
   match !result with
   | None -> raise Deadlock_detected
   | Some x -> x
+
+let run fn =
+  run_full (fun _ -> fn ())
