@@ -70,20 +70,25 @@ let await_exn t =
   | Ok x -> x
   | Error ex -> raise ex
 
-let resolve t v =
+let try_resolve t v =
   let rec resolve' t v =
     match Atomic.get t.state with
-    | Resolved _ -> invalid_arg "Can't resolve already-resolved promise"
+    | Resolved _ -> false
     | Unresolved b as prev ->
       if Atomic.compare_and_set t.state prev (Resolved v) then (
         Trace.resolve t.id;
-        Broadcast.resume_all b
+        Broadcast.resume_all b;
+        true
       ) else (
         (* Otherwise, the promise was already resolved. Retry (to get the error). *)
         resolve' t v
       )
   in
   resolve' (of_public_resolver t) v
+
+let resolve u x =
+  if not (try_resolve u x) then
+    invalid_arg "Can't resolve already-resolved promise"
 
 let resolve_ok    u x = resolve u (Ok x)
 let resolve_error u x = resolve u (Error x)
