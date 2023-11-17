@@ -81,6 +81,42 @@ val split : 'a t -> ('a t * string) option
     - [split (root, "/") = None]
 *)
 
+val basename : _ t -> string option
+(** [basename t] returns the last path component in [t].
+
+    This is a convenience wrapper around {!split}. [basename t = None] if there
+    is nothing to split.
+
+   For example:
+
+    - [basename (root, "foo/bar") = Some "bar"]
+    - [basename (root, "/foo/bar") = Some "bar"]
+    - [basename (root, "/foo/bar/baz") = Some "baz"]
+    - [basename (root, "/foo/bar//baz/") = Some "baz"]
+    - [basename (root, "bar") = Some "bar"]
+    - [basename (root, ".") = Some "."]
+    - [basename (root, "") = None]
+    - [basename (root, "/") = None]
+*)
+
+val dirname : _ t -> string option
+(** [dirname t] returns [Some dir], where [dir] is [t] without its last path component.
+
+    This is a convenience wrapper around {!split}. [dirname t = None] if there
+    is nothing to split.
+
+    For example:
+
+    - [dirname (root, "foo/bar") = Some "foo"]
+    - [dirname (root, "/foo/bar") = Some "/foo"]
+    - [dirname (root, "/foo/bar/baz") = Some "/foo/bar"]
+    - [dirname (root, "/foo/bar//baz/") = Some "/foo/bar"]
+    - [dirname (root, "bar") = Some ""]
+    - [dirname (root, ".") = Some ""]
+    - [dirname (root, "") = None]
+    - [dirname (root, "/") = None]
+*)
+
 (** {1 Reading files} *)
 
 val load : _ t -> string

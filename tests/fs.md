@@ -274,6 +274,88 @@ let split path = Eio.Path.split (fake_dir, path) |> Option.map (fun ((_, dirname
 - : (string * string) option = None
 ```
 
+# Basename
+
+```ocaml
+let basename path = Eio.Path.basename (fake_dir, path)
+```
+
+```ocaml
+# basename "foo/bar";
+- : string option = Some "bar"
+
+# basename "/foo/bar";
+- : string option = Some "bar"
+
+# basename "/foo/bar/baz";
+- : string option = Some "baz"
+
+# basename "/foo/bar//baz/";
+- : string option = Some "baz"
+
+# basename "bar";
+- : string option = Some "bar"
+
+# basename "/bar";
+- : string option = Some "bar"
+
+# basename ".";
+- : string option = Some "."
+
+# basename "./";
+- : string option = Some "."
+
+# basename "";
+- : string option = None
+
+# basename "/";
+- : string option = None
+
+# basename "///";
+- : string option = None
+```
+
+# Dirname
+
+```ocaml
+let dirname path = Eio.Path.dirname (fake_dir, path)
+```
+
+```ocaml
+# dirname "foo/bar";
+- : string option = Some "foo"
+
+# dirname "/foo/bar";
+- : string option = Some "/foo"
+
+# dirname "/foo/bar/baz";
+- : string option = Some "/foo/bar"
+
+# dirname "/foo/bar//baz/";
+- : string option = Some "/foo/bar"
+
+# dirname "bar";
+- : string option = Some ""
+
+# dirname "/bar";
+- : string option = Some "/"
+
+# dirname ".";
+- : string option = Some ""
+
+# dirname "./";
+- : string option = Some ""
+
+# dirname "";
+- : string option = None
+
+# dirname "/";
+- : string option = None
+
+# dirname "///";
+- : string option = None
+```
+
 # Mkdirs
 
 Recursively creating directories with `mkdirs`.

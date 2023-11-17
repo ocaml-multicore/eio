@@ -53,6 +53,10 @@ let split (dir, p) =
       in
       Some ((dir, dirname), basename)
 
+let basename t = Option.map snd (split t)
+
+let dirname t = Option.map (fun ((_, dir), _) -> dir) (split t)
+
 let open_in ~sw t =
   let (Resource.T (dir, ops), path) = t in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
