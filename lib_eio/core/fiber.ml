@@ -3,7 +3,7 @@
 type _ Effect.t += Fork : Cancel.fiber_context * (unit -> unit) -> unit Effect.t
 
 let yield () =
-  let fiber = Suspend.enter (fun fiber enqueue -> enqueue (Ok fiber)) in
+  let fiber = Suspend.enter "" (fun fiber enqueue -> enqueue (Ok fiber)) in
   Cancel.check fiber.cancel_context
 
 (* Note: [f] must not raise an exception, as that would terminate the whole scheduler. *)
@@ -17,12 +17,11 @@ let fork ~sw f =
     let new_fiber = Cancel.Fiber_context.make ~cc:sw.cancel ~vars in
     fork_raw new_fiber @@ fun () ->
     Switch.with_op sw @@ fun () ->
-    match f () with
-    | () ->
-      Trace.resolve (Cancel.Fiber_context.tid new_fiber)
-    | exception ex ->
-      Switch.fail sw ex;  (* The [with_op] ensures this will succeed *)
-      Trace.resolve_error (Cancel.Fiber_context.tid new_fiber) ex
+    try
+      f ()
+    with ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      Switch.fail ~bt sw ex;  (* The [with_op] ensures this will succeed *)
   ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
 
 let fork_daemon ~sw f =
@@ -35,13 +34,12 @@ let fork_daemon ~sw f =
     match f () with
     | `Stop_daemon ->
       (* The daemon asked to stop. *)
-      Trace.resolve (Cancel.Fiber_context.tid new_fiber)
+      ()
     | exception Cancel.Cancelled Exit when not (Cancel.is_on sw.cancel) ->
       (* The daemon was cancelled because all non-daemon fibers are finished. *)
-      Trace.resolve (Cancel.Fiber_context.tid new_fiber)
+      ()
     | exception ex ->
       Switch.fail sw ex;  (* The [with_daemon] ensures this will succeed *)
-      Trace.resolve_error (Cancel.Fiber_context.tid new_fiber) ex
   ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
 
 let fork_promise ~sw f =
@@ -86,13 +84,13 @@ let pair f g =
 exception Not_first
 
 let await_cancel () =
-  Suspend.enter @@ fun fiber enqueue ->
+  Suspend.enter "await_cancel" @@ fun fiber enqueue ->
   Cancel.Fiber_context.set_cancel_fn fiber (fun ex -> enqueue (Error ex))
 
 let any fs =
   let r = ref `None in
   let parent_c =
-    Cancel.sub_unchecked (fun cc ->
+    Cancel.sub_unchecked Any (fun cc ->
         let wrap h =
           match h () with
           | x ->
@@ -198,7 +196,7 @@ module List = struct
       }
 
     let await_free t =
-      if t.free_fibers = 0 then Single_waiter.await t.cond t.sw.id;
+      if t.free_fibers = 0 then Single_waiter.await t.cond "Limiter.await_free" t.sw.cancel.id;
       (* If we got woken up then there was a free fiber then. And since we're the
          only fiber that uses [t], and we were sleeping, it must still be free. *)
       assert (t.free_fibers > 0);
@@ -306,7 +304,7 @@ let unwrap_cancelled state =
 let run_coroutine ~state fn =
   let await_request ~prev ~on_suspend =
     (* Suspend and wait for the consumer to resume us: *)
-    Suspend.enter (fun ctx enqueue ->
+    Suspend.enter "await-consumer" (fun ctx enqueue ->
         let ready = `Ready enqueue in
         if Atomic.compare_and_set state prev ready then (
           Cancel.Fiber_context.set_cancel_fn ctx (fun ex ->
@@ -355,7 +353,7 @@ let fork_coroutine ~sw fn =
             raise ex
     );
   fun () ->
-    Suspend.enter (fun ctx enqueue ->
+    Suspend.enter "await-producer" (fun ctx enqueue ->
         let rec aux () =
           match Atomic.get state with
           | `Ready resume as prev ->

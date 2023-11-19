@@ -9,13 +9,6 @@
 
 open Eio.Std
 
-(* [handle pp] handles an event by writing the timestamp, ring ID and user data with [traceln].
-   [pp] is used to format the user data. *)
-let handle pp : _ Eio_runtime_events.handler =
-  fun ring ts v ->
-  (* Note: don't use traceln here, as it will just generate more log events! *)
-  Fmt.epr "%9Ld:ring %d: %a@." (Runtime_events.Timestamp.to_int64 ts) ring pp v
-
 let callbacks =
   Runtime_events.Callbacks.create ()
     (* Uncomment to trace GC events too: *)
@@ -25,11 +18,10 @@ let callbacks =
 *)
     ~lost_events:(fun ring n -> traceln "ring %d lost %d events" ring n)
   |> Eio_runtime_events.add_callbacks
-    ~fiber:(handle (Fmt.fmt "running fiber %d"))
-    ~create:(handle (fun f (id, ty) -> Fmt.pf f "create %s %d" (Eio_runtime_events.ty_to_string ty) id))
-    ~resolve:(handle (Fmt.fmt "resolve %d"))
-    ~log:(handle (Fmt.fmt "log %S"))
-    ~name:(handle (fun f (id, name) -> Fmt.pf f "%d is named %S" id name))
+    (fun ring ts e ->
+       (* Note: don't use traceln here, as it will just generate more log events! *)
+       Fmt.epr "%9Ld:ring %d: %a@." (Runtime_events.Timestamp.to_int64 ts) ring Eio_runtime_events.pp_event e
+    )
     (* (see lib_eio/runtime_events/eio_runtime_events.mli for more event types) *)
 
 (* Read and display trace events from [cursor] until [finished]. *)

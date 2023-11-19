@@ -25,15 +25,34 @@ module RE = Eio_runtime_events
 
 let add_event = Runtime_events.User.write
 
-let create ?label id ty =
-  add_event RE.create (id, ty);
+let create_obj ?label id ty =
+  add_event RE.create_obj (id, ty);
   Option.iter (fun l -> add_event RE.name (id, l)) label
 
+let create_cc id ty =
+  add_event RE.create_cc (id, ty)
+
+let create_fiber ~cc id =
+  add_event RE.create_fiber (id, cc)
+
 let log = add_event RE.log
+let enter_span = add_event RE.enter_span
+let exit_span = add_event RE.exit_span
 let fiber = add_event RE.fiber
-let suspend = add_event RE.suspend
-let try_read = add_event RE.try_read
-let read = add_event RE.read
-let signal = add_event RE.signal
-let resolve = add_event RE.resolve
-let resolve_error id ex = add_event RE.resolve_error (id, ex)
+let suspend_domain = add_event RE.suspend_domain
+let try_get = add_event RE.try_get
+let get = add_event RE.get
+let put = add_event RE.put
+let exit_fiber = add_event RE.exit_fiber
+let exit_cc = add_event RE.exit_cc
+let error id ex = add_event RE.error (id, ex)
+let suspend_fiber op = add_event RE.suspend_fiber op
+
+let with_span op fn =
+  enter_span op;
+  match fn () with
+  | r -> exit_span (); r
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    exit_span ();
+    Printexc.raise_with_backtrace ex bt

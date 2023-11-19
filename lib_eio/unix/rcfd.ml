@@ -132,7 +132,7 @@ let remove t =
     put t;
     None
   | Open fd as prev ->
-    Eio.Private.Suspend.enter_unchecked (fun _ctx enqueue ->
+    Eio.Private.Suspend.enter_unchecked "Rcfd.remove" (fun _ctx enqueue ->
         if Atomic.compare_and_set t.fd prev (Closing (fun () -> enqueue (Ok (Some fd)))) then (
           (* We transitioned from [open] to [closing/users]. We are the closer. *)
           put t

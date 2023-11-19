@@ -7,7 +7,7 @@ let prepare_for_await () =
       | _ -> ()
   and await () =
     if Atomic.get state != `Released then
-      Suspend.enter @@ fun ctx enqueue ->
+      Suspend.enter "domain-local-await" @@ fun ctx enqueue ->
       let awaiting = `Awaiting enqueue in
       if Atomic.compare_and_set state `Init awaiting then (
         Cancel.Fiber_context.set_cancel_fn ctx (fun ex ->

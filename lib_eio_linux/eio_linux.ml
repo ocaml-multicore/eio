@@ -408,14 +408,14 @@ module Domain_mgr = struct
 
   let run_raw _t fn =
     let domain = ref None in
-    Sched.enter (fun t k ->
+    Sched.enter "run-domain" (fun t k ->
         domain := Some (Domain.spawn (fun () -> Fun.protect (wrap_backtrace fn) ~finally:(fun () -> Sched.enqueue_thread t k ())))
       );
     unwrap_backtrace (Domain.join (Option.get !domain))
 
   let run t fn =
     let domain = ref None in
-    Sched.enter (fun sched k ->
+    Sched.enter "run-domain" (fun sched k ->
         let cancelled, set_cancelled = Promise.create () in
         Fiber_context.set_cancel_fn k.fiber (Promise.resolve set_cancelled);
         domain := Some (Domain.spawn (fun () ->

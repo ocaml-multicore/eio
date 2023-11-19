@@ -12,7 +12,7 @@ let lock_protected m =
 
 let await_generic ?mutex t =
   match
-    Suspend.enter_unchecked (fun ctx enqueue ->
+    Suspend.enter_unchecked "Condition.await" (fun ctx enqueue ->
         match Fiber_context.get_error ctx with
         | Some ex ->
           Option.iter Eio_mutex.unlock mutex;
@@ -90,7 +90,7 @@ let rec loop_no_mutex t fn =
     ensure_cancelled request;
     x
   | None ->
-    Suspend.enter_unchecked (fun ctx enqueue ->
+    Suspend.enter_unchecked "Condition.loop_no_mutex" (fun ctx enqueue ->
         match Fiber_context.get_error ctx with
         | Some ex ->
           ensure_cancelled request;

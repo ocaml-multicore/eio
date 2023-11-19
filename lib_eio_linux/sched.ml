@@ -106,7 +106,9 @@ let enqueue_failed_thread st k ex =
 let enqueue_at_head st k x =
   Lf_queue.push_head st.run_q (Thread (k, x))
 
-let enter fn = Effect.perform (Enter fn)
+let enter op fn =
+  Trace.suspend_fiber op;
+  Effect.perform (Enter fn)
 
 let rec enqueue_job t fn =
   match fn () with
@@ -242,9 +244,9 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
             (* At this point we're not going to check [run_q] again before sleeping.
                If [need_wakeup] is still [true], this is fine because we don't promise to do that.
                If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
-            Trace.suspend Begin;
+            Trace.suspend_domain Begin;
             let result = Uring.wait ?timeout uring in
-            Trace.suspend End;
+            Trace.suspend_domain End;
             Atomic.set st.need_wakeup false;
             Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
             match result with
@@ -355,7 +357,6 @@ let rec enqueue_poll_add_unix fd poll_mask st action cb =
 
 let rec enqueue_readv args st action =
   let (file_offset,fd,bufs) = args in
-  Trace.log "readv";
   let retry = with_cancel_hook ~action st (fun () ->
       Uring.readv st.uring ~file_offset fd bufs (Job action))
   in
@@ -363,7 +364,7 @@ let rec enqueue_readv args st action =
     Queue.push (fun st -> enqueue_readv args st action) st.io_q
 
 let read_eventfd fd buf =
-  let res = enter (enqueue_readv (Optint.Int63.zero, fd, [buf])) in
+  let res = enter "read_eventfd" (enqueue_readv (Optint.Int63.zero, fd, [buf])) in
   if res < 0 then (
     raise @@ Unix.Unix_error (Uring.error_of_errno res, "readv", "")
   ) else if res = 0 then (

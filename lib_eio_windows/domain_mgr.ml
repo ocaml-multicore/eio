@@ -93,14 +93,14 @@ module Impl = struct
 
   let run_raw () fn =
     let domain = ref None in
-    Eio.Private.Suspend.enter (fun _ctx enqueue ->
+    Eio.Private.Suspend.enter "run-domain" (fun _ctx enqueue ->
         domain := Some (Domain.spawn (fun () -> Fun.protect (wrap_backtrace fn) ~finally:(fun () -> enqueue (Ok ()))))
       );
     unwrap_backtrace (Domain.join (Option.get !domain))
 
   let run () fn =
     let domain = ref None in
-    Eio.Private.Suspend.enter (fun ctx enqueue ->
+    Eio.Private.Suspend.enter "run-domain" (fun ctx enqueue ->
         let cancelled, set_cancelled = Promise.create () in
         Eio.Private.Fiber_context.set_cancel_fn ctx (Promise.resolve set_cancelled);
         domain := Some (Domain.spawn (fun () ->

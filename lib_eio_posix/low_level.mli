@@ -14,8 +14,8 @@ open Eio.Std
 
 type fd := Eio_unix.Fd.t
 
-val await_readable : fd -> unit
-val await_writable : fd -> unit
+val await_readable : string -> fd -> unit
+val await_writable : string -> fd -> unit
 
 val sleep_until : Mtime.t -> unit
 

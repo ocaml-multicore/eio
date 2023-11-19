@@ -10,9 +10,9 @@ let create () = { wake = ignore }
 
 let wake t v = t.wake v
 
-let await t id =
+let await t op id =
   let x =
-    Suspend.enter @@ fun ctx enqueue ->
+    Suspend.enter op @@ fun ctx enqueue ->
     Cancel.Fiber_context.set_cancel_fn ctx (fun ex ->
         t.wake <- ignore;
         enqueue (Error ex)
@@ -23,5 +23,5 @@ let await t id =
         enqueue x
       )
   in
-  Trace.read id;
+  Trace.get id;
   x

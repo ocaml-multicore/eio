@@ -12,44 +12,49 @@ open Eio.Std
 type ty = Read | Write
 
 module Fd = Eio_unix.Fd
+module Trace = Eio.Private.Trace
+module Fiber_context = Eio.Private.Fiber_context
 
 (* todo: keeping a pool of workers is probably faster *)
 let in_worker_thread = Eio_unix.run_in_systhread
 
-let await_readable fd =
+let await_readable op fd =
   Fd.use_exn "await_readable" fd @@ fun fd ->
-  Sched.enter @@ fun t k ->
+  Sched.enter op @@ fun t k ->
   Sched.await_readable t k fd
 
-let await_writable fd =
+let await_writable op fd =
   Fd.use_exn "await_writable" fd @@ fun fd ->
-  Sched.enter @@ fun t k ->
+  Sched.enter op @@ fun t k ->
   Sched.await_writable t k fd
 
-let rec do_nonblocking ty fn fd =
-  Fiber.yield ();
+let rec do_nonblocking ty op fn fd =
   try fn fd with
-  | Unix.Unix_error (EINTR, _, _) -> do_nonblocking ty fn fd    (* Just in case *)
+  | Unix.Unix_error (EINTR, _, _) -> do_nonblocking ty op fn fd    (* Just in case *)
   | Unix.Unix_error((EAGAIN | EWOULDBLOCK), _, _) ->
-    Sched.enter (fun t k ->
+    Sched.enter op (fun t k ->
         match ty with
         | Read -> Sched.await_readable t k fd
         | Write -> Sched.await_writable t k fd
       );
-    do_nonblocking ty fn fd
+    do_nonblocking ty op fn fd
+
+let do_nonblocking ty op fn fd =
+  Fiber.yield ();
+  Trace.with_span op (fun () -> do_nonblocking ty op fn fd)
 
 let read fd buf start len =
-  if Fd.is_blocking fd then await_readable fd;
+  if Fd.is_blocking fd then await_readable "read" fd;
   Fd.use_exn "read" fd @@ fun fd ->
-  do_nonblocking Read (fun fd -> Unix.read fd buf start len) fd
+  do_nonblocking Read "read" (fun fd -> Unix.read fd buf start len) fd
 
 let write fd buf start len =
-  if Fd.is_blocking fd then await_writable fd;
+  if Fd.is_blocking fd then await_writable "write" fd;
   Fd.use_exn "write" fd @@ fun fd ->
-  do_nonblocking Write (fun fd -> Unix.write fd buf start len) fd
+  do_nonblocking Write "write" (fun fd -> Unix.write fd buf start len) fd
 
 let sleep_until time =
-  Sched.enter @@ fun t k ->
+  Sched.enter "sleep" @@ fun t k ->
   Sched.await_timeout t k time
 
 let socket ~sw socket_domain socket_type protocol =
@@ -63,7 +68,7 @@ let connect fd addr =
     Fd.use_exn "connect" fd (fun fd -> Unix.connect fd addr)
   with
   | Unix.Unix_error ((EINTR | EAGAIN | EWOULDBLOCK | EINPROGRESS), _, _) ->
-    await_writable fd;
+    await_writable "connect" fd;
     match Fd.use_exn "connect" fd Unix.getsockopt_error with
     | None -> ()
     | Some code -> raise (Err.wrap code "connect-in-progress" "")
@@ -71,7 +76,7 @@ let connect fd addr =
 let accept ~sw sock =
   Fd.use_exn "accept" sock @@ fun sock ->
   let client, addr =
-    do_nonblocking Read (fun fd -> Switch.check sw; Unix.accept ~cloexec:true fd) sock
+    do_nonblocking Read "accept" (fun fd -> Switch.check sw; Unix.accept ~cloexec:true fd) sock
   in
   Unix.set_nonblock client;
   Fd.of_unix ~sw ~blocking:false ~close_unix:true client, addr
@@ -85,19 +90,19 @@ external eio_recv_msg : Unix.file_descr -> int -> Cstruct.t array -> Unix.sockad
 let send_msg fd ?(fds = []) ?dst buf =
   Fd.use_exn "send_msg" fd @@ fun fd ->
   Fd.use_exn_list "send_msg" fds @@ fun fds ->
-  do_nonblocking Write (fun fd -> eio_send_msg fd (List.length fds) fds dst buf) fd
+  do_nonblocking Write "send_msg" (fun fd -> eio_send_msg fd (List.length fds) fds dst buf) fd
 
 let recv_msg fd buf =
   let addr, got, _ =
     Fd.use_exn "recv_msg" fd @@ fun fd ->
-    do_nonblocking Read (fun fd -> eio_recv_msg fd 0 buf) fd
+    do_nonblocking Read "recv_msg" (fun fd -> eio_recv_msg fd 0 buf) fd
   in
   (addr, got)
 
 let recv_msg_with_fds ~sw ~max_fds fd buf =
   let addr, got, fds =
     Fd.use_exn "recv_msg" fd @@ fun fd ->
-    do_nonblocking Read (fun fd -> eio_recv_msg fd max_fds buf) fd
+    do_nonblocking Read "recv_msg" (fun fd -> eio_recv_msg fd max_fds buf) fd
   in
   (addr, got, Eio_unix.Fd.of_unix_list ~sw fds)
 
@@ -142,24 +147,24 @@ external eio_preadv : Unix.file_descr -> Cstruct.t array -> Optint.Int63.t -> in
 external eio_pwritev : Unix.file_descr -> Cstruct.t array -> Optint.Int63.t -> int = "caml_eio_posix_pwritev"
 
 let readv fd bufs =
-  if Fd.is_blocking fd then await_readable fd;
+  if Fd.is_blocking fd then await_readable "readv" fd;
   Fd.use_exn "readv" fd @@ fun fd ->
-  do_nonblocking Read (fun fd -> eio_readv fd bufs) fd
+  do_nonblocking Read "readv" (fun fd -> eio_readv fd bufs) fd
 
 let writev fd bufs =
-  if Fd.is_blocking fd then await_writable fd;
+  if Fd.is_blocking fd then await_writable "writev" fd;
   Fd.use_exn "writev" fd @@ fun fd ->
-  do_nonblocking Write (fun fd -> eio_writev fd bufs) fd
+  do_nonblocking Write "writev" (fun fd -> eio_writev fd bufs) fd
 
 let preadv ~file_offset fd bufs =
-  if Fd.is_blocking fd then await_readable fd;
+  if Fd.is_blocking fd then await_readable "preadv" fd;
   Fd.use_exn "preadv" fd @@ fun fd ->
-  do_nonblocking Read (fun fd -> eio_preadv fd bufs file_offset) fd
+  do_nonblocking Read "preadv" (fun fd -> eio_preadv fd bufs file_offset) fd
 
 let pwritev ~file_offset fd bufs =
-  if Fd.is_blocking fd then await_writable fd;
+  if Fd.is_blocking fd then await_writable "pwritev" fd;
   Fd.use_exn "pwritev" fd @@ fun fd ->
-  do_nonblocking Write (fun fd -> eio_pwritev fd bufs file_offset) fd
+  do_nonblocking Write "pwritev" (fun fd -> eio_pwritev fd bufs file_offset) fd
 
 module Open_flags = struct
   type t = int
