@@ -328,3 +328,22 @@ Exception: Failure "3".
 +[0] Duration (valid): 0
 Exception: Invalid_argument "Stream closed".
 ```
+
+If the worker is cancelled, the client still gets a reply:
+
+```ocaml
+# run @@ fun mgr sleep duration ->
+  Switch.run @@ fun sw ->
+  let p = Executor_pool.create ~sw ~domain_count:1 mgr in
+  Fiber.both
+    (fun () ->
+       Eio.Cancel.protect @@ fun () ->
+       traceln "Submitting...";
+       Executor_pool.submit_exn p ~weight:1. (fun () -> traceln "Running");
+       assert false
+    )
+    (fun () -> traceln "Simulated error"; Switch.fail sw Exit)
++[0] Submitting...
++[0] Simulated error
+Exception: Stdlib.Exit.
+```

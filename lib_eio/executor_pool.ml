@@ -26,6 +26,7 @@ let run_worker { queue } =
     | Error `Closed -> `Stop_daemon
     | Ok (Pack { fn; w; weight }) ->
       capacity := !capacity + weight;
+      Option.iter (Promise.resolve_error w) (Switch.get_error sw);
       Fiber.fork ~sw (fun () ->
           Promise.resolve w (try Ok (fn ()) with ex -> Error ex);
           capacity := !capacity - weight;
