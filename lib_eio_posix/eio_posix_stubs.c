@@ -25,6 +25,7 @@
 #include <caml/bigarray.h>
 #include <caml/socketaddr.h>
 #include <caml/custom.h>
+#include <caml/fail.h>
 
 #include "fork_action.h"
 
@@ -66,9 +67,16 @@ CAMLprim value caml_eio_posix_getrandom(value v_ba, value v_off, value v_len) {
   CAMLreturn(Val_long(ret));
 }
 
-/* Fill [iov] with pointers to the cstructs in the array [v_bufs]. */
-static void fill_iov(struct iovec *iov, value v_bufs) {
+/* Allocates an array of C iovecs using the cstructs in the array [v_bufs]. */
+static struct iovec *alloc_iov(value v_bufs) {
+  struct iovec *iov;
   int n_bufs = Wosize_val(v_bufs);
+
+  if (n_bufs == 0) return NULL;
+  iov = caml_stat_calloc_noexc(n_bufs, sizeof(struct iovec));
+  if (iov == NULL)
+    caml_raise_out_of_memory();
+
   for (int i = 0; i < n_bufs; i++) {
     value v_cs = Field(v_bufs, i);
     value v_ba = Field(v_cs, 0);
@@ -77,17 +85,18 @@ static void fill_iov(struct iovec *iov, value v_bufs) {
     iov[i].iov_base = (uint8_t *)Caml_ba_data_val(v_ba) + Long_val(v_off);
     iov[i].iov_len = Long_val(v_len);
   }
+  return iov;
 }
 
 CAMLprim value caml_eio_posix_readv(value v_fd, value v_bufs) {
   CAMLparam1(v_bufs);
   ssize_t r;
   int n_bufs = Wosize_val(v_bufs);
-  struct iovec iov[n_bufs];
+  struct iovec *iov;
 
-  fill_iov(iov, v_bufs);
-
+  iov = alloc_iov(v_bufs);
   r = readv(Int_val(v_fd), iov, n_bufs);
+  caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("readv", Nothing);
 
   CAMLreturn(Val_long(r));
@@ -97,11 +106,11 @@ CAMLprim value caml_eio_posix_writev(value v_fd, value v_bufs) {
   CAMLparam1(v_bufs);
   ssize_t r;
   int n_bufs = Wosize_val(v_bufs);
-  struct iovec iov[n_bufs];
+  struct iovec *iov;
 
-  fill_iov(iov, v_bufs);
-
+  iov = alloc_iov(v_bufs);
   r = writev(Int_val(v_fd), iov, n_bufs);
+  caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("writev", Nothing);
 
   CAMLreturn(Val_long(r));
@@ -111,11 +120,11 @@ CAMLprim value caml_eio_posix_preadv(value v_fd, value v_bufs, value v_offset) {
   CAMLparam2(v_bufs, v_offset);
   ssize_t r;
   int n_bufs = Wosize_val(v_bufs);
-  struct iovec iov[n_bufs];
+  struct iovec *iov;
 
-  fill_iov(iov, v_bufs);
-
+  iov = alloc_iov(v_bufs);
   r = preadv(Int_val(v_fd), iov, n_bufs, Int63_val(v_offset));
+  caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("preadv", Nothing);
 
   CAMLreturn(Val_long(r));
@@ -125,11 +134,11 @@ CAMLprim value caml_eio_posix_pwritev(value v_fd, value v_bufs, value v_offset) 
   CAMLparam2(v_bufs, v_offset);
   ssize_t r;
   int n_bufs = Wosize_val(v_bufs);
-  struct iovec iov[n_bufs];
+  struct iovec *iov;
 
-  fill_iov(iov, v_bufs);
-
+  iov = alloc_iov(v_bufs);
   r = pwritev(Int_val(v_fd), iov, n_bufs, Int63_val(v_offset));
+  caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("pwritev", Nothing);
 
   CAMLreturn(Val_long(r));
@@ -402,12 +411,11 @@ CAMLprim value caml_eio_posix_send_msg(value v_fd, value v_n_fds, value v_fds, v
   CAMLparam3(v_fds, v_dst_opt, v_bufs);
   int n_bufs = Wosize_val(v_bufs);
   int n_fds = Int_val(v_n_fds);
-  struct iovec iov[n_bufs];
   union sock_addr_union dst_addr;
+  struct iovec *iov;
   int controllen = n_fds > 0 ? CMSG_SPACE(sizeof(int) * n_fds) : 0;
   char cmsg[controllen];
   struct msghdr msg = {
-    .msg_iov = iov,
     .msg_iovlen = n_bufs,
     .msg_control = n_fds > 0 ? cmsg : NULL,
     .msg_controllen = controllen,
@@ -421,12 +429,14 @@ CAMLprim value caml_eio_posix_send_msg(value v_fd, value v_n_fds, value v_fds, v
     msg.msg_name = &dst_addr;
   }
 
-  fill_iov(iov, v_bufs);
+  iov = alloc_iov(v_bufs);
+  msg.msg_iov = iov;
   fill_fds(&msg, n_fds, v_fds);
 
   caml_enter_blocking_section();
   r = sendmsg(Int_val(v_fd), &msg, 0);
   caml_leave_blocking_section();
+  caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("send_msg", Nothing);
 
   CAMLreturn(Val_long(r));
@@ -474,14 +484,13 @@ CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs
   CAMLlocal2(v_result, v_addr);
   int max_fds = Int_val(v_max_fds);
   int n_bufs = Wosize_val(v_bufs);
-  struct iovec iov[n_bufs];
+  struct iovec *iov;
   union sock_addr_union source_addr;
   int controllen = max_fds > 0 ? CMSG_SPACE(sizeof(int) * max_fds) : 0;
   char cmsg[controllen];
   struct msghdr msg = {
     .msg_name = &source_addr,
     .msg_namelen = sizeof(source_addr),
-    .msg_iov = iov,
     .msg_iovlen = n_bufs,
     .msg_control = max_fds > 0 ? cmsg : NULL,
     .msg_controllen = controllen,
@@ -490,11 +499,13 @@ CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs
 
   memset(cmsg, 0, controllen);
 
-  fill_iov(iov, v_bufs);
+  iov = alloc_iov(v_bufs);
+  msg.msg_iov = iov;
 
   caml_enter_blocking_section();
   r = recvmsg(Int_val(v_fd), &msg, 0);
   caml_leave_blocking_section();
+  caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("recv_msg", Nothing);
 
   v_addr = safe_caml_unix_alloc_sockaddr(&source_addr, msg.msg_namelen, -1);

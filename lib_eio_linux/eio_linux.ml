@@ -73,14 +73,23 @@ let _fast_copy_try_splice src dst =
 
 (* XXX workaround for issue #319, PR #327 *)
 let fast_copy_try_splice src dst = fast_copy src dst
+    
+let[@tail_mod_cons] rec list_take n = function
+  | [] -> []
+  | x :: xs ->
+    if n = 0 then []
+    else x :: list_take (n - 1) xs
+
+let truncate_to_iomax xs =
+  if List.compare_length_with xs Uring.iov_max <= 0 then xs
+  else list_take Uring.iov_max xs
 
 (* Copy using the [Read_source_buffer] optimisation.
    Avoids a copy if the source already has the data. *)
 let copy_with_rsb rsb dst =
+  let write xs = Low_level.writev_single dst (truncate_to_iomax xs) in
   try
-    while true do
-      rsb (Low_level.writev_single dst)
-    done
+    while true do rsb write done
   with End_of_file -> ()
 
 (* Copy by allocating a chunk from the pre-shared buffer and asking
@@ -161,11 +170,11 @@ module Flow = struct
     Low_level.readv ~file_offset t bufs
 
   let pwrite t ~file_offset bufs =
-    Low_level.writev_single ~file_offset t bufs
+    Low_level.writev_single ~file_offset t (truncate_to_iomax bufs)
 
   let read_methods = []
 
-  let single_write t bufs = Low_level.writev_single t bufs
+  let single_write t bufs = Low_level.writev_single t (truncate_to_iomax bufs)
 
   let copy t ~src =
     match Eio_unix.Resource.fd_opt src with

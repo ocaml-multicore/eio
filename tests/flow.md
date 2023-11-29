@@ -173,3 +173,27 @@ Make sure we don't crash on SIGPIPE:
 +Connection_reset (good)
 - : unit = ()
 ```
+
+## IO_MAX
+
+Sending a very long vector over a flow should just send it in chunks, not fail:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let r, w = Eio_unix.pipe sw in
+  let a = Cstruct.of_string "abc" in
+  let vecs = List.init 10_000 (Fun.const a) in
+  Fiber.both
+    (fun () ->
+       Eio.Flow.write w vecs;
+       Eio.Flow.close w
+    )
+    (fun () ->
+       let got = Eio.Flow.read_all r in
+       traceln "Read %d bytes" (String.length got);
+       assert (got = Cstruct.to_string (Cstruct.concat vecs))
+    )
++Read 30000 bytes
+- : unit = ()
+```

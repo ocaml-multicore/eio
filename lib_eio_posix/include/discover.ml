@@ -8,7 +8,7 @@ let optional_flags = [
 
 let () =
   C.main ~name:"discover" (fun c ->
-      let c_flags = ["-D_LARGEFILE64_SOURCE"] in
+      let c_flags = ["-D_LARGEFILE64_SOURCE"; "-D_XOPEN_SOURCE=700"; "-D_DARWIN_C_SOURCE"] in
       let includes = ["sys/types.h"; "sys/stat.h"; "fcntl.h"] in
       let extra_flags, missing_defs =
         C.C_define.import c ~c_flags ~includes
@@ -22,7 +22,7 @@ let () =
       in
       let present_defs =
         C.C_define.import c ~c_flags
-          ~includes:["sys/types.h"; "sys/stat.h"; "fcntl.h"]
+          ~includes:["sys/types.h"; "sys/stat.h"; "fcntl.h"; "limits.h"]
           C.C_define.Type.(extra_flags @ [
             "O_RDONLY", Int;
             "O_RDWR", Int;
@@ -41,6 +41,8 @@ let () =
 
             "AT_FDCWD", Int;
             "AT_SYMLINK_NOFOLLOW", Int;
+
+            "IOV_MAX", Int;
           ])
         |> List.map (function
             | name, C.C_define.Value.Int v when List.mem name optional_flags ->
