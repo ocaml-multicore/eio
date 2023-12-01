@@ -454,6 +454,21 @@ static value get_msghdr_fds(struct msghdr *msg) {
   CAMLreturn(v_list);
 }
 
+/* Work-around for https://github.com/ocaml/ocaml/issues/12796 */
+static value safe_caml_unix_alloc_sockaddr(union sock_addr_union *adr, socklen_param_type adr_len, int close_on_error) {
+  struct sockaddr_un empty = {
+    .sun_family = AF_UNIX,
+    .sun_path = "",
+  };
+
+  if (adr_len < offsetof(struct sockaddr, sa_data)) {
+    adr = (union sock_addr_union *) &empty;
+    adr_len = offsetof(struct sockaddr, sa_data);
+  }
+
+  return caml_unix_alloc_sockaddr(adr, adr_len, close_on_error);
+}
+
 CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs) {
   CAMLparam1(v_bufs);
   CAMLlocal2(v_result, v_addr);
@@ -482,7 +497,7 @@ CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs
   caml_leave_blocking_section();
   if (r < 0) uerror("recv_msg", Nothing);
 
-  v_addr = caml_unix_alloc_sockaddr(&source_addr, msg.msg_namelen, -1);
+  v_addr = safe_caml_unix_alloc_sockaddr(&source_addr, msg.msg_namelen, -1);
 
   v_result = caml_alloc_tuple(3);
   Store_field(v_result, 0, v_addr);
