@@ -146,6 +146,44 @@ With pausing
 - : unit = ()
 ```
 
+## Formatting
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let f t =
+    let formatter = Write.get_formatter t in
+    Write.string t "Hello";
+    Format.pp_set_geometry formatter ~max_indent:4 ~margin:10;
+    (*
+      "@ "      breakable space
+      "@[<v 6>" open vertical box, indentation: 6 (overriden by our geometry settings)
+      "%s"      print string
+      "@ "      breakable space
+      "%i"      print int
+      "@."      print newline + explicit flush
+      "%a"      print arbitrary type
+      "@]"      close box
+      "@ "      breakable space
+    *)
+    Write.printf t "@ @[<v 6>%s@ %i@.%a@]@ "
+      "This is a test" 123
+      Eio.Net.Sockaddr.pp (`Tcp (Eio.Net.Ipaddr.V6.loopback, 8080));
+
+    Write.string t "-> Not from printf <-";
+    Write.printf t "@.Ok back to %s@." "printf";
+    Write.string t "Goodbye"
+  in
+  Write.with_flow flow f;;
++flow: wrote "Hello\n"
++            "This is a test\n"
++            "    123\n"
++flow: wrote "tcp:[::1]:8080\n"
++            "-> Not from printf <-\n"
++flow: wrote "Ok back to printf\n"
++flow: wrote "Goodbye"
+- : unit = ()
+```
+
 ## Flushing
 
 ```ocaml

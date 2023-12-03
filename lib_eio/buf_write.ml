@@ -163,6 +163,7 @@ type t =
   ; mutable bytes_written  : int        (* Total written bytes. Wraps. *)
   ; mutable state          : state
   ; mutable wake_writer    : unit -> unit
+  ; printf                 : (Format.symbolic_output_buffer * Format.formatter) lazy_t
   }
 (* Invariant: [write_pos >= scheduled_pos] *)
 
@@ -377,6 +378,9 @@ let of_buffer ?sw buffer =
           ; bytes_written   = 0
           ; state           = Active
           ; wake_writer     = ignore
+          ; printf          = lazy Format.(
+            let sob = make_symbolic_output_buffer () in
+            sob, formatter_of_symbolic_output_buffer sob)
           }
   in
   begin match sw with
@@ -415,6 +419,60 @@ let flush t =
     Flushes.enqueue (t.bytes_received, r) t.flushed;
     Promise.await_exn p
   )
+
+let printf t =
+  let sob, ppf = Stdlib.Lazy.force t.printf in
+  Format.kfprintf (fun ppf ->
+    Format.pp_print_flush ppf ();
+    (* Note: `items` will always end with an `Output_flush` due to the need
+       to call `pp_print_flush` to get all data out of the formatter. *)
+    let items = Format.flush_symbolic_output_buffer sob in
+    let len =
+      (* Number of bytes needed to accomodate the largest "slice" across all flushes.
+         We rely on the fact that the internal buffer size never decreases across flushes. *)
+      List.fold_left Format.(fun (current, overall) -> function
+      | Output_flush -> (0, max current overall)
+      | Output_newline -> (current + 1, overall)
+      | Output_string s -> (current + String.length s, overall)
+      | Output_spaces n | Output_indent n -> (current + n, overall)
+      ) (0, 0) items
+      |> snd (* We always end on an `Output_flush` *)
+    in
+    writable_exn t;
+    ensure_space t len;
+    let rec loop = function
+    | [] -> assert false
+    | [Format.Output_flush] -> (* Skip our manual flush, see Note above *)
+      wake_writer t
+    | Output_flush :: rest ->
+      (* As per the Format module manual, an explicit flush writes to the
+         output channel and ensures that "all pending text is displayed"
+         and "these explicit flush calls [...] could dramatically impact efficiency".
+         Therefore it is clear that we need to call `flush t` instead of `flush_buffer t`. *)
+      wake_writer t;
+      flush t;
+      (loop [@tailcall]) rest
+    | Output_newline :: rest ->
+      Bigstringaf.unsafe_set t.buffer t.write_pos '\n';
+      t.write_pos <- t.write_pos + 1;
+      (loop [@tailcall]) rest
+    | Output_string s :: rest ->
+      let n = String.length s in
+      Bigstringaf.blit_from_string s ~src_off:0 t.buffer ~dst_off:t.write_pos ~len:n;
+      t.write_pos <- t.write_pos + n;
+      (loop [@tailcall]) rest
+    | (Output_spaces 0 | Output_indent 0) :: rest -> (loop [@tailcall]) rest
+    | (Output_spaces n | Output_indent n) :: rest ->
+      for i = 0 to n - 1 do
+        Bigstringaf.unsafe_set t.buffer (t.write_pos + i) ' '
+      done;
+      t.write_pos <- t.write_pos + n;
+      (loop [@tailcall]) rest
+    in
+    loop items
+  ) ppf
+
+let get_formatter t = Stdlib.Lazy.force t.printf |> snd
 
 let rec shift_buffers t written =
   match Buffers.dequeue_exn t.scheduled with
