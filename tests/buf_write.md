@@ -146,6 +146,44 @@ With pausing
 - : unit = ()
 ```
 
+## Formatting
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Write.with_flow flow @@ fun t ->
+  Write.printf t "Write.printf can force a full flush@.@[<v2>It also@,flushes to [t] automatically";
+  Write.string t " at the end, but without flushing [t] itself.\n";
+  (* Create a formatter for full control: *)
+  let f = Write.make_formatter t in
+  Format.pp_set_geometry f ~max_indent:4 ~margin:10;
+  (*
+    "@ "      breakable space
+    "@[<v 6>" open vertical box, indentation: 6 (overriden by our geometry settings)
+    "%s"      print string
+    "@ "      breakable space
+    "%i"      print int
+    "@."      print newline + explicit flush
+    "%a"      print arbitrary type
+    "@]"      close box
+    "@ "      breakable space
+  *)
+  Fmt.pf f "Space@ @[<v 6>%s@ %i@.%a@]@ "
+    "This is a test" 123
+    Eio.Net.Sockaddr.pp (`Tcp (Eio.Net.Ipaddr.V6.loopback, 8080));
+  Write.printf t "This is a %s call to printf" "second";
+  Fmt.pf f "@.Flushed. %s@." "Goodbye"
++flow: wrote "Write.printf can force a full flush\n"
++flow: wrote "It also\n"
++            "  flushes to [t] automatically at the end, but without flushing [t] itself.\n"
++            "Space\n"
++            "This is a test\n"
++            "    123\n"
++flow: wrote "tcp:[::1]:8080This is a second call to printf\n"
++            "\n"
++flow: wrote "Flushed. Goodbye\n"
+- : unit = ()
+```
+
 ## Flushing
 
 ```ocaml

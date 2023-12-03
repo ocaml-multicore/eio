@@ -163,6 +163,7 @@ type t =
   ; mutable bytes_written  : int        (* Total written bytes. Wraps. *)
   ; mutable state          : state
   ; mutable wake_writer    : unit -> unit
+  ; mutable printf         : (Format.formatter * bool ref) option
   }
 (* Invariant: [write_pos >= scheduled_pos] *)
 
@@ -377,6 +378,7 @@ let of_buffer ?sw buffer =
           ; bytes_written   = 0
           ; state           = Active
           ; wake_writer     = ignore
+          ; printf          = None
           }
   in
   begin match sw with
@@ -415,6 +417,39 @@ let flush t =
     Flushes.enqueue (t.bytes_received, r) t.flushed;
     Promise.await_exn p
   )
+
+let make_formatter t =
+  Format.make_formatter
+    (fun buf off len -> write_gen t buf ~off ~len ~blit:Bigstringaf.blit_from_string)
+    (fun () -> flush t)
+
+let printf t =
+  let ppf, is_formatting =
+    match t.printf with
+    | Some (_, is_formatting as x) ->
+      is_formatting := true;
+      x
+    | None ->
+      let is_formatting = ref true in
+      let ppf =
+        Format.make_formatter
+          (fun buf off len -> write_gen t buf ~off ~len ~blit:Bigstringaf.blit_from_string)
+          (fun () ->
+             (* As per the Format module manual, an explicit flush writes to the
+                output channel and ensures that "all pending text is displayed"
+                and "these explicit flush calls [...] could dramatically impact efficiency".
+                Therefore it is clear that we need to call `flush t` instead of `flush_buffer t`. *)
+             if !is_formatting then flush t)
+      in
+      t.printf <- Some (ppf, is_formatting);
+      ppf, is_formatting
+  in
+  Format.kfprintf (fun ppf ->
+      if not !is_formatting then raise (Sys_error "Buf_write.printf: invalid concurrent access");
+      (* Ensure that [ppf]'s internal buffer is flushed to [t], but without flushing [t] itself: *)
+      is_formatting := false;
+      Format.pp_print_flush ppf ()
+    ) ppf
 
 let rec shift_buffers t written =
   match Buffers.dequeue_exn t.scheduled with

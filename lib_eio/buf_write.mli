@@ -46,7 +46,7 @@
     or application-specific output APIs.
 
     A Buf_write serializer manages an internal buffer and a queue of output
-    buffers. The output bufferes may be a sub range of the serializer's
+    buffers. The output buffers may be a sub range of the serializer's
     internal buffer or one that is user-provided. Buffered writes such as
     {!string}, {!char}, {!cstruct}, etc., copy the source bytes into the
     serializer's internal buffer. Unbuffered writes are done with
@@ -122,6 +122,18 @@ val cstruct : t -> Cstruct.t -> unit
 (** [cstruct t cs] copies [cs] into the serializer's internal buffer.
     It is safe to modify [cs] after this call returns.
     For large cstructs, it may be more efficient to use {!schedule_cstruct}. *)
+
+val printf : t -> ('a, Format.formatter, unit) format -> 'a
+(** [printf t fmt ...] formats the arguments according to the format string [fmt].
+
+    It supports all formatting and pretty-printing features of the Format module.
+    The formatter's internal buffer is flushed to [t] after the call, without flushing [t] itself.
+    Explicit flushes (e.g. using [@.] or [%!]) perform a full (blocking) flush of [t]. *)
+
+val make_formatter : t -> Format.formatter
+(** [make_formatter t] creates a new formatter that writes to [t].
+
+    Flushing the formatter also flushes [t] itself. *)
 
 val write_gen
   :  t
