@@ -27,6 +27,25 @@ let eio_of_stat x =
     ctime  = float_of_time (Low_level.ctime_sec x) (Low_level.ctime_nsec x);
   }
 
+let truncate_to_iomax xs =
+  let rec count i = function
+    | [] -> i
+    | _ when i = Config.iov_max -> Config.iov_max
+    | _ :: xs -> count (i + 1) xs
+  in
+  let len = count 0 xs in
+  let arr = Array.make len Cstruct.empty in
+  let rec fill i xs =
+    if i = len then arr
+    else (
+      match xs with
+      | x :: xs ->
+        Array.set arr i x;
+        fill (i + 1) xs
+      | [] -> assert false
+    ) in
+  fill 0 xs
+
 module Impl = struct
   type tag = [`Generic | `Unix]
 
@@ -41,7 +60,7 @@ module Impl = struct
 
   let single_write t bufs =
     try
-      Low_level.writev t (Array.of_list bufs)
+      Low_level.writev t (truncate_to_iomax bufs)
     with Unix.Unix_error (code, name, arg) ->
       raise (Err.wrap code name arg)
 
@@ -66,17 +85,17 @@ module Impl = struct
   let read_methods = []
 
   let pread t ~file_offset bufs =
-    let got = Low_level.preadv ~file_offset t (Array.of_list bufs) in
+    let got = Low_level.preadv ~file_offset t (truncate_to_iomax bufs) in
     if got = 0 then raise End_of_file
     else got
 
-  let pwrite t ~file_offset bufs = Low_level.pwritev ~file_offset t (Array.of_list bufs)
+  let pwrite t ~file_offset bufs = Low_level.pwritev ~file_offset t (truncate_to_iomax bufs)
 
   let send_msg t ~fds data =
-    Low_level.send_msg ~fds t (Array.of_list data)
+    Low_level.send_msg ~fds t (truncate_to_iomax data)
 
   let recv_msg_with_fds t ~sw ~max_fds data =
-    let _addr, n, fds = Low_level.recv_msg_with_fds t ~sw ~max_fds (Array.of_list data) in
+    let _addr, n, fds = Low_level.recv_msg_with_fds t ~sw ~max_fds (truncate_to_iomax data) in
     n, fds
 
   let seek = Low_level.lseek
