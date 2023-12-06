@@ -95,7 +95,9 @@ CAMLprim value caml_eio_posix_readv(value v_fd, value v_bufs) {
   struct iovec *iov;
 
   iov = alloc_iov(v_bufs);
+  caml_enter_blocking_section();
   r = readv(Int_val(v_fd), iov, n_bufs);
+  caml_leave_blocking_section();
   caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("readv", Nothing);
 
@@ -109,7 +111,9 @@ CAMLprim value caml_eio_posix_writev(value v_fd, value v_bufs) {
   struct iovec *iov;
 
   iov = alloc_iov(v_bufs);
+  caml_enter_blocking_section();
   r = writev(Int_val(v_fd), iov, n_bufs);
+  caml_leave_blocking_section();
   caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("writev", Nothing);
 
@@ -121,9 +125,12 @@ CAMLprim value caml_eio_posix_preadv(value v_fd, value v_bufs, value v_offset) {
   ssize_t r;
   int n_bufs = Wosize_val(v_bufs);
   struct iovec *iov;
+  off_t offset = Int63_val(v_offset);
 
   iov = alloc_iov(v_bufs);
-  r = preadv(Int_val(v_fd), iov, n_bufs, Int63_val(v_offset));
+  caml_enter_blocking_section();
+  r = preadv(Int_val(v_fd), iov, n_bufs, offset);
+  caml_leave_blocking_section();
   caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("preadv", Nothing);
 
@@ -135,9 +142,12 @@ CAMLprim value caml_eio_posix_pwritev(value v_fd, value v_bufs, value v_offset) 
   ssize_t r;
   int n_bufs = Wosize_val(v_bufs);
   struct iovec *iov;
+  off_t offset = Int63_val(v_offset);
 
   iov = alloc_iov(v_bufs);
-  r = pwritev(Int_val(v_fd), iov, n_bufs, Int63_val(v_offset));
+  caml_enter_blocking_section();
+  r = pwritev(Int_val(v_fd), iov, n_bufs, offset);
+  caml_leave_blocking_section();
   caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("pwritev", Nothing);
 
