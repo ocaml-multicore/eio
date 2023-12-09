@@ -55,7 +55,7 @@ let split (dir, p) =
 
 let basename t = Option.map snd (split t)
 
-let dirname t = Option.map (fun ((_, dir), _) -> dir) (split t)
+let dirname t = Option.map fst (split t)
 
 let open_in ~sw t =
   let (Resource.T (dir, ops), path) = t in

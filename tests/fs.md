@@ -318,7 +318,7 @@ let basename path = Eio.Path.basename (fake_dir, path)
 # Dirname
 
 ```ocaml
-let dirname path = Eio.Path.dirname (fake_dir, path)
+let dirname path = Eio.Path.dirname (fake_dir, path) |> Option.map (fun (_, dirname) -> dirname)
 ```
 
 ```ocaml

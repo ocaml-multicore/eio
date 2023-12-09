@@ -99,7 +99,7 @@ val basename : _ t -> string option
     - [basename (root, "/") = None]
 *)
 
-val dirname : _ t -> string option
+val dirname : 'a t -> 'a t option
 (** [dirname t] returns [Some dir], where [dir] is [t] without its last path component.
 
     This is a convenience wrapper around {!split}. [dirname t = None] if there
@@ -107,12 +107,12 @@ val dirname : _ t -> string option
 
     For example:
 
-    - [dirname (root, "foo/bar") = Some "foo"]
-    - [dirname (root, "/foo/bar") = Some "/foo"]
-    - [dirname (root, "/foo/bar/baz") = Some "/foo/bar"]
-    - [dirname (root, "/foo/bar//baz/") = Some "/foo/bar"]
-    - [dirname (root, "bar") = Some ""]
-    - [dirname (root, ".") = Some ""]
+    - [dirname (root, "foo/bar") = Some (root, "foo")]
+    - [dirname (root, "/foo/bar") = Some (root, "/foo")]
+    - [dirname (root, "/foo/bar/baz") = Some (root, "/foo/bar")]
+    - [dirname (root, "/foo/bar//baz/") = Some (root, "/foo/bar")]
+    - [dirname (root, "bar") = Some (root, "")]
+    - [dirname (root, ".") = Some (root, "")]
     - [dirname (root, "") = None]
     - [dirname (root, "/") = None]
 *)
