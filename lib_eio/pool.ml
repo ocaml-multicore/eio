@@ -19,7 +19,7 @@ type 'a slot = 'a option ref
 module Cell = struct
   (* The possible behaviours are:
 
-     1. Suspender : In_transition -> Request            Suspender waits for a resource  
+     1. Suspender : In_transition -> Request            Suspender waits for a resource
         1.1. Resumer : Request -> Finished              Resumer then providers a resource
         1.2. Suspender : Request -> Finished            Suspender cancels
      2. Resumer : In_transition -> Resource             Resumer provides a spare resource
@@ -89,11 +89,10 @@ let cancel segment cell =
   | In_transition | Resource _ -> assert false          (* Can't get here from [Request]. *)
 
 (* If [t] is under capacity, add another (empty) slot. *)
-let rec maybe_add_slot t =
-  let current = Atomic.get t.slots in
+let rec maybe_add_slot t current =
   if current < t.max_slots then (
     if Atomic.compare_and_set t.slots current (current + 1) then add t (ref None)
-    else maybe_add_slot t       (* Concurrent update; try again *)
+    else maybe_add_slot t (Atomic.get t.slots)      (* Concurrent update; try again *)
   )
 
 (* [run_with t f slot] ensures that [slot] contains a valid resource and then runs [f resource] with it.
@@ -114,7 +113,7 @@ let run_with t f slot =
         f x
     end
   with
-  | r -> 
+  | r ->
     add t slot;
     r
   | exception ex ->
@@ -122,7 +121,19 @@ let run_with t f slot =
     add t slot;
     Printexc.raise_with_backtrace ex bt
 
-let use t f =
+(* Creates a fresh resource [x], runs [f x], then disposes of [x] *)
+let run_new_and_dispose t f =
+  let x = t.alloc () in
+  match f x with
+  | r ->
+    t.dispose x;
+    r
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    t.dispose x;
+    Printexc.raise_with_backtrace ex bt
+
+let use t ?(never_block=false) f =
   let segment, cell = Q.next_suspend t.q in
   match Atomic.get cell with
   | Finished | Request _ -> assert false
@@ -130,9 +141,18 @@ let use t f =
     Atomic.set cell Finished;   (* Allow value to be GC'd *)
     run_with t f slot
   | In_transition ->
-      (* It would have been better if more resources were available.
-         If we still have capacity, add a new slot now. *)
-      maybe_add_slot t;
+    let current = Atomic.get t.slots in
+    match current < t.max_slots with
+    | false when never_block -> (
+      (* We are at capacity, but cannot block.
+         Create a new resource to run f but don't add it to the pool. *)
+      match Atomic.exchange cell Finished with
+      | Resource slot -> run_with t f slot
+      | _ -> run_new_and_dispose t f
+    )
+    | can_add ->
+      (* Create a slot if not at capacity. *)
+      if can_add then maybe_add_slot t current;
       (* No item is available right now. Start waiting *)
       let slot =
         Suspend.enter_unchecked "Pool.acquire" (fun ctx enqueue ->

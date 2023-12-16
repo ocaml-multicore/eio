@@ -77,6 +77,37 @@ Two uses with a capacity of 2; they run in parallel:
 - : unit = ()
 ```
 
+Capacity of 1; two uses that cannot block and two normal uses; first 2 are parallel, next 2 are sequential.
+Note that the pool always suspends the calling fiber when creating a new slot,
+even if the fiber ends up providing the new slot to itself,
+which is why the items get assigned out of order in this test.
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let p0, r0 = Promise.create () in
+  let p1, r1 = Promise.create () in
+  let t = create 1 [p0; p1] ~dispose in
+  Fiber.all [
+    (fun () -> P.use t ~never_block:true (fun x -> traceln "A: using item %d" x; Fiber.yield (); traceln "A done"));
+    (fun () -> P.use t ~never_block:true (fun x -> traceln "B: using item %d" x; Fiber.yield (); traceln "B done"));
+    (fun () -> P.use t (fun x -> traceln "C: using item %d" x; Fiber.yield (); traceln "C done"));
+    (fun () -> P.use t (fun x -> traceln "D: using item %d" x; Fiber.yield (); traceln "D done"));
+    (fun () -> Promise.resolve r0 (Ok 0); Promise.resolve r1 (Ok 1));
+  ];
++Creating item 0
++Creating item 1
++A: using item 1
++B: using item 0
++A done
++B done
++disposing 0
++C: using item 1
++C done
++D: using item 1
++D done
+- : unit = ()
+```
+
 ## Cancellation
 
 ```ocaml
