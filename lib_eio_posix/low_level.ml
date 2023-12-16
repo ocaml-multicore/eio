@@ -15,7 +15,6 @@ module Fd = Eio_unix.Fd
 module Trace = Eio.Private.Trace
 module Fiber_context = Eio.Private.Fiber_context
 
-(* todo: keeping a pool of workers is probably faster *)
 let in_worker_thread label = Eio_unix.run_in_systhread ~label
 
 let await_readable op fd =

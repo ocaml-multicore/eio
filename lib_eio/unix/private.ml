@@ -19,8 +19,7 @@ module Fork_action = Fork_action
 
 let run_in_systhread ?(label="systhread") fn =
   Eio.Private.Suspend.enter label @@ fun _ctx enqueue ->
-  let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
-  ()
+  Thread_pool.run_on_systhread ~enqueue fn
 
 external eio_readlinkat : Unix.file_descr -> string -> Cstruct.t -> int = "eio_unix_readlinkat"
 
