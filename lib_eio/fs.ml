@@ -1,6 +1,9 @@
-(** Defines types used by file-systems. *)
+(** Note: file-system operations, such as opening or deleting files,
+    can be found in the {!Path} module. *)
 
 open Std
+
+(** {2 Types} *)
 
 type path = string
 
@@ -43,6 +46,8 @@ type create = [
 type dir_ty = [`Dir]
 type 'a dir = ([> dir_ty] as 'a) r
 (** Note: use the functions in {!Path} to access directories. *)
+
+(** {2 Provider Interface} *)
 
 module Pi = struct
   module type DIR = sig
