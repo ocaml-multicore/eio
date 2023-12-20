@@ -62,5 +62,5 @@ let await_internal ~mutex (t:'a t) ctx enqueue =
       Mutex.unlock mutex
 
 (* Returns a result if the wait succeeds, or raises if cancelled. *)
-let await ~mutex waiters =
-  Suspend.enter_unchecked (await_internal ~mutex waiters)
+let await ~mutex op waiters =
+  Suspend.enter_unchecked op (await_internal ~mutex waiters)

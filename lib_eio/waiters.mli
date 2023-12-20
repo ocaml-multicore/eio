@@ -21,8 +21,9 @@ val is_empty : 'a t -> bool
 
 val await :
   mutex:Mutex.t option ->
+  string ->
   'a t -> 'a
-(** [await ~mutex t] suspends the current fiber and adds its continuation to [t].
+(** [await ~mutex op t] suspends the current fiber and adds its continuation to [t].
     When the waiter is woken, the fiber is resumed and returns the result.
     If [t] can be used from multiple domains:
     - [mutex] must be set to the mutex to use to unlock it.

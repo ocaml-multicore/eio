@@ -1,5 +1,4 @@
 type t = {
-  id : Trace.id;
   mutable fibers : int;         (* Total, including daemon_fibers and the main function *)
   mutable daemon_fibers : int;
   mutable exs : (exn * Printexc.raw_backtrace) option;
@@ -24,7 +23,7 @@ let remove_hook = function
 
 let dump f t =
   Fmt.pf f "@[<v2>Switch %d (%d extra fibers):@,%a@]"
-    (t.id :> int)
+    (t.cancel.id :> int)
     t.fibers
     Cancel.dump t.cancel
 
@@ -51,7 +50,7 @@ let combine_exn ex = function
 let fail ?(bt=Printexc.get_raw_backtrace ()) t ex =
   check_our_domain t;
   if t.exs = None then
-    Trace.resolve_error t.id ex;
+    Trace.error t.cancel.id ex;
   t.exs <- Some (combine_exn (ex, bt) t.exs);
   try
     Cancel.cancel t.cancel ex
@@ -91,8 +90,8 @@ let or_raise = function
 let rec await_idle t =
   (* Wait for fibers to finish: *)
   while t.fibers > 0 do
-    Trace.try_read t.id;
-    Single_waiter.await t.waiter t.id
+    Trace.try_get t.cancel.id;
+    Single_waiter.await t.waiter "Switch.await_idle" t.cancel.id
   done;
   (* Call on_release handlers: *)
   let queue = Lwt_dllist.create () in
@@ -118,10 +117,7 @@ let maybe_raise_exs t =
   | Some (ex, bt) -> Printexc.raise_with_backtrace ex bt
 
 let create cancel =
-  let id = Trace.mint_id () in
-  Trace.create id Switch;
   {
-    id;
     fibers = 1;         (* The main function counts as a fiber *)
     daemon_fibers = 0;
     exs = None;
@@ -135,7 +131,7 @@ let run_internal t fn =
   | v ->
     dec_fibers t;
     await_idle t;
-    Trace.read t.id;
+    Trace.get t.cancel.id;
     maybe_raise_exs t;        (* Check for failure while finishing *)
     (* Success. *)
     v
@@ -146,15 +142,15 @@ let run_internal t fn =
     dec_fibers t;
     fail ~bt t ex;
     await_idle t;
-    Trace.read t.id;
+    Trace.get t.cancel.id;
     maybe_raise_exs t;
     assert false
 
-let run fn = Cancel.sub (fun cc -> run_internal (create cc) fn)
+let run fn = Cancel.sub_checked Switch (fun cc -> run_internal (create cc) fn)
 
 let run_protected fn =
   let ctx = Effect.perform Cancel.Get_context in
-  Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true @@ fun cancel ->
+  Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true Switch @@ fun cancel ->
   run_internal (create cancel) fn
 
 (* Run [fn ()] in [t]'s cancellation context.

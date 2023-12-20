@@ -207,12 +207,12 @@ let rec next t : [`Exit_scheduler] =
           (* At this point we're not going to check [run_q] again before sleeping.
              If [need_wakeup] is still [true], this is fine because we don't promise to do that.
              If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
-          Trace.suspend Begin;
+          Trace.suspend_domain Begin;
           let nready =
             try Poll.ppoll_or_poll t.poll (t.poll_maxi + 1) timeout
             with Unix.Unix_error (Unix.EINTR, _, "") -> 0
           in
-          Trace.suspend End;
+          Trace.suspend_domain End;
           Atomic.set t.need_wakeup false;
           Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
           Poll.iter_ready t.poll nready (ready t);
@@ -318,7 +318,10 @@ let with_op t fn x =
 [@@@alert "-unstable"]
 
 type _ Effect.t += Enter : (t -> 'a Eio_utils.Suspended.t -> [`Exit_scheduler]) -> 'a Effect.t
-let enter fn = Effect.perform (Enter fn)
+
+let enter op fn =
+  Trace.suspend_fiber op;
+  Effect.perform (Enter fn)
 
 let run ~extra_effects t main x =
   let rec fork ~new_fiber:fiber fn =

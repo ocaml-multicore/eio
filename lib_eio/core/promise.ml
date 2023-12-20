@@ -26,22 +26,22 @@ let create_with_id id =
 
 let create ?label () =
   let id = Trace.mint_id () in
-  Trace.create ?label id Promise;
+  Trace.create_obj ?label id Promise;
   create_with_id id
 
 let create_resolved x =
   let id = Trace.mint_id () in
-  Trace.create id Promise;
+  Trace.create_obj id Promise;
   to_public_promise { id; state = Atomic.make (Resolved x) }
 
 let await t =
   let t = of_public_promise t in
   match Atomic.get t.state with
   | Resolved x ->
-    Trace.read t.id;
+    Trace.get t.id;
     x
   | Unresolved b ->
-    Suspend.enter (fun ctx enqueue ->
+    Suspend.enter "Promise.await" (fun ctx enqueue ->
         match Broadcast.suspend b (fun () -> enqueue (Ok ())) with
         | None -> ()  (* We got resumed immediately *)
         | Some request ->
@@ -53,7 +53,7 @@ let await t =
           | Unresolved _ ->
             (* We observed the promise to be still unresolved after registering a waiter.
                Therefore any resolution must happen after we were registered and we will be notified. *)
-            Trace.try_read t.id;
+            Trace.try_get t.id;
             Cancel.Fiber_context.set_cancel_fn ctx (fun ex ->
                 if Broadcast.cancel request then enqueue (Error ex)
                 (* else already resumed *)
@@ -61,7 +61,7 @@ let await t =
       );
     match Atomic.get t.state with
     | Resolved x ->
-      Trace.read t.id;
+      Trace.get t.id;
       x
     | Unresolved _ -> assert false
 
@@ -76,7 +76,7 @@ let try_resolve t v =
     | Resolved _ -> false
     | Unresolved b as prev ->
       if Atomic.compare_and_set t.state prev (Resolved v) then (
-        Trace.resolve t.id;
+        Trace.put t.id;
         Broadcast.resume_all b;
         true
       ) else (

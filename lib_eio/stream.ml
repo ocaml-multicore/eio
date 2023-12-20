@@ -30,7 +30,7 @@ module Locking = struct
   let create capacity =
     assert (capacity > 0);
     let id = Trace.mint_id () in
-    Trace.create id Stream;
+    Trace.create_obj id Stream;
     {
       mutex = Mutex.create ();
       id;
@@ -51,7 +51,7 @@ module Locking = struct
         Mutex.unlock t.mutex
       ) else (
         (* The queue is full. Wait for our turn first. *)
-        Suspend.enter_unchecked @@ fun ctx enqueue ->
+        Suspend.enter_unchecked "Stream.add" @@ fun ctx enqueue ->
         Waiters.await_internal ~mutex:(Some t.mutex) t.writers ctx (fun r ->
             (* This is called directly from [wake_one] and so we have the lock.
                We're still running in [wake_one]'s domain here. *)
@@ -69,8 +69,8 @@ module Locking = struct
     match Queue.take_opt t.items with
     | None ->
       (* There aren't any items, so we need to wait for one. *)
-      let x = Waiters.await ~mutex:(Some t.mutex) t.readers in
-      Trace.read t.id;
+      let x = Waiters.await ~mutex:(Some t.mutex) "Stream.take" t.readers in
+      Trace.get t.id;
       x
     | Some v ->
       (* If anyone was waiting for space, let the next one go.

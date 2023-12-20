@@ -135,7 +135,7 @@ let use t f =
       maybe_add_slot t;
       (* No item is available right now. Start waiting *)
       let slot =
-        Suspend.enter_unchecked (fun ctx enqueue ->
+        Suspend.enter_unchecked "Pool.acquire" (fun ctx enqueue ->
             let r x = enqueue (Ok x) in
             if Atomic.compare_and_set cell In_transition (Request r) then (
               match Fiber_context.get_error ctx with

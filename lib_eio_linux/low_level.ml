@@ -20,12 +20,10 @@ let file_offset t = function
 
 let enqueue_read st action (file_offset,fd,buf,len) =
   let req = { Sched.op=`R; file_offset; len; fd; cur_off = 0; buf; action } in
-  Trace.log "read";
   Sched.submit_rw_req st req
 
 let rec enqueue_writev args st action =
   let (file_offset,fd,bufs) = args in
-  Trace.log "writev";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.writev st.uring ~file_offset fd bufs (Job action)
     )
@@ -35,11 +33,9 @@ let rec enqueue_writev args st action =
 
 let enqueue_write st action (file_offset,fd,buf,len) =
   let req = { Sched.op=`W; file_offset; len; fd; cur_off = 0; buf; action } in
-  Trace.log "write";
   Sched.submit_rw_req st req
 
 let rec enqueue_splice ~src ~dst ~len st action =
-  Trace.log "splice";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.splice st.uring (Job action) ~src ~dst ~len
     )
@@ -48,7 +44,6 @@ let rec enqueue_splice ~src ~dst ~len st action =
     Queue.push (fun st -> enqueue_splice ~src ~dst ~len st action) st.io_q
 
 let rec enqueue_openat2 ((access, flags, perm, resolve, fd, path) as args) st action =
-  Trace.log "openat2";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.openat2 st.uring ~access ~flags ~perm ~resolve ?fd path (Job action)
     )
@@ -57,7 +52,6 @@ let rec enqueue_openat2 ((access, flags, perm, resolve, fd, path) as args) st ac
     Queue.push (fun st -> enqueue_openat2 args st action) st.io_q
 
 let rec enqueue_statx ((fd, path, buf, flags, mask) as args) st action =
-  Trace.log "statx";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.statx st.uring ?fd ~mask path buf flags (Job action)
     )
@@ -66,7 +60,6 @@ let rec enqueue_statx ((fd, path, buf, flags, mask) as args) st action =
     Queue.push (fun st -> enqueue_statx args st action) st.io_q
 
 let rec enqueue_unlink ((dir, fd, path) as args) st action =
-  Trace.log "unlinkat";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.unlink st.uring ~dir ~fd path (Job action)
     )
@@ -75,7 +68,6 @@ let rec enqueue_unlink ((dir, fd, path) as args) st action =
     Queue.push (fun st -> enqueue_unlink args st action) st.io_q
 
 let rec enqueue_connect fd addr st action =
-  Trace.log "connect";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.connect st.uring fd addr (Job action)
     )
@@ -84,7 +76,6 @@ let rec enqueue_connect fd addr st action =
     Queue.push (fun st -> enqueue_connect fd addr st action) st.io_q
 
 let rec enqueue_send_msg fd ~fds ~dst buf st action =
-  Trace.log "send_msg";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.send_msg st.uring fd ~fds ?dst buf (Job action)
     )
@@ -93,7 +84,6 @@ let rec enqueue_send_msg fd ~fds ~dst buf st action =
     Queue.push (fun st -> enqueue_send_msg fd ~fds ~dst buf st action) st.io_q
 
 let rec enqueue_recv_msg fd msghdr st action =
-  Trace.log "recv_msg";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.recv_msg st.uring fd msghdr (Job action);
     )
@@ -102,7 +92,6 @@ let rec enqueue_recv_msg fd msghdr st action =
     Queue.push (fun st -> enqueue_recv_msg fd msghdr st action) st.io_q
 
 let rec enqueue_accept fd client_addr st action =
-  Trace.log "accept";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.accept st.uring fd client_addr (Job action)
     ) in
@@ -112,7 +101,6 @@ let rec enqueue_accept fd client_addr st action =
   )
 
 let rec enqueue_noop t action =
-  Trace.log "noop";
   let job = Sched.enqueue_job t (fun () -> Uring.noop t.uring (Job_no_cancel action)) in
   if job = None then (
     (* wait until an sqe is available *)
@@ -120,11 +108,11 @@ let rec enqueue_noop t action =
   )
 
 let noop () =
-  let result = Sched.enter enqueue_noop in
+  let result = Sched.enter "noop" enqueue_noop in
   if result <> 0 then raise (Err.unclassified (Eio_unix.Unix_error (Uring.error_of_errno result, "noop", "")))
 
 let sleep_until time =
-  Sched.enter @@ fun t k ->
+  Sched.enter "sleep" @@ fun t k ->
   let job = Eio_utils.Zzz.add t.sleep_q time k in
   Eio.Private.Fiber_context.set_cancel_fn k.fiber (fun ex ->
       Eio_utils.Zzz.remove t.sleep_q job;
@@ -134,7 +122,7 @@ let sleep_until time =
 let read ?file_offset:off fd buf amount =
   let off = file_offset fd off in
   Fd.use_exn "read" fd @@ fun fd ->
-  let res = Sched.enter (fun t k -> enqueue_read t k (off, fd, buf, amount)) in
+  let res = Sched.enter "read" (fun t k -> enqueue_read t k (off, fd, buf, amount)) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "read" ""
   ) else res
@@ -147,7 +135,6 @@ let read_upto ?file_offset fd buf len =
 
 let rec enqueue_readv args st action =
   let (file_offset,fd,bufs) = args in
-  Trace.log "readv";
   let retry = Sched.with_cancel_hook ~action st (fun () ->
       Uring.readv st.uring ~file_offset fd bufs (Job action))
   in
@@ -161,7 +148,7 @@ let readv ?file_offset fd bufs =
     | None -> uring_file_offset fd
   in
   Fd.use_exn "readv" fd @@ fun fd ->
-  let res = Sched.enter (enqueue_readv (file_offset, fd, bufs)) in
+  let res = Sched.enter "readv" (enqueue_readv (file_offset, fd, bufs)) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "readv" ""
   ) else if res = 0 then (
@@ -177,7 +164,7 @@ let writev_single ?file_offset fd bufs =
     | None -> uring_file_offset fd
   in
   Fd.use_exn "writev" fd @@ fun fd ->
-  let res = Sched.enter (enqueue_writev (file_offset, fd, bufs)) in
+  let res = Sched.enter "writev" (enqueue_writev (file_offset, fd, bufs)) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "writev" ""
   ) else (
@@ -200,14 +187,14 @@ let rec writev ?file_offset fd bufs =
 
 let await_readable fd =
   Fd.use_exn "await_readable" fd @@ fun fd ->
-  let res = Sched.enter (Sched.enqueue_poll_add fd (Uring.Poll_mask.(pollin + pollerr))) in
+  let res = Sched.enter "await_readable" (Sched.enqueue_poll_add fd (Uring.Poll_mask.(pollin + pollerr))) in
   if res < 0 then (
     raise (Err.unclassified (Eio_unix.Unix_error (Uring.error_of_errno res, "await_readable", "")))
   )
 
 let await_writable fd =
   Fd.use_exn "await_writable" fd @@ fun fd ->
-  let res = Sched.enter (Sched.enqueue_poll_add fd (Uring.Poll_mask.(pollout + pollerr))) in
+  let res = Sched.enter "await_writable" (Sched.enqueue_poll_add fd (Uring.Poll_mask.(pollout + pollerr))) in
   if res < 0 then (
     raise (Err.unclassified (Eio_unix.Unix_error (Uring.error_of_errno res, "await_writable", "")))
   )
@@ -215,7 +202,7 @@ let await_writable fd =
 let write ?file_offset:off fd buf len =
   let off = file_offset fd off in
   Fd.use_exn "write" fd @@ fun fd ->
-  let res = Sched.enter (fun t k -> enqueue_write t k (off, fd, buf, Exactly len)) in
+  let res = Sched.enter "write" (fun t k -> enqueue_write t k (off, fd, buf, Exactly len)) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "write" ""
   )
@@ -229,14 +216,14 @@ let free_fixed buf = Effect.perform (Sched.Free buf)
 let splice src ~dst ~len =
   Fd.use_exn "splice-src" src @@ fun src ->
   Fd.use_exn "splice-dst" dst @@ fun dst ->
-  let res = Sched.enter (enqueue_splice ~src ~dst ~len) in
+  let res = Sched.enter "splice" (enqueue_splice ~src ~dst ~len) in
   if res > 0 then res
   else if res = 0 then raise End_of_file
   else raise @@ Err.wrap (Uring.error_of_errno res) "splice" ""
 
 let connect fd addr =
   Fd.use_exn "connect" fd @@ fun fd ->
-  let res = Sched.enter (enqueue_connect fd addr) in
+  let res = Sched.enter "connect" (enqueue_connect fd addr) in
   if res < 0 then (
     let ex =
       match addr with
@@ -249,7 +236,7 @@ let connect fd addr =
 let send_msg fd ?(fds=[]) ?dst buf =
   Fd.use_exn "send_msg" fd @@ fun fd ->
   Fd.use_exn_list "send_msg" fds @@ fun fds ->
-  let res = Sched.enter (enqueue_send_msg fd ~fds ~dst buf) in
+  let res = Sched.enter "send_msg" (enqueue_send_msg fd ~fds ~dst buf) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "send_msg" ""
   ) else res
@@ -258,7 +245,7 @@ let recv_msg fd buf =
   Fd.use_exn "recv_msg" fd @@ fun fd ->
   let addr = Uring.Sockaddr.create () in
   let msghdr = Uring.Msghdr.create ~addr buf in
-  let res = Sched.enter (enqueue_recv_msg fd msghdr) in
+  let res = Sched.enter "recv_msg" (enqueue_recv_msg fd msghdr) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "recv_msg" ""
   );
@@ -268,7 +255,7 @@ let recv_msg_with_fds ~sw ~max_fds fd buf =
   Fd.use_exn "recv_msg_with_fds" fd @@ fun fd ->
   let addr = Uring.Sockaddr.create () in
   let msghdr = Uring.Msghdr.create ~n_fds:max_fds ~addr buf in
-  let res = Sched.enter (enqueue_recv_msg fd msghdr) in
+  let res = Sched.enter "recv_msg_with_fds" (enqueue_recv_msg fd msghdr) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "recv_msg" ""
   );
@@ -285,7 +272,7 @@ let with_chunk ~fallback fn =
 
 let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
   let use dir =
-    let res = Sched.enter (enqueue_openat2 (access, flags, perm, resolve, dir, path)) in
+    let res = Sched.enter "openat2" (enqueue_openat2 (access, flags, perm, resolve, dir, path)) in
     if res < 0 then (
       Switch.check sw;    (* If cancelled, report that instead. *)
       raise @@ Err.wrap_fs (Uring.error_of_errno res) "openat2" ""
@@ -411,10 +398,10 @@ let with_parent_dir op dir path fn =
 let statx ?fd ~mask path buf flags =
   let res =
     match fd with
-    | None -> Sched.enter (enqueue_statx (None, path, buf, flags, mask)) 
+    | None -> Sched.enter "statx" (enqueue_statx (None, path, buf, flags, mask)) 
     | Some fd ->
       Fd.use_exn "statx" fd @@ fun fd ->
-      Sched.enter (enqueue_statx (Some fd, path, buf, flags, mask))
+      Sched.enter "statx" (enqueue_statx (Some fd, path, buf, flags, mask))
   in
   if res <> 0 then raise @@ Err.wrap_fs (Uring.error_of_errno res) "statx" path
 
@@ -444,7 +431,7 @@ let mkdir_beneath ~perm dir path =
 let unlink ~rmdir dir path =
   (* [unlink] is really an operation on [path]'s parent. Get a reference to that first: *)
   with_parent_dir "unlink" dir path @@ fun parent leaf ->
-  let res = Sched.enter (enqueue_unlink (rmdir, parent, leaf)) in
+  let res = Sched.enter "unlink" (enqueue_unlink (rmdir, parent, leaf)) in
   if res <> 0 then raise @@ Err.wrap_fs (Uring.error_of_errno res) "unlinkat" ""
 
 let rename old_dir old_path new_dir new_path =
@@ -467,7 +454,7 @@ let shutdown socket command =
 let accept ~sw fd =
   Fd.use_exn "accept" fd @@ fun fd ->
   let client_addr = Uring.Sockaddr.create () in
-  let res = Sched.enter (enqueue_accept fd client_addr) in
+  let res = Sched.enter "accept" (enqueue_accept fd client_addr) in
   if res < 0 then (
     raise @@ Err.wrap (Uring.error_of_errno res) "accept" ""
   ) else (

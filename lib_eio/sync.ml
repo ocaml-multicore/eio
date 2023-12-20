@@ -408,7 +408,7 @@ let put_already_suspended t request =
    Note that we may be suspending the fiber even when using the "resume" queue,
    if the consumer is still in the process of writing its slot. *)
 let put_suspend t v loc =
-  Suspend.enter_unchecked @@ fun ctx enqueue ->
+  Suspend.enter_unchecked "Sync.put" @@ fun ctx enqueue ->
   let cancel =
     match loc with
     | Short _ -> `Resuming      (* Can't cancel this *)
@@ -454,7 +454,7 @@ let rec consumer_resume_cell t ~success ~in_transition cell =
     else consumer_resume_cell t ~success ~in_transition cell
 
 let take_suspend t loc =
-  Suspend.enter_unchecked @@ fun ctx enqueue ->
+  Suspend.enter_unchecked "Sync.take" @@ fun ctx enqueue ->
   let Short cell | Long (_, cell) = loc in
   let kc v = enqueue (Ok v); true in
   add_to_cell t.producers (Slot kc) cell;

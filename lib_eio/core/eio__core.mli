@@ -698,15 +698,18 @@ module Private : sig
 
   (** Suspend a fiber and enter the scheduler. *)
   module Suspend : sig
-    val enter : (Fiber_context.t -> 'a Effects.enqueue -> unit) -> 'a
-    (** [enter fn] suspends the calling fiber and calls [fn ctx enqueue] in the scheduler's context.
+    val enter : string -> (Fiber_context.t -> 'a Effects.enqueue -> unit) -> 'a
+    (** [enter op fn] suspends the calling fiber and calls [fn ctx enqueue] in the scheduler's context.
+
         This should arrange for [enqueue] to be called when the fiber should be resumed.
         [enqueue] is thread-safe and so can be called from another domain or systhread.
 
         [ctx] should be used to set a cancellation function. Otherwise, the operation is non-interruptable.
-        If the caller's cancellation context is already cancelled, [enter] immediately aborts. *)
+        If the caller's cancellation context is already cancelled, [enter] immediately aborts.
 
-    val enter_unchecked : (Fiber_context.t -> 'a Effects.enqueue -> unit) -> 'a
+        [op] is used when tracing to label the operation. *)
+
+    val enter_unchecked : string -> (Fiber_context.t -> 'a Effects.enqueue -> unit) -> 'a
     (** [enter_unchecked] is like [enter] except that it does not perform the initial check
         that the fiber isn't cancelled (this is useful if you want to do the check yourself, e.g.
         because you need to unlock a mutex if cancelled). *)
