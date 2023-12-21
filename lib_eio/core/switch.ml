@@ -146,11 +146,12 @@ let run_internal t fn =
     maybe_raise_exs t;
     assert false
 
-let run fn = Cancel.sub_checked Switch (fun cc -> run_internal (create cc) fn)
+let run ?name fn = Cancel.sub_checked ?name Switch (fun cc -> run_internal (create cc) fn)
 
-let run_protected fn =
+let run_protected ?name fn =
   let ctx = Effect.perform Cancel.Get_context in
   Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true Switch @@ fun cancel ->
+  Option.iter (Trace.name cancel.id) name;
   run_internal (create cancel) fn
 
 (* Run [fn ()] in [t]'s cancellation context.

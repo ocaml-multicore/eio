@@ -350,7 +350,7 @@ let process =
 
 (* fchdir wants just a directory FD, not an FD and a path like the *at functions. *)
 let with_dir dir_fd path fn =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"with_dir" @@ fun sw ->
   Low_level.openat ~sw
     ~seekable:false
     ~access:`R
@@ -527,7 +527,7 @@ end = struct
   let mkdir t ~perm path = Low_level.mkdir_beneath ~perm t.fd path
 
   let read_dir t path =
-    Switch.run @@ fun sw ->
+    Switch.run ~name:"read_dir" @@ fun sw ->
     let fd = Low_level.open_dir ~sw t.fd (if path = "" then "." else path) in
     Low_level.read_dir fd
 
@@ -569,7 +569,7 @@ end = struct
       }
     ) else (
       (* Linux < 5.18 *)
-      Switch.run @@ fun sw ->
+      Switch.run ~name:"stat" @@ fun sw ->
       let fd = Low_level.openat ~sw ~seekable:false t.fd (if path = "" then "." else path)
           ~access:`R
           ~flags:Uring.Open_flags.(cloexec + path + (if follow then empty else nofollow))

@@ -470,7 +470,7 @@ let run ~extra_effects st main arg =
       ~prepare_for_await:Eio.Private.Dla.prepare_for_await
       ~while_running:(fun () ->
         fork ~new_fiber (fun () ->
-            Switch.run_protected (fun sw ->
+            Switch.run_protected ~name:"eio_linux" (fun sw ->
                 Fiber.fork_daemon ~sw (fun () -> monitor_event_fd st);
                 match main arg with
                 | x -> result := Some (Ok x)

@@ -70,13 +70,13 @@ let fork_promise_exn ~sw f =
   p
 
 let all xs =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"all" @@ fun sw ->
   List.iter (fork ~sw) xs
 
 let both f g = all [f; g]
 
 let pair f g =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"pair" @@ fun sw ->
   let x = fork_promise ~sw f in
   let y = g () in
   (Promise.await_exn x, y)
@@ -225,7 +225,7 @@ module List = struct
     match items with
     | [] -> []    (* Avoid creating a switch in the simple case *)
     | items ->
-      Switch.run @@ fun sw ->
+      Switch.run ~name:"filter_map" @@ fun sw ->
       let limiter = Limiter.create ~sw max_fibers in
       let rec aux = function
         | [] -> []
@@ -244,7 +244,7 @@ module List = struct
     match items with
     | [] -> ()    (* Avoid creating a switch in the simple case *)
     | items ->
-      Switch.run @@ fun sw ->
+      Switch.run ~name:"iter" @@ fun sw ->
       let limiter = Limiter.create ~sw max_fibers in
       let rec aux = function
         | [] -> ()

@@ -481,7 +481,7 @@ let copy t flow =
   with End_of_file -> ()
 
 let with_flow ?(initial_size=0x1000) flow fn =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"Buf_write.with_flow" @@ fun sw ->
   let t = create ~sw initial_size in
   Fiber.fork ~sw (fun () -> copy t flow);
   match fn t with

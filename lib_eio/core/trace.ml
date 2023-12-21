@@ -36,6 +36,7 @@ let create_fiber ~cc id =
   add_event RE.create_fiber (id, cc)
 
 let log = add_event RE.log
+let name id x = add_event RE.name (id, x)
 let enter_span = add_event RE.enter_span
 let exit_span = add_event RE.exit_span
 let fiber = add_event RE.fiber

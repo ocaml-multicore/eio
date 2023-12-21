@@ -40,7 +40,7 @@ let trace ~finished (clock, delay) cursor =
 
 (* The program to be traced. *)
 let main net =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"main" @@ fun sw ->
   let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 8123) in
   let s = Eio.Net.listen ~sw ~backlog:1 ~reuse_addr:true net addr in
   Fiber.both

@@ -62,7 +62,7 @@ let run_client ~n_requests id conn =
 let main net domain_mgr ~n_client_domains ~n_server_domains ~n_connections_per_domain ~n_requests_per_connection =
   let total = Atomic.make 0 in
   let t0 = Unix.gettimeofday () in
-  Switch.run (fun sw ->
+  Switch.run ~name:"main" (fun sw ->
       let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 8085) in
       let backlog = n_connections_per_domain * n_client_domains in
       let server_socket = Eio.Net.listen ~reuse_addr:true ~backlog ~sw net addr in
@@ -74,7 +74,7 @@ let main net domain_mgr ~n_client_domains ~n_server_domains ~n_connections_per_d
       for domain = 1 to n_client_domains do
         Fiber.fork ~sw (fun () ->
             Eio.Domain_manager.run domain_mgr (fun () ->
-                Switch.run @@ fun sw ->
+                Switch.run ~name:"client-domain" @@ fun sw ->
                 for i = 1 to n_connections_per_domain do
                   Fiber.fork ~sw (fun () ->
                       let id = Printf.sprintf "domain %d / conn %d" domain i in

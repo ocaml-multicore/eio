@@ -170,10 +170,11 @@ let cancel t ex =
       Printexc.raise_with_backtrace ex bt
   )
 
-let sub_checked purpose fn =
+let sub_checked ?name purpose fn =
   let ctx = Effect.perform Get_context in
   let parent = ctx.cancel_context in
   with_cc ~ctx ~parent ~protected:false purpose @@ fun t ->
+  Option.iter (Trace.name t.id) name;
   fn t
 
 let sub fn =

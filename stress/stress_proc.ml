@@ -18,7 +18,7 @@ let run_in_domain mgr =
 let main ~dm mgr =
   let t0 = Unix.gettimeofday () in
   for i = 1 to n_rounds do
-    Switch.run (fun sw ->
+    Switch.run ~name:"round" (fun sw ->
         for _ = 1 to n_domains - 1 do
           Fiber.fork ~sw (fun () -> Eio.Domain_manager.run dm (fun () -> run_in_domain mgr))
         done;

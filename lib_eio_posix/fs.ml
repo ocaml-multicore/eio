@@ -77,7 +77,7 @@ end = struct
         else dir, leaf
       in
       let dir = resolve t dir in
-      Switch.run @@ fun sw ->
+      Switch.run ~name:"with_parent_dir" @@ fun sw ->
       let dirfd = Low_level.openat ~sw ~mode:0 dir Low_level.Open_flags.(directory + rdonly + nofollow) in
       fn (Some dirfd) leaf
     ) else fn None path

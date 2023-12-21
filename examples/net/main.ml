@@ -4,7 +4,7 @@ let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 8080)
 
 (* Run a server and a test client, communicating using [net]. *)
 let main ~net =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"main" @@ fun sw ->
   (* We create the listening socket first so that we can be sure it is ready
      as soon as the client wants to use it. *)
   let listening_socket = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
