@@ -1,3 +1,4 @@
 (executables
-  (names stress_semaphore stress_proc)
-  (libraries eio_main))
+  (names stress_semaphore stress_proc stress_systhreads)
+  (libraries eio_main)
+  (modes byte))
