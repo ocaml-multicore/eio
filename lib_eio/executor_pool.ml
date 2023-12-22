@@ -16,7 +16,7 @@ let max_capacity_f = float max_capacity
    Each worker runs in its own domain,
    taking jobs from [queue] whenever it has spare capacity. *)
 let run_worker { queue } =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"run_worker" @@ fun sw ->
   let capacity = ref 0 in
   let condition = Condition.create () in
   (* The main worker loop. *)

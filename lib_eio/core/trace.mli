@@ -12,6 +12,9 @@ val mint_id : unit -> id
 val log : string -> unit
 (** [log msg] attaches text [msg] to the current fiber. *)
 
+val name : id -> string -> unit
+(** [name id label] sets [label] as the name for [id]. *)
+
 val with_span : string -> (unit -> 'a) -> 'a
 (** [with_span op fn] runs [fn ()], labelling the timespan during which it runs with [op]. *)
 

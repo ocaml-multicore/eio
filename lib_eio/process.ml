@@ -133,7 +133,7 @@ let spawn (type tag) ~sw (t : [> tag mgr_ty] r) ?cwd ?stdin ?stdout ?stderr ?env
     ?stderr:(stderr :> Flow.sink_ty r option)
 
 let run t ?cwd ?stdin ?stdout ?stderr ?(is_success = Int.equal 0) ?env ?executable args =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"Process.run" @@ fun sw ->
   let child = spawn ~sw t ?cwd ?stdin ?stdout ?stderr ?env ?executable args in
   match await child with
   | `Exited code when is_success code -> ()
@@ -146,7 +146,7 @@ let pipe (type tag) ~sw ((Resource.T (v, ops)) : [> tag mgr_ty] r) =
   X.pipe v ~sw
 
 let parse_out (type tag) (t : [> tag mgr_ty] r) parse ?cwd ?stdin ?stderr ?is_success ?env ?executable args =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"Process.parse_out" @@ fun sw ->
   let r, w = pipe t ~sw in
   try
     let child = spawn ~sw t ?cwd ?stdin ~stdout:w ?stderr ?env ?executable args in

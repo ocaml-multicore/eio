@@ -34,16 +34,18 @@ module Switch : sig
 
   (** {2 Switch creation} *)
 
-  val run : (t -> 'a) -> 'a
+  val run : ?name:string -> (t -> 'a) -> 'a
   (** [run fn] runs [fn] with a fresh switch (initially on).
 
       When [fn] finishes, [run] waits for all fibers registered with the switch to finish,
       and then releases all attached resources.
 
       If {!fail} is called, [run] will re-raise the exception (after everything is cleaned up).
-      If [fn] raises an exception, it is passed to {!fail}. *)
+      If [fn] raises an exception, it is passed to {!fail}.
 
-  val run_protected : (t -> 'a) -> 'a
+      @param name Used to name the switch when tracing. *)
+
+  val run_protected : ?name:string -> (t -> 'a) -> 'a
   (** [run_protected fn] is like [run] but ignores cancellation requests from the parent context. *)
 
   (** {2 Cancellation and failure} *)

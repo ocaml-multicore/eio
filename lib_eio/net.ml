@@ -331,7 +331,7 @@ let getnameinfo (type tag) (t:[> tag ty] r) sockaddr =
 let close = Resource.close
 
 let with_tcp_connect ?(timeout=Time.Timeout.none) ~host ~service t f =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"with_tcp_connect" @@ fun sw ->
   match
     let rec aux = function
       | [] -> raise @@ err (Connection_failure No_matching_addresses)
@@ -355,8 +355,7 @@ let with_tcp_connect ?(timeout=Time.Timeout.none) ~host ~service t f =
     Exn.reraise_with_context ex bt "connecting to %S:%s" host service
 
 (* Run a server loop in a single domain. *)
-let run_server_loop ~connections ~on_error ~stop listening_socket connection_handler =
-  Switch.run @@ fun sw ->
+let run_server_loop ~sw ~connections ~on_error ~stop listening_socket connection_handler =
   let rec accept () =
     Semaphore.acquire connections;
     accept_fork ~sw ~on_error listening_socket (fun conn addr ->
@@ -371,13 +370,16 @@ let run_server_loop ~connections ~on_error ~stop listening_socket connection_han
 
 let run_server ?(max_connections=Int.max_int) ?(additional_domains) ?stop ~on_error listening_socket connection_handler : 'a =
   if max_connections <= 0 then invalid_arg "max_connections";
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"run_server" @@ fun sw ->
   let connections = Semaphore.make max_connections in
-  let run_server_loop () = run_server_loop ~connections ~on_error ~stop listening_socket connection_handler in
+  let run_server_loop sw = run_server_loop ~sw ~connections ~on_error ~stop listening_socket connection_handler in
   additional_domains |> Option.iter (fun (domain_mgr, domains) ->
       if domains < 0 then invalid_arg "additional_domains";
       for _ = 1 to domains do
-        Fiber.fork ~sw (fun () -> Domain_manager.run domain_mgr (fun () -> ignore (run_server_loop () : 'a)))
+        Fiber.fork ~sw (fun () -> Domain_manager.run domain_mgr (fun () ->
+            Switch.run ~name:"run_server" @@ fun sw ->
+            ignore (run_server_loop sw : 'a)
+          ))
       done;
     );
-  run_server_loop ()
+  run_server_loop sw

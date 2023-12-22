@@ -114,13 +114,13 @@ let is_directory t =
   kind ~follow:true t = `Directory
 
 let with_open_in path fn =
-  Switch.run @@ fun sw -> fn (open_in ~sw path)
+  Switch.run ~name:"with_open_in" @@ fun sw -> fn (open_in ~sw path)
 
 let with_open_out ?append ~create path fn =
-  Switch.run @@ fun sw -> fn (open_out ~sw ?append ~create path)
+  Switch.run ~name:"with_open_out" @@ fun sw -> fn (open_out ~sw ?append ~create path)
 
 let with_open_dir path fn =
-  Switch.run @@ fun sw -> fn (open_dir ~sw path)
+  Switch.run ~name:"with_open_dir" @@ fun sw -> fn (open_dir ~sw path)
 
 let with_lines path fn =
   with_open_in path @@ fun flow ->
@@ -174,7 +174,7 @@ let catch_missing ~missing_ok fn x =
 let rec rmtree ~missing_ok t =
   match kind ~follow:false t with
   | `Directory ->
-    Switch.run (fun sw ->
+    Switch.run ~name:"rmtree" (fun sw ->
         match
           let t = open_dir ~sw t in
           t, read_dir t

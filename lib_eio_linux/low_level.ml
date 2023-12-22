@@ -369,7 +369,7 @@ let getrandom { Cstruct.buffer; off; len } =
 let with_parent_dir_fd dir path fn =
   let dir_path = Filename.dirname path in
   let leaf = Filename.basename path in
-  Switch.run (fun sw ->
+  Switch.run ~name:"with_parent_dir" (fun sw ->
       match dir with
       | _ when leaf = ".." ->
         let fd =
@@ -414,7 +414,7 @@ let statx_confined ~mask ~follow fd path buf =
     with_parent_dir_fd fd path @@ fun parent leaf ->
     statx ~mask ~fd:parent leaf buf flags
   | Cwd | FD _ ->
-    Switch.run @@ fun sw ->
+    Switch.run ~name:"statx" @@ fun sw ->
     let fd = openat ~sw ~seekable:false fd (if path = "" then "." else path)
         ~access:`R
         ~flags:Uring.Open_flags.(cloexec + path)
@@ -508,7 +508,7 @@ let pipe ~sw =
   (r, w)
 
 let with_pipe fn =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"with_pipe" @@ fun sw ->
   let r, w = pipe ~sw in
   fn r w
 

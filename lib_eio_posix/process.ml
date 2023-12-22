@@ -35,7 +35,7 @@ module Impl = struct
           | None -> Fmt.invalid_arg "cwd is not an OS directory!"
           | Some posix ->
             Fs.Dir.with_parent_dir posix path @@ fun dirfd s ->
-            Switch.run @@ fun launch_sw ->
+            Switch.run ~name:"spawn_unix" @@ fun launch_sw ->
             let cwd = Low_level.openat ?dirfd ~sw:launch_sw ~mode:0 s Low_level.Open_flags.(rdonly + directory) in
             fn (Low_level.Process.Fork_action.fchdir cwd :: actions)
       in
