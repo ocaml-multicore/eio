@@ -18,7 +18,8 @@ let main env =
         Eio.Flow.copy_string "!!!" file
       )
     );
-    traceln "Finished round %d/%d" i n_rounds
+    traceln "Finished round %d/%d" i n_rounds;
+    Eio.Time.sleep (Eio.Stdenv.clock env) 0.2
   done;
   Eio.Path.rmtree Eio.Path.(cwd / "test");
   Eio.Flow.copy_string "Success\n" (Eio.Stdenv.stdout env)
