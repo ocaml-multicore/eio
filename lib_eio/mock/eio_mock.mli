@@ -132,8 +132,11 @@ module Net : sig
 
   val on_getnameinfo : t -> (string * string) Handler.actions -> unit
 
-  val listening_socket : string -> listening_socket
-  (** [listening_socket label] can be configured to provide mock connections. *)
+  val listening_socket :
+    ?listening_addr:Eio.Net.Sockaddr.stream -> string -> listening_socket
+  (** [listening_socket label] can be configured to provide mock connections.
+
+      If [listening_addr] is not provided, a dummy value will be reported. *)
 
   val on_accept :
     listening_socket ->

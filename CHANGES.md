@@ -1,3 +1,9 @@
+## v0.14
+
+New features / API changes:
+
+- Add `Net.listening_addr` (@mefyl #555).
+
 ## v0.13
 
 New features / API changes:

@@ -235,6 +235,10 @@ module Listening_socket = struct
     in
     let flow = (flow client :> _ Eio.Net.stream_socket) in
     flow, client_addr
+
+  let listening_addr fd =
+    Eio_unix.Fd.use_exn "listening_addr" fd
+      (fun fd -> Eio_unix.Net.sockaddr_of_unix_stream (Unix.getsockname fd))
 end
 
 let listening_handler = Eio_unix.Pi.listening_socket_handler (module Listening_socket)
