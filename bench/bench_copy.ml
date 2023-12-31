@@ -1,3 +1,5 @@
+(* A client opens a connection to an echo service and sends a load of data via it. *)
+
 open Eio.Std
 
 let chunk_size = 1 lsl 16
@@ -31,7 +33,7 @@ let time name service =
   let time = t1 -. t0 in
   let bytes_per_second = float n_bytes /. time in
   traceln "%s: %.2f MB/s" name (bytes_per_second /. 1024. /. 1024.);
-  (Metric.create name (`Float bytes_per_second) "bytes/s" (name ^ " Flow.copy"))
+  Metric.create name (`Float bytes_per_second) "bytes/s" (name ^ " Flow.copy")
 
 let run _env =
   [
