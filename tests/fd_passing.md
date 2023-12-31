@@ -8,6 +8,12 @@
 open Eio.Std
 
 let ( / ) = Eio.Path.( / )
+
+let run ?clear:(paths = []) fn =
+  Eio_main.run @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p)) paths;
+  fn env
 ```
 
 ```ocaml
@@ -45,7 +51,7 @@ let with_tmp_file dir id fn =
 Using a socket-pair:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# run ~clear:["tmp-foo.txt"; "tmp-bar.txt"] @@ fun env ->
   with_tmp_file env#cwd "foo" @@ fun fd1 ->
   with_tmp_file env#cwd "bar" @@ fun fd2 ->
   Switch.run @@ fun sw ->
@@ -60,7 +66,7 @@ Using a socket-pair:
 Using named sockets:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# run ~clear:["tmp-foo.txt"] @@ fun env ->
   let net = env#net in
   with_tmp_file env#cwd "foo" @@ fun fd ->
   Switch.run @@ fun sw ->
