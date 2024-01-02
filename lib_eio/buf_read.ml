@@ -140,7 +140,13 @@ module F = struct
     consume t len;
     len
 
-  let read_methods = []
+  let rsb t fn =
+    ensure t 1;
+    let data = peek t in
+    let sent = fn [data] in
+    consume t sent
+
+  let read_methods = [Flow.Read_source_buffer rsb]
 end
 
 let as_flow =
