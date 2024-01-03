@@ -206,7 +206,7 @@ module Fiber : sig
   (** [all fs] is like [both], but for any number of fibers.
       [all []] returns immediately. *)
 
-  val first : (unit -> 'a) -> (unit -> 'a) -> 'a
+  val first : ?combine:('a -> 'a -> 'a) -> (unit -> 'a) -> (unit -> 'a) -> 'a
   (** [first f g] runs [f ()] and [g ()] concurrently.
 
       They run in a new cancellation sub-context, and when one finishes the other is cancelled.
@@ -216,14 +216,23 @@ module Fiber : sig
 
       If both fibers fail, {!Exn.combine} is used to combine the exceptions.
 
-      Warning: it is always possible that {i both} operations will succeed (and one result will be thrown away).
-      This is because there is a period of time after the first operation succeeds,
-      but before its fiber finishes, during which the other operation may also succeed. *)
+      Warning: it is always possible that {i both} operations will succeed.
+      This is because there is a period of time after the first operation succeeds
+      when it is waiting in the run-queue to resume
+      during which the other operation may also succeed.
 
-  val any : (unit -> 'a) list -> 'a
+      If both fibers succeed, [combine a b] is used to combine the results
+      (where [a] is the result of the first fiber to return and [b] is the second result).
+      The default is [fun a _ -> a], which discards the later result. *)
+
+  val any : ?combine:('a -> 'a -> 'a) -> (unit -> 'a) list -> 'a
   (** [any fs] is like [first], but for any number of fibers.
 
       [any []] just waits forever (or until cancelled). *)
+
+  val n_any : (unit -> 'a) list -> 'a list
+  (** [n_any fs] is like [any], expect that if multiple fibers return values
+      then they are all returned, in the order in which the fibers finished. *)
 
   val await_cancel : unit -> 'a
   (** [await_cancel ()] waits until cancelled.
