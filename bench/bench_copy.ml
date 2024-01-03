@@ -23,7 +23,7 @@ let run_client sock =
     )
 
 let time name service =
-  Switch.run @@ fun sw ->
+  Switch.run ~name @@ fun sw ->
   let client_sock, server_sock = Eio_unix.Net.socketpair_stream ~sw () in
   let t0 = Unix.gettimeofday () in
   Fiber.both
