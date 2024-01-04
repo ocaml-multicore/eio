@@ -69,11 +69,22 @@ let fork_promise_exn ~sw f =
     );
   p
 
+(* Like [List.iter (fork ~sw)], but runs the last one in the current fiber
+   for efficiency and less cluttered traces. *)
+let rec forks ~sw = function
+  | [] -> ()
+  | [x] -> Switch.check sw; x ()
+  | x :: xs ->
+    fork ~sw x;
+    forks ~sw xs
+
 let all xs =
   Switch.run ~name:"all" @@ fun sw ->
-  List.iter (fork ~sw) xs
+  forks ~sw xs
 
-let both f g = all [f; g]
+let both f g =
+  Switch.run ~name:"both" @@ fun sw ->
+  forks ~sw [f; g]
 
 let pair f g =
   Switch.run ~name:"pair" @@ fun sw ->
