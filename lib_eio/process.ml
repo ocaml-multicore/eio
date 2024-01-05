@@ -97,7 +97,7 @@ let bad_char = function
     c <= 32 || c >= 127
 
 let pp_arg f x =
-  if x = "" || String.exists bad_char x then Fmt.(quote string) f x
+  if x = "" || String.exists bad_char x then Fmt.pf f "%S" x
   else Fmt.string f x
 
 let pp_args = Fmt.hbox (Fmt.list ~sep:Fmt.sp pp_arg)

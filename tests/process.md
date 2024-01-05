@@ -145,10 +145,10 @@ If a command fails, we get shown the arguments (quoted if necessary):
 
 ```ocaml
 # run @@ fun mgr env ->
-  Process.run mgr ["bash"; "-c"; "exit 3"; ""; "foo"];;
+  Process.run mgr ["bash"; "-c"; "exit 3"; ""; "foo"; "\"bar\""];;
 Exception:
 Eio.Io Process Child_error Exited (code 3),
-  running command: bash -c "exit 3" "" foo
+  running command: bash -c "exit 3" "" foo "\"bar\""
 ```
 
 Exit code success can be determined by is_success (Process.run):
