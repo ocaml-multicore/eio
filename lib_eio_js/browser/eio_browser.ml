@@ -47,7 +47,7 @@ end = struct
   let pop q = Lwt_dllist.take_opt_l q
 end
 
-module Ctf = Eio.Private.Ctf
+module Trace = Eio.Private.Trace
 
 type suspend = Suspend
 
@@ -60,11 +60,11 @@ module Suspended = struct
   let tid t = Eio.Private.Fiber_context.tid t.fiber
 
   let continue t v =
-    Ctf.note_switch (tid t);
+    Trace.fiber (tid t);
     Effect.Deep.continue t.k v
 
   let discontinue t ex =
-    Ctf.note_switch (tid t);
+    Trace.fiber (tid t);
     Effect.Deep.discontinue t.k ex
 end
 
