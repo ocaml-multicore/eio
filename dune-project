@@ -73,4 +73,24 @@
                (or (<> :os-distribution "centos") (> :os-version 7))))
   (eio_posix (and (= :version) (<> :os "win32")))
   (eio_windows (and (= :version) (= :os "win32")))))
+(package
+ (name eio_js_backend)
+ (synopsis "Simple Eio scheduler for JavaScript environments")
+ (description "An Eio scheduler suitable for JavaScript environments.")
+ (depends
+  (eio (= :version))))
+(package
+ (name eio_brr)
+ (synopsis "Eio support for Brr")
+ (description "This package provides Eio variants of Brr functions, which returns directly instead of returning a future.")
+ (depends
+  (eio_js_backend (= :version))
+  (brr (>= 0.0.4))))
+(package
+ (name js_of_ocaml-eio)
+ (synopsis "Eio-based JavaScript bindings")
+ (description "An Eio counterpart to package js_of_ocaml-lwt.")
+ (depends
+  (eio_js_backend (= :version))
+  (js_of_ocaml (>= 5.0.1))))
 (using mdx 0.2)

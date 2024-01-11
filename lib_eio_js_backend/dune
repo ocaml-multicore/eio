@@ -1,0 +1,5 @@
+(library
+ (name eio_js_backend)
+ (public_name eio_js_backend)
+ (modes byte)
+ (libraries eio))

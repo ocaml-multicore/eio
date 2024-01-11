@@ -1,0 +1,6 @@
+(library
+ (name eio_brr)
+ (public_name eio_brr)
+ (wrapped false)
+ (modes byte)
+ (libraries eio_js_backend brr))

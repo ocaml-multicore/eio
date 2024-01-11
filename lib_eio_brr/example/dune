@@ -1,0 +1,13 @@
+(executable
+ (name index)
+ (modes js)
+ (js_of_ocaml
+  (flags --enable=effects))
+ (libraries eio_brr))
+
+(rule
+ (alias default)
+ (deps index.html index.bc.js)
+ (targets index.js)
+ (action
+  (copy index.bc.js index.js)))

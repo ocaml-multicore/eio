@@ -1,0 +1,15 @@
+(executables
+ (names boulderdash)
+ (libraries js_of_ocaml-eio)
+ (modes js)
+ (js_of_ocaml (flags --enable=effects))
+ (preprocess
+  (pps js_of_ocaml-ppx)))
+
+(alias
+ (name default)
+ (deps
+  index.html
+  maps.txt
+  (glob_files maps/*.map)
+  (glob_files sprites/*.{png,svg})))
