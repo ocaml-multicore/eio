@@ -13,16 +13,24 @@
 
     See {{:https://github.com/ocaml-multicore/eio}} for a tutorial. *)
 
-(** {1 Concurrency primitives} *)
+(** Commonly used standard features. This module is intended to be [open]ed. *)
+module Std = Std
+
+(** {1 Fibers} *)
 
 (** Grouping fibers and other resources so they can be turned off together. *)
 module Switch = Eio__core.Switch
 
-(** A promise is a placeholder for result that will arrive in the future. *)
-module Promise = Eio__core.Promise
-
 (** A fiber is a light-weight thread. *)
 module Fiber = Eio__core.Fiber
+
+(** Cancelling fibers. *)
+module Cancel = Eio__core.Cancel
+
+(** {1 Concurrency primitives} *)
+
+(** A promise is a placeholder for result that will arrive in the future. *)
+module Promise = Eio__core.Promise
 
 (** A counting semaphore. *)
 module Semaphore = Semaphore
@@ -33,73 +41,53 @@ module Mutex = Eio_mutex
 (** Waiting for a condition to become true. *)
 module Condition = Condition
 
-(** A stream/queue. *)
-module Stream = Stream
-
 (** Delayed evaluation. *)
 module Lazy = Lazy
+
+(** {1 Collections} *)
+
+(** A stream/queue. *)
+module Stream = Stream
 
 (** A pool of resources. *)
 module Pool = Pool
 
-(** Cancelling fibers. *)
-module Cancel = Eio__core.Cancel
-
-(** A pool of domains for executing jobs. *)
-module Executor_pool = Executor_pool
-
-(** Commonly used standard features. This module is intended to be [open]ed. *)
-module Std = Std
-
-(** {1 Cross-platform OS API}
-
-    The general pattern here is that each type of resource has a set of functions for using it,
-    plus a provider ([Pi]) module to allow defining your own implementations.
-
-    The system resources are available from the environment argument provided by your event loop
-    (e.g. {!Eio_main.run}). *)
-
-(** Defines the base resource type. *)
-module Resource = Resource
-
-(** Byte streams. *)
-module Flow : sig
-  include module type of Flow (** @inline *)
-
-  (** {2 Convenience wrappers} *)
-
-  val read_all : _ source -> string
-  (** [read_all src] is a convenience wrapper to read an entire flow.
-
-      It is the same as [Buf_read.(parse_exn take_all) src ~max_size:max_int] *)
-end
-
-(** Buffered input and parsing *)
-module Buf_read = Buf_read
-
-(** Buffered output *)
-module Buf_write = Buf_write
-
-(** Networking. *)
-module Net = Net
-
-(** Managing child processes. *)
-module Process = Process
+(** {1 Multiple domains} *)
 
 (** Parallel computation across multiple CPU cores. *)
 module Domain_manager = Domain_manager
 
-(** Clocks, time, sleeping and timeouts. *)
-module Time = Time
+(** A pool of domains for executing jobs. *)
+module Executor_pool = Executor_pool
 
-(** Operations on open files. *)
-module File = File
+(** {1 Errors and debugging} *)
 
-(** File-system types. *)
-module Fs = Fs
+val traceln :
+  ?__POS__:string * int * int * int ->
+  ('a, Format.formatter, unit, unit) format4 -> 'a
+(** [traceln fmt] outputs a debug message (typically to stderr).
 
-(** Accessing paths on a file-system. *)
-module Path = Path
+    Trace messages are printed by default and do not require logging to be configured first.
+    The message is printed with a newline, and is flushed automatically.
+    [traceln] is intended for quick debugging rather than for production code.
+
+    Unlike most Eio operations, [traceln] will never switch to another fiber;
+    if the OS is not ready to accept the message then the whole domain waits.
+
+    It is safe to call [traceln] from multiple domains at the same time.
+    Each line will be written atomically.
+
+    Examples:
+    {[
+      traceln "x = %d" x;
+      traceln "x = %d" x ~__POS__;   (* With location information *)
+    ]}
+    @param __POS__ Display [__POS__] as the location of the [traceln] call. *)
+
+(** Eio exceptions. *)
+module Exn = Eio__core.Exn
+
+exception Io of Exn.err * Exn.context
 
 (** Control over debugging. *)
 module Debug : sig
@@ -140,6 +128,65 @@ module Debug : sig
   >
   (** Fiber keys used to control debugging. Use {!Stdenv.debug} to get this. *)
 end
+
+(** {1 Cross-platform OS API}
+
+    The general pattern here is that each type of resource has a set of functions for using it,
+    plus a provider ([Pi]) module to allow defining your own implementations.
+
+    The system resources are available from the environment argument provided by your event loop
+    (e.g. {!Eio_main.run}). *)
+
+(** Defines the base resource type. *)
+module Resource = Resource
+
+(** {2 Byte streams} *)
+
+(** A flow can be used to read or write bytes. *)
+module Flow : sig
+  include module type of Flow (** @inline *)
+
+  (** {2 Convenience wrappers} *)
+
+  val read_all : _ source -> string
+  (** [read_all src] is a convenience wrapper to read an entire flow.
+
+      It is the same as [Buf_read.(parse_exn take_all) src ~max_size:max_int] *)
+end
+
+(** Buffered input and parsing. *)
+module Buf_read = Buf_read
+
+(** Buffered output and formatting. *)
+module Buf_write = Buf_write
+
+(** {2 Networking} *)
+
+(** Network sockets and addresses. *)
+module Net = Net
+
+(** {2 File-systems} *)
+
+(** Accessing paths on a file-system. *)
+module Path = Path
+
+(** Operations on open files. *)
+module File = File
+
+(** File-system types. *)
+module Fs = Fs
+
+(** {2 Processes} *)
+
+(** Managing child processes. *)
+module Process = Process
+
+(** {2 Time} *)
+
+(** Clocks, time, sleeping and timeouts. *)
+module Time = Time
+
+(** {2 Main env} *)
 
 (** The standard environment of a process. *)
 module Stdenv : sig
@@ -232,35 +279,6 @@ module Stdenv : sig
       The possible values are the same as the possible values of the "EIO_BACKEND"
       environment variable used by {!Eio_main.run}. *)
 end
-
-(** {1 Errors and Debugging} *)
-
-exception Io of Exn.err * Exn.context
-
-val traceln :
-  ?__POS__:string * int * int * int ->
-  ('a, Format.formatter, unit, unit) format4 -> 'a
-(** [traceln fmt] outputs a debug message (typically to stderr).
-
-    Trace messages are printed by default and do not require logging to be configured first.
-    The message is printed with a newline, and is flushed automatically.
-    [traceln] is intended for quick debugging rather than for production code.
-
-    Unlike most Eio operations, [traceln] will never switch to another fiber;
-    if the OS is not ready to accept the message then the whole domain waits.
-
-    It is safe to call [traceln] from multiple domains at the same time.
-    Each line will be written atomically.
-
-    Examples:
-    {[
-      traceln "x = %d" x;
-      traceln "x = %d" x ~__POS__;   (* With location information *)
-    ]}
-    @param __POS__ Display [__POS__] as the location of the [traceln] call. *)
-
-(** Eio exceptions. *)
-module Exn = Eio__core.Exn
 
 (** {1 Provider API for OS schedulers} *)
 
