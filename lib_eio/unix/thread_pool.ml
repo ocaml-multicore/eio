@@ -2,7 +2,9 @@
    but up to [max_standby_systhreads_per_domain] threads are
    kept alive to wait for more work to arrive.
    This number was chosen somewhat arbitrarily but benchmarking
-   shows it to be a good compromise. *)
+   shows it to be a good compromise.
+   Warning: do not update this number without updating
+   [find_thread_predicate_exists] below. *)
 let max_standby_systhreads_per_domain = 20
 
 type job =

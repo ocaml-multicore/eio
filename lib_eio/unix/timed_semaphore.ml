@@ -1,3 +1,9 @@
+(* This file is mostly taken from OCaml PR#12867.
+ * It exposes pthread_cond_timedwait(3) for timed_semaphore.ml.
+ * This file (and thread_pool.c) can both be deleted once
+ * this feature is available in OCaml itself.
+*)
+
 external condition_timed_wait : Condition.t -> Mutex.t -> float -> bool = "eio_unix_condition_timedwait"
 
 type t = {
@@ -27,10 +33,9 @@ let acquire s =
 
 let acquire_with_timeout s timeout =
   Mutex.lock s.mut;
-  let until = Unix.gettimeofday () +. timeout in
   let rec aux () =
     if s.v = 0 then begin
-      let signaled = condition_timed_wait s.nonzero s.mut until in
+      let signaled = condition_timed_wait s.nonzero s.mut timeout in
       if signaled && s.v = 0
       then aux ()
       else signaled
