@@ -19,6 +19,7 @@ dscheck:
 stress:
 	dune exec -- ./stress/stress_proc.exe
 	dune exec -- ./stress/stress_semaphore.exe
+	dune exec -- ./stress/stress_systhreads.exe
 
 docker:
 	docker build -t eio .

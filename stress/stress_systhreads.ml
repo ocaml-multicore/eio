@@ -4,8 +4,10 @@ let n_rounds = 10
 
 let main env =
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 Eio.Path.(cwd / "test");
+  let path = Eio.Path.(cwd / "test") in
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 path;
   Switch.run @@ fun sw ->
+  Switch.on_release sw (fun () -> Eio.Path.rmtree ~missing_ok:true path);
   let num = 100 in
   traceln "-------------------------------------";
   for i = 1 to n_rounds do
@@ -21,7 +23,7 @@ let main env =
     traceln "Finished round %d/%d" i n_rounds;
     Eio.Time.sleep (Eio.Stdenv.clock env) 0.2
   done;
-  Eio.Path.rmtree Eio.Path.(cwd / "test");
+  Eio.Path.rmtree path;
   Eio.Flow.copy_string "Success\n" (Eio.Stdenv.stdout env)
 
 let () =
