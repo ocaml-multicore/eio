@@ -167,6 +167,8 @@ val listen :
 
     The new socket will be closed when [sw] finishes, unless closed manually first.
 
+    On platforms that support this, passing port [0] will bind to a random port.
+
     For (non-abstract) Unix domain sockets, the path will be removed afterwards.
 
     @param backlog The number of pending connections that can be queued up (see listen(2)).
@@ -204,6 +206,8 @@ val accept_fork :
 
                     [on_error] is not called for {!Cancel.Cancelled} exceptions,
                     which do not need to be reported. *)
+
+val listening_addr : [> 'tag listening_socket_ty] r -> Sockaddr.stream
 
 (** {2 Running Servers} *)
 
@@ -327,6 +331,7 @@ module Pi : sig
 
     val accept : t -> sw:Switch.t -> tag stream_socket_ty r * Sockaddr.stream
     val close : t -> unit
+    val listening_addr : t -> Sockaddr.stream
   end
 
   val listening_socket :

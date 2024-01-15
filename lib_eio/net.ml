@@ -218,6 +218,7 @@ module Pi = struct
 
     val accept : t -> sw:Switch.t -> tag stream_socket_ty r * Sockaddr.stream
     val close : t -> unit
+    val listening_addr : t -> Sockaddr.stream
   end
 
   type (_, _, _) Resource.pi +=
@@ -276,6 +277,10 @@ let accept_fork ~sw (t : [> 'a listening_socket_ty] r) ~on_error handle =
              on_error (Exn.add_context ex "handling connection from %a" Sockaddr.pp addr)
          )
     )
+
+let listening_addr (type tag) (Resource.T (t, ops) : [> tag listening_socket_ty] r) =
+  let module X = (val (Resource.get ops Pi.Listening_socket)) in
+  X.listening_addr t
 
 let send (Resource.T (t, ops)) ?dst bufs =
   let module X = (val (Resource.get ops Pi.Datagram_socket)) in

@@ -97,14 +97,16 @@ type listening_socket = listening_socket_ty r
 module Listening_socket = struct
   type t = {
     label : string;
+    listening_addr : Eio.Net.Sockaddr.stream;
     on_accept : (Flow.t * Eio.Net.Sockaddr.stream) Handler.t;
   }
 
   type tag = [`Generic]
 
-  let make label =
+  let make ?(listening_addr = `Tcp (Eio.Net.Ipaddr.V4.any, 0)) label =
     {
       label;
+      listening_addr;
       on_accept = Handler.make (`Raise (Failure "Mock accept handler not configured"))
     }
 
@@ -119,6 +121,8 @@ module Listening_socket = struct
   let close t =
     traceln "%s: closed" t.label
 
+  let listening_addr { listening_addr; _ } = listening_addr
+
   type (_, _, _) Eio.Resource.pi += Type : ('t, 't -> t, listening_socket_ty) Eio.Resource.pi
   let raw (Eio.Resource.T (t, ops)) = Eio.Resource.get ops Type t
 end
@@ -129,8 +133,8 @@ let listening_socket_handler =
     H (Listening_socket.Type, Fun.id);
   ]
 
-let listening_socket label : listening_socket =
-  Eio.Resource.T (Listening_socket.make label, listening_socket_handler)
+let listening_socket ?listening_addr label : listening_socket =
+  Eio.Resource.T (Listening_socket.make ?listening_addr label, listening_socket_handler)
 
 let on_accept l actions =
   let r = Listening_socket.raw l in
