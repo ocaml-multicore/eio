@@ -2,7 +2,7 @@
 
 # Eio -- Effects-Based Parallel IO for OCaml
 
-Eio provides an effects-based direct-style IO stack for OCaml 5.0.
+Eio provides an effects-based direct-style IO stack for OCaml 5.
 For example, you can use Eio to read and write files, make network connections,
 or perform CPU-intensive calculations, running multiple operations at the same time.
 It aims to be easy to use, secure, well documented, and fast.
@@ -17,7 +17,7 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Motivation](#motivation)
 * [Current Status](#current-status)
 * [Structure of the Code](#structure-of-the-code)
-* [Getting OCaml 5.0](#getting-ocaml-50)
+* [Getting OCaml 5.1](#getting-ocaml-51)
 * [Getting Eio](#getting-eio)
 * [Running Eio](#running-eio)
 * [Testing with Mocks](#testing-with-mocks)
@@ -36,23 +36,19 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Running processes](#running-processes)
 * [Time](#time)
 * [Multicore Support](#multicore-support)
+    * [Executor Pool](#executor-pool)
+    * [Domain Manager](#domain-manager)
 * [Synchronisation Tools](#synchronisation-tools)
     * [Promises](#promises)
-    * [Example: Concurrent Cache](#example-concurrent-cache)
+      * [Example: Concurrent Cache](#example-concurrent-cache)
     * [Streams](#streams)
-    * [Example: Worker Pool](#example-worker-pool)
     * [Mutexes and Semaphores](#mutexes-and-semaphores)
     * [Conditions](#conditions)
-    * [Example: Signal handlers](#example-signal-handlers)
+      * [Example: Signal handlers](#example-signal-handlers)
 * [Design Note: Determinism](#design-note-determinism)
 * [Provider Interfaces](#provider-interfaces)
 * [Example Applications](#example-applications)
 * [Integrations](#integrations)
-    * [Async](#async)
-    * [Lwt](#lwt)
-    * [Unix and System Threads](#unix-and-system-threads)
-    * [Domainslib](#domainslib)
-    * [kcas](#kcas)
 * [Best Practices](#best-practices)
     * [Switches](#switches-1)
     * [Casting](#casting)
@@ -67,7 +63,7 @@ The `Unix` library provided with OCaml uses blocking IO operations, and is not w
 For many years, the solution to this has been libraries such as Lwt and Async, which provide a monadic interface.
 These libraries allow writing code as if there were multiple threads of execution, each with their own stack, but the stacks are simulated using the heap.
 
-OCaml 5.0 adds support for "effects", removing the need for monadic code here.
+OCaml 5 adds support for "effects", removing the need for monadic code here.
 Using effects brings several advantages:
 
 1. It's faster, because no heap allocations are needed to simulate a stack.
@@ -87,7 +83,7 @@ and we hope that Eio will be that API.
 
 See [Eio 1.0 progress tracking](https://github.com/ocaml-multicore/eio/issues/388) for the current status.
 Please try porting your programs to use Eio and submit PRs or open issues when you find problems.
-Remember that you can always fall back to using Lwt libraries to provide missing features if necessary.
+Remember that you can always [fall back to using Lwt libraries](#lwt) to provide missing features if necessary.
 
 See [Awesome Multicore OCaml][] for links to work migrating other projects to Eio.
 
@@ -100,19 +96,19 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 - [Eio_windows][] is for use on Windows (incomplete - [help wanted](https://github.com/ocaml-multicore/eio/issues/125)).
 - [Eio_main][] selects an appropriate backend (e.g. `eio_linux` or `eio_posix`), depending on your platform.
 
-## Getting OCaml 5.0
+## Getting OCaml 5.1
 
-You'll need OCaml 5.0.0 or later.
+You'll need OCaml 5.1.0 or later.
 You can either install it yourself or build the included [Dockerfile](./Dockerfile).
 
 To install it yourself:
 
 1. Make sure you have opam 2.1 or later (run `opam --version` to check).
 
-2. Use opam to install OCaml 5.0.0:
+2. Use opam to install OCaml 5.1.0:
 
    ```
-   opam switch create 5.0.0
+   opam switch create 5.1.0
    ```
 
 ## Getting Eio
@@ -1003,9 +999,64 @@ The mock backend provides a mock clock that advances automatically where there i
 
 ## Multicore Support
 
-Fibers are scheduled cooperatively within a single domain, but you can also create new domains that run in parallel.
+Fibers are scheduled cooperatively within a single [domain](https://v2.ocaml.org/manual/parallelism.html), but you can also create new domains that run in parallel.
 This is useful to perform CPU-intensive operations quickly.
-For example, let's say we have a CPU intensive task:
+
+There are 2 main ways of achieving this and both are documented below:
+- `Eio.Executor_pool`
+- spawning a one-off domain using `Eio.Domain_manager.run`
+
+In both cases, you submit a function to execute on a separate domain. This function is called a "job".
+
+The Executor Pool is the recommended way of leveraging OCaml 5's multicore capabilities.
+It's built on top of `Eio.Domain_manager` and offers several advantages:
+- Executor Pool domains are initialized in advance to minimize overhead. They're also reused, unlike direct usage of `Eio.Domain_manager.run`.
+- Each Executor Pool domain worker can execute multiple jobs concurrently. Whenever a job blocks due to e.g. I/O, the domain's scheduler switches execution to another fiber and/or job.
+- The Executor Pool supports heterogenous jobs efficiently. For example, it will seamlessly run a large number of I/O-bound jobs on one domain while reserving an entire other domain (thread) for a single CPU-bound job. You control this behavior through the `~weight` argument required to submit a job.
+
+General multicore notes:
+- `Eio.Std.traceln` can be used safely from multiple domains. It uses a mutex internally, so that trace lines are output atomically.
+- You must ensure that the function passed (to `Eio.Executor_pool.submit` or `Eio.Domain_manager.run`) doesn't have access to any non-threadsafe values. The type system does not check this.
+  - If your multicore code **reads or writes** to/from mutable values, you should read the [Multicore Guide](./doc/multicore.md).
+  - The [Synchronisation Tools](#synchronisation-tools) section documents various threadsafe tools to communicate across domains, such as `Eio.Promise` and `Eio.Stream`.
+  - The [Saturn](https://github.com/ocaml-multicore/saturn) library also offers a collection of efficient threadsafe data structures.
+
+### Executor Pool
+
+An executor pool distributes jobs among a pool of domain workers.
+Domains are reused and can execute multiple jobs concurrently.
+
+Each domain worker starts new jobs until the total `~weight` of its running jobs reaches `1.0`.
+The `~weight` represents the expected proportion of a CPU core that the job will take up.
+Jobs are queued up if they cannot be started immediately due to all domain workers being busy (`>= 1.0`).
+
+The `Eio.Executor_pool` module is the recommended way of leveraging OCaml 5's multicore capabilities.
+
+Usually you will only want one pool for an entire application, so the pool is typically created when the application starts:
+
+<!-- $MDX skip -->
+```ocaml
+let () =
+  Eio_main.run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let pool =
+    Eio.Executor_pool.create
+      ~sw (Eio.Stdenv.domain_mgr env)
+      ~domain_count:4
+  in
+  main ~pool
+```
+
+The pool starts its domain workers immediately upon creation.
+
+The pool will not block our switch `sw` from completing;
+when the switch finishes, all domain workers and running jobs are cancelled.
+
+`~domain_count` is the number of domain workers to create.
+This number should not exceed `Domain.recommended_domain_count` or the number of cores on your system.
+Additionally, consider reducing this number by 1 if, for example, your original domain will be performing CPU-intensive work at the same time as the pool.
+
+Now let's say we have a CPU intensive task:
 
 ```ocaml
 let sum_to n =
@@ -1018,13 +1069,17 @@ let sum_to n =
   !total
 ```
 
-We can use [Eio.Domain_manager][] to run this in a separate domain:
+We can have it run in parallel using an Executor Pool:
 
 ```ocaml
 let main ~domain_mgr =
+  Switch.run @@ fun sw ->
+  let pool =
+    Eio.Executor_pool.create ~sw domain_mgr ~domain_count:4
+  in
   let test n =
     traceln "sum 1..%d = %d" n
-      (Eio.Domain_manager.run domain_mgr
+      (Eio.Executor_pool.submit_exn pool ~weight:1.0
         (fun () -> sum_to n))
   in
   Fiber.both
@@ -1044,19 +1099,70 @@ let main ~domain_mgr =
 +sum 1..100000 = 5000050000
 - : unit = ()
 ```
+Note: the exact `traceln` output of this example is non-deterministic, because the OS is free to schedule domains as it likes.
 
-Notes:
+`~weight` is the anticipated proportion of a CPU core used by the job.
+In other words, what is the percentage of time actively spent executing OCaml code, not just waiting for I/O or system calls?
+In the above code snippet we use `~weight:1.0` because the job is entirely CPU-bound: it never waits for I/O or other syscalls.
+`~weight` must be `>= 0.0` and `<= 1.0`.
+Example: given an IO-bound job that averages 2% of one CPU core, pass `~weight:0.02`.
 
-- `traceln` can be used safely from multiple domains.
-  It takes a mutex, so that trace lines are output atomically.
-- The exact `traceln` output of this example is non-deterministic,
-  because the OS is free to schedule domains as it likes.
-- You must ensure that the function passed to `run` doesn't have access to any non-threadsafe values.
-  The type system does not check this.
-- `run` waits for the domain to finish, but it allows other fibers to run while waiting.
-  This is why we use `Fiber.both` to create multiple fibers.
+Each domain worker starts new jobs until the total `~weight` of its running jobs reaches `1.0`.
 
-For more information, see the [Multicore Guide](./doc/multicore.md).
+### Domain Manager
+
+Let's repeat the same example using the domain manager manually.
+Each call to `Domain_manager.run` creates a new domain.
+Each domain is created on the fly and discarded immediately after completion.
+
+```ocaml
+let main ~domain_mgr =
+  let test n =
+    traceln "sum 1..%d = %d" n
+      (Eio.Domain_manager.run domain_mgr
+        (fun () -> sum_to n))
+  in
+  Fiber.both
+    (fun () -> test 100000)
+    (fun () -> test 50000)
+```
+
+The output is identical:
+<!-- $MDX non-deterministic=output -->
+```ocaml
+# Eio_main.run @@ fun env ->
+  main ~domain_mgr:(Eio.Stdenv.domain_mgr env);;
++Starting CPU-intensive task...
++Starting CPU-intensive task...
++Finished
++sum 1..50000 = 1250025000
++Finished
++sum 1..100000 = 5000050000
+- : unit = ()
+```
+Note: the exact `traceln` output of this example is non-deterministic, because the OS is free to schedule domains as it likes.
+
+`run` waits for the domain to finish, but it allows other fibers to run while waiting. This is why we use `Fiber.both` to create multiple fibers.
+
+### Multicore Performance Guide
+
+Whether you use the Executor Pool or not, the following recommendations will help you extract as much performance as possible from your hardware.
+- There's a certain overhead associated with placing execution onto another domain,
+  but that overhead will be paid off quickly if your job takes at least a few milliseconds to complete.
+  Jobs that complete under 2-5ms may not be worth running on a separate domain.
+- Similarly, jobs that are 100% I/O-bound may not be worth running on a separate domain.
+  The small initial overhead is simply never recouped.
+- If your program never hits 100% CPU usage, it's unlikely that parallelizing it will improve performance.
+- Try to avoid reading or writing to memory that's modified by other domains after the start of your job.
+  Ideally, your jobs shouldn't need to interact with other domains' "working data".
+  Aim to make your jobs as independent as possible.
+  - If unavoidable, the [Saturn](https://github.com/ocaml-multicore/saturn) library offers a collection of efficient threadsafe data structures.
+  - The [Multicore Guide](./doc/multicore.md) also explains how to safely and efficiently share memory between domains
+- It's often easier to design code to be multithreading friendly from the start
+  (by making longer, independent jobs) than by refactoring existing code.
+- There's a cost associated with creating a domain, so try to use the same domains for longer periods of time. The Executor Pool takes care of this automatically.
+- Having a large number of domains active at the same time imposes additional overhead on both the OS scheduler and the OCaml runtime, even if those domains are idle.
+- Obviously, reuse the same executor pool whenever possible! Don't recreate it over and over.
 
 ## Synchronisation Tools
 
@@ -1106,7 +1212,7 @@ let wrap fn x =
   Promise.await_exn promise
 ```
 
-### Example: Concurrent Cache
+#### Example: Concurrent Cache
 
 Here's an example using promises to cache lookups,
 with the twist that another user might ask the cache for the value while it's still adding it.
@@ -1219,95 +1325,13 @@ Here, we create a stream with a maximum size of 2 items.
 The first fiber added 1 and 2 to the stream, but had to wait before it could insert 3.
 
 A stream with a capacity of 1 acts like a mailbox.
-A stream with a capacity of 0 will wait until both the sender and receiver are ready.
+
+A stream with a capacity of 0 will wait until both the sender and receiver are ready,
+which means that the `Stream.add` doesn't succeed until another fiber takes an element from the Stream.
+Note that, while the stream itself is 0-capacity, clients still queue up waiting to use it.
+Additionally, 0-capacity streams use a lock-free algorithm that is faster when there are multiple domains.
 
 Streams are thread-safe and can be used to communicate between domains.
-
-### Example: Worker Pool
-
-A useful pattern is a pool of workers reading from a stream of work items.
-Client fibers submit items to a stream and workers process the items:
-
-```ocaml
-let handle_job request =
-  Fiber.yield ();       (* (simulated work) *)
-  Printf.sprintf "Processed:%d" request
-
-let rec run_worker id stream =
-  let request, reply = Eio.Stream.take stream in
-  traceln "Worker %s processing request %d" id request;
-  Promise.resolve reply (handle_job request);
-  run_worker id stream
-
-let submit stream request =
-  let reply, resolve_reply = Promise.create () in
-  Eio.Stream.add stream (request, resolve_reply);
-  Promise.await reply
-```
-
-Each item in the stream is a request payload and a resolver for the reply promise.
-
-```ocaml
-# Eio_main.run @@ fun env ->
-  let domain_mgr = Eio.Stdenv.domain_mgr env in
-  Switch.run @@ fun sw ->
-  let stream = Eio.Stream.create 0 in
-  let spawn_worker name =
-    Fiber.fork_daemon ~sw (fun () ->
-       Eio.Domain_manager.run domain_mgr (fun () ->
-          traceln "Worker %s ready" name;
-          run_worker name stream
-       )
-    )
-  in
-  spawn_worker "A";
-  spawn_worker "B";
-  Switch.run (fun sw ->
-     for i = 1 to 3 do
-       Fiber.fork ~sw (fun () ->
-         traceln "Client %d submitting job..." i;
-         traceln "Client %d got %s" i (submit stream i)
-       );
-       Fiber.yield ()
-     done
-  );;
-+Worker A ready
-+Worker B ready
-+Client 1 submitting job...
-+Worker A processing request 1
-+Client 2 submitting job...
-+Worker B processing request 2
-+Client 3 submitting job...
-+Client 1 got Processed:1
-+Worker A processing request 3
-+Client 2 got Processed:2
-+Client 3 got Processed:3
-- : unit = ()
-```
-
-We use a zero-capacity stream here, which means that the `Stream.add` doesn't succeed until a worker accepts the job.
-This is a good choice for a worker pool because it means that if the client fiber gets cancelled while waiting for a worker
-then the job will never be run. It's also more efficient, as 0-capacity streams use a lock-free algorithm that is faster
-when there are multiple domains.
-Note that, while the stream itself is 0-capacity, clients still queue up waiting to use it.
-
-In the code above, any exception raised while processing a job will exit the whole program.
-We might prefer to handle exceptions by sending them back to the client and continuing:
-
-```ocaml
-let rec run_worker id stream =
-  let request, reply = Eio.Stream.take stream in
-  traceln "Worker %s processing request %d" id request;
-  begin match handle_job request with
-    | result -> Promise.resolve_ok reply result
-    | exception ex -> Promise.resolve_error reply ex; Fiber.check ()
-  end;
-  run_worker id stream
-```
-
-The `Fiber.check ()` checks whether the worker itself has been cancelled, and exits the loop if so.
-It's not actually necessary in this case,
-because if we continue instead then the following `Stream.take` will perform the check anyway.
 
 ### Mutexes and Semaphores
 
@@ -1487,7 +1511,7 @@ Conditions are more difficult to use correctly than e.g. promises or streams.
 In particular, it is easy to miss a notification due to `broadcast` getting called before `await`.
 However, they can be useful if used carefully.
 
-### Example: Signal handlers
+#### Example: Signal handlers
 
 On Unix-type systems, processes can react to *signals*.
 For example, pressing Ctrl-C will send the `SIGINT` (interrupt) signal.
@@ -1641,99 +1665,15 @@ allowing it to be used within Eio without blocking the whole domain.
 
 ### Domainslib
 
-For certain compute-intensive tasks it may be useful to send work to a pool of [Domainslib][] worker domains.
-You can resolve an Eio promise from non-Eio domains (or systhreads), which provides an easy way to retrieve the result.
-For example:
+[Domainslib](https://github.com/ocaml-multicore/domainslib) is a separate library from Eio. Much like Eio's [Executor_pool](#executor-pool), it distributes workloads to a pool of domains.
 
-<!-- $MDX skip -->
-```ocaml
-open Eio.Std
+However, most Eio functions cannot be called from Domainslib, and Domainslib functions cannot be called from Eio domains.
 
-let pool = Domainslib.Task.setup_pool ~num_domains:2 ()
-
-let fib n = ... (* Some Domainslib function *)
-
-let run_in_pool fn x =
-  let result, set_result = Promise.create () in
-  let _ : unit Domainslib.Task.promise = Domainslib.Task.async pool (fun () ->
-      Promise.resolve set_result @@
-      match fn x with
-      | r -> Ok r
-      | exception ex -> Error ex
-    )
-  in
-  Promise.await_exn result
-
-let () =
-  Eio_main.run @@ fun _ ->
-  Fiber.both
-    (fun () -> traceln "fib 30 = %d" (run_in_pool fib 30))
-    (fun () -> traceln "fib 10 = %d" (run_in_pool fib 10))
-```
-
-Note that most Domainslib functions can only be called from code running in the Domainslib pool,
-while most Eio functions can only be used from Eio domains.
-The bridge function `run_in_pool` makes use of the fact that `Domainslib.Task.async` is able to run from
-an Eio domain, and `Eio.Promise.resolve` is able to run from a Domainslib one.
+For information on how to integrate Eio code with existing Domainslib code, see the [Domainslib Guide](./doc/domainslib.md).
 
 ### kcas
 
-Eio provides the support [kcas][] requires to implement blocking in the
-lock-free software transactional memory (STM) implementation that it provides.
-This means that one can use all the composable lock-free data structures and
-primitives for communication and synchronization implemented using **kcas** to
-communicate and synchronize between Eio fibers, raw domains, and any other
-schedulers that provide the domain local await mechanism.
-
-To demonstrate **kcas**
-
-```ocaml
-# #require "kcas"
-# open Kcas
-```
-
-let's first create a couple of shared memory locations
-
-```ocaml
-# let x = Loc.make 0
-val x : int Loc.t = <abstr>
-# let y = Loc.make 0
-val y : int Loc.t = <abstr>
-```
-
-and spawn a domain
-
-```ocaml
-# let foreign_domain = Domain.spawn @@ fun () ->
-    let x = Loc.get_as (fun x -> Retry.unless (x <> 0); x) x in
-    Loc.set y 22;
-    x
-val foreign_domain : int Domain.t = <abstr>
-```
-
-that first waits for one of the locations to change value and then writes to the
-other location.
-
-Then we run a Eio program
-
-```ocaml
-# let y = Eio_main.run @@ fun _env ->
-    Loc.set x 20;
-    Loc.get_as (fun y -> Retry.unless (y <> 0); y) y
-val y : int = 22
-```
-
-that first writes to the location the other domain is waiting on and then waits
-for the other domain to write to the other location.
-
-Joining with the other domain
-
-```ocaml
-# y + Domain.join foreign_domain
-- : int = 42
-```
-
-we arrive at the answer.
+See the [kcas Guide](./doc/kcas.md)
 
 ## Best Practices
 

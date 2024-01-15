@@ -1,9 +1,9 @@
-(** An executor pool distributes jobs among a pool of domains workers (threads).
+(** An executor pool distributes jobs (functions to execute) among a pool of domain workers (threads).
 
     Domains are reused and can execute multiple jobs concurrently.
     Jobs are queued up if they cannot be started immediately due to all workers being busy.
 
-    [Eio.Executor_pool] is the recommended way of leveraging OCaml's 5 multicore capabilities.
+    [Eio.Executor_pool] is the recommended way of leveraging OCaml 5's multicore capabilities.
     It is built on top of the low level [Eio.Domain_manager].
 
     Usually you will only want one pool for an entire application,
@@ -37,7 +37,7 @@ val create :
     The executor pool will not block switch [sw] from completing;
     when the switch finishes, all domain workers and running jobs are cancelled.
 
-    @param domain_count The number of additional domain workers to create.
+    @param domain_count The number of domain workers to create.
                         The total number of domains should not exceed {!Domain.recommended_domain_count} or the number of cores on your system.
                         Additionally, consider reducing this number by 1 if your original domain will be performing CPU intensive work at the same time as the Executor_pool.
 *)
