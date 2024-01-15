@@ -51,8 +51,9 @@ val sleep : float -> unit
     It can also be used in programs that don't care about tracking determinism. *)
 
 val run_in_systhread : ?label:string -> (unit -> 'a) -> 'a
-(** [run_in_systhread fn] runs the function [fn] in a newly created system thread (a {! Thread.t}).
-    This allows blocking calls to be made non-blocking.
+(** [run_in_systhread fn] runs the function [fn] in using Eio's pool of system threads ({! Thread.t}).
+    This pool creates a new system thread if all threads are busy, it does not wait.
+    [run_in_systhread] allows blocking calls to be made non-blocking.
 
     @param label The operation name to use in trace output. *)
 

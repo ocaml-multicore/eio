@@ -61,7 +61,7 @@ module Mailbox = struct
         false
 
   let rec take pool mbox =
-    if Timed_semaphore.acquire_with_timeout mbox.lock 0.2
+    if Timed_semaphore.acquire_with_timeout mbox.lock 5.0
     then mbox.cell
     else (
       (* Semaphore timed out *)
@@ -80,6 +80,11 @@ let create () =
     terminating = false;
   }
 
+(* This function is necessary in order to immediately terminate the systhreads
+   on stand-by, without having to wait for them to shut down automatically.
+   Without this termination mechanism, domains that have executed a call on
+   a systhread in the last 0.2 seconds will have to wait for their timeout to
+   occur, introducing long unwanted pauses. *)
 let terminate pool =
   pool.terminating <- true;
   if pool.n_available > 0 then
