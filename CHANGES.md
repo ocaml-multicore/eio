@@ -2,7 +2,69 @@
 
 New features / API changes:
 
-- Add `Net.listening_addr` (@mefyl #555).
+- Add `Eio.Executor_pool` (@SGrondin #639, reviewed by @talex5).  
+  Provides an easy way to distribute jobs across domains.
+
+- Add `Fiber.first ~combine` and `Fiber.n_any` (@SGrondin @talex5 #587).  
+  Allows keeping both results in the case where multiple fibers succeed.
+
+- Add `Eio_mock.Backend.run_full` with auto-advancing mock clock (@talex5 #644, reviewed by @SGrondin).  
+  Simplifies testing of code using clocks.
+
+- Add `Buf_write.printf` (@SGrondin @talex5 #655).
+
+- Add `Net.listening_addr` (@mefyl #555, reviewed by @patricoferris @talex5).  
+  Useful to get the socket's address if the OS assigns it.
+
+- Add `Promise.try_resolve` (@talex5 #646).
+
+- Remove `Cancel_hook_failed` exception (@talex5 #640).  
+  Didn't seem to be used and broke dscheck.
+
+Tracing:
+
+- Improve tracing (@TheLortex @patricoferris @talex5 #656).  
+  Trace cancellation contexts and OS operations, and simplify API.
+
+- Add labels to switches (@talex5 #661, reviewed by @SGrondin).
+
+- `Fiber.all`: use the parent fiber (@talex5 #665, reviewed by @SGrondin).  
+  Cleans up the traces a bit.
+
+Performance:
+
+- Faster and simpler `Lf_queue` (@talex5 #647, based on work by @polytypic).
+
+- Optimise `Flow.copy` with `Buf_read.as_flow` (@talex5 #663, reviewed by @SGrondin, reported by @leostera).
+
+Bug fixes:
+
+- Fix handling of very long IO vectors (@talex5 #653, reported by @Cjen1).
+
+- eio_posix: use `caml_enter_blocking_section` in more places (@talex5 #654, reviewed by @SGrondin).
+
+- eio_posix: work around `caml_unix_alloc_sockaddr` bug (@talex5 #651).
+
+- Remove default backtrace from `Switch.fail` (@talex5 #664).
+
+Documentation:
+
+- Organise eio.mli better (@talex5 #667).
+
+- Fix quoting of quotes in process error messages (@talex5 #666, reviewed by @SGrondin).
+
+- Mention Path module in File and Fs documentation (@talex5 #659, requested by @clecat).
+
+- Minor documentation updates (@SGrondin @talex5 #670).
+
+Build / internals:
+
+- Allow closing synchronous streams (@talex5 #641, reviewed by @SGrondin).  
+  This isn't currently exposed in the public interface.
+
+- Fix non-idempotent tests (@SGrondin #662).
+
+- eio_windows: add explicit fmt dependency (@talex5 #643).
 
 ## v0.13
 
