@@ -2,7 +2,7 @@
 
 # Eio -- Effects-Based Parallel IO for OCaml
 
-Eio provides an effects-based direct-style IO stack for OCaml 5.0.
+Eio provides an effects-based direct-style IO stack for OCaml 5.
 For example, you can use Eio to read and write files, make network connections,
 or perform CPU-intensive calculations, running multiple operations at the same time.
 It aims to be easy to use, secure, well documented, and fast.
@@ -17,7 +17,7 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Motivation](#motivation)
 * [Current Status](#current-status)
 * [Structure of the Code](#structure-of-the-code)
-* [Getting OCaml 5.0](#getting-ocaml-50)
+* [Getting OCaml 5.1](#getting-ocaml-51)
 * [Getting Eio](#getting-eio)
 * [Running Eio](#running-eio)
 * [Testing with Mocks](#testing-with-mocks)
@@ -64,10 +64,10 @@ Eio replaces existing concurrency libraries such as Lwt
 ## Motivation
 
 The `Unix` library provided with OCaml uses blocking IO operations, and is not well suited to concurrent programs such as network services or interactive applications.
-For many years, the solution to this has been libraries such as Lwt and Async, which provide a monadic interface.
+For many years, the solution was to use libraries such as Lwt and Async, which provide a monadic interface.
 These libraries allow writing code as if there were multiple threads of execution, each with their own stack, but the stacks are simulated using the heap.
 
-OCaml 5.0 adds support for "effects", removing the need for monadic code here.
+OCaml 5 added support for "effects", removing the need for monadic code here.
 Using effects brings several advantages:
 
 1. It's faster, because no heap allocations are needed to simulate a stack.
@@ -77,17 +77,13 @@ Using effects brings several advantages:
 
 Additionally, modern operating systems provide high-performance alternatives to the old Unix `select` call.
 For example, Linux's io_uring system has applications write the operations they want to perform to a ring buffer,
-which Linux handles asynchronously.
-
-Due to this, many OCaml users will want to rewrite their IO code.
-It would be very beneficial to use this opportunity to standardise a single concurrency API for OCaml,
-and we hope that Eio will be that API.
+which Linux handles asynchronously, and Eio can take advantage of this.
 
 ## Current Status
 
 See [Eio 1.0 progress tracking](https://github.com/ocaml-multicore/eio/issues/388) for the current status.
 Please try porting your programs to use Eio and submit PRs or open issues when you find problems.
-Remember that you can always fall back to using Lwt libraries to provide missing features if necessary.
+Remember that you can always [fall back to using Lwt libraries](#lwt) to provide missing features if necessary.
 
 See [Awesome Multicore OCaml][] for links to work migrating other projects to Eio.
 
@@ -100,19 +96,19 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 - [Eio_windows][] is for use on Windows (incomplete - [help wanted](https://github.com/ocaml-multicore/eio/issues/125)).
 - [Eio_main][] selects an appropriate backend (e.g. `eio_linux` or `eio_posix`), depending on your platform.
 
-## Getting OCaml 5.0
+## Getting OCaml 5.1
 
-You'll need OCaml 5.0.0 or later.
+You'll need OCaml 5.1.0 or later.
 You can either install it yourself or build the included [Dockerfile](./Dockerfile).
 
 To install it yourself:
 
 1. Make sure you have opam 2.1 or later (run `opam --version` to check).
 
-2. Use opam to install OCaml 5.0.0:
+2. Use opam to install OCaml:
 
    ```
-   opam switch create 5.0.0
+   opam switch create 5.1.1
    ```
 
 ## Getting Eio
@@ -1003,7 +999,8 @@ The mock backend provides a mock clock that advances automatically where there i
 
 ## Multicore Support
 
-Fibers are scheduled cooperatively within a single domain, but you can also create new domains that run in parallel.
+OCaml allows a program to create multiple *domains* in which to run code, allowing multiple CPUs to be used at once.
+Fibers are scheduled cooperatively within a single domain, but fibers in different domains run in parallel.
 This is useful to perform CPU-intensive operations quickly.
 For example, let's say we have a CPU intensive task:
 
@@ -1053,7 +1050,7 @@ Notes:
   because the OS is free to schedule domains as it likes.
 - You must ensure that the function passed to `run` doesn't have access to any non-threadsafe values.
   The type system does not check this.
-- `run` waits for the domain to finish, but it allows other fibers to run while waiting.
+- `Domain_manager.run` waits for the domain to finish, but it allows other fibers to run while waiting.
   This is why we use `Fiber.both` to create multiple fibers.
 
 For more information, see the [Multicore Guide](./doc/multicore.md).
