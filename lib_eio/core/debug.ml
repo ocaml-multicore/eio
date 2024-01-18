@@ -8,6 +8,7 @@ let traceln_mutex = Mutex.create ()
 
 let default_traceln ?__POS__:pos fmt =
   let k go =
+    Trace.with_span "traceln" @@ fun () ->
     let b = Buffer.create 512 in
     let f = Format.formatter_of_buffer b in
     go f;
