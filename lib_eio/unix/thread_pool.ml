@@ -1,11 +1,16 @@
-(* This thread pool does not spawn threads in advance,
-   but up to [max_standby_systhreads_per_domain] threads are
-   kept alive to wait for more work to arrive.
-   This number was chosen somewhat arbitrarily but benchmarking
-   shows it to be a good compromise.
-   Warning: do not update this number without updating
-   [find_thread_predicate_exists] below. *)
+(** This thread pool does not spawn threads in advance,
+    but up to [max_standby_systhreads_per_domain] threads are
+    kept alive to wait for more work to arrive.
+    This number was chosen somewhat arbitrarily but benchmarking
+    shows it to be a good compromise.
+    Warning: do not update this number without updating
+    [find_thread_predicate_exists] below. *)
 let max_standby_systhreads_per_domain = 20
+
+(** After completing a job, each thread will wait [max_wait_seconds]
+    for new work to arrive. If it does not receive work within this
+    period of time, the worker thread exits. *)
+let max_wait_seconds = 0.2
 
 type job =
   | New
@@ -15,24 +20,36 @@ type job =
       enqueue: ('a, exn) result -> unit;
     } -> job
 
+(** Can't [assert false] in [@poll error] code because it would allocate *)
 exception Assertion_failure
 
+(** This threadpool record type looks the way it does due to the constraints
+    imposed onto it by the need to run certain bookkeeping operations inside of
+    [@poll error] functions.
+
+    Note: type ['a] will be [Mailbox.t], defined below. *)
 type 'a t = {
-  mutable initialized: bool;
-  threads: 'a array;
-  available: bool array;
-  mutable n_available: int;
-  mutable terminating: bool;
+  mutable initialized: bool; (* Have we setup the [Domain.at_exit] callback? *)
+  threads: 'a array; (* An array of [Mailbox.t] *)
+  available: bool array; (* For each thread, is it ready to receive work? *)
+  mutable n_available: int; (* Number of threads waiting for work *)
+  mutable terminating: bool; (* Is the domain exiting? *)
 }
 
-(* Mailbox with blocking semaphore *)
 module Mailbox = struct
+  (** Mailbox with blocking OS semaphore.
+      Each [Mailbox.t] controls one worker systhread.
+      After completing each job, a thread will be kept for a short period
+      of time in case more work is immediately available.
+      Otherwise, the thread exits. *)
   type t = {
-    lock: Timed_semaphore.t;
+    lock: Timed_semaphore.t; (* A Unix [pthread_cond_t] *)
     mutable cell: job;
-    mutable i: int;
+    mutable i: int; (* The index of this thread in the threadpool arrays *)
   }
 
+  (* A worker systhread does not start with an assigned index.
+     [i] cannot be an option because writing a Some to this field would allocate. *)
   let create () = { lock = Timed_semaphore.make false; cell = New; i = -1 }
 
   let dummy = create ()
@@ -41,13 +58,13 @@ module Mailbox = struct
     mbox.cell <- x;
     Timed_semaphore.release mbox.lock
 
-  (* [@poll error] makes this function atomic from the point of view
-     of threads within a single domain. *)
+  (* [@poll error] ensures this function is atomic within systhreads of a single domain.
+     Returns [true] if the thread should exit. *)
   let[@poll error] handle_timedout pool = function
     | { i = -1; _} ->
-      (* This thread was never placed in the pool, just exit *)
+      (* This thread was never placed in the pool, there is nothing to clean up *)
       true
-    | { i;_ } ->
+    | { i; _ } ->
       match Array.unsafe_get pool.available i with
       | true ->
         (* Cleanup and exit *)
@@ -61,7 +78,7 @@ module Mailbox = struct
         false
 
   let rec take pool mbox =
-    if Timed_semaphore.acquire_with_timeout mbox.lock 5.0
+    if Timed_semaphore.acquire_with_timeout mbox.lock max_wait_seconds
     then mbox.cell
     else (
       (* Semaphore timed out *)
@@ -74,8 +91,8 @@ end
 let create () =
   {
     initialized = false;
-    threads = Array.init max_standby_systhreads_per_domain (fun _ -> Mailbox.dummy);
-    available = Array.init max_standby_systhreads_per_domain (fun _ -> false);
+    threads = Array.make max_standby_systhreads_per_domain Mailbox.dummy;
+    available = Array.make max_standby_systhreads_per_domain false;
     n_available = 0;
     terminating = false;
   }
@@ -83,8 +100,8 @@ let create () =
 (* This function is necessary in order to immediately terminate the systhreads
    on stand-by, without having to wait for them to shut down automatically.
    Without this termination mechanism, domains that have executed a call on
-   a systhread in the last 0.2 seconds will have to wait for their timeout to
-   occur, introducing long unwanted pauses. *)
+   a systhread in the last [max_wait_seconds] seconds would have to wait for
+   their timeout to occur, introducing long unwanted pauses. *)
 let terminate pool =
   pool.terminating <- true;
   if pool.n_available > 0 then
@@ -93,14 +110,15 @@ let terminate pool =
       then Mailbox.put (Array.unsafe_get pool.threads i) Exit
     done
 
-(* This function is called from within a [@poll error] function,
+(* This function is called from within [@poll error] functions,
    so we cannot allocate, call OCaml functions, or use for/while loops.
    See https://discuss.ocaml.org/t/using-poll-error-attribute-to-implement-systhread-safe-data-structures/12804
    The classic CAS retry loop is also out because it was observed
    to cause extreme levels of contention.
-   The only option left to us is to unroll the loop by hand.
+   Even with low contention, this unrolled loop is both faster and more predictable.
    It is marked [@inline always] to make it usable from [@poll error] code.
-   This function finds the first thread in the desired state [b].
+
+   This function returns the index of the first thread in the desired state [b].
    As the name implies, at least one thread must be known to be in state [b]. *)
 let[@inline always] find_thread_predicate_exists pool b =
   if Array.unsafe_get pool.available 0 = b then 0 else
@@ -125,10 +143,9 @@ let[@inline always] find_thread_predicate_exists pool b =
   if Array.unsafe_get pool.available 19 = b then 19 else
     raise Assertion_failure (* Can't [assert false] because it would allocate *)
 
-(* [@poll error] makes this function atomic from the point of view
-   of threads within a single domain.
-   This function either terminates the current systhread,
-   or adds/readds it to the pool of available systhreads. *)
+(* [@poll error] ensures this function is atomic within systhreads of a single domain.
+   This function (re-)adds the worker systhread to the pool of available threads,
+   or exits if the pool is already at maximum capacity. *)
 let[@poll error] keep_thread_or_exit pool (mbox : Mailbox.t) =
   if pool.terminating || pool.n_available = max_standby_systhreads_per_domain
   then raise Thread.Exit
@@ -140,8 +157,7 @@ let[@poll error] keep_thread_or_exit pool (mbox : Mailbox.t) =
     Array.unsafe_set pool.threads i mbox
   )
 
-(* [@poll error] makes this function atomic from the point of view
-   of threads within a single domain.
+(* [@poll error] ensures this function is atomic within systhreads of a single domain.
    This function tries to reserve one available thread from the pool.
    Since we cannot return an option in [@poll error] code, we simulate
    an option by conditionally updating the reference [res].
@@ -176,6 +192,9 @@ let make_thread pool =
    So we keep a separate threadpool per domain. *)
 let key = Domain.DLS.new_key create
 
+(* [@poll error] ensures this function is atomic within systhreads of a single domain.
+   https://github.com/ocaml/ocaml/pull/12724
+   As of OCaml 5.1, [Domain.at_exit] is still not threadsafe *)
 let[@poll error] needs_init pool =
   if pool.initialized
   then false
