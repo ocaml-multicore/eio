@@ -1,8 +1,7 @@
 /* This file is mostly taken from OCaml PR#12867.
  * It exposes pthread_cond_timedwait(3) for timed_semaphore.ml.
  * This file (and timed_semaphore.ml) can both be deleted once
- * this feature is available in OCaml itself.
-*/
+ * this feature is available in OCaml itself. */
 
 #include <pthread.h>
 #include <errno.h>
