@@ -1,8 +1,7 @@
 module R = Eio.Buf_read
 
-let test_data = String.init 100_000_000 (fun _ -> 'x')
-
 let run _env =
+  let test_data = String.make 100_000_000 'x' in
   let r = R.of_string test_data in
   let t0 = Unix.gettimeofday () in
   let i = ref 0 in
