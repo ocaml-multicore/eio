@@ -18,9 +18,6 @@ module Rcfd = Rcfd
 module Fork_action = Fork_action
 
 let run_in_systhread ?(label="systhread") fn =
-  Eio.Private.Suspend.enter label @@ fun fiber enqueue ->
-  match Eio.Private.Fiber_context.get_error fiber with
-  | Some err -> enqueue (Error err)
-  | None ->
-    let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
-    ()
+  Eio.Private.Suspend.enter label @@ fun _ctx enqueue ->
+  let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
+  ()
