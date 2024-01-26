@@ -341,11 +341,11 @@ let lseek fd off cmd =
 
 let fsync fd =
   (* todo: https://github.com/ocaml-multicore/ocaml-uring/pull/103 *)
-  Eio_unix.run_in_systhread @@ fun () ->
+  Eio_unix.run_in_systhread ~label:"fsync" @@ fun () ->
   Fd.use_exn "fsync" fd Unix.fsync
 
 let ftruncate fd len =
-  Eio_unix.run_in_systhread @@ fun () ->
+  Eio_unix.run_in_systhread ~label:"ftruncate" @@ fun () ->
   Fd.use_exn "ftruncate" fd @@ fun fd ->
   Unix.LargeFile.ftruncate fd (Optint.Int63.to_int64 len)
 
@@ -479,7 +479,7 @@ let read_dir fd =
       let files = List.filter (function ".." | "." -> false | _ -> true) files in
       read_all (files @ acc) fd
   in
-  Eio_unix.run_in_systhread (fun () -> read_all [] fd)
+  Eio_unix.run_in_systhread ~label:"read_dir" (fun () -> read_all [] fd)
 
 (* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
 let getaddrinfo ~service node =
@@ -494,7 +494,7 @@ let getaddrinfo ~service node =
         | _ -> None)
     | _ -> None
   in
-  Eio_unix.run_in_systhread @@ fun () ->
+  Eio_unix.run_in_systhread ~label:"getaddrinfo" @@ fun () ->
   Unix.getaddrinfo node service []
   |> List.filter_map to_eio_sockaddr_t
 

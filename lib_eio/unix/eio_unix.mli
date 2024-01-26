@@ -50,9 +50,11 @@ val sleep : float -> unit
     without having to plumb {!Eio.Stdenv.mono_clock} through your code.
     It can also be used in programs that don't care about tracking determinism. *)
 
-val run_in_systhread : (unit -> 'a) -> 'a
+val run_in_systhread : ?label:string -> (unit -> 'a) -> 'a
 (** [run_in_systhread fn] runs the function [fn] in a newly created system thread (a {! Thread.t}).
-    This allows blocking calls to be made non-blocking. *)
+    This allows blocking calls to be made non-blocking.
+
+    @param label The operation name to use in trace output. *)
 
 val pipe : Switch.t -> source_ty r * sink_ty r
 (** [pipe sw] returns a connected pair of flows [src] and [sink]. Data written to [sink]

@@ -51,7 +51,7 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
     | `Udp _ -> [Unix.NI_DGRAM]
   in
   let sockaddr = sockaddr_to_unix sockaddr in
-  Private.run_in_systhread (fun () ->
+  Private.run_in_systhread ~label:"getnameinfo" (fun () ->
     let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
     (ni_hostname, ni_service))
 
