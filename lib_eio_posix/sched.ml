@@ -203,27 +203,28 @@ let rec next t : [`Exit_scheduler] =
         `Exit_scheduler
       ) else (
         Atomic.set t.need_wakeup true;
-        if Lf_queue.is_empty t.run_q then (
-          (* At this point we're not going to check [run_q] again before sleeping.
-             If [need_wakeup] is still [true], this is fine because we don't promise to do that.
-             If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
-          Trace.suspend_domain Begin;
-          let nready =
-            try Poll.ppoll_or_poll t.poll (t.poll_maxi + 1) timeout
-            with Unix.Unix_error (Unix.EINTR, _, "") -> 0
-          in
-          Trace.suspend_domain End;
-          Atomic.set t.need_wakeup false;
-          Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
-          Poll.iter_ready t.poll nready (ready t);
-          next t
-        ) else (
-          (* Someone added a new job while we were setting [need_wakeup] to [true].
-             They might or might not have seen that, so we can't be sure they'll send an event. *)
-          Atomic.set t.need_wakeup false;
-          Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
-          next t
-        )
+        let timeout =
+          if Lf_queue.is_empty t.run_q then timeout
+          else (
+            (* Either we're just checking for IO to avoid starvation, or
+               someone added a new job while we were setting [need_wakeup] to [true].
+               They might or might not have seen that, so we can't be sure they'll send an event. *)
+            Poll.Nowait
+          )
+        in
+        (* At this point we're not going to check [run_q] again before sleeping.
+           If [need_wakeup] is still [true], this is fine because we don't promise to do that.
+           If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
+        Trace.suspend_domain Begin;
+        let nready =
+          try Poll.ppoll_or_poll t.poll (t.poll_maxi + 1) timeout
+          with Unix.Unix_error (Unix.EINTR, _, "") -> 0
+        in
+        Trace.suspend_domain End;
+        Atomic.set t.need_wakeup false;
+        Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
+        Poll.iter_ready t.poll nready (ready t);
+        next t
       )
 
 let with_sched fn =
