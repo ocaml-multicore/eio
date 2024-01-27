@@ -16,7 +16,7 @@ module Trace = Eio.Private.Trace
 module Fiber_context = Eio.Private.Fiber_context
 
 (* todo: keeping a pool of workers is probably faster *)
-let in_worker_thread = Eio_unix.run_in_systhread
+let in_worker_thread label = Eio_unix.run_in_systhread ~label
 
 let await_readable op fd =
   Fd.use_exn "await_readable" fd @@ fun fd ->
@@ -115,11 +115,11 @@ let getrandom { Cstruct.buffer; off; len } =
     else
       loop (n + eio_getrandom buffer (off + n) (len - n))
   in
-  in_worker_thread @@ fun () ->
+  in_worker_thread "getrandom" @@ fun () ->
   loop 0
 
 let realpath path =
-  in_worker_thread @@ fun () ->
+  in_worker_thread "realpath" @@ fun () ->
   Unix.realpath path
 
 let read_entries h =
@@ -132,7 +132,7 @@ let read_entries h =
   aux []
 
 let readdir path =
-  in_worker_thread @@ fun () ->
+  in_worker_thread "readdir" @@ fun () ->
   let h = Unix.opendir path in
   match read_entries h with
   | r -> Unix.closedir h; r
@@ -201,21 +201,21 @@ external eio_openat : Unix.file_descr -> string -> Open_flags.t -> int -> Unix.f
 let openat ?dirfd ~sw ~mode path flags =
   with_dirfd "openat" dirfd @@ fun dirfd ->
   Switch.check sw;
-  in_worker_thread (fun () -> eio_openat dirfd path Open_flags.(flags + cloexec + nonblock) mode)
+  in_worker_thread "openat" (fun () -> eio_openat dirfd path Open_flags.(flags + cloexec + nonblock) mode)
   |> Fd.of_unix ~sw ~blocking:false ~close_unix:true
 
 external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_posix_mkdirat"
 
 let mkdir ?dirfd ~mode path =
   with_dirfd "mkdirat" dirfd @@ fun dirfd ->
-  in_worker_thread @@ fun () ->
+  in_worker_thread "mkdir" @@ fun () ->
   eio_mkdirat dirfd path mode
 
 external eio_unlinkat : Unix.file_descr -> string -> bool -> unit = "caml_eio_posix_unlinkat"
 
 let unlink ?dirfd ~dir path =
   with_dirfd "unlink" dirfd @@ fun dirfd ->
-  in_worker_thread @@ fun () ->
+  in_worker_thread "unlink" @@ fun () ->
   eio_unlinkat dirfd path dir
 
 external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit = "caml_eio_posix_renameat"
@@ -223,7 +223,7 @@ external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -
 let rename ?old_dir old_path ?new_dir new_path =
   with_dirfd "rename-old" old_dir @@ fun old_dir ->
   with_dirfd "rename-new" new_dir @@ fun new_dir ->
-  in_worker_thread @@ fun () ->
+  in_worker_thread "rename" @@ fun () ->
   eio_renameat old_dir old_path new_dir new_path
 
 type stat
@@ -236,7 +236,7 @@ let fstat ~buf fd =
   eio_fstat buf fd
 
 let fstatat ~buf ?dirfd ~follow path =
-  in_worker_thread @@ fun () ->
+  in_worker_thread "fstat" @@ fun () ->
   let flags = if follow then 0 else Config.at_symlink_nofollow in
   with_dirfd "fstatat" dirfd @@ fun dirfd ->
   eio_fstatat buf dirfd path flags
@@ -273,11 +273,11 @@ let lseek fd off cmd =
   |> Optint.Int63.of_int64
 
 let fsync fd =
-  Eio_unix.run_in_systhread @@ fun () ->
+  Eio_unix.run_in_systhread ~label:"fsync" @@ fun () ->
   Fd.use_exn "fsync" fd Unix.fsync
 
 let ftruncate fd len =
-  Eio_unix.run_in_systhread @@ fun () ->
+  Eio_unix.run_in_systhread ~label:"ftruncate" @@ fun () ->
   Fd.use_exn "ftruncate" fd @@ fun fd ->
   Unix.LargeFile.ftruncate fd (Optint.Int63.to_int64 len)
 

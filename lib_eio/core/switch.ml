@@ -91,7 +91,7 @@ let rec await_idle t =
   (* Wait for fibers to finish: *)
   while t.fibers > 0 do
     Trace.try_get t.cancel.id;
-    Single_waiter.await t.waiter "Switch.await_idle" t.cancel.id
+    Single_waiter.await_protect t.waiter "Switch.await_idle" t.cancel.id
   done;
   (* Call on_release handlers: *)
   let queue = Lwt_dllist.create () in
@@ -102,14 +102,12 @@ let rec await_idle t =
     | None -> await_idle t
     | Some fn ->
       begin
-        try fn () with
+        try Cancel.protect fn with
         | ex -> fail t ex
       end;
       release ()
   in
   release ()
-
-let await_idle t = Cancel.protect (fun _ -> await_idle t)
 
 let maybe_raise_exs t =
   match t.exs with

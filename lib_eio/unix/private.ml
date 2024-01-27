@@ -17,12 +17,7 @@ let pipe sw = Effect.perform (Pipe sw)
 module Rcfd = Rcfd
 module Fork_action = Fork_action
 
-let run_in_systhread fn =
-  let f fiber enqueue =
-    match Eio.Private.Fiber_context.get_error fiber with
-    | Some err -> enqueue (Error err)
-    | None ->
-      let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
-      ()
-  in
-  Effect.perform (Eio.Private.Effects.Suspend f)
+let run_in_systhread ?(label="systhread") fn =
+  Eio.Private.Suspend.enter label @@ fun _ctx enqueue ->
+  let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
+  ()

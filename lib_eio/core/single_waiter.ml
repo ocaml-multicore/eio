@@ -25,3 +25,11 @@ let await t op id =
   in
   Trace.get id;
   x
+
+let await_protect t op id =
+  let x =
+    Suspend.enter_unchecked op @@ fun _ctx enqueue ->
+    t.wake <- (fun x -> t.wake <- ignore; enqueue x)
+  in
+  Trace.get id;
+  x

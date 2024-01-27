@@ -110,11 +110,14 @@ let enter op fn =
   Trace.suspend_fiber op;
   Effect.perform (Enter fn)
 
+let submit uring =
+  Trace.with_span "submit" (fun () -> Uring.submit uring)
+
 let rec enqueue_job t fn =
   match fn () with
   | Some _ as r -> r
   | None ->
-    if Uring.submit t.uring > 0 then enqueue_job t fn
+    if submit t.uring > 0 then enqueue_job t fn
     else None
 
 (* Cancellations always come from the same domain, so no need to send wake events here. *)
@@ -219,7 +222,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
         Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
         handle_complete st ~runnable result
       | None ->
-        ignore (Uring.submit uring : int);
+        ignore (submit uring : int);
         let timeout =
           match next_due with
           | `Wait_until time ->

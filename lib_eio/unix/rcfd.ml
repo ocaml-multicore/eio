@@ -97,6 +97,9 @@ let get t =
     put t;
     None
 
+let close_fd fd =
+  Eio.Private.Trace.with_span "close" (fun () -> Unix.close fd)
+
 (* Note: we could simplify this a bit by incrementing [t.ops], as [remove] does.
    However, that makes dscheck too slow. *)
 let close t =
@@ -105,14 +108,14 @@ let close t =
     (* Another caller closed [t] before us. *)
     false
   | Open fd as prev ->
-    let next = Closing (fun () -> Unix.close fd) in
+    let next = Closing (fun () -> close_fd fd) in
     if Atomic.compare_and_set t.fd prev next then (
       (* We just transitioned from [open] to [closing/users] or [closing/no-users].
          We are now the closer. *)
       if Atomic.get t.ops = 0 && Atomic.compare_and_set t.fd next fully_closed then (
         (* We were in [closing/no-users] and are now in [closing/closed].
            We own the FD (and our original callback will never be called). *)
-        Unix.close fd
+        close_fd fd
       ) else (
         (* The [next] callback remained installed and there is nothing left for us to do:
            - If [t.ops] was non-zero, another thread will eventually return it to zero and call our callback.

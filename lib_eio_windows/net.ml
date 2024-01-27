@@ -96,7 +96,7 @@ let getaddrinfo ~service node =
         | _ -> None)
     | _ -> None
   in
-  Err.run Eio_unix.run_in_systhread @@ fun () ->
+  Err.run (Eio_unix.run_in_systhread ~label:"getaddrinfo") @@ fun () ->
   let rec aux () =
     try
       Unix.getaddrinfo node service []
