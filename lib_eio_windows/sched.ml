@@ -192,38 +192,39 @@ let rec next t : [`Exit_scheduler] =
           diff
         | `Nothing -> (-1.)
       in
-      if timeout < 0. && t.active_ops = 0 then (
+      if timeout < 0. && t.active_ops = 0 && Lf_queue.is_empty t.run_q then (
         (* Nothing further can happen at this point. *)
         Lf_queue.close t.run_q;      (* Just to catch bugs if something tries to enqueue later *)
         `Exit_scheduler
       ) else (
         Atomic.set t.need_wakeup true;
-        if Lf_queue.is_empty t.run_q then (
-          (* At this point we're not going to check [run_q] again before sleeping.
-             If [need_wakeup] is still [true], this is fine because we don't promise to do that.
-             If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
-          Trace.suspend_domain Begin;
-          let cons fd acc = fd :: acc in
-          let read = FdSet.fold cons t.poll.to_read [] in
-          let write = FdSet.fold cons t.poll.to_write [] in
-          match Unix.select read write [] timeout with 
-          | exception Unix.(Unix_error (EINTR, _, _)) ->
-            Trace.suspend_domain End;
-            next t
-          | readable, writeable, _ ->
-            Trace.suspend_domain End;
-            Atomic.set t.need_wakeup false;
-            Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
-            List.iter (ready t [ `W ]) writeable; 
-            List.iter (ready t [ `R ]) readable;
-            next t
-        ) else (
-          (* Someone added a new job while we were setting [need_wakeup] to [true].
-             They might or might not have seen that, so we can't be sure they'll send an event. *)
+        let timeout =
+          if Lf_queue.is_empty t.run_q then timeout
+          else (
+            (* Either we're just checking for IO to avoid starvation, or
+               someone added a new job while we were setting [need_wakeup] to [true].
+               They might or might not have seen that, so we can't be sure they'll send an event. *)
+            0.0
+          )
+        in
+        (* At this point we're not going to check [run_q] again before sleeping.
+           If [need_wakeup] is still [true], this is fine because we don't promise to do that.
+           If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
+        Trace.suspend_domain Begin;
+        let cons fd acc = fd :: acc in
+        let read = FdSet.fold cons t.poll.to_read [] in
+        let write = FdSet.fold cons t.poll.to_write [] in
+        match Unix.select read write [] timeout with 
+        | exception Unix.(Unix_error (EINTR, _, _)) ->
+          Trace.suspend_domain End;
+          next t
+        | readable, writeable, _ ->
+          Trace.suspend_domain End;
           Atomic.set t.need_wakeup false;
           Lf_queue.push t.run_q IO;                   (* Re-inject IO job in the run queue *)
+          List.iter (ready t [ `W ]) writeable; 
+          List.iter (ready t [ `R ]) readable;
           next t
-        )
       )
 
 let with_sched fn =

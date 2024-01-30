@@ -197,3 +197,26 @@ Sending a very long vector over a flow should just send it in chunks, not fail:
 +Read 30000 bytes
 - : unit = ()
 ```
+
+## Starvation
+
+Even if a fiber is already ready to run, we still perform IO from time to time:
+
+```ocaml
+# run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let r, w = Eio_unix.pipe sw in
+  let rec spin () = Fiber.yield (); spin () in
+  Fiber.fork_daemon ~sw spin;
+  Fiber.both
+    (fun () ->
+       let buf = Cstruct.create 3 in
+       Eio.Flow.read_exact r buf;
+       traceln "Got %S" (Cstruct.to_string buf)
+    )
+    (fun () ->
+       Eio.Flow.write w [Cstruct.of_string "msg"]
+    )
++Got "msg"
+- : unit = ()
+```
