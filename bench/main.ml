@@ -12,6 +12,7 @@ let benchmarks = [
   "File.stat", Bench_fstat.run;
   "Path.stat", Bench_stat.run;
   "Flow.copy", Bench_copy.run;
+  "Eio_unix.run_in_systhread", Bench_systhread.run;
 ]
 
 let usage_error () =
