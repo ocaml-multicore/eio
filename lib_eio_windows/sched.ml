@@ -192,7 +192,7 @@ let rec next t : [`Exit_scheduler] =
           diff
         | `Nothing -> (-1.)
       in
-      if timeout < 0. && t.active_ops = 0 then (
+      if timeout < 0. && t.active_ops = 0 && Lf_queue.is_empty t.run_q then (
         (* Nothing further can happen at this point. *)
         Lf_queue.close t.run_q;      (* Just to catch bugs if something tries to enqueue later *)
         `Exit_scheduler
