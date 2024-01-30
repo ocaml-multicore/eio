@@ -3,14 +3,59 @@
    kept alive to wait for more work to arrive.
    This number was chosen somewhat arbitrarily but benchmarking
    shows it to be a good compromise.
-   Warning: do not update this number without updating
-   [find_thread_predicate_exists] below. *)
+   Warning: do not increase this number above 32. *)
 let max_standby_systhreads_per_domain = 20
 
 (** After completing a job, each thread will wait [max_wait_seconds]
     for new work to arrive. If it does not receive work within this
     period of time, the worker thread exits. *)
 let max_wait_seconds = 0.2
+
+module Bitfield : sig
+  type t
+  val create : unit -> t
+  val get : t -> int -> bool
+  val set : t -> int -> bool -> unit
+  val is_empty : t -> bool
+  val is_full : t -> bool
+  val find_ready : t -> int
+  val find_empty : t -> int
+end = struct
+  type t = int ref
+
+  let create () = ref 0
+
+  let[@inline always] get t i = !t land (1 lsl i) <> 0
+
+  let[@inline always] set t i = function
+  (* cannot do an inline if without allocating, but this pattern match is okay *)
+  | true -> t := !t lor (1 lsl i)
+  | false -> t := !t lxor (1 lsl i)
+
+  let[@inline always] is_empty t = !t = 0
+
+  let full = (1 lsl max_standby_systhreads_per_domain) - 1
+
+  let[@inline always] is_full t = !t = full
+
+  (** fls: Find Last Set (bit)
+      Returns the 0-indexed position of the least significant set bit in [v] *)
+  let[@inline always] fls v =
+    (* tz: trailing zeroes in [v] become ones, everything else is blanked out *)
+    let tz = lnot v land (v - 1) in
+    (* popcount() *)
+    let x = (tz land 0x55555555) + ((tz lsr 1) land 0x55555555) in
+    let x = (x land 0x33333333) + ((x lsr 2) land 0x33333333) in
+    let x = (x land 0x0F0F0F0F) + ((x lsr 4) land 0x0F0F0F0F) in
+    let x = (x land 0x00FF00FF) + ((x lsr 8) land 0x00FF00FF) in
+    (x land 0x0000FFFF) + ((x lsr 16) land 0x0000FFFF)
+
+  (** Finds least significant 1 *)
+  let[@inline always] find_ready t = fls !t
+
+  (** Finds least significant 0 *)
+  let[@inline always] find_empty t = (lnot !t) land full |> fls
+end
 
 type job =
 | New
@@ -20,9 +65,6 @@ type job =
   enqueue: ('a, exn) result -> unit;
 } -> job
 
-(** Can't [assert false] in [@poll error] code because it would allocate *)
-exception Assertion_failure
-
 (** This threadpool record type looks the way it does due to the constraints
    imposed onto it by the need to run certain bookkeeping operations inside of
    [@poll error] functions.
@@ -31,8 +73,8 @@ exception Assertion_failure
 type 'a t = {
   mutable initialized: bool; (* Have we setup the [Domain.at_exit] callback? *)
   threads: 'a array; (* An array of [Mailbox.t] *)
-  available: bool array; (* For each thread, is it ready to receive work? *)
-  mutable n_available: int; (* Number of threads waiting for work *)
+  available: Bitfield.t; (* For each thread, is it ready to receive work? *)
+  (* mutable n_available: int; (* Number of threads waiting for work *) *)
   mutable terminating: bool; (* Is the domain exiting? *)
 }
 
@@ -65,11 +107,10 @@ module Mailbox = struct
     (* This thread was never placed in the pool, there is nothing to clean up *)
     true
   | { i; _ } ->
-    match Array.unsafe_get pool.available i with
+    match Bitfield.get pool.available i with
     | true ->
       (* Cleanup and exit *)
-      Array.unsafe_set pool.available i false;
-      pool.n_available <- pool.n_available - 1;
+      Bitfield.set pool.available i false;
       true
     | false ->
       (* A thread switch happened right before the start of this function.
@@ -92,8 +133,7 @@ let create () =
   {
     initialized = false;
     threads = Array.make max_standby_systhreads_per_domain Mailbox.dummy;
-    available = Array.make max_standby_systhreads_per_domain false;
-    n_available = 0;
+    available = Bitfield.create ();
     terminating = false;
   }
 
@@ -104,56 +144,22 @@ let create () =
    their timeout to occur, introducing long unwanted pauses. *)
 let terminate pool =
   pool.terminating <- true;
-  if pool.n_available > 0 then
+  if not (Bitfield.is_empty pool.available) then
     for i = 0 to max_standby_systhreads_per_domain - 1 do
-      if Array.unsafe_get pool.available i
+      if Bitfield.get pool.available i
       then Mailbox.put (Array.unsafe_get pool.threads i) Exit
     done
-
-(* This function is called from within [@poll error] functions,
-   so we cannot allocate, call OCaml functions, or use for/while loops.
-   See https://discuss.ocaml.org/t/using-poll-error-attribute-to-implement-systhread-safe-data-structures/12804
-   The classic CAS retry loop is also out because it was observed
-   to cause extreme levels of contention.
-   Even with low contention, this unrolled loop is both faster and more predictable.
-   It is marked [@inline always] to make it usable from [@poll error] code.
-
-   This function returns the index of the first thread in the desired state [b].
-   As the name implies, at least one thread must be known to be in state [b]. *)
-   let[@inline always] find_thread_predicate_exists pool b =
-   if Array.unsafe_get pool.available 0 = b then 0 else
-   if Array.unsafe_get pool.available 1 = b then 1 else
-   if Array.unsafe_get pool.available 2 = b then 2 else
-   if Array.unsafe_get pool.available 3 = b then 3 else
-   if Array.unsafe_get pool.available 4 = b then 4 else
-   if Array.unsafe_get pool.available 5 = b then 5 else
-   if Array.unsafe_get pool.available 6 = b then 6 else
-   if Array.unsafe_get pool.available 7 = b then 7 else
-   if Array.unsafe_get pool.available 8 = b then 8 else
-   if Array.unsafe_get pool.available 9 = b then 9 else
-   if Array.unsafe_get pool.available 10 = b then 10 else
-   if Array.unsafe_get pool.available 11 = b then 11 else
-   if Array.unsafe_get pool.available 12 = b then 12 else
-   if Array.unsafe_get pool.available 13 = b then 13 else
-   if Array.unsafe_get pool.available 14 = b then 14 else
-   if Array.unsafe_get pool.available 15 = b then 15 else
-   if Array.unsafe_get pool.available 16 = b then 16 else
-   if Array.unsafe_get pool.available 17 = b then 17 else
-   if Array.unsafe_get pool.available 18 = b then 18 else
-   if Array.unsafe_get pool.available 19 = b then 19 else
-   raise Assertion_failure (* Can't [assert false] because it would allocate *)
 
 (* [@poll error] ensures this function is atomic within systhreads of a single domain.
    This function (re-)adds the worker systhread to the pool of available threads,
    or exits if the pool is already at maximum capacity. *)
 let[@poll error] keep_thread_or_exit pool (mbox : Mailbox.t) =
-  if pool.terminating || pool.n_available = max_standby_systhreads_per_domain
+  if pool.terminating || Bitfield.is_full pool.available
   then raise Thread.Exit
   else (
-    let i = find_thread_predicate_exists pool false in
+    let i = Bitfield.find_empty pool.available in
     mbox.i <- i;
-    pool.n_available <- pool.n_available + 1;
-    Array.unsafe_set pool.available i true;
+    Bitfield.set pool.available i true;
     Array.unsafe_set pool.threads i mbox
   )
 
@@ -163,12 +169,11 @@ let[@poll error] keep_thread_or_exit pool (mbox : Mailbox.t) =
    an option by conditionally updating the reference [res].
    The returned boolean indicates whether we updated [res] or not. *)
 let[@poll error] try_get_thread (pool : Mailbox.t t) res =
-  if pool.n_available = 0
+  if Bitfield.is_empty pool.available
   then false
   else (
-    let i = find_thread_predicate_exists pool true in
-    pool.n_available <- pool.n_available - 1;
-    Array.unsafe_set pool.available i false;
+    let i = Bitfield.find_ready pool.available in
+    Bitfield.set pool.available i false;
     res := Array.unsafe_get pool.threads i;
     true)
 
