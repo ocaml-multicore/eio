@@ -74,7 +74,6 @@ type 'a t = {
   mutable initialized: bool; (* Have we setup the [Domain.at_exit] callback? *)
   threads: 'a array; (* An array of [Mailbox.t] *)
   available: Bitfield.t; (* For each thread, is it ready to receive work? *)
-  (* mutable n_available: int; (* Number of threads waiting for work *) *)
   mutable terminating: bool; (* Is the domain exiting? *)
 }
 
@@ -147,7 +146,7 @@ let terminate pool =
   if not (Bitfield.is_empty pool.available) then
     for i = 0 to max_standby_systhreads_per_domain - 1 do
       if Bitfield.get pool.available i
-      then Mailbox.put (Array.unsafe_get pool.threads i) Exit
+      then Mailbox.put pool.threads.(i) Exit
     done
 
 (* [@poll error] ensures this function is atomic within systhreads of a single domain.
@@ -160,7 +159,7 @@ let[@poll error] keep_thread_or_exit pool (mbox : Mailbox.t) =
     let i = Bitfield.find_empty pool.available in
     mbox.i <- i;
     Bitfield.set pool.available i true;
-    Array.unsafe_set pool.threads i mbox
+    pool.threads.(i) <- mbox
   )
 
 (* [@poll error] ensures this function is atomic within systhreads of a single domain.
@@ -174,7 +173,7 @@ let[@poll error] try_get_thread (pool : Mailbox.t t) res =
   else (
     let i = Bitfield.find_ready pool.available in
     Bitfield.set pool.available i false;
-    res := Array.unsafe_get pool.threads i;
+    res := pool.threads.(i);
     true)
 
 let make_thread pool =
