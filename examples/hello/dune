@@ -1,4 +1,3 @@
 (executable
   (name main)
-  (libraries eio_main)
-  (modes byte))
+  (libraries eio_main))
