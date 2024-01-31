@@ -19,6 +19,7 @@ open Eio.Std
 [@@@alert "-unstable"]
 
 module Fd = Eio_unix.Fd
+module Trace = Eio.Private.Trace
 
 let socketpair k ~sw ~domain ~ty ~protocol wrap_a wrap_b =
   let open Effect.Deep in
@@ -90,11 +91,17 @@ let unwrap_backtrace = function
 module Impl = struct
   type t = unit
 
+  let domain_spawn ctx enqueue fn =
+    Domain.spawn @@ fun () ->
+    Trace.domain_spawn ~parent:(Eio.Private.Fiber_context.tid ctx);
+    Fun.protect fn ~finally:(fun () -> enqueue (Ok ()))
+
   let run_raw () fn =
     let domain = ref None in
-    Eio.Private.Suspend.enter "run-domain" (fun _ctx enqueue ->
-        domain := Some (Domain.spawn (fun () -> Fun.protect (wrap_backtrace fn) ~finally:(fun () -> enqueue (Ok ()))))
+    Eio.Private.Suspend.enter "run-domain" (fun ctx enqueue ->
+        domain := Some (domain_spawn ctx enqueue (wrap_backtrace fn))
       );
+    Trace.with_span "Domain.join" @@ fun () ->
     unwrap_backtrace (Domain.join (Option.get !domain))
 
   let run () fn =
@@ -102,10 +109,11 @@ module Impl = struct
     Eio.Private.Suspend.enter "run-domain" (fun ctx enqueue ->
         let cancelled, set_cancelled = Promise.create () in
         Eio.Private.Fiber_context.set_cancel_fn ctx (Promise.resolve set_cancelled);
-        domain := Some (Domain.spawn (fun () ->
-            Fun.protect (run_event_loop (wrap_backtrace (fun () -> fn ~cancelled)))
-              ~finally:(fun () -> enqueue (Ok ()))))
+        domain := Some (domain_spawn ctx enqueue (fun () ->
+            run_event_loop (wrap_backtrace (fun () -> fn ~cancelled)) ()
+          ))
       );
+    Trace.with_span "Domain.join" @@ fun () ->
     unwrap_backtrace (Domain.join (Option.get !domain))
 end
 
