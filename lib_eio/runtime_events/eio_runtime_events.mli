@@ -39,6 +39,7 @@ val get : id Runtime_events.User.t
 val try_get : id Runtime_events.User.t
 val put : id Runtime_events.User.t
 val suspend_domain : Runtime_events.Type.span Runtime_events.User.t
+val domain_spawn : id Runtime_events.User.t
 
 (** {2 Consuming events} *)
     
@@ -61,6 +62,7 @@ type event = [
   | `Exit_fiber of id           (** The running fiber ends. *)
   | `Suspend_domain of Runtime_events.Type.span  (** The domain asks the OS to wait for events. *)
   | `Suspend_fiber of string    (** The running fiber is suspended (until resumed by [`Fiber]). *)
+  | `Domain_spawn of id         (** The current domain was spawned by fiber [id]. *)
 ]
 
 val pp_event : Format.formatter -> event -> unit

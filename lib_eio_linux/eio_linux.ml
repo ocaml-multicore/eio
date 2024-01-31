@@ -408,12 +408,18 @@ module Domain_mgr = struct
     run_event_loop : (unit -> unit) -> unit -> unit;
   }
 
+  let domain_spawn sched k fn =
+    Domain.spawn @@ fun () ->
+    Trace.domain_spawn ~parent:(Suspended.tid k);
+    Fun.protect fn ~finally:(fun () -> Sched.enqueue_thread sched k ())
+
   let make ~run_event_loop = { run_event_loop }
 
   let run_raw _t fn =
     let domain = ref None in
-    Sched.enter "run-domain" (fun t k ->
-        domain := Some (Domain.spawn (fun () -> Fun.protect (wrap_backtrace fn) ~finally:(fun () -> Sched.enqueue_thread t k ())))
+    Sched.enter "run-domain" (fun sched k ->
+        let fn = wrap_backtrace fn in
+        domain := Some (domain_spawn sched k fn)
       );
     unwrap_backtrace (Domain.join (Option.get !domain))
 
@@ -422,16 +428,14 @@ module Domain_mgr = struct
     Sched.enter "run-domain" (fun sched k ->
         let cancelled, set_cancelled = Promise.create () in
         Fiber_context.set_cancel_fn k.fiber (Promise.resolve set_cancelled);
-        domain := Some (Domain.spawn (fun () ->
-            Fun.protect
-              (fun () ->
-                 let result = ref None in
-                 let fn = wrap_backtrace (fun () -> fn ~cancelled) in
-                 t.run_event_loop (fun () -> result := Some (fn ())) ();
-                 Option.get !result
-              )
-              ~finally:(fun () -> Sched.enqueue_thread sched k ())))
+        domain := Some (domain_spawn sched k (fun () ->
+            let result = ref None in
+            let fn = wrap_backtrace (fun () -> fn ~cancelled) in
+            t.run_event_loop (fun () -> result := Some (fn ())) ();
+            Option.get !result
+          ))
       );
+    Trace.with_span "Domain.join" @@ fun () ->
     unwrap_backtrace (Domain.join (Option.get !domain))
 end
 

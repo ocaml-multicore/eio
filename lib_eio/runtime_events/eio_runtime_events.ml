@@ -157,6 +157,7 @@ type Runtime_events.User.tag +=
   | Suspend_fiber
   | Fiber
   | Suspend_domain
+  | Domain_spawn
 
 let create_obj = Runtime_events.User.register "eio.create_obj" Create_obj id_obj_type
 let create_cc = Runtime_events.User.register "eio.create_cc" Create_cc id_cc_type
@@ -178,6 +179,7 @@ let exit_span = Runtime_events.User.register "eio.exit_span" Exit_span Runtime_e
 let fiber = Runtime_events.User.register "eio.fiber" Fiber Runtime_events.Type.int
 let suspend_fiber = Runtime_events.User.register "eio.suspend_fiber" Suspend_fiber string
 let suspend_domain = Runtime_events.User.register "eio.suspend_domain" Suspend_domain Runtime_events.Type.span
+let domain_spawn = Runtime_events.User.register "eio.domain_spawn" Domain_spawn Runtime_events.Type.int
 
 type event = [
   | `Create of id * [
@@ -198,6 +200,7 @@ type event = [
   | `Exit_fiber of id
   | `Suspend_domain of Runtime_events.Type.span
   | `Suspend_fiber of string
+  | `Domain_spawn of id
 ]
 
 let pf = Format.fprintf
@@ -221,6 +224,7 @@ let pp_event f (e : event) =
   | `Suspend_domain Begin -> pf f "domain suspend"
   | `Suspend_domain End -> pf f "domain resume"
   | `Suspend_fiber op -> pf f "fiber suspended: %s" op
+  | `Domain_spawn parent -> pf f "domain spawned by fiber %d" parent
 
 type 'a handler = int -> Runtime_events.Timestamp.t -> 'a -> unit
 
@@ -242,6 +246,7 @@ let add_callbacks (fn : event handler) x =
     | Put -> fn ring_id ts (`Put v)
     | Fiber -> fn ring_id ts (`Fiber v)
     | Exit_fiber -> fn ring_id ts (`Exit_fiber v)
+    | Domain_spawn -> fn ring_id ts (`Domain_spawn v)
     | _ -> ()
   in
   let span_event ring_id ts ev v =

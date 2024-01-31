@@ -48,6 +48,9 @@ val fiber : id -> unit
 val suspend_domain : Runtime_events.Type.span -> unit
 (** [suspend_domain] records when the event loop is stopped waiting for events from the OS. *)
 
+val domain_spawn : parent:id -> unit
+(** [domain_spawn ~parent] records that the current domain was spawned by fiber [parent]. *)
+
 val exit_cc : unit -> unit
 (** [exit_cc ()] records that the current CC has finished. *)
 
