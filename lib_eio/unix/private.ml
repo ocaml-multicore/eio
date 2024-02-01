@@ -16,10 +16,7 @@ let pipe sw = Effect.perform (Pipe sw)
 
 module Rcfd = Rcfd
 module Fork_action = Fork_action
-
-let run_in_systhread ?(label="systhread") fn =
-  Eio.Private.Suspend.enter label @@ fun _ctx enqueue ->
-  Thread_pool.run_on_systhread ~enqueue fn
+module Thread_pool = Thread_pool
 
 external eio_readlinkat : Unix.file_descr -> string -> Cstruct.t -> int = "eio_unix_readlinkat"
 

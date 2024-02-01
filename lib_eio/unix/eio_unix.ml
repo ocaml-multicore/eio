@@ -22,7 +22,7 @@ let () =
 let sleep d =
   Eio.Time.Mono.sleep (Effect.perform Private.Get_monotonic_clock) d
 
-let run_in_systhread = Private.run_in_systhread
+let run_in_systhread = Thread_pool.run_in_systhread
 
 module Ipaddr = Net.Ipaddr
 

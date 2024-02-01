@@ -59,6 +59,8 @@ type t = {
   need_wakeup : bool Atomic.t;
 
   sleep_q: Zzz.t;                       (* Fibers waiting for timers. *)
+
+  thread_pool : Eio_unix.Private.Thread_pool.t;
 }
 
 (* The message to send to [eventfd] (any character would do). *)
@@ -185,8 +187,12 @@ let rec next t : [`Exit_scheduler] =
     let now = Mtime_clock.now () in
     match Zzz.pop ~now t.sleep_q with
     | `Due k ->
+      (* A sleeping task is now due *)
       Lf_queue.push t.run_q IO;                 (* Re-inject IO job in the run queue *)
-      Suspended.continue k ()                   (* A sleeping task is now due *)
+      begin match k with
+        | Fiber k -> Suspended.continue k ()
+        | Fn fn -> fn (); next t
+      end
     | `Wait_until _ | `Nothing as next_due ->
       let timeout =
         match next_due with
@@ -242,8 +248,9 @@ let with_sched fn =
   in
   let poll = Poll.create () in
   let fd_map = Hashtbl.create 10 in
+  let thread_pool = Eio_unix.Private.Thread_pool.create ~sleep_q in
   let t = { run_q; poll; poll_maxi = (-1); fd_map; eventfd; eventfd_r;
-            active_ops = 0; need_wakeup = Atomic.make false; sleep_q } in
+            active_ops = 0; need_wakeup = Atomic.make false; sleep_q; thread_pool } in
   let eventfd_ri = Iomux.Util.fd_of_unix eventfd_r in
   Poll.set_index t.poll eventfd_ri eventfd_r Poll.Flags.pollin;
   if eventfd_ri > t.poll_maxi then
@@ -299,7 +306,7 @@ let await_timeout t (k : unit Suspended.t) time =
   match Fiber_context.get_error k.fiber with
   | Some e -> Suspended.discontinue k e
   | None ->
-    let node = Zzz.add t.sleep_q time k in
+    let node = Zzz.add t.sleep_q time (Fiber k) in
     Fiber_context.set_cancel_fn k.fiber (fun ex ->
         Zzz.remove t.sleep_q node;
         enqueue_failed_thread t k ex
@@ -359,6 +366,12 @@ let run ~extra_effects t main x =
           | Eio_unix.Private.Await_writable fd -> Some (fun k ->
               await_writable t { Suspended.k; fiber } fd
             )
+          | Eio_unix.Private.Thread_pool.Run_in_systhread fn -> Some (fun k ->
+              let k = { Suspended.k; fiber } in
+              let enqueue x = enqueue_thread t k (x, t.thread_pool) in
+              Eio_unix.Private.Thread_pool.submit t.thread_pool ~ctx:fiber ~enqueue fn;
+              next t
+            )
           | e -> extra_effects.Effect.Deep.effc e
       }
   in
@@ -368,10 +381,11 @@ let run ~extra_effects t main x =
     Domain_local_await.using
       ~prepare_for_await:Eio.Private.Dla.prepare_for_await
       ~while_running:(fun () ->
-        fork ~new_fiber (fun () ->
-          result := Some (with_op t main x);
+          fork ~new_fiber (fun () ->
+              Eio_unix.Private.Thread_pool.run t.thread_pool @@ fun () ->
+              result := Some (with_op t main x);
+            )
         )
-      )
   in
   match !result with
   | Some x -> x

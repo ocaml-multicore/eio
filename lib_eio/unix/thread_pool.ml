@@ -1,23 +1,18 @@
-(* This thread pool does not spawn threads in advance,
-   but up to [max_standby_systhreads_per_domain] threads are
-   kept alive to wait for more work to arrive.
-   This number was chosen somewhat arbitrarily but benchmarking
-   shows it to be a good compromise. *)
-let max_standby_systhreads_per_domain = 20
+module Zzz = Eio_utils.Zzz
 
 type job =
   | New
   | Exit
   | Job : {
-      fn: unit -> 'a;
-      enqueue: ('a, exn) result -> unit;
+      fn : unit -> 'a;
+      enqueue : ('a, exn) result -> unit;
     } -> job
 
 (* Mailbox with blocking semaphore *)
 module Mailbox = struct
   type t = {
-    available: Semaphore.Binary.t;
-    mutable cell: job;
+    available : Semaphore.Binary.t;
+    mutable cell : job;
   }
 
   let create () = { available = Semaphore.Binary.make false; cell = New }
@@ -33,69 +28,102 @@ module Mailbox = struct
     mbox.cell
 end
 
-(* A lock-free Treiber stack of systhreads on stand-by.
-   A fresh thread is created if no thread is immediately available.
-   When the domain exits all thread on stand-by are shutdown. *)
+module Free_pool = struct
+  type list =
+    | Empty
+    | Closed
+    | Free of Mailbox.t * list
+
+  type t = list Atomic.t
+
+  let rec close_list = function
+    | Free (x, xs) -> Mailbox.put x Exit; close_list xs
+    | Empty | Closed -> ()
+
+  let close t =
+    let items = Atomic.exchange t Closed in
+    close_list items
+
+  let rec drop t =
+    match Atomic.get t with
+    | Closed | Empty -> ()
+    | Free _ as items ->
+      if Atomic.compare_and_set t items Empty then close_list items
+      else drop t
+
+  let rec put t mbox =
+    match Atomic.get t with
+    | Closed -> assert false
+    | (Empty | Free _) as current ->
+      let next = Free (mbox, current) in
+      if not (Atomic.compare_and_set t current next) then
+        put t mbox (* concurrent update, try again *)
+
+  let make_thread t =
+    let mbox = Mailbox.create () in
+    let _thread : Thread.t = Thread.create (fun () ->
+        while true do
+          match Mailbox.take mbox with
+          | New -> assert false
+          | Exit -> raise Thread.Exit
+          | Job { fn; enqueue } ->
+            let result = try Ok (fn ()) with exn -> Error exn in
+            put t mbox;         (* Ensure thread is in free-pool before enqueuing. *)
+            enqueue result
+        done
+      ) ()
+    in
+    mbox
+
+  let rec get_thread t =
+    match Atomic.get t with
+    | Closed -> invalid_arg "Thread pool closed!"
+    | Empty -> make_thread t
+    | Free (mbox, next) as current ->
+      if Atomic.compare_and_set t current next then mbox
+      else get_thread t (* concurrent update, try again *)
+end
+
 type t = {
-  threads: (Mailbox.t * int) list Atomic.t;
-  terminating: bool Atomic.t;
+  free : Free_pool.t;
+  sleep_q : Zzz.t;
+  mutable timeout : Zzz.Key.t option;
 }
 
-let create () = { threads = Atomic.make []; terminating = Atomic.make false }
+type _ Effect.t += Run_in_systhread : (unit -> 'a) -> (('a, exn) result * t) Effect.t
 
-let terminate { threads; terminating } =
-  Atomic.set terminating true;
-  List.iter (fun (mbox, _) -> Mailbox.put mbox Exit) (Atomic.get threads)
+let terminate t =
+  Free_pool.close t.free;
+  Option.iter (fun key -> Zzz.remove t.sleep_q key; t.timeout <- None) t.timeout
 
-let rec keep_thread_or_exit ({ threads; _ } as pool) mbox =
-  match Atomic.get threads with
-  | (_, count) :: _ when count >= max_standby_systhreads_per_domain ->
-    (* We've got enough threads on stand-by, so discard the current thread *)
-    raise Thread.Exit
-  | current ->
-    let count = match current with
-      | [] -> 0
-      | (_, count) :: _ -> count
+let create ~sleep_q =
+  { free = Atomic.make Free_pool.Empty; sleep_q; timeout = None }
+
+let run t fn =
+  match fn () with
+  | x -> terminate t; x
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    terminate t;
+    Printexc.raise_with_backtrace ex bt
+
+let submit t ~ctx ~enqueue fn =
+  match Eio.Private.Fiber_context.get_error ctx with
+  | Some e -> enqueue (Error e)
+  | None ->
+    let mbox = Free_pool.get_thread t.free in
+    Mailbox.put mbox (Job { fn; enqueue })
+
+let run_in_systhread ?(label="systhread") fn =
+  Eio.Private.Trace.suspend_fiber label;
+  let r, t = Effect.perform (Run_in_systhread fn) in
+  if t.timeout = None then (
+    let time =
+      Mtime.add_span (Mtime_clock.now ()) Mtime.Span.(20 * ms)
+      |> Option.value ~default:Mtime.max_stamp
     in
-    if not (Atomic.compare_and_set threads current ((mbox, count + 1) :: current))
-    then keep_thread_or_exit pool mbox (* concurrent update, try again *)
-
-let make_thread pool =
-  let mbox = Mailbox.create () in
-  let _t : Thread.t = Thread.create (fun () ->
-      while true do
-        match Mailbox.take mbox with
-        | New -> assert false
-        | Exit -> raise Thread.Exit
-        | Job { fn; enqueue } ->
-          enqueue (try Ok (fn ()) with exn -> Error exn);
-          (* We're not yielding inside of [keep_thread_or_exit] so
-             no need to check [terminating] multiple times *)
-          if Atomic.get pool.terminating then raise Thread.Exit;
-          keep_thread_or_exit pool mbox
-      done
-    ) ()
-  in
-  mbox
-
-let rec get_thread ({ threads; _ } as pool) =
-  match Atomic.get threads with
-  | [] -> make_thread pool
-  | ((mbox, _count) :: rest) as current ->
-    if not (Atomic.compare_and_set threads current rest)
-    then get_thread pool (* concurrent update, try again *)
-    else mbox
-
-(* https://v2.ocaml.org/manual/parallelism.html#s:par_systhread_interaction
-   "Only one systhread at a time is allowed to run OCaml code on a particular domain."
-   So we keep a separate threadpool per domain. *)
-let key =
-  Domain.DLS.new_key @@ fun () ->
-  let pool = create () in
-  Domain.at_exit (fun () -> terminate pool);
-  pool
-
-let run_on_systhread ~enqueue fn =
-  let pool = Domain.DLS.get key in
-  let mbox = get_thread pool in
-  Mailbox.put mbox (Job { fn; enqueue })
+    t.timeout <- Some (Zzz.add t.sleep_q time (Fn (fun () -> Free_pool.drop t.free; t.timeout <- None)))
+  );
+  match r with
+  | Ok x -> x
+  | Error ex -> raise ex
