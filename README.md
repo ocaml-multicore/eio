@@ -259,10 +259,14 @@ If one of the `Fiber.both` fibers fails, the other is cancelled:
 Exception: Failure "Simulated error".
 ```
 
+<p align='center'>
+  <img src="./doc/traces/cancel-posix.svg"/>
+</p>
+
 What happened here was:
 
 1. `Fiber.both` created a new cancellation context for the child fibers.
-2. The first fiber ran, printed `x = 1` and yielded.
+2. The first fiber (the lower one in the diagram) ran, printed `x = 1` and yielded.
 3. The second fiber raised an exception.
 4. `Fiber.both` caught the exception and cancelled the context.
 5. The first thread's `yield` raised a `Cancelled` exception there.
