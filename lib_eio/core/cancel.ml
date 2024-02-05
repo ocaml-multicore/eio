@@ -117,7 +117,7 @@ let with_cc ~ctx:fiber ~parent ~protected purpose fn =
   let cleanup () = move_fiber_to parent fiber; deactivate () in
   match fn t with
   | x            -> cleanup (); Trace.exit_cc (); x
-  | exception ex -> cleanup (); Trace.error t.id ex; Trace.exit_cc (); raise ex
+  | exception ex -> cleanup (); Trace.exit_cc (); raise ex
 
 let protect fn =
   let ctx = Effect.perform Get_context in
@@ -138,6 +138,7 @@ let rec cancel_internal t ex acc_fibers =
   | On ->
     let bt = Printexc.get_raw_backtrace () in
     t.state <- Cancelling (ex, bt);
+    Trace.error t.id ex;
     let acc_fibers = Lwt_dllist.fold_r List.cons t.fibers acc_fibers in
     Lwt_dllist.fold_r (cancel_child ex) t.children acc_fibers
 and cancel_child ex t acc =

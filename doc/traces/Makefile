@@ -1,2 +1,4 @@
-all:
-	eio-trace render -f both-posix.fxt both-posix.svg
+all: both-posix.svg cancel-posix.svg
+
+%.svg: %.fxt
+	eio-trace render -f "$<" "$@"
