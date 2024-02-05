@@ -120,6 +120,13 @@ There are also backend-specific tests, e.g.
 
 Use these for tests that only make sense for one platform.
 
+### Formal verification
+
+Some parts of Eio have been formally verified:
+
+- https://github.com/addap/master-thesis/tree/main/documents [[video](https://discuss.ocaml.org/t/video-verifying-an-effect-based-cooperative-concurrency-scheduler-in-iris-by-adrian-dapprich/13825)]
+- https://github.com/clef-men/zebre/tree/main/theories/eio
+
 ## Code formatting
 
 Eio's code is indented using ocp-indent.
