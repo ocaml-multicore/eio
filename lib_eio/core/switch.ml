@@ -2,24 +2,31 @@ type t = {
   mutable fibers : int;         (* Total, including daemon_fibers and the main function *)
   mutable daemon_fibers : int;
   mutable exs : (exn * Printexc.raw_backtrace) option;
-  on_release : (unit -> unit) Lwt_dllist.t;
+  on_release_lock : Mutex.t;
+  mutable on_release : (unit -> unit) Lwt_dllist.t option;      (* [None] when closed. *)
   waiter : unit Single_waiter.t;              (* The main [top]/[sub] function may wait here for fibers to finish. *)
   cancel : Cancel.t;
 }
 
 type hook =
   | Null
-  | Hook : Domain.id * 'a Lwt_dllist.node -> hook
+  | Hook : Mutex.t * (unit -> unit) Lwt_dllist.node -> hook
 
 let null_hook = Null
 
-(* todo: would be good to make this thread-safe. While a switch can only be turned off from its own domain,
-   we might want to allow closing something explicitly from any domain, and that needs to remove the hook. *)
-let remove_hook = function
-  | Null -> ()
-  | Hook (id, n) ->
-    if Domain.self () <> id then invalid_arg "Switch hook removed from wrong domain!";
-    Lwt_dllist.remove n
+let cancelled () = assert false
+
+let try_remove_hook = function
+  | Null -> false
+  | Hook (on_release_lock, n) ->
+    Mutex.lock on_release_lock;
+    Lwt_dllist.remove n;
+    let fn = Lwt_dllist.get n in
+    Lwt_dllist.set n cancelled;
+    Mutex.unlock on_release_lock;
+    fn != cancelled
+
+let remove_hook x = ignore (try_remove_hook x : bool)
 
 let dump f t =
   Fmt.pf f "@[<v2>Switch %d (%d extra fibers):@,%a@]"
@@ -91,21 +98,20 @@ let rec await_idle t =
     Trace.try_get t.cancel.id;
     Single_waiter.await_protect t.waiter "Switch.await_idle" t.cancel.id
   done;
-  (* Call on_release handlers: *)
-  let queue = Lwt_dllist.create () in
-  Lwt_dllist.transfer_l t.on_release queue;
-  let rec release () =
-    match Lwt_dllist.take_opt_r queue with
-    | None when t.fibers = 0 && Lwt_dllist.is_empty t.on_release -> ()
-    | None -> await_idle t
-    | Some fn ->
-      begin
-        try Cancel.protect fn with
-        | ex -> fail t ex
-      end;
-      release ()
+  (* Collect on_release handlers: *)
+  let queue = ref [] in
+  let enqueue n =
+    let fn = Lwt_dllist.get n in
+    Lwt_dllist.set n cancelled;
+    queue := fn :: !queue
   in
-  release ()
+  Mutex.lock t.on_release_lock;
+  Option.iter (Lwt_dllist.iter_node_l enqueue) t.on_release;
+  t.on_release <- None;
+  Mutex.unlock t.on_release_lock;
+  (* Run on_release handlers *)
+  !queue |> List.iter (fun fn -> try Cancel.protect fn with ex -> fail t ex);
+  if t.fibers > 0 then await_idle t
 
 let maybe_raise_exs t =
   match t.exs with
@@ -118,7 +124,8 @@ let create cancel =
     daemon_fibers = 0;
     exs = None;
     waiter = Single_waiter.create ();
-    on_release = Lwt_dllist.create ();
+    on_release_lock = Mutex.create ();
+    on_release = Some (Lwt_dllist.create ());
     cancel;
   }
 
@@ -171,25 +178,22 @@ let () =
     )
 
 let on_release_full t fn =
-  if Domain.self () = t.cancel.domain then (
-    match t.cancel.state with
-    | On | Cancelling _ -> Lwt_dllist.add_r fn t.on_release
-    | Finished ->
-      match Cancel.protect fn with
-      | () -> invalid_arg "Switch finished!"
-      | exception ex ->
-        let bt = Printexc.get_raw_backtrace () in
-        Printexc.raise_with_backtrace (Release_error ("Switch finished!", ex)) bt
-  ) else (
+  Mutex.lock t.on_release_lock;
+  match t.on_release with
+  | Some handlers ->
+    let node = Lwt_dllist.add_r fn handlers in
+    Mutex.unlock t.on_release_lock;
+    node
+  | None ->
+    Mutex.unlock t.on_release_lock;
     match Cancel.protect fn with
-    | () -> invalid_arg "Switch accessed from wrong domain!"
+    | () -> invalid_arg "Switch finished!"
     | exception ex ->
       let bt = Printexc.get_raw_backtrace () in
-      Printexc.raise_with_backtrace (Release_error ("Switch accessed from wrong domain!", ex)) bt
-  )
+      Printexc.raise_with_backtrace (Release_error ("Switch finished!", ex)) bt
 
 let on_release t fn =
   ignore (on_release_full t fn : _ Lwt_dllist.node)
 
 let on_release_cancellable t fn =
-  Hook (t.cancel.domain, on_release_full t fn)
+  Hook (t.on_release_lock, on_release_full t fn)

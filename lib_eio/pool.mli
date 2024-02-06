@@ -24,11 +24,8 @@ val create :
     If [alloc] raises an exception then that use fails, but future calls to {!use} will retry.
 
     The [alloc] function is called in the context of the fiber trying to use the pool.
-    If the pool is shared between domains and the resources are attached to a switch, this
-    might cause trouble (since switches can't be shared between domains).
-    You might therefore want to make [alloc] request a resource from the main domain rather than creating one itself.
 
-    You should also take care about handling cancellation in [alloc], since resources are typically
+    You should take care about handling cancellation in [alloc], since resources are typically
     attached to a switch with the lifetime of the pool, meaning that if [alloc] fails then they won't
     be freed automatically until the pool itself is finished.
 

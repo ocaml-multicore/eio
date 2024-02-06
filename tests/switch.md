@@ -353,7 +353,8 @@ Multiple exceptions:
 - Invalid_argument("Switch finished!")
 ```
 
-Using switch from inside release handler:
+Attaching resources to a switch from inside release handler fails
+(possibly forking with it should be disallowed in future too):
 
 ```ocaml
 # run (fun sw ->
@@ -366,8 +367,13 @@ Using switch from inside release handler:
     );
     Switch.on_release sw (fun () ->
       Fiber.fork ~sw (fun () ->
-        Switch.on_release sw (fun () -> traceln "Late release");
         traceln "Starting release 2";
+        begin
+          try
+            Switch.on_release sw (fun () -> traceln "Immediate release");
+          with Invalid_argument msg ->
+            traceln "on_release refused: %s" msg
+        end;
         Fiber.yield ();
         traceln "Finished release 2"
       );
@@ -376,10 +382,11 @@ Using switch from inside release handler:
   );;
 +Main fiber done
 +Starting release 2
++Immediate release
++on_release refused: Switch finished!
 +Starting release 1
 +Finished release 2
 +Finished release 1
-+Late release
 - : unit = ()
 ```
 

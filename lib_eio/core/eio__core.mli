@@ -87,24 +87,41 @@ module Switch : sig
       Release handlers are run in LIFO order, in series.
 
       Note that [fn] is called within a {!Cancel.protect}, since aborting clean-up actions is usually a bad idea
-      and the switch may have been cancelled by the time it runs. *)
+      and the switch may have been cancelled by the time it runs.
+      You cannot attach new resources to a switch once the cancel hooks start to run.
+
+      This function is thread-safe (but not signal-safe).
+      If the switch finishes before [fn] can be registered,
+      it raises [Invalid_argument] and runs [fn] immediately instead. *)
 
   type hook
   (** A handle for removing a clean-up callback. *)
 
   val null_hook : hook
-  (** A dummy hook. Removing it does nothing. *)
+  (** A dummy hook. [try_remove_hook null_hook = false]. *)
 
   val on_release_cancellable : t -> (unit -> unit) -> hook
   (** Like [on_release], but the handler can be removed later.
 
       For example, opening a file will call [on_release_cancellable] to ensure the file is closed later.
       However, if the file is manually closed before that, it will use {!remove_hook} to remove the hook,
-      which is no longer needed. *)
+      which is no longer needed.
+
+      This function is thread-safe (but not signal-safe). *)
+
+  val try_remove_hook : hook -> bool
+  (** [try_remove_hook h] removes a previously-added hook.
+      Returns [true] if the hook was successfully removed, or [false] if another
+      domain ran it or removed it first.
+
+      This function is thread-safe (but not signal-safe). *)
 
   val remove_hook : hook -> unit
-  (** [remove_hook h] removes a previously-added hook.
-      If the hook has already been removed, this does nothing. *)
+  (** [remove_hook h] is [ignore (try_remove_hook h)].
+
+      For multi-domain code, consider using {!try_remove_hook} instead
+      so that you can handle the case of trying to close a resource
+      just as another domain is closing it or finishing the switch. *)
 
   (** {2 Debugging} *)
 
