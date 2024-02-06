@@ -12,4 +12,3 @@ To report any violations, please contact:
 * Patrick Ferris <patrick [at] sirref [dot] org>
 * Sudha Parimala <sudha [at] tarides [dot] com>
 * Thomas Leonard <thomasleonard [at] tarides [dot] com>
-* Vesa Karvonen <vesa [at] tarides [dot] com>
