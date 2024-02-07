@@ -69,6 +69,7 @@ module Pi = struct
     val unlink : t -> path -> unit
     val rmdir : t -> path -> unit
     val rename : t -> path -> _ dir -> path -> unit
+    val read_link : t -> path -> string
     val pp : t Fmt.t
     val native : t -> string -> string option
   end

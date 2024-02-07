@@ -539,6 +539,8 @@ end = struct
     let fd = Low_level.open_dir ~sw t.fd (if path = "" then "." else path) in
     Low_level.read_dir fd
 
+  let read_link t path = Low_level.read_link t.fd path
+
   let close t =
     match t.fd with
     | FD x -> Fd.close x

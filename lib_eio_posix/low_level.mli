@@ -67,6 +67,7 @@ external ctime_nsec : stat -> int = "ocaml_eio_posix_stat_ctime_nsec" [@@noalloc
 external mtime_nsec : stat -> int = "ocaml_eio_posix_stat_mtime_nsec" [@@noalloc]
 
 val realpath : string -> string
+val read_link : ?dirfd:fd -> string -> string
 
 val mkdir : ?dirfd:fd -> mode:int -> string -> unit
 val unlink : ?dirfd:fd -> dir:bool -> string -> unit

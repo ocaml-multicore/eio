@@ -178,6 +178,9 @@ val is_directory : _ t -> bool
 
     [is_directory t] is [kind ~follow:true t = `Directory]. *)
 
+val read_link : _ t -> string
+(** [read_link t] is the target of symlink [t]. *)
+
 (** {1 Other} *)
 
 val unlink : _ t -> unit

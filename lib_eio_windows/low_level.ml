@@ -135,6 +135,10 @@ let readdir path =
     let bt = Printexc.get_raw_backtrace () in
     Unix.closedir h; Printexc.raise_with_backtrace ex bt
 
+let read_link ?dirfd path =
+  in_worker_thread @@ fun () ->
+  Eio_unix.Private.read_link dirfd path
+
 external eio_readv : Unix.file_descr -> Cstruct.t array -> int = "caml_eio_windows_readv"
 
 external eio_preadv : Unix.file_descr -> Cstruct.t array -> Optint.Int63.t -> int = "caml_eio_windows_preadv"
