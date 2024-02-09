@@ -1,10 +1,12 @@
 module Fiber_context = Eio.Private.Fiber_context
+module Trace = Eio.Private.Trace
 module Lf_queue = Eio_utils.Lf_queue
+module Suspended = Eio_utils.Suspended  (* Adds tracing to continuations *)
 
 exception Deadlock_detected
 
 (* The scheduler could just return [unit], but this is clearer. *)
-type exit = Exit_scheduler
+type exit = [`Exit_scheduler]
 
 type stdenv = <
   clock : Clock.t;
@@ -44,7 +46,7 @@ let rec schedule t : exit =
   | None ->
     (* Nothing is runnable. Try advancing the clock. *)
     if Clock.Mono.try_advance t.mono_clock then schedule t
-    else Exit_scheduler      (* Finished (or deadlocked) *)
+    else `Exit_scheduler      (* Finished (or deadlocked) *)
 
 (* Run [main] in an Eio main loop. *)
 let run_full main =
@@ -58,6 +60,7 @@ let run_full main =
   end in
   let t = { run_q = Lf_queue.create (); mono_clock } in
   let rec fork ~new_fiber:fiber fn =
+    Trace.fiber (Fiber_context.tid fiber);
     (* Create a new fiber and run [fn] in it. *)
     Effect.Deep.match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; schedule t);
@@ -69,6 +72,7 @@ let run_full main =
         effc = fun (type a) (e : a Effect.t) : ((a, exit) Effect.Deep.continuation -> exit) option ->
           match e with
           | Eio.Private.Effects.Suspend f -> Some (fun k ->
+              let k = { Suspended.k; fiber } in
               (* Ask [f] to register whatever callbacks are needed to resume the fiber.
                  e.g. it might register a callback with a promise, for when that's resolved. *)
               f fiber (fun result ->
@@ -77,16 +81,17 @@ let run_full main =
                       (* Resume the fiber. *)
                       Fiber_context.clear_cancel_fn fiber;
                       match result with
-                      | Ok v -> Effect.Deep.continue k v
-                      | Error ex -> Effect.Deep.discontinue k ex
+                      | Ok v -> Suspended.continue k v
+                      | Error ex -> Suspended.discontinue k ex
                     )
                 );
               (* Switch to the next runnable fiber while this one's blocked. *)
               schedule t
             )
           | Eio.Private.Effects.Fork (new_fiber, f) -> Some (fun k ->
+              let k = { Suspended.k; fiber } in
               (* Arrange for the forking fiber to run immediately after the new one. *)
-              Lf_queue.push_head t.run_q (Effect.Deep.continue k);
+              Lf_queue.push_head t.run_q (Suspended.continue k);
               (* Create and run the new fiber (using fiber context [new_fiber]). *)
               fork ~new_fiber f
             )
@@ -98,7 +103,7 @@ let run_full main =
   in
   let new_fiber = Fiber_context.make_root () in
   let result = ref None in
-  let Exit_scheduler =
+  let `Exit_scheduler =
     Domain_local_await.using
       ~prepare_for_await:Eio.Private.Dla.prepare_for_await
       ~while_running:(fun () ->
