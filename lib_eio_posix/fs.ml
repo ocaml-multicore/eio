@@ -150,6 +150,10 @@ end = struct
     Err.run Low_level.readdir path
     |> Array.to_list
 
+  let read_link t path =
+    with_parent_dir t path @@ fun dirfd path ->
+    Err.run (Low_level.read_link ?dirfd) path
+
   let rename t old_path new_dir new_path =
     match Handler.as_posix_dir new_dir with
     | None -> invalid_arg "Target is not an eio_posix directory!"

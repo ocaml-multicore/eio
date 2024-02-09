@@ -53,6 +53,11 @@ let try_read_dir path =
   | names -> traceln "read_dir %a -> %a" Path.pp path Fmt.Dump.(list string) names
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
+let try_read_link path =
+  match Path.read_link path with
+  | target -> traceln "read_link %a -> %S" Path.pp path target
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+
 let try_unlink path =
   match Path.unlink path with
   | () -> traceln "unlink %a -> ok" Path.pp path
@@ -748,6 +753,27 @@ Unconfined:
 +<cwd:stat_subdir2/..> -> directory
 +<cwd:parent-symlink> -> symbolic link / Fs Permission_denied _
 +<cwd:missing1/missing2> -> Fs Not_found _
+- : unit = ()
+```
+
+# read_link
+
+```ocaml
+# run ~clear:["file"; "symlink"] @@ fun env ->
+  let fs = Eio.Stdenv.fs env in
+  let cwd = Eio.Stdenv.cwd env in
+  Switch.run @@ fun sw ->
+  Unix.symlink "file" "symlink";
+  try_read_link (cwd / "symlink");
+  try_read_link (fs / "symlink");
+  try_write_file (cwd / "file") "data" ~create:(`Exclusive 0o600);
+  try_read_link (cwd / "file");
+  try_read_link (cwd / "../unknown");
++read_link <cwd:symlink> -> "file"
++read_link <fs:symlink> -> "file"
++write <cwd:file> -> ok
++Eio.Io _, reading target of symlink <cwd:file>
++Eio.Io Fs Permission_denied _, reading target of symlink <cwd:../unknown>
 - : unit = ()
 ```
 

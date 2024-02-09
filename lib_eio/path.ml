@@ -211,3 +211,11 @@ let rec mkdirs ?(exists_ok=false) ~perm t =
     );
   try mkdir ~perm t
   with Exn.Io (Fs.E Already_exists _, _) when exists_ok && is_directory t -> ()
+
+let read_link t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.read_link dir path
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "reading target of symlink %a" pp t

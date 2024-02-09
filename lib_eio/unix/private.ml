@@ -21,3 +21,18 @@ let run_in_systhread ?(label="systhread") fn =
   Eio.Private.Suspend.enter label @@ fun _ctx enqueue ->
   let _t : Thread.t = Thread.create (fun () -> enqueue (try Ok (fn ()) with exn -> Error exn)) () in
   ()
+
+external eio_readlinkat : Unix.file_descr -> string -> Cstruct.t -> int = "eio_unix_readlinkat"
+
+let read_link fd path =
+  match fd with
+  | None -> Unix.readlink path
+  | Some fd ->
+    Fd.use_exn "readlink" fd @@ fun fd ->
+    let rec aux size =
+      let buf = Cstruct.create_unsafe size in
+      let len = eio_readlinkat fd path buf in
+      if len < size then Cstruct.to_string ~len buf
+      else aux (size * 4)
+    in
+    aux 1024

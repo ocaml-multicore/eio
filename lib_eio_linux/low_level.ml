@@ -481,6 +481,12 @@ let read_dir fd =
   in
   Eio_unix.run_in_systhread ~label:"read_dir" (fun () -> read_all [] fd)
 
+let read_link fd path =
+  try
+    with_parent_dir_fd fd path @@ fun parent leaf ->
+    Eio_unix.run_in_systhread ~label:"read_link" (fun () -> Eio_unix.Private.read_link (Some parent) leaf)
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+
 (* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
 let getaddrinfo ~service node =
   let to_eio_sockaddr_t {Unix.ai_family; ai_addr; ai_socktype; ai_protocol; _ } =

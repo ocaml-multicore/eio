@@ -97,6 +97,8 @@ module Private : sig
   module Rcfd = Rcfd
 
   module Fork_action = Fork_action
+
+  val read_link : Fd.t option -> string -> string
 end
 
 module Pi = Pi
