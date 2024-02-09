@@ -129,27 +129,23 @@ Likewise, switches can't be shared:
 Exception: Invalid_argument "Switch accessed from wrong domain!".
 ```
 
-Can't register a release handler across domains:
+Registering a release handler across domains:
 
 ```ocaml
 # run @@ fun mgr ->
   Switch.run @@ fun sw ->
-  let p, r = Promise.create () in
-  Fiber.both
-    (fun () ->
-       Eio.Domain_manager.run mgr @@ fun () ->
-       Switch.run @@ fun sw ->
-       Promise.resolve r sw;
-       Fiber.await_cancel ()
-    )
-    (fun () ->
-       let sw = Promise.await p in
-       Switch.on_release sw ignore
-    );;
-Exception: Invalid_argument "Switch accessed from wrong domain!".
+  Eio.Domain_manager.run mgr (fun () ->
+     Switch.on_release sw (fun () -> traceln "Handler called");
+     traceln "Handler registered in new domain";
+  );
+  traceln "Sub-domain finished; ending switch"
++Handler registered in new domain
++Sub-domain finished; ending switch
++Handler called
+- : unit = ()
 ```
 
-Can't release a release handler across domains:
+Cancelling a release handler across domains:
 
 ```ocaml
 # run @@ fun mgr ->
@@ -159,15 +155,18 @@ Can't release a release handler across domains:
     (fun () ->
        Eio.Domain_manager.run mgr @@ fun () ->
        Switch.run @@ fun sw ->
-       let hook = Switch.on_release_cancellable sw ignore in
+       let hook = Switch.on_release_cancellable sw (fun () -> traceln "BUG") in
        Promise.resolve r hook;
        Fiber.await_cancel ()
     )
     (fun () ->
        let hook = Promise.await p in
-       Switch.remove_hook hook
+       let cancelled = Switch.try_remove_hook hook in
+       traceln "Cancelled: %b" cancelled;
+       raise Exit
     );;
-Exception: Invalid_argument "Switch hook removed from wrong domain!".
++Cancelled: true
+Exception: Stdlib.Exit.
 ```
 
 Can't fork into another domain:
