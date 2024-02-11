@@ -54,7 +54,7 @@ let combine_exn ex = function
   | Some ex1 -> Exn.combine ex1 ex
 
 (* Note: raises if [t] is finished or called from wrong domain. *)
-let fail ?(bt=Printexc.get_callstack 0) t ex =
+let fail ?(bt=Exn.empty_backtrace) t ex =
   check_our_domain t;
   t.exs <- Some (combine_exn (ex, bt) t.exs);
   try

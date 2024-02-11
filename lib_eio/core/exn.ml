@@ -18,6 +18,8 @@ exception Cancelled of exn
 
 let create err = Io (err, { steps = [] })
 
+let empty_backtrace = Printexc.get_callstack 0
+
 let add_context ex fmt =
   fmt |> Fmt.kstr @@ fun msg ->
   match ex with
@@ -96,9 +98,9 @@ let combine e1 e2 =
   else match e1, e2 with
     | (Cancelled _, _), e
     | e, (Cancelled _, _) -> e  (* Don't need to report a cancelled exception if we have something better *)
-    | (Io (c1, t1), bt1), (Io (c2, t2), bt2) -> create (Multiple_io [(c1, t1, bt1); (c2, t2, bt2)]), Printexc.get_callstack 0
+    | (Io (c1, t1), bt1), (Io (c2, t2), bt2) -> create (Multiple_io [(c1, t1, bt1); (c2, t2, bt2)]), empty_backtrace
     | (Multiple exs, bt1), e2 -> Multiple (e2 :: exs), bt1
-    | e1, e2 -> Multiple [e2; e1], Printexc.get_callstack 0
+    | e1, e2 -> Multiple [e2; e1], empty_backtrace
 
 module Backend = struct
   type t = ..
