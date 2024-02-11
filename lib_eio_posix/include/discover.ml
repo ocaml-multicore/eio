@@ -8,7 +8,7 @@ let optional_flags = [
 
 let () =
   C.main ~name:"discover" (fun c ->
-      let c_flags = ["-D_LARGEFILE64_SOURCE"; "-D_XOPEN_SOURCE=700"; "-D_DARWIN_C_SOURCE"] in
+      let c_flags = ["-D_LARGEFILE64_SOURCE"; "-D_XOPEN_SOURCE=700"; "-D_DARWIN_C_SOURCE"; "-D_GNU_SOURCE"] in
       let includes = ["sys/types.h"; "sys/stat.h"; "fcntl.h"] in
       let extra_flags, missing_defs =
         C.C_define.import c ~c_flags ~includes
