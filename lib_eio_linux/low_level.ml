@@ -113,7 +113,7 @@ let noop () =
 
 let sleep_until time =
   Sched.enter "sleep" @@ fun t k ->
-  let job = Eio_utils.Zzz.add t.sleep_q time k in
+  let job = Eio_utils.Zzz.add t.sleep_q time (Fiber k) in
   Eio.Private.Fiber_context.set_cancel_fn k.fiber (fun ex ->
       Eio_utils.Zzz.remove t.sleep_q job;
       Sched.enqueue_failed_thread t k ex

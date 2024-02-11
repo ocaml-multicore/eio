@@ -67,6 +67,8 @@ type t = {
   need_wakeup : bool Atomic.t;
 
   sleep_q: Zzz.t;
+  
+  thread_pool : Eio_unix.Private.Thread_pool.t;
 }
 
 type _ Effect.t +=
@@ -213,8 +215,12 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
     let now = Mtime_clock.now () in
     match Zzz.pop ~now sleep_q with
     | `Due k ->
+      (* A sleeping task is now due *)
       Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
-      Suspended.continue k ()                   (* A sleeping task is now due *)
+      begin match k with
+        | Fiber k -> Suspended.continue k ()
+        | Fn fn -> fn (); schedule st
+      end
     | `Wait_until _ | `Nothing as next_due ->
       (* Handle any pending events before submitting. This is faster. *)
       match Uring.get_cqe_nonblocking uring with
@@ -447,6 +453,12 @@ let run ~extra_effects st main arg =
                   );
                 schedule st
             )
+          | Eio_unix.Private.Thread_pool.Run_in_systhread fn -> Some (fun k ->
+              let k = { Suspended.k; fiber } in
+              let enqueue x = enqueue_thread st k (x, st.thread_pool) in
+              Eio_unix.Private.Thread_pool.submit st.thread_pool ~ctx:fiber ~enqueue fn;
+              schedule st
+            )
           | Alloc -> Some (fun k ->
               match st.mem with
               | None -> continue k None
@@ -475,7 +487,7 @@ let run ~extra_effects st main arg =
         fork ~new_fiber (fun () ->
             Switch.run_protected ~name:"eio_linux" (fun sw ->
                 Fiber.fork_daemon ~sw (fun () -> monitor_event_fd st);
-                match main arg with
+                match Eio_unix.Private.Thread_pool.run st.thread_pool (fun () -> main arg) with
                 | x -> result := Some (Ok x)
                 | exception ex ->
                   let bt = Printexc.get_raw_backtrace () in
@@ -548,7 +560,8 @@ let with_sched ?(fallback=no_fallback) config fn =
         let io_q = Queue.create () in
         let mem_q = Queue.create () in
         with_eventfd @@ fun eventfd ->
-        fn { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q }
+        let thread_pool = Eio_unix.Private.Thread_pool.create ~sleep_q in
+        fn { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; thread_pool }
       with
       | x -> Uring.exit uring; x
       | exception ex ->

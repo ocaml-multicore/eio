@@ -51,8 +51,10 @@ val sleep : float -> unit
     It can also be used in programs that don't care about tracking determinism. *)
 
 val run_in_systhread : ?label:string -> (unit -> 'a) -> 'a
-(** [run_in_systhread fn] runs the function [fn] in a newly created system thread (a {! Thread.t}).
-    This allows blocking calls to be made non-blocking.
+(** [run_in_systhread fn] runs the function [fn] using a pool of system threads ({! Thread.t}).
+
+    This pool creates a new system thread if all threads are busy, it does not wait.
+    [run_in_systhread] allows blocking calls to be made non-blocking.
 
     @param label The operation name to use in trace output. *)
 
@@ -97,6 +99,8 @@ module Private : sig
   module Rcfd = Rcfd
 
   module Fork_action = Fork_action
+
+  module Thread_pool = Thread_pool
 
   val read_link : Fd.t option -> string -> string
 end

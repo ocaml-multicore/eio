@@ -11,7 +11,6 @@ open Eio.Std
 
 type ty = Read | Write
 
-(* todo: keeping a pool of workers is probably faster *)
 let in_worker_thread = Eio_unix.run_in_systhread
 
 module Fd = Eio_unix.Fd
