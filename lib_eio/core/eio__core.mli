@@ -469,6 +469,9 @@ module Exn : sig
   val pp_err : err Fmt.t
   (** [pp_err] formats an error code. *)
 
+  val empty_backtrace : Printexc.raw_backtrace
+  (** A backtrace with no frames. *)
+
   (** Extensible backend-specific exceptions. *)
   module Backend : sig
     type t = ..

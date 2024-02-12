@@ -5,7 +5,7 @@ type job =
   | Exit
   | Job : {
       fn : unit -> 'a;
-      enqueue : ('a, exn) result -> unit;
+      enqueue : ('a, Eio.Exn.with_bt) result -> unit;
     } -> job
 
 (* Mailbox with blocking semaphore *)
@@ -67,7 +67,12 @@ module Free_pool = struct
           | New -> assert false
           | Exit -> raise Thread.Exit
           | Job { fn; enqueue } ->
-            let result = try Ok (fn ()) with exn -> Error exn in
+            let result =
+              try Ok (fn ())
+              with exn ->
+                let bt = Printexc.get_raw_backtrace () in
+                Error (exn, bt)
+            in
             put t mbox;         (* Ensure thread is in free-pool before enqueuing. *)
             enqueue result
         done
@@ -90,7 +95,7 @@ type t = {
   mutable timeout : Zzz.Key.t option;
 }
 
-type _ Effect.t += Run_in_systhread : (unit -> 'a) -> (('a, exn) result * t) Effect.t
+type _ Effect.t += Run_in_systhread : (unit -> 'a) -> (('a, Eio.Exn.with_bt) result * t) Effect.t
 
 let terminate t =
   Free_pool.close t.free;
@@ -109,7 +114,7 @@ let run t fn =
 
 let submit t ~ctx ~enqueue fn =
   match Eio.Private.Fiber_context.get_error ctx with
-  | Some e -> enqueue (Error e)
+  | Some e -> enqueue (Error (e, Eio.Exn.empty_backtrace))
   | None ->
     let mbox = Free_pool.get_thread t.free in
     Mailbox.put mbox (Job { fn; enqueue })
@@ -126,4 +131,4 @@ let run_in_systhread ?(label="systhread") fn =
   );
   match r with
   | Ok x -> x
-  | Error ex -> raise ex
+  | Error (ex, bt) -> Printexc.raise_with_backtrace ex bt
