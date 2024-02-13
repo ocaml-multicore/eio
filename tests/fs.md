@@ -519,6 +519,45 @@ Create a sandbox, write a file with it, then read it from outside:
 - : unit = ()
 ```
 
+```ocaml
+# run ~clear:["foo"] @@ fun env ->
+  let fs = env#fs in
+  let cwd = env#cwd in
+  Path.mkdirs (cwd / "foo/bar") ~perm:0o700;
+  let test ?(succeeds=true) path =
+    Eio.Exn.Backend.show := succeeds;
+    try
+      Switch.run @@ fun sw ->
+      let _ : _ Path.t = Path.open_dir ~sw path in
+      traceln "open_dir %a -> OK" Path.pp path
+    with ex ->
+      traceln "@[<h>%a@]" Eio.Exn.pp ex
+  in
+  let reject = test ~succeeds:false in
+  test (cwd / "foo/bar");
+  reject (cwd / "..");
+  test (cwd / ".");
+  reject (cwd / "/");
+  test (cwd / "foo/bar/..");
+  test (fs / "foo/bar");
+  Unix.symlink ".." "foo/up";
+  test (cwd / "foo/up/foo/bar");
+  Unix.symlink "/" "foo/root";
+  reject (cwd / "foo/root/..");
++open_dir <cwd:foo/bar> -> OK
++Eio.Io Fs Permission_denied _, opening directory <cwd:..>
++open_dir <cwd:.> -> OK
++Eio.Io Fs Permission_denied _, opening directory <cwd:/>
++open_dir <cwd:foo/bar/..> -> OK
++open_dir <fs:foo/bar> -> OK
++open_dir <cwd:foo/up/foo/bar> -> OK
++Eio.Io Fs Permission_denied _, opening directory <cwd:foo/root/..>
+- : unit = ()
+
+# Eio.Exn.Backend.show := false
+- : unit = ()
+```
+
 # Unconfined FS access
 
 We create a directory and chdir into it.
@@ -684,7 +723,7 @@ let try_rename t =
 Confined:
 
 ```ocaml
-# run ~clear:["tmp"; "dir"] @@ fun env -> try_rename env#cwd;;
+# run ~clear:["tmp"; "dir"; "foo"] @@ fun env -> try_rename env#cwd;;
 +mkdir <cwd:tmp> -> ok
 +rename <cwd:tmp> to <cwd:dir> -> ok
 +write <cwd:foo> -> ok
