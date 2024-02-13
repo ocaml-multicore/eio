@@ -14,6 +14,11 @@ open Eio.Std
 
 type fd := Eio_unix.Fd.t
 
+type dir_fd =
+  | Fd of fd    (** Confined to [fd]. *)
+  | Cwd         (** Confined to "." *)
+  | Fs          (** Unconfined "."; also allows absolute paths *)
+
 val await_readable : string -> fd -> unit
 val await_writable : string -> fd -> unit
 
@@ -44,7 +49,7 @@ type stat
 val create_stat : unit -> stat
 
 val fstat : buf:stat -> fd -> unit
-val fstatat : buf:stat -> ?dirfd:fd -> follow:bool -> string -> unit
+val fstatat : buf:stat -> follow:bool -> dir_fd -> string -> unit
 
 external blksize : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_blksize_bytes" "ocaml_eio_posix_stat_blksize_native" [@@noalloc]
 external nlink   : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_nlink_bytes" "ocaml_eio_posix_stat_nlink_native" [@@noalloc]
@@ -67,13 +72,13 @@ external ctime_nsec : stat -> int = "ocaml_eio_posix_stat_ctime_nsec" [@@noalloc
 external mtime_nsec : stat -> int = "ocaml_eio_posix_stat_mtime_nsec" [@@noalloc]
 
 val realpath : string -> string
-val read_link : ?dirfd:fd -> string -> string
+val read_link : dir_fd -> string -> string
 
-val mkdir : ?dirfd:fd -> mode:int -> string -> unit
-val unlink : ?dirfd:fd -> dir:bool -> string -> unit
-val rename : ?old_dir:fd -> string -> ?new_dir:fd -> string -> unit
+val mkdir : mode:int -> dir_fd -> string -> unit
+val unlink : dir:bool -> dir_fd -> string -> unit
+val rename : dir_fd -> string -> dir_fd -> string -> unit
 
-val readdir : string -> string array
+val readdir : dir_fd -> string -> string array
 
 val readv : fd -> Cstruct.t array -> int
 val writev : fd -> Cstruct.t array -> int
@@ -103,9 +108,10 @@ module Open_flags : sig
 
   val empty : t
   val ( + ) : t -> t -> t
+  val ( +? ) : t -> t option -> t       (** Add if available *)
 end
 
-val openat : ?dirfd:fd -> sw:Switch.t -> mode:int -> string -> Open_flags.t -> fd
+val openat : sw:Switch.t -> mode:int -> dir_fd -> string -> Open_flags.t -> fd
 (** Note: the returned FD is always non-blocking and close-on-exec. *)
 
 module Process : sig
@@ -134,3 +140,11 @@ module Process : sig
   val exit_status : t -> Unix.process_status Promise.t
   (** [exit_status t] is a promise for the process's exit status. *)
 end
+
+(**/**)
+(* Exposed for testing only. *)
+module Resolve : sig
+  val open_beneath_fallback : ?dirfd:Unix.file_descr -> sw:Switch.t -> mode:int -> string -> Open_flags.t -> fd
+  val open_unconfined : sw:Switch.t -> mode:int -> fd option -> string -> Open_flags.t -> fd
+end
+(**/**)

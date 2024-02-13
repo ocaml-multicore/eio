@@ -20,11 +20,10 @@ module Thread_pool = Thread_pool
 
 external eio_readlinkat : Unix.file_descr -> string -> Cstruct.t -> int = "eio_unix_readlinkat"
 
-let read_link fd path =
+let read_link_unix fd path =
   match fd with
   | None -> Unix.readlink path
   | Some fd ->
-    Fd.use_exn "readlink" fd @@ fun fd ->
     let rec aux size =
       let buf = Cstruct.create_unsafe size in
       let len = eio_readlinkat fd path buf in
@@ -32,3 +31,5 @@ let read_link fd path =
       else aux (size * 4)
     in
     aux 1024
+
+let read_link fd path = Fd.use_exn_opt "readlink" fd (fun fd -> read_link_unix fd path)

@@ -10,6 +10,7 @@ CAMLprim value caml_eio_posix_writev(value, value);
 CAMLprim value caml_eio_posix_preadv(value, value, value);
 CAMLprim value caml_eio_posix_pwritev(value, value, value);
 CAMLprim value caml_eio_posix_openat(value, value, value, value);
+CAMLprim value caml_eio_posix_fdopendir(value);
 CAMLprim value caml_eio_posix_mkdirat(value, value, value);
 CAMLprim value caml_eio_posix_unlinkat(value, value, value);
 CAMLprim value caml_eio_posix_renameat(value, value, value, value);

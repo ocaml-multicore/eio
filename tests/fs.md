@@ -542,8 +542,10 @@ Create a sandbox, write a file with it, then read it from outside:
   test (fs / "foo/bar");
   Unix.symlink ".." "foo/up";
   test (cwd / "foo/up/foo/bar");
+  reject (cwd / "foo/up/../bar");
   Unix.symlink "/" "foo/root";
   reject (cwd / "foo/root/..");
+  reject (cwd / "missing");
 +open_dir <cwd:foo/bar> -> OK
 +Eio.Io Fs Permission_denied _, opening directory <cwd:..>
 +open_dir <cwd:.> -> OK
@@ -551,7 +553,9 @@ Create a sandbox, write a file with it, then read it from outside:
 +open_dir <cwd:foo/bar/..> -> OK
 +open_dir <fs:foo/bar> -> OK
 +open_dir <cwd:foo/up/foo/bar> -> OK
++Eio.Io Fs Permission_denied _, opening directory <cwd:foo/up/../bar>
 +Eio.Io Fs Permission_denied _, opening directory <cwd:foo/root/..>
++Eio.Io Fs Not_found _, opening directory <cwd:missing>
 - : unit = ()
 
 # Eio.Exn.Backend.show := false
@@ -595,17 +599,22 @@ Reading directory entries under `cwd` and outside of `cwd`.
   Path.with_open_dir (cwd / "readdir") @@ fun tmpdir ->
   try_mkdir (tmpdir / "test-1");
   try_mkdir (tmpdir / "test-2");
+  try_write_file ~create:(`Exclusive 0o600) (tmpdir / "test-1/file") "data";
   try_read_dir tmpdir;
   try_read_dir (tmpdir / ".");
   try_read_dir (tmpdir / "..");
-  try_read_dir (tmpdir / "test-3");;
+  try_read_dir (tmpdir / "test-3");
+  Unix.symlink "test-1" "readdir/link-1";
+  try_read_dir (tmpdir / "link-1");
 +mkdir <cwd:readdir> -> ok
 +mkdir <readdir:test-1> -> ok
 +mkdir <readdir:test-2> -> ok
++write <readdir:test-1/file> -> ok
 +read_dir <readdir> -> ["test-1"; "test-2"]
 +read_dir <readdir:.> -> ["test-1"; "test-2"]
 +Eio.Io Fs Permission_denied _, reading directory <readdir:..>
 +Eio.Io Fs Not_found _, reading directory <readdir:test-3>
++read_dir <readdir:link-1> -> ["file"]
 - : unit = ()
 ```
 

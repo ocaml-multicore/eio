@@ -31,12 +31,11 @@ module Impl = struct
       let with_actions cwd fn = match cwd with
         | None -> fn actions
         | Some ((dir, path) : Eio.Fs.dir_ty Eio.Path.t) ->
-          match Fs.Handler.as_posix_dir dir with
+          match Fs.as_posix_dir dir with
           | None -> Fmt.invalid_arg "cwd is not an OS directory!"
-          | Some posix ->
-            Fs.Dir.with_parent_dir posix path @@ fun dirfd s ->
+          | Some dirfd ->
             Switch.run ~name:"spawn_unix" @@ fun launch_sw ->
-            let cwd = Low_level.openat ?dirfd ~sw:launch_sw ~mode:0 s Low_level.Open_flags.(rdonly + directory) in
+            let cwd = Low_level.openat ~sw:launch_sw ~mode:0 dirfd path Low_level.Open_flags.(rdonly + directory) in
             fn (Low_level.Process.Fork_action.fchdir cwd :: actions)
       in
       with_actions cwd @@ fun actions ->

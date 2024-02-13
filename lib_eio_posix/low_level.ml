@@ -15,6 +15,11 @@ module Fd = Eio_unix.Fd
 module Trace = Eio.Private.Trace
 module Fiber_context = Eio.Private.Fiber_context
 
+type dir_fd =
+  | Fd of Fd.t
+  | Cwd         (* Confined to "." *)
+  | Fs          (* Unconfined "."; also allows absolute paths *)
+
 let in_worker_thread label = Eio_unix.run_in_systhread ~label
 
 let await_readable op fd =
@@ -130,19 +135,6 @@ let read_entries h =
   in
   aux []
 
-let readdir path =
-  in_worker_thread "readdir" @@ fun () ->
-  let h = Unix.opendir path in
-  match read_entries h with
-  | r -> Unix.closedir h; r
-  | exception ex ->
-    let bt = Printexc.get_raw_backtrace () in
-    Unix.closedir h; Printexc.raise_with_backtrace ex bt
-
-let read_link ?dirfd path =
-  in_worker_thread "read_link" @@ fun () ->
-  Eio_unix.Private.read_link dirfd path
-
 external eio_readv : Unix.file_descr -> Cstruct.t array -> int = "caml_eio_posix_readv"
 external eio_writev : Unix.file_descr -> Cstruct.t array -> int = "caml_eio_posix_writev"
 
@@ -191,58 +183,241 @@ module Open_flags = struct
 
   let empty = 0
   let ( + ) = ( lor )
+
+  let ( +? ) x = function
+    | None -> x
+    | Some y -> x + y
 end
 
-let rec with_dirfd op dirfd fn =
-  match dirfd with
-  | None -> fn (Obj.magic Config.at_fdcwd : Unix.file_descr)
-  | Some dirfd -> Fd.use_exn op dirfd fn
-  | exception Unix.Unix_error(Unix.EINTR, _, "") -> with_dirfd op dirfd fn
+let at_fdcwd : Unix.file_descr = Obj.magic Config.at_fdcwd
 
 external eio_openat : Unix.file_descr -> string -> Open_flags.t -> int -> Unix.file_descr = "caml_eio_posix_openat"
+let eio_openat fd path flags mode =
+  let fd = Option.value fd ~default:at_fdcwd in
+  eio_openat fd path Open_flags.(flags + cloexec) mode
 
-let openat ?dirfd ~sw ~mode path flags =
-  with_dirfd "openat" dirfd @@ fun dirfd ->
-  Switch.check sw;
-  in_worker_thread "openat" (fun () -> eio_openat dirfd path Open_flags.(flags + cloexec + nonblock) mode)
-  |> Fd.of_unix ~sw ~blocking:false ~close_unix:true
+module Resolve = struct
+  (** Resolve a path one step at a time.
+      This simulates how the kernel does path resolution using O_RESOLVE_BENEATH,
+      for kernels that don't support it.
+
+      These functions should be called from a worker sys-thread, since lookups can
+      be slow, especially on network file-systems and user-space mounts.
+
+      When doing lookups, we cannot ask the kernel to follow ".." links, since the
+      directory might get moved during the operation. e.g.
+
+      Process 1: openat [/tmp/sandbox/] "foo/../bar"
+      Process 2: mv /tmp/sandbox/foo /var/foo
+
+      Process 1 starts by opening "foo", then process 2 moves it, then process 1
+      follows the "../bar", opening /var/bar, to which it should not have access.
+      Instead, we keep a stack of opened directories and pop one when we see "..".
+      todo: possibly we should check we have search permission on ".." before
+      doing this.
+  *)
+
+  type dir_stack =
+    | Base of Unix.file_descr option          (* Base dir from user (do not close). None if cwd *)
+    | Tmp of Unix.file_descr * dir_stack      (* Will be closed if in [dir_stack] at end. *)
+
+  type state = {
+    mutable dir_stack : dir_stack;            (* Directories already opened, for ".." *)
+    mutable max_follows : int;                (* Max symlinks before reporting ELOOP *)
+  }
+
+  let current_dir state =
+    match state.dir_stack with
+    | Base b -> b
+    | Tmp (x, _) -> Some x
+
+  let parse_rel s =
+    match Path.parse s with
+    | Relative r -> r
+    | Absolute _ -> raise @@ Eio.Fs.err (Eio.Fs.Permission_denied (Err.Absolute_path))
+
+  let decr_max_follows state x =
+    if state.max_follows > 0 then
+      state.max_follows <- state.max_follows - 1
+    else
+      raise (Unix.Unix_error (ELOOP, "resolve", x))
+
+  (* Fallback for systems without O_RESOLVE_BENEATH: *)
+  let rec resolve state (path : Path.Rel.t) =
+    (* traceln "Consider %a" Path.Rel.dump path; *)
+    match path with
+    | Leaf { basename; trailing_slash } -> if trailing_slash then basename ^ "/" else basename
+    | Self -> "."
+    | Parent xs ->
+      begin match state.dir_stack with
+        | Base _ ->
+          raise @@ Eio.Fs.err (Permission_denied (Err.Outside_sandbox (Path.Rel.to_string path)))
+        | Tmp (p, ps) ->
+          Unix.close p;
+          state.dir_stack <- ps;
+          resolve state xs
+      end
+    | Child (x, xs) ->
+      let base = current_dir state in
+      match eio_openat base x Open_flags.(nofollow + directory +? path) 0 with
+      | new_base ->
+        state.dir_stack <- Tmp (new_base, state.dir_stack);
+        resolve state xs
+      | exception (Unix.Unix_error ((ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) ->
+        match Eio_unix.Private.read_link_unix base x with
+        | target ->
+          decr_max_follows state x;
+          resolve state (Path.Rel.concat (parse_rel target) xs)
+        | exception Unix.Unix_error _ -> raise e (* Not a symlink; report original error instead *)
+
+  let close_tmp state =
+    let rec aux = function
+      | Base _ -> ()
+      | Tmp (x, xs) -> Unix.close x; aux xs
+    in
+    aux state.dir_stack
+
+  let with_state base fn =
+    (* [max_follows] matches Linux's value; see path_resolution(7) *)
+    let state = { dir_stack = Base base; max_follows = 40 } in
+    match fn state with
+    | x -> close_tmp state; x
+    | exception ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      close_tmp state;
+      Printexc.raise_with_backtrace ex bt
+
+  let open_beneath_fallback ?dirfd:base ~sw ~mode path flags =
+    let path = parse_rel path in
+    with_state base @@ fun state ->
+    (* Resolve the parent, then try to open the last component with [flags + nofollow].
+       If it's a symlink, retry with the target. *)
+    let rec aux leaf =
+      let base = current_dir state in
+      match eio_openat base leaf Open_flags.(flags + nofollow) mode with
+      | fd -> Fd.of_unix fd ~sw ~blocking:false ~close_unix:true
+      | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) ->
+        (* Note: Linux uses ELOOP or ENOTDIR. FreeBSD used EMLINK. NetBSD uses EFTYPE. *)
+        match Eio_unix.Private.read_link_unix base leaf with
+        | target ->
+          decr_max_follows state leaf;
+          aux (resolve state (parse_rel target))
+        | exception Unix.Unix_error _ -> raise e
+    in
+    aux (resolve state path)
+
+  (* Resolve until the last component and call [fn dir leaf].
+     That returns [Error `Symlink] if [leaf] is a symlink, in
+     which case we read its target and continue. *)
+  let with_parent_loop ?dirfd:base path fn =
+    let path = parse_rel path in
+    with_state base @@ fun state ->
+    let rec aux leaf =
+      let base = current_dir state in
+      match fn base leaf with
+      | Ok x -> x
+      | Error (`Symlink e) ->
+        decr_max_follows state leaf;
+        match Eio_unix.Private.read_link_unix base leaf with
+        | target -> aux (resolve state (parse_rel target))
+        | exception Unix.Unix_error _ when Option.is_some e -> raise (Option.get e)
+    in
+    aux (resolve state path)
+
+  (* If confined, resolve until the last component and call [fn dir leaf].
+     If unconfined, just call [fn None path].
+     If you need to follow [leaf] if it turns out to be a symlink,
+     use [with_parent_loop] instead. *)
+  let with_parent op fd path fn = (* todo: use o_resolve_beneath if available *)
+    match fd with
+    | Fs -> fn None path
+    | Cwd -> with_parent_loop path (fun x y -> Ok (fn x y))
+    | Fd dirfd ->
+      Fd.use_exn op dirfd @@ fun dirfd ->
+      with_parent_loop ~dirfd path (fun x y -> Ok (fn x y))
+
+  let open_unconfined ~sw ~mode dirfd path flags =
+    Fd.use_exn_opt "openat" dirfd @@ fun dirfd ->
+    eio_openat dirfd path Open_flags.(flags + nonblock) mode
+    |> Fd.of_unix ~sw ~blocking:false ~close_unix:true
+
+  let open_beneath ?dirfd ~sw ~mode path flags =
+    match Open_flags.resolve_beneath with
+    | Some o_resolve_beneath ->
+      open_unconfined ~sw ~mode dirfd path Open_flags.(flags + o_resolve_beneath)
+    | None ->
+      Fd.use_exn_opt "open_beneath" dirfd @@ fun dirfd ->
+      open_beneath_fallback ?dirfd ~sw ~mode path flags
+end
+
+let openat ~sw ~mode fd path flags =
+  let path = if path = "" then "." else path in
+  in_worker_thread "openat" @@ fun () ->
+  match fd with
+  | Fs -> Resolve.open_unconfined ~sw ~mode None path flags
+  | Cwd -> Resolve.open_beneath ~sw ~mode ?dirfd:None path flags
+  | Fd dirfd -> Resolve.open_beneath ~sw ~mode ~dirfd path flags
+
+external eio_fdopendir : Unix.file_descr -> Unix.dir_handle = "caml_eio_posix_fdopendir"
+
+let readdir dirfd path =
+  in_worker_thread "readdir" @@ fun () ->
+  let use h =
+    match read_entries h with
+    | r -> Unix.closedir h; r
+    | exception ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      Unix.closedir h;
+      Printexc.raise_with_backtrace ex bt
+  in
+  let use_confined dirfd =
+    Resolve.with_parent_loop ?dirfd path @@ fun dirfd path ->
+    match eio_openat dirfd path Open_flags.(rdonly + directory + nofollow) 0 with
+    | fd -> Ok (use (eio_fdopendir fd))
+    | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) -> Error (`Symlink (Some e))
+  in
+  match dirfd with
+  | Fs -> use (Unix.opendir path)
+  | Cwd -> use_confined None
+  | Fd dirfd ->
+    Fd.use_exn "readdir" dirfd @@ fun dirfd ->
+    use_confined (Some dirfd)
 
 external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_posix_mkdirat"
 
-let mkdir ?dirfd ~mode path =
-  with_dirfd "mkdirat" dirfd @@ fun dirfd ->
+let mkdir ~mode dirfd path =
   in_worker_thread "mkdir" @@ fun () ->
+  Resolve.with_parent "mkdir" dirfd path @@ fun dirfd path ->
+  let dirfd = Option.value dirfd ~default:at_fdcwd in
   eio_mkdirat dirfd path mode
 
 external eio_unlinkat : Unix.file_descr -> string -> bool -> unit = "caml_eio_posix_unlinkat"
 
-let unlink ?dirfd ~dir path =
-  with_dirfd "unlink" dirfd @@ fun dirfd ->
+let unlink ~dir dirfd path =
   in_worker_thread "unlink" @@ fun () ->
+  Resolve.with_parent "unlink" dirfd path @@ fun dirfd path ->
+  let dirfd = Option.value dirfd ~default:at_fdcwd in
   eio_unlinkat dirfd path dir
 
 external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit = "caml_eio_posix_renameat"
 
-let rename ?old_dir old_path ?new_dir new_path =
-  with_dirfd "rename-old" old_dir @@ fun old_dir ->
-  with_dirfd "rename-new" new_dir @@ fun new_dir ->
+let rename old_dir old_path new_dir new_path =
   in_worker_thread "rename" @@ fun () ->
+  Resolve.with_parent "rename-old" old_dir old_path @@ fun old_dir old_path ->
+  Resolve.with_parent "rename-new" new_dir new_path @@ fun new_dir new_path ->
+  let old_dir = Option.value old_dir ~default:at_fdcwd in
+  let new_dir = Option.value new_dir ~default:at_fdcwd in
   eio_renameat old_dir old_path new_dir new_path
+
+let read_link dirfd path =
+  in_worker_thread "read_link" @@ fun () ->
+  Resolve.with_parent "read_link" dirfd path @@ fun dirfd path ->
+  Eio_unix.Private.read_link_unix dirfd path
 
 type stat
 external create_stat : unit -> stat = "caml_eio_posix_make_stat"
 external eio_fstatat : stat -> Unix.file_descr -> string -> int -> unit = "caml_eio_posix_fstatat"
 external eio_fstat   : stat -> Unix.file_descr -> unit = "caml_eio_posix_fstat"
-
-let fstat ~buf fd =
-  Fd.use_exn "fstat" fd @@ fun fd ->
-  eio_fstat buf fd
-
-let fstatat ~buf ?dirfd ~follow path =
-  in_worker_thread "fstat" @@ fun () ->
-  let flags = if follow then 0 else Config.at_symlink_nofollow in
-  with_dirfd "fstatat" dirfd @@ fun dirfd ->
-  eio_fstatat buf dirfd path flags
 
 external blksize : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_blksize_bytes" "ocaml_eio_posix_stat_blksize_native" [@@noalloc]
 external nlink   : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_nlink_bytes" "ocaml_eio_posix_stat_nlink_native" [@@noalloc]
@@ -263,6 +438,27 @@ external mtime_sec : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_mtime_se
 external atime_nsec : stat -> int = "ocaml_eio_posix_stat_atime_nsec" [@@noalloc]
 external ctime_nsec : stat -> int = "ocaml_eio_posix_stat_ctime_nsec" [@@noalloc]
 external mtime_nsec : stat -> int = "ocaml_eio_posix_stat_mtime_nsec" [@@noalloc]
+
+let fstat ~buf fd =
+  Fd.use_exn "fstat" fd @@ fun fd ->
+  eio_fstat buf fd
+
+let fstatat_confined ~buf ~follow dirfd path =
+  Resolve.with_parent_loop ?dirfd path @@ fun dirfd path ->
+  let dirfd = Option.value dirfd ~default:at_fdcwd in
+  eio_fstatat buf dirfd path Config.at_symlink_nofollow;
+  if follow && kind buf = `Symbolic_link then Error (`Symlink None) else Ok ()
+
+let fstatat ~buf ~follow dirfd path =
+  in_worker_thread "fstat" @@ fun () ->
+  match dirfd with
+  | Fs ->
+    let flags = if follow then 0 else Config.at_symlink_nofollow in
+    eio_fstatat buf at_fdcwd path flags
+  | Cwd -> fstatat_confined ~buf ~follow None path
+  | Fd dirfd ->
+    Fd.use_exn "fstat" dirfd @@ fun dirfd ->
+    fstatat_confined ~buf ~follow (Some dirfd) path
 
 let lseek fd off cmd =
   Fd.use_exn "lseek" fd @@ fun fd ->
@@ -330,14 +526,14 @@ module Process = struct
   (* Wait for [pid] to exit and then resolve [exit_status] to its status. *)
   let reap t exit_status =
     Eio.Condition.loop_no_mutex Eio_unix.Process.sigchld (fun () ->
-         Mutex.lock t.lock;
-         match Unix.waitpid [WNOHANG] t.pid with
-         | 0, _ -> Mutex.unlock t.lock; None                (* Not ready; wait for next SIGCHLD *)
-         | p, status ->
-           assert (p = t.pid);
-           Promise.resolve exit_status status;
-           Mutex.unlock t.lock;
-           Some ()
+        Mutex.lock t.lock;
+        match Unix.waitpid [WNOHANG] t.pid with
+        | 0, _ -> Mutex.unlock t.lock; None                (* Not ready; wait for next SIGCHLD *)
+        | p, status ->
+          assert (p = t.pid);
+          Promise.resolve exit_status status;
+          Mutex.unlock t.lock;
+          Some ()
       )
 
   let spawn ~sw actions =

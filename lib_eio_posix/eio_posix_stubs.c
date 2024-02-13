@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
+#include <dirent.h>
 
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
@@ -526,4 +527,14 @@ CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs
   Store_field(v_result, 2, get_msghdr_fds(&msg));
 
   CAMLreturn(v_result);
+}
+
+CAMLprim value caml_eio_posix_fdopendir(value v_fd) {
+  DIR *d = fdopendir(Int_val(v_fd));
+  if (!d)
+    caml_uerror("fdopendir", Nothing);
+
+  value v_result = caml_alloc_small(1, Abstract_tag);
+  DIR_Val(v_result) = d;
+  return v_result;
 }

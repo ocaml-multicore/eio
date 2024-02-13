@@ -87,6 +87,11 @@ let rec use_exn_list op xs k =
     use_exn_list op xs @@ fun xs ->
     k (x :: xs)
 
+let use_exn_opt op x f =
+  match x with
+  | None -> f None
+  | Some x -> use_exn op x (fun x -> f (Some x))
+
 let stdin = of_unix_no_hook Unix.stdin
 let stdout = of_unix_no_hook Unix.stdout
 let stderr= of_unix_no_hook Unix.stderr
