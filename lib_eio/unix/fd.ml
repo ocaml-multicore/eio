@@ -77,6 +77,8 @@ let is_seekable t =
     t.seekable <- if seekable then Yes else No;
     seekable
 
+let is_open t = Rcfd.is_open t.fd
+
 let rec use_exn_list op xs k =
   match xs with
   | [] -> k []
