@@ -535,7 +535,8 @@ let with_eventfd fn =
 let with_sched ?(fallback=no_fallback) config fn =
   let { queue_depth; n_blocks; block_size; polling_timeout } = config in
   match Uring.create ~queue_depth ?polling_timeout () with
-  | exception Unix.Unix_error(Unix.ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
+  | exception Unix.Unix_error(ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
+  | exception Unix.Unix_error(EPERM, _, _) -> fallback (`Msg "io_uring is not available (permission denied)")
   | uring ->
     let probe = Uring.get_probe uring in
     if not (Uring.op_supported probe Uring.Op.shutdown) then (
