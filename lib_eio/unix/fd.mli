@@ -55,6 +55,12 @@ val remove : t -> Unix.file_descr option
 
     Returns [None] if [t] is closed by another fiber first. *)
 
+val is_open : t -> bool
+(** [is_open t] returns [true] until [t] has been marked as closing, after which it returns [false].
+
+    This is mostly useful inside the callback of {!use}, to test whether
+    another fiber has started closing [t] (in which case you may decide to stop early). *)
+
 (** {2 Flags} *)
 
 val is_blocking : t -> bool
