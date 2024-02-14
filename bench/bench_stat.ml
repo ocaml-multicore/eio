@@ -38,25 +38,19 @@ module Bench_dir = struct
     | File { name; size; perm } ->
       Fmt.pf ppf "file %s (0o%o) %Lu" name perm size
 
-  let make random fs t =
-    let limit = Eio.Semaphore.make 32 in        (* Prevent FD exhaustion *)
-    let rec aux fs = function
+  let make fs t =
+    let rec aux iter fs = function
       | Dir { name; perm; children } ->
         let dir = fs / name in
-        Eio.Semaphore.acquire limit;
         Path.mkdir ~perm dir;
-        Eio.Semaphore.release limit;
-        Fiber.List.iter (aux dir) children
+        iter (aux List.iter dir) children
       | File { name; size; perm } ->
-        Eio.Semaphore.acquire limit;
         let buf = Cstruct.create (Int64.to_int size) in
-        Eio.Flow.read_exact random buf;
         Path.with_open_out ~create:(`If_missing perm) (fs / name) (fun oc ->
             Eio.Flow.write oc [ buf ]
-          );
-        Eio.Semaphore.release limit
+          )
     in
-    aux fs t
+    aux Fiber.List.iter fs t
 end
 
 let with_tmp_dir ~fs prefix suffix fn =
@@ -66,30 +60,27 @@ let with_tmp_dir ~fs prefix suffix fn =
   fn dir
 
 let bench_stat root =
-  let limit = Eio.Semaphore.make 32 in        (* Prevent FD exhaustion *)
-  let rec aux dir =
-    Eio.Semaphore.acquire limit;
+  let rec aux level dir =
     let { Eio.File.Stat.kind; perm; size; _ } = Path.stat ~follow:false dir in
     match kind with
     | `Directory ->
       let items = Path.read_dir dir in
-      Eio.Semaphore.release limit;
-      let children = items |> Fiber.List.map (fun f -> aux (dir / f)) in
+      let map = if level > 3 then List.map else Fiber.List.map ?max_fibers:None in
+      let children = items |> map (fun f -> aux (level + 1) (dir / f)) in
       let name = Path.native_exn dir |> Filename.basename in
       Bench_dir.Dir { name; perm; children }
     | `Regular_file ->
-      Eio.Semaphore.release limit;
       let name = Path.native_exn dir |> Filename.basename in
       File { name; perm; size = Optint.Int63.to_int64 size }
     | _ -> assert false
   in
-  aux root
+  aux 1 root
 
 let file name = Bench_dir.File { name; perm = 0o644; size = 128L }
 let dir name children = Bench_dir.Dir { name; perm = 0o700; children }
 
 let random_bench_dir ~n ~levels =
-  if levels < 0 then invalid_arg "Levels should be > 0";
+  if levels < 1 then invalid_arg "Levels should be >= 1";
   let rec loop root = function
     | 1 -> (
         match root with
@@ -109,16 +100,16 @@ let random_bench_dir ~n ~levels =
   in
   loop (dir "root" []) levels
 
-let run_bench ~n ~levels ~random ~root ~clock =
+let run_bench ~n ~levels ~root ~clock =
   let dir = random_bench_dir ~levels ~n |> Bench_dir.sort in
   traceln "Going to create %i files and directories" (Bench_dir.size dir);
   let create_time =
     let t0 = Eio.Time.now clock in
-    Bench_dir.make random root dir;
+    Bench_dir.make root dir;
     let t1 = Eio.Time.now clock in
     t1 -. t0
   in
-  traceln "Created %i files and directories in %.2f s" (Bench_dir.size dir) create_time;
+  traceln "Created in %.2f s" create_time;
   let bench () =
     Gc.full_major ();
     let stat0 = Gc.stat () in
@@ -136,16 +127,26 @@ let run_bench ~n ~levels ~random ~root ~clock =
     | _ -> failwith "Stat not the same as the spec"
   in
   let time, minor, major = bench () in
+  traceln "Statted in %.2f s" time;
+  let remove_time =
+    let t0 = Eio.Time.now clock in
+    let root = root / "root" in
+    Eio.Path.read_dir root |> Fiber.List.iter (fun item -> Eio.Path.rmtree (root / item));
+    Eio.Path.rmdir root;
+    let t1 = Eio.Time.now clock in
+    t1 -. t0
+  in
+  traceln "Removed in %.2f s" remove_time;
   [ 
     Metric.create "create-time" (`Float (1e3 *. create_time)) "ms" (Fmt.str "Time to create %i files and directories" (Bench_dir.size dir));
     Metric.create "stat-time" (`Float (1e3 *. time)) "ms" (Fmt.str "Time to stat %i files and directories" (Bench_dir.size dir));
     Metric.create "stat-minor" (`Float (1e-3 *. minor)) "kwords" (Fmt.str "Minor words allocated to stat %i files and directories" (Bench_dir.size dir));
-    Metric.create "stat-major" (`Float (1e-3 *. major)) "kwords" (Fmt.str "Major words allocated  %i files and directories" (Bench_dir.size dir))
+    Metric.create "stat-major" (`Float (1e-3 *. major)) "kwords" (Fmt.str "Major words allocated  %i files and directories" (Bench_dir.size dir));
+    Metric.create "remove-time" (`Float (1e3 *. remove_time)) "ms" "Time to remove everything";
   ]
 
 let run env =
   let fs = Eio.Stdenv.fs env in
-  let random = Eio.Stdenv.secure_random env in
   let clock = Eio.Stdenv.clock env in
   with_tmp_dir ~fs "eio-bench-" "-stat" @@ fun root ->
-  run_bench ~n:20 ~levels:4 ~root ~random ~clock
+  run_bench ~n:20 ~levels:4 ~root ~clock

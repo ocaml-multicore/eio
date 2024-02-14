@@ -1,3 +1,5 @@
+open Eio.Std
+
 let benchmarks = [
   "Promise", Bench_promise.run;
   "Cancel", Bench_cancel.run;
@@ -22,6 +24,7 @@ let usage_error () =
 
 let () =
   Eio_main.run @@ fun env ->
+  traceln "Using %s backend" env#backend_id;
   let benchmarks =
     match Array.to_list Sys.argv with
     | [_] -> benchmarks
@@ -35,7 +38,7 @@ let () =
     | _ -> usage_error ()
   in
   let run (name, fn) =
-    Eio.traceln "Running %s..." name;
+    traceln "Running %s..." name;
     let metrics = fn env in
     `Assoc [
       "name", `String name;
