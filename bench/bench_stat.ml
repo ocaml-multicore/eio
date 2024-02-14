@@ -118,7 +118,7 @@ let run_bench ~n ~levels ~random ~root ~clock =
     let t1 = Eio.Time.now clock in
     t1 -. t0
   in
-  traceln "Created %i files and directories in %.2f s" (Bench_dir.size dir) create_time;
+  traceln "Created in %.2f s" create_time;
   let bench () =
     Gc.full_major ();
     let stat0 = Gc.stat () in
@@ -136,11 +136,20 @@ let run_bench ~n ~levels ~random ~root ~clock =
     | _ -> failwith "Stat not the same as the spec"
   in
   let time, minor, major = bench () in
+  traceln "Statted in %.2f s" time;
+  let remove_time =
+    let t0 = Eio.Time.now clock in
+    Eio.Path.read_dir root |> List.iter (fun item -> Eio.Path.rmtree (root / item));
+    let t1 = Eio.Time.now clock in
+    t1 -. t0
+  in
+  traceln "Removed in %.2f s" remove_time;
   [ 
     Metric.create "create-time" (`Float (1e3 *. create_time)) "ms" (Fmt.str "Time to create %i files and directories" (Bench_dir.size dir));
     Metric.create "stat-time" (`Float (1e3 *. time)) "ms" (Fmt.str "Time to stat %i files and directories" (Bench_dir.size dir));
     Metric.create "stat-minor" (`Float (1e-3 *. minor)) "kwords" (Fmt.str "Minor words allocated to stat %i files and directories" (Bench_dir.size dir));
-    Metric.create "stat-major" (`Float (1e-3 *. major)) "kwords" (Fmt.str "Major words allocated  %i files and directories" (Bench_dir.size dir))
+    Metric.create "stat-major" (`Float (1e-3 *. major)) "kwords" (Fmt.str "Major words allocated  %i files and directories" (Bench_dir.size dir));
+    Metric.create "remove-time" (`Float (1e3 *. remove_time)) "ms" "Time to remove everything";
   ]
 
 let run env =
