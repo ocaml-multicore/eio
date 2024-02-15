@@ -270,15 +270,21 @@ let with_chunk ~fallback fn =
   | None ->
     fallback ()
 
-let openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
-  let use dir =
-    let res = Sched.enter "openat2" (enqueue_openat2 (access, flags, perm, resolve, dir, path)) in
+let rec openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
+  let use dir_opt =
+    let res = Sched.enter "openat2" (enqueue_openat2 (access, flags, perm, resolve, dir_opt, path)) in
     if res < 0 then (
       Switch.check sw;    (* If cancelled, report that instead. *)
-      raise @@ Err.wrap_fs (Uring.error_of_errno res) "openat2" ""
-    );
-    let fd : Unix.file_descr = Obj.magic res in
-    Fd.of_unix ~sw ?seekable ~close_unix:true fd
+      match Uring.error_of_errno res with
+      | EAGAIN ->
+        (* Linux can return this due to a concurrent update.
+           It also seems to happen sometimes with no concurrent updates. *)
+        openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path
+      | e -> raise @@ Err.wrap_fs e "openat2" ""
+    ) else (
+      let fd : Unix.file_descr = Obj.magic res in
+      Fd.of_unix ~sw ?seekable ~close_unix:true fd
+    )
   in
   match dir with
   | None -> use None
