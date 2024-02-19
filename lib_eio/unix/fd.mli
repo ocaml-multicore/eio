@@ -35,6 +35,9 @@ val use_exn : string -> t -> (Unix.file_descr -> 'a) -> 'a
 val use_exn_list : string -> t list -> (Unix.file_descr list -> 'a) -> 'a
 (** [use_exn_list op fds fn] calls {!use_exn} on each FD in [fds], calling [fn wrapped_fds] on the results. *)
 
+val use_exn_opt : string -> t option -> (Unix.file_descr option -> 'a) -> 'a
+(** [use_exn_opt op fd fn] is like {!use_exn}, but if [fd = None] then it just calls [fn None]. *)
+
 (** {2 Closing} *)
 
 val close : t -> unit

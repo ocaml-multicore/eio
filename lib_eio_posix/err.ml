@@ -1,5 +1,5 @@
 type Eio.Exn.Backend.t +=
-  | Outside_sandbox of string * string
+  | Outside_sandbox of string
   | Absolute_path
   | Invalid_leaf of string
 
@@ -7,7 +7,7 @@ let unclassified_error e = Eio.Exn.create (Eio.Exn.X e)
 
 let () =
   Eio.Exn.Backend.register_pp (fun f -> function
-      | Outside_sandbox (path, dir) -> Fmt.pf f "Outside_sandbox (%S, %S)" path dir; true
+      | Outside_sandbox path -> Fmt.pf f "Outside_sandbox (%S)" path; true
       | Absolute_path -> Fmt.pf f "Absolute_path"; true
       | Invalid_leaf x -> Fmt.pf f "Invalid_leaf %S" x; true
       | _ -> false

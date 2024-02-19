@@ -46,7 +46,7 @@ Changing directory using a file descriptor:
 ```ocaml
 # Eio_posix.run @@ fun _env ->
   Switch.run @@ fun sw ->
-  let root = Eio_posix.Low_level.openat ~sw ~mode:0 "/" Eio_posix.Low_level.Open_flags.(rdonly + directory) in
+  let root = Eio_posix.Low_level.openat ~sw ~mode:0 Fs "/" Eio_posix.Low_level.Open_flags.(rdonly + directory) in
   let child = Process.spawn ~sw Process.Fork_action.[
     fchdir root;
     execve "/usr/bin/env"

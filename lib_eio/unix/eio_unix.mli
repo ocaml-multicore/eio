@@ -103,6 +103,7 @@ module Private : sig
   module Thread_pool = Thread_pool
 
   val read_link : Fd.t option -> string -> string
+  val read_link_unix : Unix.file_descr option -> string -> string
 end
 
 module Pi = Pi
