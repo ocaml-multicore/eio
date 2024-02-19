@@ -287,6 +287,9 @@ module Resolve = struct
       close_tmp state;
       Printexc.raise_with_backtrace ex bt
 
+  let trailing_slash x =
+    x <> "" && x.[String.length x - 1] = '/'
+
   let open_beneath_fallback ?dirfd:base ~sw ~mode path flags =
     let path = parse_rel path in
     with_state base @@ fun state ->
@@ -294,10 +297,11 @@ module Resolve = struct
        If it's a symlink, retry with the target. *)
     let rec aux leaf =
       let base = current_dir state in
+      let flags = if trailing_slash leaf then Open_flags.(flags + directory) else flags in
       match eio_openat base leaf Open_flags.(flags + nofollow) mode with
       | fd -> Fd.of_unix fd ~sw ~blocking:false ~close_unix:true
       | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) ->
-        (* Note: Linux uses ELOOP or ENOTDIR. FreeBSD used EMLINK. NetBSD uses EFTYPE. *)
+        (* Note: Linux uses ELOOP or ENOTDIR. FreeBSD uses EMLINK. NetBSD uses EFTYPE. *)
         match Eio_unix.Private.read_link_unix base leaf with
         | target ->
           decr_max_follows state leaf;
@@ -337,6 +341,7 @@ module Resolve = struct
       with_parent_loop ~dirfd path (fun x y -> Ok (fn x y))
 
   let open_unconfined ~sw ~mode dirfd path flags =
+    let flags = if trailing_slash path then Open_flags.(flags + directory) else flags in
     Fd.use_exn_opt "openat" dirfd @@ fun dirfd ->
     eio_openat dirfd path Open_flags.(flags + nonblock) mode
     |> Fd.of_unix ~sw ~blocking:false ~close_unix:true

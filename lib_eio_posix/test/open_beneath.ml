@@ -38,9 +38,7 @@ let test base path =
   check ~mode:0 base path L.Open_flags.rdonly;
   if path <> "" then (
     check ~mode:0 base (path ^ "/") L.Open_flags.rdonly;
-    (* This doesn't work on macos, which seems to allow opening files even with
-       a trailing "/" (but not with a trailing "/."): *)
-    (* check ~mode:0 base (path ^ "/.") L.Open_flags.rdonly *)
+    check ~mode:0 base (path ^ "/.") L.Open_flags.rdonly
   )
     
 let test_denied base path =
