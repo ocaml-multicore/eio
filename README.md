@@ -838,6 +838,25 @@ A program that operates on the current directory will probably want to use `cwd`
 whereas a program that accepts a path from the user will probably want to use `fs`,
 perhaps with `open_dir` to constrain all access to be within that directory.
 
+On systems that provide the [cap_enter][] system call, you can ask the OS to reject accesses
+that don't use capabilities.
+[examples/capsicum/](./examples/capsicum/) contains an example that
+restricts itself to using a directory passed on the command-line, and then
+tries reading `/etc/passwd` via the stdlib.
+Running on FreeBSD, you should see:
+
+```
+mkdir /tmp/cap
+dune exec -- ./examples/capsicum/main.exe /tmp/cap
++Opened directory <fs:/tmp/cap>        
++Capsicum mode enabled
++Using the file-system via the directory resource works:
++Writing <cap:capsicum-test.txt>...
++Read: "A test file"
++Bypassing Eio and accessing other resources should fail in Capsicum mode:
+Fatal error: exception Sys_error("/etc/passwd: Not permitted in capability mode")
+```
+
 ## Running processes
 
 Spawning a child process can be done using the [Eio.Process][] module:
@@ -1810,3 +1829,4 @@ Some background about the effects system can be found in:
 [Dev meetings]: https://docs.google.com/document/d/1ZBfbjAkvEkv9ldumpZV5VXrEc_HpPeYjHPW_TiwJe4Q
 [Olly]: https://github.com/tarides/runtime_events_tools
 [eio-trace]: https://github.com/ocaml-multicore/eio-trace
+[cap_enter]: https://man.freebsd.org/cgi/man.cgi?query=cap_enter

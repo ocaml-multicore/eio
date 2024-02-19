@@ -4,7 +4,7 @@
  (foreign_stubs
   (language c)
   (include_dirs include)
-  (names fork_action stubs))
+  (names fork_action stubs cap))
  (libraries eio eio.utils unix threads mtime.clock.os))
 
 (rule
@@ -15,6 +15,7 @@
    (run %{bin:lintcstubs_arity_cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Fd.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Private.cmt}
+        %{dep:.eio_unix.objs/byte/eio_unix__Cap.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Fork_action.cmt}))))
 
 (rule

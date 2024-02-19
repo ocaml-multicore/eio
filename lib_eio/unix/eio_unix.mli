@@ -66,6 +66,9 @@ val pipe : Switch.t -> source_ty r * sink_ty r
 module Process = Process
 (** Spawning child processes with extra control. *)
 
+module Cap = Cap
+(** Capsicum security. *)
+
 (** The set of resources provided to a process on a Unix-compatible system. *)
 module Stdenv : sig
   type base = <

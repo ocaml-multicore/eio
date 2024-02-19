@@ -28,6 +28,7 @@ module Ipaddr = Net.Ipaddr
 
 module Process = Process
 module Net = Net
+module Cap = Cap
 module Pi = Pi
 
 module Stdenv = struct
