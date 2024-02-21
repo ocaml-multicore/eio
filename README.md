@@ -26,7 +26,6 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Cancellation](#cancellation)
 * [Racing](#racing)
 * [Switches](#switches)
-* [Performance](#performance)
 * [Networking](#networking)
 * [Design Note: Capabilities](#design-note-capabilities)
 * [Buffered Reading and Parsing](#buffered-reading-and-parsing)
@@ -336,6 +335,10 @@ For example:
 - : unit = ()
 ```
 
+<p align='center'>
+  <img src="./doc/traces/switch-mock.svg"/>
+</p>
+
 `Switch.run fn` creates a new switch `sw` and runs `fn sw`.
 `fn` may spawn new fibers and attach them to the switch.
 It may also attach other resources such as open file handles.
@@ -357,60 +360,6 @@ so it needs to take a switch argument.
 Every switch also creates a new cancellation context.
 You can use `Switch.fail` to mark the switch as failed and cancel all fibers within it.
 The exception (or exceptions) passed to `fail` will be raised by `run` when the fibers have exited.
-
-## Performance
-
-As mentioned above, Eio allows you to supply your own implementations of its abstract interfaces.
-This is in contrast to OCaml's standard library, which only operates on OS file descriptors.
-You might wonder what the performance impact of this is.
-Here's a simple implementation of `cat` using the standard OCaml functions:
-
-```ocaml
-# let () =
-    let buf = Bytes.create 4096 in
-    let rec copy () =
-      match input stdin buf 0 4096 with
-      | 0 -> ()
-      | got ->
-        output stdout buf 0 got;
-        copy ()
-    in
-    copy ();;
-```
-
-And here is the equivalent using Eio:
-
-<!-- $MDX non-deterministic=command -->
-```ocaml
-# let () =
-    Eio_main.run @@ fun env ->
-    Eio.Flow.copy
-      (Eio.Stdenv.stdin env)
-      (Eio.Stdenv.stdout env);;
-```
-
-Testing on a fresh 10G file with [pv](https://www.ivarch.com/programs/pv.shtml) on my machine gives:
-
-```
-$ truncate -s 10G dummy
-
-$ cat_ocaml_unix.exe <dummy | pv >/dev/null
-10.0GiB 0:00:04 [2.33GiB/s]
-
-$ cat                <dummy | pv >/dev/null
-10.0GiB 0:00:04 [2.42GiB/s]
-
-$ cat_ocaml_eio.exe  <dummy | pv >/dev/null
-10.0GiB 0:00:03 [3.01GiB/s]
-```
-
-`Eio.Flow.copy src dst` asks `dst` to copy from `src`.
-As `dst` here wraps a Unix file descriptor,
-it first calls the `probe` method on the `src` object to check whether it does too.
-Discovering that `src` is also wrapping a file descriptor, it switches to a faster code path optimised for that case.
-On my machine, this code path uses the Linux-specific `splice` system call for maximum performance.
-
-Note that not all cases are well-optimised yet, but the idea is for each backend to choose the most efficient way to implement the operation.
 
 ## Networking
 
@@ -443,15 +392,14 @@ Here is a client that connects to address `addr` using network `net` and reads a
 
 ```ocaml
 let run_client ~net ~addr =
+  Switch.run ~name:"client" @@ fun sw ->
   traceln "Client: connecting to server";
-  Switch.run @@ fun sw ->
   let flow = Eio.Net.connect ~sw net addr in
-  let b = Buffer.create 100 in
-  Eio.Flow.copy flow (Eio.Flow.buffer_sink b);
-  traceln "Client: received %S" (Buffer.contents b)
+  traceln "Client: received %S" (Eio.Flow.read_all flow)
 ```
 
 Note: the `flow` is attached to `sw` and will be closed automatically when it finishes.
+We also named the switch here; this will appear in the trace output (see below).
 
 This can also be tested on its own using a mock network:
 
@@ -490,7 +438,7 @@ We can now run the client and server together using the real network (in a singl
 
 ```ocaml
 let main ~net ~addr =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"main" @@ fun sw ->
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   Fiber.fork_daemon ~sw (fun () -> run_server server);
   run_client ~net ~addr
@@ -510,6 +458,10 @@ the test would never finish.
 +Client: received "Hello from server"
 - : unit = ()
 ```
+
+<p align='center'>
+  <img src="./doc/traces/net-posix.svg"/>
+</p>
 
 See [examples/net](./examples/net/) for a more complete example.
 
