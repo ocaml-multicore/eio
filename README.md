@@ -392,15 +392,14 @@ Here is a client that connects to address `addr` using network `net` and reads a
 
 ```ocaml
 let run_client ~net ~addr =
+  Switch.run ~name:"client" @@ fun sw ->
   traceln "Client: connecting to server";
-  Switch.run @@ fun sw ->
   let flow = Eio.Net.connect ~sw net addr in
-  let b = Buffer.create 100 in
-  Eio.Flow.copy flow (Eio.Flow.buffer_sink b);
-  traceln "Client: received %S" (Buffer.contents b)
+  traceln "Client: received %S" (Eio.Flow.read_all flow)
 ```
 
 Note: the `flow` is attached to `sw` and will be closed automatically when it finishes.
+We also named the switch here; this will appear in the trace output (see below).
 
 This can also be tested on its own using a mock network:
 
@@ -439,7 +438,7 @@ We can now run the client and server together using the real network (in a singl
 
 ```ocaml
 let main ~net ~addr =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"main" @@ fun sw ->
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   Fiber.fork_daemon ~sw (fun () -> run_server server);
   run_client ~net ~addr
@@ -459,6 +458,10 @@ the test would never finish.
 +Client: received "Hello from server"
 - : unit = ()
 ```
+
+<p align='center'>
+  <img src="./doc/traces/net-posix.svg"/>
+</p>
 
 See [examples/net](./examples/net/) for a more complete example.
 
