@@ -335,6 +335,10 @@ For example:
 - : unit = ()
 ```
 
+<p align='center'>
+  <img src="./doc/traces/switch-mock.svg"/>
+</p>
+
 `Switch.run fn` creates a new switch `sw` and runs `fn sw`.
 `fn` may spawn new fibers and attach them to the switch.
 It may also attach other resources such as open file handles.
