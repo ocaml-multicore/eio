@@ -1,3 +1,61 @@
+## v0.15
+
+New features:
+
+- eio_posix: use directory FDs instead of realpath (@talex5 #694 #696, reviewed by @SGrondin).  
+  Using realpath was an old hack from the libuv days and subject to races. It was also slow.
+
+- Keep pool of systhreads for blocking operations (@SGrondin @talex5 #681).  
+  This is much faster than creating a new thread for each operation.
+  It mainly benefits the eio_posix backend, as that uses lots of systhreads.
+
+- Make `Switch.on_release` thread-safe (@talex5 #684, requested by @art-w and @clecat).  
+  This allows resource pools to be shared between domains easily.
+
+- Add `Eio.Path.read_link` (@talex5 #686).
+
+- Add `Eio_unix.Fd.is_open` (@talex5 #690).
+
+- Include backtrace in systhread errors (@talex5 #688, reviewed by @SGrondin).  
+  Also, add `Eio.Exn.empty_backtrace` as a convenience.
+
+- eio.mock: add tracing support to mock backend (@talex5 #687).
+
+- Improve tracing (@talex5 #675 #683 #676, reviewed by @SGrondin).  
+  Update tracing section of README and trace more things
+  (`run_in_systhread`, `close`, `submit`, `traceln`, cancellation and domain spawning).
+
+Documentation:
+
+- Link to verification work in docs (@talex5 #682).
+
+- Add more trace diagrams to README (@talex5 #698).
+
+- Adjust COC contacts (@polytypic #685, reviewed by @Sudha247).
+
+Bug fixes:
+
+- eio_linux: retry `openat2` on `EAGAIN` (@talex5 #693, reviewed by @SGrondin).
+
+- eio_posix and eio_windows: check for IO periodically (@talex5 #674).
+
+- Handle EPERM when trying to initialise uring (@talex5 #691).  
+  This can happen when using a Docker container.
+
+Build and tests:
+
+- Benchmark `Eio_unix.run_in_systhread` (@talex5 #678, reviewed by @SGrondin).
+
+- Enable lintcstubs for `Eio_unix.Private` too (@talex5 #689).
+
+- Stat benchmark: report cleanup time and optimise (@talex5 #692).
+
+- Make benchmarks start faster (@talex5 #673).
+
+- Update build for new eio-trace CLI (@talex5 #699).
+
+- Expect opam-repo-ci tests to fail on macos (@talex5 #672).
+
 ## v0.14
 
 New features / API changes:
