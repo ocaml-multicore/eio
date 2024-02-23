@@ -55,7 +55,7 @@ let create ~sw ~domain_count domain_mgr =
 
 let enqueue { queue } ~weight fn =
   if not (weight >= 0. && weight <= 1.) (* Handles NaN *)
-  then Fmt.invalid_arg "Executor_pool: weight not >= 0.0 && <= 1.0" weight
+  then Fmt.invalid_arg "Executor_pool: weight %g not >= 0.0 && <= 1.0" weight
   else (
     let weight = Float.to_int (weight *. max_capacity_f) in
     let p, w = Promise.create () in
