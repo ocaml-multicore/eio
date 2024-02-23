@@ -168,7 +168,7 @@ Must be between 0 and 1:
   let pool = Executor_pool.create ~sw ~domain_count:2 mgr in
   Executor_pool.submit_exn pool ~weight:(-5.) (fun () -> ())
   ;;
-Exception: Invalid_argument "Executor_pool: weight not >= 0.0 && <= 1.0".
+Exception: Invalid_argument "Executor_pool: weight -5 not >= 0.0 && <= 1.0".
 ```
 ```ocaml
 # run @@ fun mgr sleep duration ->
@@ -176,7 +176,7 @@ Exception: Invalid_argument "Executor_pool: weight not >= 0.0 && <= 1.0".
   let pool = Executor_pool.create ~sw ~domain_count:2 mgr in
   Executor_pool.submit_exn pool ~weight:1.1 (fun () -> ())
   ;;
-Exception: Invalid_argument "Executor_pool: weight not >= 0.0 && <= 1.0".
+Exception: Invalid_argument "Executor_pool: weight 1.1 not >= 0.0 && <= 1.0".
 ```
 
 
