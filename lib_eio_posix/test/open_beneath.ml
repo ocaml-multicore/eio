@@ -40,7 +40,7 @@ let test base path =
     check ~mode:0 base (path ^ "/") L.Open_flags.rdonly;
     check ~mode:0 base (path ^ "/.") L.Open_flags.rdonly
   )
-    
+
 let test_denied base path =
   match L.Open_flags.resolve_beneath with
   | Some some_resolve_beneath ->
@@ -57,7 +57,8 @@ let test_denied base path =
 
 let () =
   try
-    Eio_posix.run @@ fun _env ->
+    Eio_posix.run @@ fun env ->
+    Eio.Path.(rmtree ~missing_ok:true (Eio.Stdenv.cwd env / "test_beneath"));
     Unix.mkdir "test_beneath" 0o700;
     Unix.mkdir "test_beneath/subdir" 0o700;
     Unix.symlink "subdir" "test_beneath/link_subdir";
