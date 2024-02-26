@@ -532,11 +532,18 @@ end = struct
     let d = v ~label ~path:(native_internal t path) (Low_level.FD fd) in
     Eio.Resource.T (d, Dir_handler.v)
 
-  let mkdir t ~perm path = Low_level.mkdir_beneath ~perm t.fd path
+  let mkdir t ~perm path = Low_level.mkdir ~perm t.fd path
 
   let read_dir t path =
     Switch.run ~name:"read_dir" @@ fun sw ->
-    let fd = Low_level.open_dir ~sw t.fd (if path = "" then "." else path) in
+    let path = if path = "" then "." else path in
+    let fd =
+      Low_level.openat ~sw t.fd path
+        ~seekable:false
+        ~access:`R
+        ~flags:Uring.Open_flags.(cloexec + directory)
+        ~perm:0
+    in
     Low_level.read_dir fd
 
   let read_link t path = Low_level.read_link t.fd path
@@ -562,7 +569,7 @@ end = struct
     if !Sched.statx_works then (
       let module X = Uring.Statx in
       let x = X.create () in
-      Low_level.statx_confined ~follow ~mask:X.Mask.basic_stats t.fd path x;
+      Low_level.statx ~follow ~mask:X.Mask.basic_stats t.fd path x;
       { Eio.File.Stat.
         dev    = X.dev x;
         ino    = X.ino x;

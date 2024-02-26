@@ -55,6 +55,11 @@ val run :
 
 (** Low-level API for using uring directly. *)
 module Low_level : sig
+  type dir_fd =
+    | FD of fd
+    | Cwd         (** Confined to "." *)
+    | Fs          (** Unconfined "."; also allows absolute paths *)
+
   val noop : unit -> unit
   (** [noop ()] performs a uring noop. This is only useful for benchmarking. *)
 
@@ -88,6 +93,16 @@ module Low_level : sig
 
   (** {1 File manipulation functions} *)
 
+  val openat :
+    sw:Switch.t ->
+    ?seekable:bool ->
+    access:[`R|`W|`RW] ->
+    flags:Uring.Open_flags.t ->
+    perm:Unix.file_perm ->
+    dir_fd -> string ->
+    fd
+  (** [openat ~sw ~access ~flags ~perm dir path] opens [dir/path]. *)
+
   val openat2 :
     sw:Switch.t ->
     ?seekable:bool ->
@@ -96,8 +111,9 @@ module Low_level : sig
     perm:Unix.file_perm ->
     resolve:Uring.Resolve.t ->
     ?dir:fd -> string -> fd
-  (** [openat2 ~sw ~flags ~perm ~resolve ~dir path] opens [dir/path].
+  (** [openat2 ~sw ~access ~flags ~perm ~resolve ~dir path] opens [dir/path].
 
+      It provides full access to the resolve flags.
       See {!Uring.openat2} for details. *)
 
   val read_upto : ?file_offset:Optint.Int63.t -> fd -> Uring.Region.chunk -> int -> int
@@ -156,11 +172,35 @@ module Low_level : sig
   val fstat : fd -> Eio.File.Stat.t
   (** Like {!Unix.LargeFile.fstat}. *)
 
-  val statx : ?fd:fd -> mask:Uring.Statx.Mask.t -> string -> Uring.Statx.t -> Uring.Statx.Flags.t -> unit
-  (** [statx t ?fd ~mask path buf flags] stats [path], which is resolved relative to [fd]
-      (or the current directory if [fd] is not given).
+  val statx :
+    mask:Uring.Statx.Mask.t ->
+    follow:bool ->
+    dir_fd -> string ->
+    Uring.Statx.t ->
+    unit
+  (** [statx ~mask ~follow dir path buf] stats [dir / path].
 
-      The results are written to [buf]. *)
+      The results are written to [buf].
+      If [follow = true] and the item is a symlink, information is reported about the target of the link.
+      Otherwise, information about the symlink itself is returned. *)
+
+  val mkdir : perm:int -> dir_fd -> string -> unit
+  (** [mkdir ~perm dir path] creates directory [dir / path]. *)
+
+  val read_link : dir_fd -> string -> string
+  (** [read_link dir path] reads the target of symlink [dir / path]. *)
+
+  val unlink : rmdir:bool -> dir_fd -> string -> unit
+  (** [unlink ~rmdir dir path] removes directory entry [dir / path].
+
+      If [rmdir = true] then the target must be a directory.
+      Otherwise, it must not be a directory. *)
+
+  val rename : dir_fd -> string -> dir_fd -> string -> unit
+  (** [rename old_dir old_path new_dir new_path] renames [old_dir / old_path] as [new_dir / new_path]. *)
+
+  val pipe : sw:Switch.t -> fd * fd
+  (** [pipe ~sw] returns a pair [r, w] with the readable and writeable ends of a new pipe. *)
 
   val read_dir : fd -> string list
   (** [read_dir dir] reads all directory entries from [dir].
