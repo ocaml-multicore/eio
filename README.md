@@ -1627,10 +1627,8 @@ To demonstrate **kcas**
 let's first create a couple of shared memory locations
 
 ```ocaml
-# let x = Loc.make 0
-val x : int Loc.t = <abstr>
-# let y = Loc.make 0
-val y : int Loc.t = <abstr>
+let x = Loc.make 0
+let y = Loc.make 0
 ```
 
 and spawn a domain
