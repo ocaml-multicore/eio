@@ -7,5 +7,6 @@ CAMLprim value eio_unix_fork_execve(value);
 CAMLprim value eio_unix_fork_chdir(value);
 CAMLprim value eio_unix_fork_fchdir(value);
 CAMLprim value eio_unix_fork_dups(value);
+CAMLprim value eio_unix_cap_enter(value);
 CAMLprim value eio_unix_readlinkat(value, value, value);
 CAMLprim value eio_unix_is_blocking(value);
