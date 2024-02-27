@@ -702,12 +702,17 @@ Eio.Io Net Connection_failure Refused Unix_error (Connection refused, "connect",
 ```
 
 If we ran this using another backend, the `Unix_error` part might change.
-To avoid this problem, you can use `Eio.Exn.Backend.show` to hide the backend-specific part of errors:
+To avoid this problem, you can use `Eio.Exn.Backend.show`
 
 ```ocaml
 # Eio.Exn.Backend.show := false;;
 - : unit = ()
+```
 
+to hide the backend-specific part of errors:
+
+<!-- $MDX os_type<>Win32 -->
+```ocaml
 # Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Switch.run @@ fun sw ->
@@ -861,6 +866,7 @@ Fatal error: exception Sys_error("/etc/passwd: Not permitted in capability mode"
 
 Spawning a child process can be done using the [Eio.Process][] module:
 
+<!-- $MDX os_type<>Win32 -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
@@ -872,6 +878,7 @@ hello
 There are various optional arguments for setting the process's current directory or connecting up the standard streams.
 For example, we can use `tr` to convert some text to upper-case:
 
+<!-- $MDX os_type<>Win32 -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
@@ -884,6 +891,7 @@ ONE TWO THREE
 If you want to capture the output of a process, you can provide a suitable `Eio.Flow.sink` as the `stdout` argument,
 or use the `parse_out` convenience wrapper:
 
+<!-- $MDX os_type<>Win32 -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
@@ -893,6 +901,7 @@ or use the `parse_out` convenience wrapper:
 
 All process functions either return the exit status or check that it was zero (success):
 
+<!-- $MDX os_type<>Win32 -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
