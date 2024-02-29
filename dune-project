@@ -24,7 +24,7 @@
   (domain-local-await (>= 0.1.0))
   (crowbar (and (>= 0.2) :with-test))
   (mtime (>= 2.0.0))
-  (mdx (and (>= 2.2.0) :with-test))
+  (mdx (and (>= 2.2.0) (< 2.4.0) :with-test))
   (dscheck (and (>= 0.1.0) :with-test))))
 (package
  (name eio_linux)
