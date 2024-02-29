@@ -401,7 +401,7 @@ let with_parent_dir op dir path fn =
   Fd.use_exn op parent @@ fun parent ->
   fn parent leaf
 
-let statx ?fd ~mask path buf flags =
+let statx_raw ?fd ~mask path buf flags =
   let res =
     match fd with
     | None -> Sched.enter "statx" (enqueue_statx (None, path, buf, flags, mask)) 
@@ -411,14 +411,15 @@ let statx ?fd ~mask path buf flags =
   in
   if res <> 0 then raise @@ Err.wrap_fs (Uring.error_of_errno res) "statx" path
 
-let statx_confined ~mask ~follow fd path buf =
+let statx ~mask ~follow fd path buf =
   let module X = Uring.Statx in
-  let flags = if follow then X.Flags.empty else X.Flags.symlink_nofollow in
+  let flags = if follow then X.Flags.empty_path else X.Flags.(empty_path + symlink_nofollow) in
   match fd with
-  | Fs -> statx ~mask path buf flags
+  | Fs -> statx_raw ~mask path buf flags
+  | FD fd when path = "" -> statx_raw ~fd ~mask "" buf flags
   | Cwd | FD _ when not follow ->
     with_parent_dir_fd fd path @@ fun parent leaf ->
-    statx ~mask ~fd:parent leaf buf flags
+    statx_raw ~mask ~fd:parent leaf buf flags
   | Cwd | FD _ ->
     Switch.run ~name:"statx" @@ fun sw ->
     let fd = openat ~sw ~seekable:false fd (if path = "" then "." else path)
@@ -426,9 +427,9 @@ let statx_confined ~mask ~follow fd path buf =
         ~flags:Uring.Open_flags.(cloexec + path)
         ~perm:0
     in
-    statx ~fd ~mask "" buf Uring.Statx.Flags.(flags + empty_path)
+    statx_raw ~fd ~mask "" buf flags
 
-let mkdir_beneath ~perm dir path =
+let mkdir ~perm dir path =
   (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
   with_parent_dir "mkdir" dir path @@ fun parent leaf ->
   try eio_mkdirat parent leaf perm
@@ -469,12 +470,6 @@ let accept ~sw fd =
     let client_addr = Uring.Sockaddr.get client_addr in
     client, client_addr
   )
-
-let open_dir ~sw dir path =
-  openat ~sw ~seekable:false dir path
-    ~access:`R
-    ~flags:Uring.Open_flags.(cloexec + directory)
-    ~perm:0
 
 let read_dir fd =
   Fd.use_exn "read_dir" fd @@ fun fd ->

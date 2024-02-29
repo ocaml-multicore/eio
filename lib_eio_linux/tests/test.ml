@@ -165,13 +165,13 @@ let test_statx () =
   Eio.Path.with_open_out path ~create:(`Exclusive 0o600) @@ fun file ->
   Eio.Flow.copy_string "hello" file;
   let buf = Uring.Statx.create () in
-  let test expected_len ~flags ?fd path =
-    Eio_linux.Low_level.statx ~mask:X.Mask.(type' + size) ?fd path buf flags;
+  let test expected_len ~follow dir path =
+    Eio_linux.Low_level.statx ~follow ~mask:X.Mask.(type' + size) dir path buf;
     Alcotest.check kind_t "kind" `Regular_file (Uring.Statx.kind buf);
     Alcotest.(check int64) "size" expected_len (Uring.Statx.size buf)
   in
   (* Lookup via cwd *)
-  test 5L ~flags:X.Flags.empty ?fd:None "test2.data";
+  test 5L ~follow:false Cwd "test2.data";
   Eio.Flow.copy_string "+" file;
   (* Lookup via file FD *)
   Switch.run (fun sw ->
@@ -182,7 +182,7 @@ let test_statx () =
           ~resolve:Uring.Resolve.empty
           "test2.data"
       in
-      test 6L ~flags:X.Flags.empty_path ~fd ""
+      test 6L ~follow:false (FD fd) ""
     );
   (* Lookup via directory FD *)
   Eio.Flow.copy_string "+" file;
@@ -194,7 +194,7 @@ let test_statx () =
           ~resolve:Uring.Resolve.empty
           "."
       in
-      test 7L ~flags:X.Flags.empty_path ~fd "test2.data"
+      test 7L ~follow:false (FD fd) "test2.data"
     );
   ()
 
