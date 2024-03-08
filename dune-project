@@ -35,7 +35,7 @@
   (alcotest (and (>= 1.7.0) :with-test))
   (eio (= :version))
   (mdx (and (>= 2.2.0) :with-test))
-  (logs (>= 0.7.0))
+  (logs (and (>= 0.7.0) :with-test))
   (fmt (>= 0.8.9))
   (cmdliner (and (>= 1.1.0) :with-test))
   (uring (>= 0.7))))

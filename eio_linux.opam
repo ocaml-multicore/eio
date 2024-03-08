@@ -13,7 +13,7 @@ depends: [
   "alcotest" {>= "1.7.0" & with-test}
   "eio" {= version}
   "mdx" {>= "2.2.0" & with-test}
-  "logs" {>= "0.7.0"}
+  "logs" {>= "0.7.0" & with-test}
   "fmt" {>= "0.8.9"}
   "cmdliner" {>= "1.1.0" & with-test}
   "uring" {>= "0.7"}
