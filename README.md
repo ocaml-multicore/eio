@@ -977,6 +977,10 @@ let main ~domain_mgr =
 - : unit = ()
 ```
 
+<p align='center'>
+  <img src="./doc/traces/multicore-posix.svg"/>
+</p>
+
 Notes:
 
 - `traceln` can be used safely from multiple domains.
