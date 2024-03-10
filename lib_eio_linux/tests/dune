@@ -6,7 +6,7 @@
        (= %{system} "linux_elf")      ; Historically, Linux-x86_32
        (= %{system} "elf")))          ; Historically, Linux-ppc64
  (modules eurcp_lib)
- (libraries eio_linux))
+ (libraries eio_linux logs))
 
 (executable
  (name eurcp)
@@ -47,7 +47,7 @@
        (= %{system} "linux_elf")      ; Historically, Linux-x86_32
        (= %{system} "elf")))          ; Historically, Linux-ppc64
  (modules test)
- (libraries alcotest eio_linux))
+ (libraries alcotest eio_linux logs))
 
 (mdx
   (package eio_linux)

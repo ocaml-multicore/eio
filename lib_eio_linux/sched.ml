@@ -292,14 +292,11 @@ and handle_complete st ~runnable result =
   | Job_no_cancel k ->
     Suspended.continue k result
   | Cancel_job ->
-    begin match result with
-      | 0     (* Operation cancelled successfully *)
-      | -2    (* ENOENT - operation completed before cancel took effect *)
-      | -114  (* EALREADY - operation already in progress *)
-        -> ()
-      | errno ->
-        Log.warn (fun f -> f "Cancel returned unexpected error: %s" (Unix.error_message (Uring.error_of_errno errno)))
-    end;
+    (* We don't care about the result of the cancel operation, and there's nowhere to send it.
+       The possibilities are:
+       0     : Operation cancelled successfully
+       -2    : ENOENT - operation completed before cancel took effect
+       -114  : EALREADY - operation already in progress *)
     schedule st
   | Job_fn (k, f) ->
     Fiber_context.clear_cancel_fn k.fiber;
@@ -552,7 +549,6 @@ let with_sched ?(fallback=no_fallback) config fn =
           | Ok () ->
             Some (Uring.Region.init ~block_size buf n_blocks)
           | Error `ENOMEM ->
-            Log.warn (fun f -> f "Failed to allocate %d byte fixed buffer" fixed_buf_len);
             None
         in
         let run_q = Lf_queue.create () in
