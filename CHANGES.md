@@ -1,3 +1,34 @@
+## v1.0
+
+New features:
+
+- Add `Eio_unix.Cap` module to enable Capsicum mode (@talex5 #697, reviewed by @SGrondin).
+
+- eio_linux: expose more functions in the `Low_level` module (@talex5 #705, reviewed by @SGrondin).  
+  Add all the functions used by other parts of eio_linux (`openat`, `mkdir`, `read_link`, `unlink`, `rename` and `pipe`).
+  Tidied the API up a bit too:
+  - `mkdir_beneath` is now just `mkdir`.
+  - `statx_confined` is now just `statx`.
+  - `open_dir` is gone; the single user now calls `openat` directly.
+
+Documentation:
+
+- Add README documentation for `Eio.Executor_pool` (@SGrondin @talex5 #707, reviewed by @Sudha247).
+
+- eio_linux: remove logging (@talex5 #708, requested by @clecat).  
+  There were only two remaining uses of Logs, neither of which has proved useful.
+
+Build:
+
+- Add upper-bound on MDX (@talex5 #706).  
+  The new version attempts to execute included blocks.
+
+- Fix tests to pass with both old and new Kcas (@polytypic #704).
+
+- Make posix `open_beneath` test idempotent (@SGrondin #703).
+
+- Executor_pool: mention requested weight in error message (@talex5 #702, reported by @yawaramin).
+
 ## v0.15
 
 New features:
