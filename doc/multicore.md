@@ -4,21 +4,22 @@
 
 * [Introduction](#introduction)
 * [Problems with Multicore Programming](#problems-with-multicore-programming)
-  * [Optimisation 1: Caching](#optimisation-1-caching)
-  * [Optimisation 2: Out-of-Order Execution](#optimisation-2-out-of-order-execution)
-  * [Optimisation 3: Compiler Optimisations](#optimisation-3-compiler-optimisations)
-  * [Optimisation 4: Multiple Cores](#optimisation-4-multiple-cores)
+    * [Optimisation 1: Caching](#optimisation-1-caching)
+    * [Optimisation 2: Out-of-Order Execution](#optimisation-2-out-of-order-execution)
+    * [Optimisation 3: Compiler Optimisations](#optimisation-3-compiler-optimisations)
+    * [Optimisation 4: Multiple Cores](#optimisation-4-multiple-cores)
 * [The OCaml Memory Model](#the-ocaml-memory-model)
-  * [Atomic Locations](#atomic-locations)
-  * [Initialisation](#initialisation)
-* [Guidelines](#guidelines)
+    * [Atomic Locations](#atomic-locations)
+    * [Initialisation](#initialisation)
+* [Safety Guidelines](#safety-guidelines)
+* [Performance Guidelines](#performance-guidelines)
 * [Further Reading](#further-reading)
 
 <!-- vim-markdown-toc -->
 
 ## Introduction
 
-OCaml 5.00 adds support for using multiple CPU cores in a single OCaml process.
+OCaml 5.0 adds support for using multiple CPU cores in a single OCaml process.
 An OCaml process is made up of one or more *domains*, and
 the operating system can run each domain on a different core, so that they run in parallel.
 This can make programs run much faster, but also introduces new ways for programs to go wrong.
@@ -446,7 +447,7 @@ So it will always see a correct list:
 - : unit = ()
 ```
 
-## Guidelines
+## Safety Guidelines
 
 It's important to understand the above to avoid writing incorrect code,
 but there are several general principles that avoid most problems:
@@ -501,6 +502,28 @@ See the "Worker Pool" example in the main README for an example.
 Finally, note that OCaml remains type-safe even with multiple domains.
 For example, accessing a `Queue` in parallel from multiple domains may result in a corrupted queue,
 but it won't cause a segfault.
+
+## Performance Guidelines
+
+The following recommendations will help you extract as much performance as possible from your hardware:
+
+- There's a certain overhead associated with placing execution onto another domain,
+  but that overhead will be paid off quickly if your job takes at least a few milliseconds to complete.
+  Jobs that complete under 2-5ms may not be worth running on a separate domain.
+- Similarly, jobs that are 100% I/O-bound may not be worth running on a separate domain.
+  The small initial overhead is simply never recouped.
+- If your program never hits 100% CPU usage, it's unlikely that parallelizing it will improve performance.
+- Try to avoid reading or writing to memory that's modified by other domains after the start of your job.
+  Ideally, your jobs shouldn't need to interact with other domains' "working data".
+  Aim to make your jobs as independent as possible.
+  If unavoidable, the [Saturn](https://github.com/ocaml-multicore/saturn) library offers a collection of efficient threadsafe data structures.
+- It's often easier to design code to be multithreading friendly from the start
+  (by making longer, independent jobs) than by refactoring existing code.
+- There's a cost associated with creating a domain, so try to use the same domains for longer periods of time.
+  `Eio.Executor_pool` takes care of this automatically.
+- Obviously, reuse the same executor pool whenever possible! Don't recreate it over and over.
+- Having a large number of domains active at the same time imposes additional overhead on
+  both the OS scheduler and the OCaml runtime, even if those domains are idle.
 
 ## Further Reading
 

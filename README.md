@@ -35,6 +35,8 @@ Eio replaces existing concurrency libraries such as Lwt
 * [Running processes](#running-processes)
 * [Time](#time)
 * [Multicore Support](#multicore-support)
+    * [Domain Manager](#domain-manager)
+    * [Executor Pool](#executor-pool)
 * [Synchronisation Tools](#synchronisation-tools)
     * [Promises](#promises)
     * [Example: Concurrent Cache](#example-concurrent-cache)
@@ -936,7 +938,12 @@ The mock backend provides a mock clock that advances automatically where there i
 
 OCaml allows a program to create multiple *domains* in which to run code, allowing multiple CPUs to be used at once.
 Fibers are scheduled cooperatively within a single domain, but fibers in different domains run in parallel.
-This is useful to perform CPU-intensive operations quickly.
+This is useful to perform CPU-intensive operations quickly
+(though extra care needs to be taken when using multiple cores; see the [Multicore Guide](./doc/multicore.md) for details).
+
+### Domain Manager
+
+[Eio.Domain_manager][] provides a basic API for spawning domains.
 For example, let's say we have a CPU intensive task:
 
 ```ocaml
@@ -950,7 +957,7 @@ let sum_to n =
   !total
 ```
 
-We can use [Eio.Domain_manager][] to run this in a separate domain:
+We can use the domain manager to run this in a separate domain:
 
 ```ocaml
 let main ~domain_mgr =
@@ -977,6 +984,10 @@ let main ~domain_mgr =
 - : unit = ()
 ```
 
+<p align='center'>
+  <img src="./doc/traces/multicore-posix.svg"/>
+</p>
+
 Notes:
 
 - `traceln` can be used safely from multiple domains.
@@ -988,8 +999,78 @@ Notes:
 - `Domain_manager.run` waits for the domain to finish, but it allows other fibers to run while waiting.
   This is why we use `Fiber.both` to create multiple fibers.
 
-For more information, see the [Multicore Guide](./doc/multicore.md).
+### Executor Pool
 
+An [Eio.Executor_pool][] distributes jobs among a pool of domain workers.
+Domains are reused and can execute multiple jobs concurrently.
+
+Each domain worker starts new jobs until the total `~weight` of its running jobs reaches `1.0`.
+The `~weight` represents the expected proportion of a CPU core that the job will take up.
+Jobs are queued up if they cannot be started immediately due to all domain workers being busy (`>= 1.0`).
+
+This is the recommended way of leveraging OCaml 5's multicore capabilities.
+
+Usually you will only want one pool for an entire application, so the pool is typically created when the application starts:
+
+<!-- $MDX skip -->
+```ocaml
+let () =
+  Eio_main.run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let pool =
+    Eio.Executor_pool.create
+      ~sw (Eio.Stdenv.domain_mgr env)
+      ~domain_count:4
+  in
+  main ~pool
+```
+
+The pool starts its domain workers immediately upon creation.
+
+The pool will not block our switch `sw` from completing;
+when the switch finishes, all domain workers and running jobs are cancelled.
+
+`~domain_count` is the number of domain workers to create.
+The total number of domains should not exceed `Domain.recommended_domain_count` or the number of cores on your system.
+
+We can run the previous example using an Executor Pool like this:
+
+```ocaml
+let main ~domain_mgr =
+  Switch.run @@ fun sw ->
+  let pool =
+    Eio.Executor_pool.create ~sw domain_mgr ~domain_count:4
+  in
+  let test n =
+    traceln "sum 1..%d = %d" n
+      (Eio.Executor_pool.submit_exn pool ~weight:1.0
+        (fun () -> sum_to n))
+  in
+  Fiber.both
+    (fun () -> test 100000)
+    (fun () -> test 50000)
+```
+
+<!-- $MDX non-deterministic=output -->
+```ocaml
+# Eio_main.run @@ fun env ->
+  main ~domain_mgr:(Eio.Stdenv.domain_mgr env);;
++Starting CPU-intensive task...
++Starting CPU-intensive task...
++Finished
++sum 1..50000 = 1250025000
++Finished
++sum 1..100000 = 5000050000
+- : unit = ()
+```
+`~weight` is the anticipated proportion of a CPU core used by the job.
+In other words, the fraction of time actively spent executing OCaml code, not just waiting for I/O or system calls.
+In the above code snippet we use `~weight:1.0` because the job is entirely CPU-bound: it never waits for I/O or other syscalls.
+`~weight` must be `>= 0.0` and `<= 1.0`.
+Example: given an IO-bound job that averages 2% of one CPU core, pass `~weight:0.02`.
+
+Each domain worker starts new jobs until the total `~weight` of its running jobs reaches `1.0`.
+ 
 ## Synchronisation Tools
 
 Eio provides several sub-modules for communicating between fibers,
@@ -1240,6 +1321,8 @@ let rec run_worker id stream =
 The `Fiber.check ()` checks whether the worker itself has been cancelled, and exits the loop if so.
 It's not actually necessary in this case,
 because if we continue instead then the following `Stream.take` will perform the check anyway.
+
+Note: in a real system, you would probably use [Eio.Executor_pool][] for this rather than making your own pool.
 
 ### Mutexes and Semaphores
 
@@ -1805,6 +1888,7 @@ Some background about the effects system can be found in:
 [Eio.Path]: https://ocaml-multicore.github.io/eio/eio/Eio/Path/index.html
 [Eio.Time]: https://ocaml-multicore.github.io/eio/eio/Eio/Time/index.html
 [Eio.Domain_manager]: https://ocaml-multicore.github.io/eio/eio/Eio/Domain_manager/index.html
+[Eio.Executor_pool]: https://ocaml-multicore.github.io/eio/eio/Eio/Executor_pool/index.html
 [Eio.Promise]: https://ocaml-multicore.github.io/eio/eio/Eio/Promise/index.html
 [Eio.Stream]: https://ocaml-multicore.github.io/eio/eio/Eio/Stream/index.html
 [Eio_posix]: https://ocaml-multicore.github.io/eio/eio_posix/Eio_posix/index.html
