@@ -15,8 +15,7 @@ Eio replaces existing concurrency libraries such as Lwt
 <!-- vim-markdown-toc GFM -->
 
 * [Motivation](#motivation)
-* [Current Status](#current-status)
-* [Structure of the Code](#structure-of-the-code)
+* [Eio packages](#eio-packages)
 * [Getting OCaml 5.1](#getting-ocaml-51)
 * [Getting Eio](#getting-eio)
 * [Running Eio](#running-eio)
@@ -80,22 +79,18 @@ Additionally, modern operating systems provide high-performance alternatives to 
 For example, Linux's io_uring system has applications write the operations they want to perform to a ring buffer,
 which Linux handles asynchronously, and Eio can take advantage of this.
 
-## Current Status
-
-See [Eio 1.0 progress tracking](https://github.com/ocaml-multicore/eio/issues/388) for the current status.
 Please try porting your programs to use Eio and submit PRs or open issues when you find problems.
 Remember that you can always [fall back to using Lwt libraries](#lwt) to provide missing features if necessary.
-
 See [Awesome Multicore OCaml][] for links to work migrating other projects to Eio.
 
-## Structure of the Code
+## Eio packages
 
 - [Eio][] provides concurrency primitives (promises, etc.) and a high-level, cross-platform OS API.
 - [Eio_posix][] provides a cross-platform backend for these APIs for POSIX-type systems.
-- [Eio_linux][] provides a Linux io-uring backend for these APIs,
-  plus a low-level API that can be used directly (in non-portable code).
+- [Eio_linux][] provides a Linux io_uring backend for these APIs.
 - [Eio_windows][] is for use on Windows (incomplete - [help wanted](https://github.com/ocaml-multicore/eio/issues/125)).
 - [Eio_main][] selects an appropriate backend (e.g. `eio_linux` or `eio_posix`), depending on your platform.
+- [Eio_js][] allows Eio code to run in the browser, using `js_of_ocaml`.
 
 ## Getting OCaml 5.1
 
@@ -135,18 +130,18 @@ prompt and return after each line.)
 # open Eio.Std;;
 ```
 
-This function writes a greeting to `stdout` using [Eio.Flow][]:
+This function writes a greeting to `out` using [Eio.Flow][]:
 
 ```ocaml
-let main ~stdout =
-  Eio.Flow.copy_string "Hello, world!\n" stdout
+let main out =
+  Eio.Flow.copy_string "Hello, world!\n" out
 ```
 
 We use [Eio_main.run][] to run the event loop and call `main` from there:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
-  main ~stdout:(Eio.Stdenv.stdout env);;
+  main (Eio.Stdenv.stdout env);;
 Hello, world!
 - : unit = ()
 ```
@@ -156,7 +151,7 @@ Note that:
 - The `env` argument represents the standard environment of a Unix process, allowing it to interact with the outside world.
   A program will typically start by extracting from `env` whatever things the program will need and then calling `main` with them.
 
-- The type of the `main` function here tells us that this program only interacts via `stdout`.
+- The type of the `main` function here tells us that this program only interacts via the `out` flow.
 
 - `Eio_main.run` automatically calls the appropriate run function for your platform.
   For example, on Linux this will call `Eio_linux.run`. For non-portable code you can use the platform-specific library directly.
@@ -171,7 +166,7 @@ For example, instead of giving `main` the real standard output, we can have it w
 ```ocaml
 # Eio_main.run @@ fun _env ->
   let buffer = Buffer.create 20 in
-  main ~stdout:(Eio.Flow.buffer_sink buffer);
+  main (Eio.Flow.buffer_sink buffer);
   traceln "Main would print %S" (Buffer.contents buffer);;
 +Main would print "Hello, world!\n"
 - : unit = ()
@@ -185,8 +180,7 @@ The [Eio_mock][] library provides some convenient pre-built mocks:
 ```ocaml
 # #require "eio.mock";;
 # Eio_main.run @@ fun _env ->
-  let mock_stdout = Eio_mock.Flow.make "mock-stdout" in
-  main ~stdout:mock_stdout;;
+  main (Eio_mock.Flow.make "mock-stdout");;
 +mock-stdout: wrote "Hello, world!\n"
 - : unit = ()
 ```
@@ -934,6 +928,9 @@ The mock backend provides a mock clock that advances automatically where there i
 - : unit = ()
 ```
 
+Note: You could also just use `Eio_unix.sleep 5.0` if you don't want to pass a clock around.
+This is especially useful if you need to insert a delay for some quick debugging.
+
 ## Multicore Support
 
 OCaml allows a program to create multiple *domains* in which to run code, allowing multiple CPUs to be used at once.
@@ -1593,6 +1590,9 @@ In particular, if you test your code by providing (deterministic) mocks then the
 An easy way to write tests is by having the mocks call `traceln` and then comparing the trace output with the expected output.
 See Eio's own tests for examples, e.g., [tests/switch.md](tests/switch.md).
 
+Note: this only applies to the high-level APIs in the `Eio` module.
+Programs can behave non-deterministically when using `Eio_unix` or the various `Low_level` APIs provided by the backends.
+
 ## Provider Interfaces
 
 Eio applications use resources by calling functions (such as `Eio.Flow.write`).
@@ -1912,3 +1912,4 @@ Some background about the effects system can be found in:
 [Olly]: https://github.com/tarides/runtime_events_tools
 [eio-trace]: https://github.com/ocaml-multicore/eio-trace
 [cap_enter]: https://man.freebsd.org/cgi/man.cgi?query=cap_enter
+[eio_js]: https://github.com/ocaml-multicore/eio_js
