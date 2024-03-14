@@ -10,7 +10,7 @@ doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "3.9"}
-  "mdx" {>= "2.2.0" & < "2.4.0" & with-test}
+  "mdx" {>= "2.4.1" & with-test}
   "kcas" {>= "0.3.0" & with-test}
   "yojson" {>= "2.0.2" & with-test}
   "eio_linux"
