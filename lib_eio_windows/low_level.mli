@@ -24,7 +24,7 @@ val read_cstruct : fd -> Cstruct.t -> int
 val write : fd -> bytes -> int -> int -> int
 
 val socket : sw:Switch.t -> Unix.socket_domain -> Unix.socket_type -> int -> fd
-val connect : fd -> Unix.sockaddr -> unit
+val connect : fd -> options:Eio.Net.option list -> Unix.sockaddr -> unit
 val accept : sw:Switch.t -> fd -> fd * Unix.sockaddr
 
 val shutdown : fd -> Unix.shutdown_command -> unit

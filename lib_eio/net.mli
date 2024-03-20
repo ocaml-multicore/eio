@@ -129,7 +129,13 @@ type 'a t = 'a r
 
 (** {2 Out-bound Connections} *)
 
-val connect : sw:Switch.t -> [> 'tag ty] t -> Sockaddr.stream -> 'tag stream_socket_ty r
+type option = ..
+type option +=
+  | Source_addr of Sockaddr.stream
+  | Reuse_addr
+  | Reuse_port
+
+val connect : sw:Switch.t -> ?options:option list -> [> 'tag ty] t -> Sockaddr.stream -> 'tag stream_socket_ty r
 (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
     The new socket will be closed when [sw] finishes, unless closed manually first. *)
@@ -346,7 +352,7 @@ module Pi : sig
       t -> reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t ->
       Sockaddr.stream -> tag listening_socket_ty r
 
-    val connect : t -> sw:Switch.t -> Sockaddr.stream -> tag stream_socket_ty r
+    val connect : t -> sw:Switch.t -> options:option list -> Sockaddr.stream -> tag stream_socket_ty r
 
     val datagram_socket :
       t

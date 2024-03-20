@@ -249,11 +249,11 @@ let socket_domain_of = function
       ~v4:(fun _ -> Unix.PF_INET)
       ~v6:(fun _ -> Unix.PF_INET6)
 
-let connect ~sw connect_addr =
+let connect ~sw ~options connect_addr =
   let addr = Eio_unix.Net.sockaddr_to_unix connect_addr in
   let sock_unix = Unix.socket ~cloexec:true (socket_domain_of connect_addr) Unix.SOCK_STREAM 0 in
   let sock = Fd.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
-  Low_level.connect sock addr;
+  Low_level.connect sock ~options addr;
   (flow sock :> _ Eio_unix.Net.stream_socket)
 
 module Impl = struct
@@ -289,7 +289,8 @@ module Impl = struct
     Unix.listen sock_unix backlog;
     (listening_socket sock :> _ Eio.Net.listening_socket_ty r)
 
-  let connect () ~sw addr = (connect ~sw addr :> [`Generic | `Unix] Eio.Net.stream_socket_ty r)
+  let connect () ~sw ~options addr =
+    (connect ~sw ~options addr :> [`Generic | `Unix] Eio.Net.stream_socket_ty r)
 
   let datagram_socket () ~reuse_addr ~reuse_port ~sw saddr =
     if reuse_addr then (

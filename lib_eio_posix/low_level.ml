@@ -67,15 +67,18 @@ let socket ~sw socket_domain socket_type protocol =
   Unix.set_nonblock sock_unix;
   Fd.of_unix ~sw ~blocking:false ~close_unix:true sock_unix
 
-let connect fd addr =
+let connect fd ~options addr =
   try
-    Fd.use_exn "connect" fd (fun fd -> Unix.connect fd addr)
+    Fd.use_exn "connect" fd @@ fun fd ->
+    Eio_unix.Net.configure options fd ;
+    Unix.connect fd addr
   with
   | Unix.Unix_error ((EINTR | EAGAIN | EWOULDBLOCK | EINPROGRESS), _, _) ->
     await_writable "connect" fd;
-    match Fd.use_exn "connect" fd Unix.getsockopt_error with
+    (match Fd.use_exn "connect" fd Unix.getsockopt_error with
     | None -> ()
-    | Some code -> raise (Err.wrap code "connect-in-progress" "")
+    | Some code -> raise (Err.wrap code "connect-in-progress" ""))
+  | Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 
 let accept ~sw sock =
   Fd.use_exn "accept" sock @@ fun sock ->
