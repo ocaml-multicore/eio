@@ -207,3 +207,13 @@ val rename : _ t -> _ t -> unit
 (** [rename old_t new_t] atomically unlinks [old_t] and links it as [new_t].
 
     If [new_t] already exists, it is atomically replaced. *)
+
+val symlink : link_to:string -> _ t -> unit
+(** [symlink ~link_to t] creates a symbolic link [t] to [link_to].
+
+    [t] is the symlink that is created and [link_to] is the name used in the link.
+    For example, this creates a "current" symlink pointing at "version-1.0":
+
+    {[
+      Eio.Path.symlink (dir / "current") ~link_to:"version-1.0"
+    ]} *)

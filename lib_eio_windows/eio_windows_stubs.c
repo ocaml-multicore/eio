@@ -252,6 +252,11 @@ CAMLprim value caml_eio_windows_renameat(value v_old_fd, value v_old_path, value
   uerror("renameat is not supported on windows yet", Nothing);
 }
 
+CAMLprim value caml_eio_windows_symlinkat(value v_old_path, value v_new_fd, value v_new_path)
+{
+  uerror("symlinkat is not supported on windows yet", Nothing);
+}
+
 CAMLprim value caml_eio_windows_spawn(value v_errors, value v_actions)
 {
   uerror("processes are not supported on windows yet", Nothing);

@@ -94,6 +94,9 @@ end = struct
     | None -> invalid_arg "Target is not an eio_posix directory!"
     | Some new_dir -> Err.run (Low_level.rename t.fd old_path new_dir) new_path
 
+  let symlink ~link_to t path =
+    Err.run (Low_level.symlink ~link_to t.fd) path
+
   let open_dir t ~sw path =
     let flags = Low_level.Open_flags.(rdonly + directory +? path) in
     let fd = Err.run (Low_level.openat ~sw ~mode:0 t.fd path) flags in

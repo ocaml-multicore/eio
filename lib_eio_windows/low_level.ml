@@ -234,6 +234,14 @@ let rename ?old_dir old_path ?new_dir new_path =
   in_worker_thread @@ fun () ->
   eio_renameat old_dir old_path new_dir new_path
 
+
+external eio_symlinkat : string -> Unix.file_descr option -> string -> unit = "caml_eio_windows_symlinkat"
+
+let symlink ~link_to new_dir new_path =
+  with_dirfd "symlink-new" new_dir @@ fun new_dir ->
+  in_worker_thread @@ fun () ->
+  eio_symlinkat link_to new_dir new_path
+
 let lseek fd off cmd =
   Fd.use_exn "lseek" fd @@ fun fd ->
   let cmd =

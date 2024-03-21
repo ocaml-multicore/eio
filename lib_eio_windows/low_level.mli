@@ -48,6 +48,10 @@ val mkdir : ?dirfd:fd -> ?nofollow:bool -> mode:int -> string -> unit
 val unlink : ?dirfd:fd -> dir:bool -> string -> unit
 val rename : ?old_dir:fd -> string -> ?new_dir:fd -> string -> unit
 
+val symlink : link_to:string -> fd option -> string -> unit
+(** [symlink ~link_to dir path] will create a new symlink at [dir / path]
+    linking to [link_to]. *)
+
 val readdir : string -> string array
 
 val readv : fd -> Cstruct.t array -> int
