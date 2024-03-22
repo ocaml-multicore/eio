@@ -119,3 +119,18 @@ let use_rw ~protect t fn =
     (* {mutex t R * locked t} *)
     poison t ex;
     raise ex
+
+let wrap_ro t f x =
+  lock t;
+  match f x with
+  | y -> unlock t; y
+  | exception ex -> unlock t; raise ex
+
+let wrap_rw ~protect t f x =
+  lock t;
+  match if protect then Cancel.protect f else f x with
+  | y -> unlock t; y
+  | exception ex ->
+    poison t ex;
+    raise ex
+
