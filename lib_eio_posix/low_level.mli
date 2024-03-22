@@ -82,6 +82,8 @@ val symlink : link_to:string -> dir_fd -> string -> unit
 (** [symlink ~link_to dir path] will create a new symlink at [dir / path]
     linking to [link_to]. *)
 
+val chmod : follow:bool -> mode:int -> dir_fd -> string -> unit
+
 val readdir : dir_fd -> string -> string array
 
 val readv : fd -> Cstruct.t array -> int
