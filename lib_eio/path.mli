@@ -242,3 +242,8 @@ val symlink : link_to:string -> _ t -> unit
     {[
       Eio.Path.symlink (dir / "current") ~link_to:"version-1.0"
     ]} *)
+
+val chmod : follow:bool -> perm:File.Unix_perm.t -> _ t -> unit
+(** [chmod ~follow ~perm t] allows you to change the file mode bits.
+
+    @param follow If [true] and [t] is a symlink then change the target's mode bits. *)
