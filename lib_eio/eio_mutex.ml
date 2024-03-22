@@ -128,7 +128,8 @@ let wrap_ro t f x =
 
 let wrap_rw ~protect t f x =
   lock t;
-  match if protect then Cancel.protect f else f x with
+  let f () = f x in
+  match if protect then Cancel.protect f else f () with
   | y -> unlock t; y
   | exception ex ->
     poison t ex;
