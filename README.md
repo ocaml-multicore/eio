@@ -1,6 +1,6 @@
 [API reference][Eio API] | [#eio Matrix chat](https://matrix.to/#/#eio:roscidus.com) | [Dev meetings][]
 
-# Eio -- Effects-Based Parallel IO for OCaml
+# Eio &mdash; Effects-Based Parallel IO for OCaml
 
 Eio provides an effects-based direct-style IO stack for OCaml 5.
 For example, you can use Eio to read and write files, make network connections,
