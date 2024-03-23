@@ -391,6 +391,7 @@ let run_client ~net ~addr =
   Switch.run ~name:"client" @@ fun sw ->
   traceln "Client: connecting to server";
   let flow = Eio.Net.connect ~sw net addr in
+  (* Read all data until end-of-stream (shutdown): *)
   traceln "Client: received %S" (Eio.Flow.read_all flow)
 ```
 
