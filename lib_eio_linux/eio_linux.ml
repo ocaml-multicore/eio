@@ -154,16 +154,9 @@ module Flow = struct
 
   let close = Eio_unix.Fd.close
 
-  let is_tty t = Fd.use_exn "isatty" t Unix.isatty
-
   let stat = Low_level.fstat
 
   let single_read t buf =
-    if is_tty t then (
-      (* Work-around for https://github.com/axboe/liburing/issues/354
-         (should be fixed in Linux 5.14) *)
-      Low_level.await_readable t
-    );
     Low_level.readv t [buf]
 
   let pread t ~file_offset bufs =

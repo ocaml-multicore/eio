@@ -536,9 +536,9 @@ let with_sched ?(fallback=no_fallback) config fn =
   | exception Unix.Unix_error(EPERM, _, _) -> fallback (`Msg "io_uring is not available (permission denied)")
   | uring ->
     let probe = Uring.get_probe uring in
-    if not (Uring.op_supported probe Uring.Op.shutdown) then (
+    if not (Uring.op_supported probe Uring.Op.mkdirat) then (
       Uring.exit uring;
-      fallback (`Msg "Linux >= 5.11 is required for io_uring support")
+      fallback (`Msg "Linux >= 5.15 is required for io_uring support")
     ) else (
       statx_works := Uring.op_supported probe Uring.Op.msg_ring;
       match
