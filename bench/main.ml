@@ -45,6 +45,19 @@ let () =
       "metrics", `List metrics;
     ]
   in
+  (* The benchmark machine runs an old Docker that blocks pidfd_open *)
+  (* let uname = Eio.Process.parse_out env#process_mgr Eio.Buf_read.take_all ["uname"; "-a"] in *)
+  let uname =
+    let ch = Unix.open_process_in "uname -a" in
+    let x = input_line ch in
+    close_in ch;
+    x
+  in
   Fmt.pr "%a@." (Yojson.Safe.pretty_print ~std:true) @@ `Assoc [
+    "config", `Assoc [
+      "uname", `String uname;
+      "backend", `String env#backend_id;
+      "recommended_domain_count", `Int (Domain.recommended_domain_count ());
+    ];
     "results", `List (List.map run benchmarks);
   ]
