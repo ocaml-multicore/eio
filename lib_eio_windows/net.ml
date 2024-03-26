@@ -142,7 +142,7 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
     );
   (listening_socket ~hook sock :> _ Eio.Net.listening_socket_ty r)
 
-let connect ~sw connect_addr =
+let connect ~sw ~options connect_addr =
   let socket_type, addr =
     match connect_addr with
     | `Unix path         -> Unix.SOCK_STREAM, Unix.ADDR_UNIX path
@@ -152,7 +152,7 @@ let connect ~sw connect_addr =
   in
   let sock = Low_level.socket ~sw (socket_domain_of connect_addr) socket_type 0 in
   try
-    Low_level.connect sock addr;
+    Low_level.connect sock ~options addr;
     (Flow.of_fd sock :> _ Eio_unix.Net.stream_socket)
   with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
 

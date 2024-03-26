@@ -221,8 +221,9 @@ let splice src ~dst ~len =
   else if res = 0 then raise End_of_file
   else raise @@ Err.wrap (Uring.error_of_errno res) "splice" ""
 
-let connect fd addr =
+let connect fd ~options addr =
   Fd.use_exn "connect" fd @@ fun fd ->
+  Eio_unix.Net.configure options fd ;
   let res = Sched.enter "connect" (enqueue_connect fd addr) in
   if res < 0 then (
     let ex =
