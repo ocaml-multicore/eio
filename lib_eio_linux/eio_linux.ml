@@ -593,6 +593,9 @@ end = struct
     | Some fd2 -> Low_level.rename t.fd old_path fd2 new_path
     | None -> raise (Unix.Unix_error (Unix.EXDEV, "rename-dst", new_path))
 
+  let symlink t old_path new_path =
+    Low_level.symlink old_path t.fd new_path
+
   let pp f t = Fmt.string f (String.escaped t.label)
 
   let fd t = t.fd

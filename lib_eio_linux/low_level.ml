@@ -330,6 +330,8 @@ external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "ca
 
 external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -> unit = "caml_eio_renameat"
 
+external eio_symlinkat : string -> Unix.file_descr -> string -> unit = "caml_eio_symlinkat"
+
 external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
 
 external eio_getdents : Unix.file_descr -> string list = "caml_eio_getdents"
@@ -448,6 +450,12 @@ let rename old_dir old_path new_dir new_path =
     eio_renameat
       old_parent old_leaf
       new_parent new_leaf
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+
+let symlink old_path new_dir new_path =
+  with_parent_dir "renameat-new" new_dir new_path @@ fun new_parent new_leaf ->
+  try
+    eio_symlinkat old_path new_parent new_leaf
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
 let shutdown socket command =

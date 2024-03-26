@@ -207,3 +207,16 @@ val rename : _ t -> _ t -> unit
 (** [rename old_t new_t] atomically unlinks [old_t] and links it as [new_t].
 
     If [new_t] already exists, it is atomically replaced. *)
+
+val symlink : ?exists_ok:bool -> target:_ t -> string -> unit
+(** [symlink ~target name] creates a link to [target] called [name]. 
+    
+    The following program creates a new file called [./hello.txt] and then creates
+    a symbolic link from [./world.txt] to [./hello.txt].
+    {[
+        Eio.Path.(save ~create:(`If_missing 0o644) (env#cwd / "hello.txt")) "Hello World!";
+        Eio.Path.(symlink ~target:(env#cwd / "hello.txt") "world.txt")
+    ]}
+
+    @param exist_ok If [false] (the default) then we raise {! Fs.Already_exists} if the symlink already exists with that target.
+*)

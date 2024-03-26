@@ -172,6 +172,10 @@ end = struct
       with_parent_dir new_dir new_path @@ fun new_dir new_path ->
       Err.run (Low_level.rename ?old_dir old_path ?new_dir) new_path
 
+  let symlink t old_path new_path =
+    with_parent_dir t new_path @@ fun dirfd path ->
+    Err.run (Low_level.symlink old_path dirfd) path
+
   let close t = t.closed <- true
 
   let open_dir t ~sw path =

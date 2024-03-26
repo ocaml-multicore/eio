@@ -47,6 +47,7 @@ val read_link : ?dirfd:fd -> string -> string
 val mkdir : ?dirfd:fd -> ?nofollow:bool -> mode:int -> string -> unit
 val unlink : ?dirfd:fd -> dir:bool -> string -> unit
 val rename : ?old_dir:fd -> string -> ?new_dir:fd -> string -> unit
+val symlink : string -> fd option -> string -> unit
 
 val readdir : string -> string array
 

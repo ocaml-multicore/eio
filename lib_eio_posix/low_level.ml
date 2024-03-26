@@ -414,6 +414,14 @@ let rename old_dir old_path new_dir new_path =
   let new_dir = Option.value new_dir ~default:at_fdcwd in
   eio_renameat old_dir old_path new_dir new_path
 
+external eio_symlinkat : string -> Unix.file_descr -> string -> unit = "caml_eio_posix_symlinkat"
+
+let symlink old_path new_dir new_path =
+  in_worker_thread "symlink" @@ fun () ->
+  Resolve.with_parent "symlink-new" new_dir new_path @@ fun new_dir new_path ->
+  let new_dir = Option.value new_dir ~default:at_fdcwd in
+  eio_symlinkat old_path new_dir new_path
+
 let read_link dirfd path =
   in_worker_thread "read_link" @@ fun () ->
   Resolve.with_parent "read_link" dirfd path @@ fun dirfd path ->

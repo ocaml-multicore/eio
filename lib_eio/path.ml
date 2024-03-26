@@ -199,6 +199,16 @@ let rename t1 t2 =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "renaming %a to %a" pp t1 pp t2
 
+let symlink ?(exists_ok=false) ~target name =
+  let (Resource.T (dir, ops), old_path) = target in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.symlink dir old_path name
+  with 
+  | Exn.Io (Fs.E Already_exists _, _) when exists_ok -> ()
+  | Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "symlink to %a called %s" pp target name
+
 let rec mkdirs ?(exists_ok=false) ~perm t =
   (* Check parent exists first. *)
   split t |> Option.iter (fun (parent, _) ->
