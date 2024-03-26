@@ -35,6 +35,12 @@ val create :
                    If it raises, the exception is passed on to the user,
                    but resource is still considered to have been disposed. *)
 
-val use : 'a t -> ('a -> 'b) -> 'b
+val use : 'a t -> ?never_block:bool -> ('a -> 'b) -> 'b
 (** [use t fn] waits for some resource [x] to be available and then runs [f x].
-    Afterwards (on success or error), [x] is returned to the pool. *)
+    Afterwards (on success or error), [x] is returned to the pool.
+
+    @param never_block If [true] and the pool has reached maximum capacity,
+                       then a fresh resource is created to ensure that this [use]
+                       call does not wait for a resource to become available.
+                       This resource is immediately disposed after [f x] returns.
+    *)
