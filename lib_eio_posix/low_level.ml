@@ -263,7 +263,8 @@ module Resolve = struct
       | new_base ->
         state.dir_stack <- Tmp (new_base, state.dir_stack);
         resolve state xs
-      | exception (Unix.Unix_error ((ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) ->
+      | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) ->
+        (* Note: Linux uses ELOOP or ENOTDIR. FreeBSD uses EMLINK. NetBSD uses EFTYPE. *)
         match Eio_unix.Private.read_link_unix base x with
         | target ->
           decr_max_follows state x;
