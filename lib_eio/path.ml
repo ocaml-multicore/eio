@@ -199,6 +199,14 @@ let rename t1 t2 =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "renaming %a to %a" pp t1 pp t2
 
+let symlink ~link_to source =
+  let (Resource.T (dir, ops), path) = source in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.symlink dir path ~link_to
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "creating symlink %a -> %s" pp source link_to
+
 let rec mkdirs ?(exists_ok=false) ~perm t =
   (* Check parent exists first. *)
   split t |> Option.iter (fun (parent, _) ->

@@ -89,11 +89,17 @@ let try_stat path =
     traceln "%a -> %s" Eio.Path.pp path a
   else
     traceln "%a -> %s / %s" Eio.Path.pp path a b
+
+let try_symlink ~link_to path =
+  match Path.symlink ~link_to path with
+  | s -> traceln "symlink %a -> %S" Path.pp path link_to
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 ```
 
 # Basic test cases
 
 Creating a file and reading it back:
+
 ```ocaml
 # run ~clear:["test-file"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -104,6 +110,7 @@ Creating a file and reading it back:
 ```
 
 Check the file got the correct permissions (subject to the umask set above):
+
 ```ocaml
 # Printf.printf "Perm = %o\n" ((Unix.stat "test-file").st_perm);;
 Perm = 644
@@ -113,6 +120,7 @@ Perm = 644
 # Sandboxing
 
 Trying to use cwd to access a file outside of that subtree fails:
+
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -123,6 +131,7 @@ Exception: Eio.Io Fs Permission_denied _,
 ```
 
 Trying to use cwd to access an absolute path fails:
+
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -135,6 +144,7 @@ Exception: Eio.Io Fs Permission_denied _,
 # Creation modes
 
 Exclusive create fails if already exists:
+
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -146,6 +156,7 @@ Exception: Eio.Io Fs Already_exists _,
 ```
 
 If-missing create succeeds if already exists:
+
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -158,6 +169,7 @@ If-missing create succeeds if already exists:
 ```
 
 Truncate create succeeds if already exists, and truncates:
+
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -172,6 +184,7 @@ Truncate create succeeds if already exists, and truncates:
 ```
 
 Error if no create and doesn't exist:
+
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -183,6 +196,7 @@ Exception: Eio.Io Fs Not_found _,
 ```
 
 Appending to an existing file:
+
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -215,12 +229,13 @@ Appending to an existing file:
 ```
 
 Creating directories with nesting, symlinks, etc:
+
 ```ocaml
 # run ~clear:["to-subdir"; "to-root"; "dangle"] @@ fun env ->
-  Unix.symlink "/" "to-root";
-  Unix.symlink "subdir" "to-subdir";
-  Unix.symlink "foo" "dangle";
   let cwd = Eio.Stdenv.cwd env in
+  Path.symlink ~link_to:"/" (cwd / "to-root");
+  Path.symlink ~link_to:"subdir" (cwd / "to-subdir");
+  Path.symlink ~link_to:"foo" (cwd / "dangle");
   try_mkdir (cwd / "subdir");
   try_mkdir (cwd / "to-subdir/nested");
   try_mkdir (cwd / "to-root/tmp/foo");
@@ -384,10 +399,10 @@ Reads and writes follow symlinks, but unlink operates on the symlink itself:
   let file2 = cwd / "file2" in
   try_write_file ~create:(`Exclusive 0o600) file1 "data1";
   try_write_file ~create:(`Exclusive 0o400) file2 "data2";
-  Unix.symlink "dir1/file1" "link1";
-  Unix.symlink "../file2" "dir1/link2";
-  Unix.symlink "dir1" "linkdir";
-  Unix.symlink "/" "linkroot";
+  Path.symlink ~link_to:"dir1/file1" (cwd / "link1");
+  Path.symlink ~link_to:"../file2" (cwd / "dir1/link2");
+  Path.symlink ~link_to:"dir1" (cwd / "linkdir");
+  Path.symlink ~link_to:"/" (cwd / "linkroot");
   try_read_file file1;
   try_read_file (cwd / "link1");
   try_read_file (cwd / "linkdir" / "file1");
@@ -504,6 +519,7 @@ Removing something that doesn't exist or is out of scope:
 # Limiting to a subdirectory
 
 Create a sandbox, write a file with it, then read it from outside:
+
 ```ocaml
 # run ~clear:["sandbox"] @@ fun env ->
   Switch.run @@ fun sw ->
@@ -540,10 +556,10 @@ Create a sandbox, write a file with it, then read it from outside:
   reject (cwd / "/");
   test (cwd / "foo/bar/..");
   test (fs / "foo/bar");
-  Unix.symlink ".." "foo/up";
+  Path.symlink ~link_to:".." (cwd / "foo/up");
   test (cwd / "foo/up/foo/bar");
   reject (cwd / "foo/up/../bar");
-  Unix.symlink "/" "foo/root";
+  Path.symlink ~link_to:"/" (cwd / "foo/root");
   reject (cwd / "foo/root/..");
   reject (cwd / "missing");
 +open_dir <cwd:foo/bar> -> OK
@@ -566,6 +582,7 @@ Create a sandbox, write a file with it, then read it from outside:
 
 We create a directory and chdir into it.
 Using `cwd` we can't access the parent, but using `fs` we can:
+
 ```ocaml
 # run ~clear:["fs-test"; "outside-cwd"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -604,7 +621,7 @@ Reading directory entries under `cwd` and outside of `cwd`.
   try_read_dir (tmpdir / ".");
   try_read_dir (tmpdir / "..");
   try_read_dir (tmpdir / "test-3");
-  Unix.symlink "test-1" "readdir/link-1";
+  Path.symlink ~link_to:"test-1" (cwd / "readdir/link-1");
   try_read_dir (tmpdir / "link-1");
 +mkdir <cwd:readdir> -> ok
 +mkdir <readdir:test-1> -> ok
@@ -648,6 +665,29 @@ Can use `fs` to access absolute paths:
 +Trying with cwd instead fails:
 Exception: Eio.Io Fs Permission_denied _,
   opening <cwd:/dev/null>
+```
+
+Symlinking and sandboxing:
+
+```ocaml
+# run ~clear:["hello.txt"; "world.txt"] @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  Path.save ~create:(`Exclusive 0o600) (cwd / "hello.txt") "Hello World!";
+  try_symlink ~link_to:"hello.txt" (cwd / "../world.txt");
+  try_symlink ~link_to:"hello.txt" (cwd / "/world.txt");
+  try_symlink ~link_to:"hello.txt" (cwd / "world.txt");
+  traceln "world.txt -> hello.txt: %s" (Path.load (cwd / "world.txt"));
+  try_symlink ~link_to:"hello.txt" (cwd / "world.txt");
+  try_symlink ~link_to:"/" (cwd / "root");
+  try_read_dir (cwd / "root");;
++Eio.Io Fs Permission_denied _, creating symlink <cwd:../world.txt> -> hello.txt
++Eio.Io Fs Permission_denied _, creating symlink <cwd:/world.txt> -> hello.txt
++symlink <cwd:world.txt> -> "hello.txt"
++world.txt -> hello.txt: Hello World!
++Eio.Io Fs Already_exists _, creating symlink <cwd:world.txt> -> hello.txt
++symlink <cwd:root> -> "/"
++Eio.Io Fs Permission_denied _, reading directory <cwd:root>
+- : unit = ()
 ```
 
 ## Streamling lines
@@ -781,15 +821,15 @@ Unconfined:
   let cwd = Eio.Stdenv.cwd env in
   Switch.run @@ fun sw ->
   try_mkdir (cwd / "stat_subdir2");
-  Unix.symlink "stat_subdir2" "symlink";
-  Unix.symlink "missing" "broken-symlink";
+  Path.symlink ~link_to:"stat_subdir2" (cwd / "symlink");
+  Path.symlink ~link_to:"missing" (cwd / "broken-symlink");
   try_stat (cwd / "stat_subdir2");
   try_stat (cwd / "symlink");
   try_stat (cwd / "broken-symlink");
   try_stat cwd;
   try_stat (cwd / "..");
   try_stat (cwd / "stat_subdir2/..");
-  Unix.symlink ".." "parent-symlink";
+  Path.symlink ~link_to:".." (cwd / "parent-symlink");
   try_stat (cwd / "parent-symlink");
   try_stat (cwd / "missing1" / "missing2");
 +mkdir <cwd:stat_subdir2> -> ok
@@ -811,7 +851,7 @@ Unconfined:
   let fs = Eio.Stdenv.fs env in
   let cwd = Eio.Stdenv.cwd env in
   Switch.run @@ fun sw ->
-  Unix.symlink "file" "symlink";
+  Path.symlink ~link_to:"file" (cwd / "symlink");
   try_read_link (cwd / "symlink");
   try_read_link (fs / "symlink");
   try_write_file (cwd / "file") "data" ~create:(`Exclusive 0o600);
