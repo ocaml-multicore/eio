@@ -231,3 +231,21 @@ Cancellation:
 +Cancel sleeper
 Exception: Invalid_argument "No further events scheduled on mock clock".
 ```
+
+Sleep:
+
+```ocaml
+# try
+    Eio_mock.Backend.run_full @@ fun env ->
+    let timeout = Eio.Time.Timeout.seconds env#mono_clock 2. in
+    Eio.Time.Timeout.sleep timeout;
+    traceln "Timeout done";
+    Eio.Time.Timeout.(sleep none);
+    assert false
+  with Eio_mock.Backend.Deadlock_detected ->
+    traceln "Never finished";;
++mock time is now 2
++Timeout done
++Never finished
+- : unit = ()
+```

@@ -87,6 +87,11 @@ module Timeout = struct
     | Timeout (clock, d) ->
       Fiber.first (fun () -> Mono.sleep_span clock d; raise Timeout) fn
 
+  let sleep t =
+    match t with
+    | Unlimited -> Fiber.await_cancel ()
+    | Timeout (clock, d) -> Mono.sleep_span clock d
+
   let pp_duration f d =
     if d >= 0.001 && d < 0.1 then
       Fmt.pf f "%.2gms" (d *. 1000.)
