@@ -70,6 +70,9 @@ module Timeout : sig
   (** [run_exn t fn] runs [fn ()] but cancels it if it takes longer than allowed by timeout [t],
       raising exception {!exception-Timeout}. *)
 
+  val sleep : t -> unit
+  (** [sleep t] sleeps for [t]'s duration. *)
+
   val pp : t Fmt.t
   (** [pp] formats a timeout as a duration (e.g. "5s").
       This is intended for use in error messages and logging and is rounded. *)
