@@ -97,6 +97,9 @@ val socketpair_datagram :
 val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
 (** [getnameinfo sockaddr] returns domain name and service for [sockaddr]. *)
 
+val configure : Eio.Net.option list -> Unix.file_descr -> unit
+(** [configure options fd] prepare the socket with the chosen options. *)
+
 type _ Effect.t +=
   | Import_socket_stream :
       Switch.t * bool * Unix.file_descr -> [`Unix_fd | stream_socket_ty] r Effect.t     (** See {!import_socket_stream} *)

@@ -111,8 +111,9 @@ val splice : fd -> dst:fd -> len:int -> int
     @raise End_of_file [src] is at the end of the file.
     @raise Unix.Unix_error(EINVAL, "splice", _) if splice is not supported for these FDs. *)
 
-val connect : fd -> Unix.sockaddr -> unit
-(** [connect fd addr] attempts to connect socket [fd] to [addr]. *)
+val connect : fd -> options:Eio.Net.option list -> Unix.sockaddr -> unit
+(** [connect fd ~options addr] attempts to connect socket [fd] to [addr]
+    after configuring the socket with [options]. *)
 
 val await_readable : fd -> unit
 (** [await_readable fd] blocks until [fd] is readable (or has an error). *)

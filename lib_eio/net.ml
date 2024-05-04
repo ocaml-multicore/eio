@@ -180,6 +180,12 @@ type 'tag ty = [`Network | `Platform of 'tag]
 type 'a t = 'a r
   constraint 'a = [> [> `Generic] ty]
 
+type option = ..
+type option +=
+  | Source_addr of Sockaddr.stream
+  | Reuse_addr
+  | Reuse_port
+
 module Pi = struct
   module type STREAM_SOCKET = sig
     type tag
@@ -235,7 +241,7 @@ module Pi = struct
     type tag
 
     val listen : t -> reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> tag listening_socket_ty r
-    val connect : t -> sw:Switch.t -> Sockaddr.stream -> tag stream_socket_ty r
+    val connect : t -> sw:Switch.t -> options:option list -> Sockaddr.stream -> tag stream_socket_ty r
     val datagram_socket :
       t
       -> reuse_addr:bool
@@ -295,10 +301,10 @@ let listen (type tag) ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:[>
   let module X = (val (Resource.get ops Pi.Network)) in
   X.listen t ~reuse_addr ~reuse_port ~backlog ~sw
 
-let connect (type tag) ~sw (t:[> tag ty] r) addr =
+let connect (type tag) ~sw ?(options = []) (t:[> tag ty] r) addr =
   let (Resource.T (t, ops)) = t in
   let module X = (val (Resource.get ops Pi.Network)) in
-  try X.connect t ~sw addr
+  try X.connect t ~sw ~options addr
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "connecting to %a" Sockaddr.pp addr

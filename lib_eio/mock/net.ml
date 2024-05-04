@@ -36,7 +36,7 @@ module Impl = struct
     Switch.on_release sw (fun () -> Eio.Resource.close socket);
     socket
 
-  let connect t ~sw addr =
+  let connect t ~sw ~options:_ addr =
     traceln "%s: connect to %a" t.label Eio.Net.Sockaddr.pp addr;
     let socket = Handler.run t.on_connect in
     Switch.on_release sw (fun () -> Eio.Flow.close socket);

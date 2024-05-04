@@ -85,3 +85,15 @@ let socketpair_datagram ~sw ?(domain=Unix.PF_UNIX) ?(protocol=0) () =
 
 let fd socket =
   Option.get (Resource.fd_opt socket)
+
+let apply_option fd = function
+  | Eio.Net.Source_addr addr ->
+      Unix.bind fd (sockaddr_to_unix addr)
+  | Eio.Net.Reuse_addr ->
+      Unix.setsockopt fd Unix.SO_REUSEADDR true
+  | Eio.Net.Reuse_port ->
+      Unix.setsockopt fd Unix.SO_REUSEPORT true
+  | _ ->
+      invalid_arg "Unknown Eio.Net.option"
+
+let configure options fd = List.iter (apply_option fd) options
