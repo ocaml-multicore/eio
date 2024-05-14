@@ -113,7 +113,10 @@ let enter op fn =
   Effect.perform (Enter fn)
 
 let submit uring =
-  Trace.with_span "submit" (fun () -> Uring.submit uring)
+  if Uring.sqe_ready uring > 0 then
+    Trace.with_span "submit" (fun () -> Uring.submit uring)
+  else
+    0
 
 let rec enqueue_job t fn =
   match fn () with

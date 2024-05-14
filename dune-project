@@ -38,7 +38,7 @@
   (logs (and (>= 0.7.0) :with-test))
   (fmt (>= 0.8.9))
   (cmdliner (and (>= 1.1.0) :with-test))
-  (uring (>= 0.7))))
+  (uring (>= 0.9))))
 (package
  (name eio_posix)
  (allow_empty)  ; Work-around for dune bug #6938
