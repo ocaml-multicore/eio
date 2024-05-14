@@ -228,7 +228,6 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
         Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
         handle_complete st ~runnable result
       | None ->
-        ignore (submit uring : int);
         let timeout =
           match next_due with
           | `Wait_until time ->
@@ -239,6 +238,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
           | `Nothing -> None
         in
         if not (Lf_queue.is_empty st.run_q) then (
+          ignore (submit uring : int);
           Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
           schedule st
         ) else if timeout = None && Uring.active_ops uring = 0 then (
@@ -267,6 +267,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
           ) else (
             (* Someone added a new job while we were setting [need_wakeup] to [true].
                They might or might not have seen that, so we can't be sure they'll send an event. *)
+            ignore (submit uring : int);
             Atomic.set st.need_wakeup false;
             Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
             schedule st
