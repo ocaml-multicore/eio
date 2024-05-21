@@ -1,3 +1,47 @@
+## v1.1
+
+New features:
+
+- Add `Eio.Path.symlink` (@patricoferris #715, reviewed by @talex5).
+
+- Add `Eio.Pool.use ~never_block` (@SGrondin #657, reviewed by @talex5).
+
+- Add `Eio.Time.Timeout.sleep` (@talex5 #726).
+
+Documentation:
+
+- Add `examples/fs` showing how to walk a directory tree (@talex5 #730).
+
+- README: explain that `read_all` reads until shutdown (@talex5 #717, reported by @Wenke-D).
+
+- Use long dash in README title (@lucperkins #718).
+
+Linux backend:
+
+- Require Linux >= 5.15 (@talex5 #720, reviewed by @SGrondin and @avsm).  
+  Removes a work-around that required checking whether every flow was a tty.
+
+- Don't call submit immediately before wait (@talex5 #728).  
+  This is slightly faster and makes the traces clearer.
+
+- Don't record submit events when there's nothing to submit (@talex5 #729).  
+  Makes the traces a bit clearer.
+
+- Split flow into its own file (@talex5 #727).
+
+POSIX backend:
+
+- Add `_BSD_SOURCE` flag to fix build on OpenBSD (@prgbln #722).
+
+- Fix sandboxed path resolution on OpenBSD (@jebrosen #723, reviewed by @talex5).  
+  OpenBSD uses `ELOOP` when opening a symlink with `O_NOFOLLOW`.
+
+Build and test:
+
+- Benchmarks: record uname, Eio backend, and number of cores (@talex5 #719).
+
+- Update to MDX 2.4.1 for OCaml 5.2 (@talex5 #712).
+
 ## v1.0
 
 New features:

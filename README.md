@@ -16,7 +16,7 @@ Eio replaces existing concurrency libraries such as Lwt
 
 * [Motivation](#motivation)
 * [Eio packages](#eio-packages)
-* [Getting OCaml 5.1](#getting-ocaml-51)
+* [Getting OCaml](#getting-ocaml)
 * [Getting Eio](#getting-eio)
 * [Running Eio](#running-eio)
 * [Testing with Mocks](#testing-with-mocks)
@@ -92,7 +92,7 @@ See [Awesome Multicore OCaml][] for links to work migrating other projects to Ei
 - [Eio_main][] selects an appropriate backend (e.g. `eio_linux` or `eio_posix`), depending on your platform.
 - [Eio_js][] allows Eio code to run in the browser, using `js_of_ocaml`.
 
-## Getting OCaml 5.1
+## Getting OCaml
 
 You'll need OCaml 5.1.0 or later.
 You can either install it yourself or build the included [Dockerfile](./Dockerfile).
@@ -104,7 +104,7 @@ To install it yourself:
 2. Use opam to install OCaml:
 
    ```
-   opam switch create 5.1.1
+   opam switch create 5.2.0
    ```
 
 ## Getting Eio
