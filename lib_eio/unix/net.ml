@@ -61,6 +61,7 @@ type t = [`Generic | `Unix] Eio.Net.ty r
 
 type _ Effect.t +=
   | Import_socket_stream : Switch.t * bool * Unix.file_descr -> [`Unix_fd | stream_socket_ty] r Effect.t
+  | Import_socket_listening : Switch.t * bool * Unix.file_descr -> [`Unix_fd | listening_socket_ty] r Effect.t
   | Import_socket_datagram : Switch.t * bool * Unix.file_descr -> [`Unix_fd | datagram_socket_ty] r Effect.t
   | Socketpair_stream : Switch.t * Unix.socket_domain * int ->
       ([`Unix_fd | stream_socket_ty] r * [`Unix_fd | stream_socket_ty] r) Effect.t
@@ -68,10 +69,14 @@ type _ Effect.t +=
       ([`Unix_fd | datagram_socket_ty] r * [`Unix_fd | datagram_socket_ty] r) Effect.t
 
 let open_stream s = (s : _ stream_socket :> [< `Unix_fd | stream_socket_ty] r)
+let open_listening s = (s : _ listening_socket :> [< `Unix_fd | listening_socket_ty] r)
 let open_datagram s = (s : _ datagram_socket :> [< `Unix_fd | datagram_socket_ty] r)
 
 let import_socket_stream ~sw ~close_unix fd =
   open_stream @@ Effect.perform (Import_socket_stream (sw, close_unix, fd))
+
+let import_socket_listening ~sw ~close_unix fd =
+  open_listening @@ Effect.perform (Import_socket_listening (sw, close_unix, fd))
 
 let import_socket_datagram ~sw ~close_unix fd =
   open_datagram @@ Effect.perform (Import_socket_datagram (sw, close_unix, fd))
