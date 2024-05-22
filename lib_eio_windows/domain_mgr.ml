@@ -48,6 +48,11 @@ let run_event_loop fn x =
           (try Unix.set_nonblock unix_fd with Unix.Unix_error (Unix.ENOTSOCK, _, _) -> ());
           continue k (Flow.of_fd fd :> _ Eio_unix.Net.stream_socket)
         )
+      | Eio_unix.Net.Import_socket_listening (sw, close_unix, unix_fd) -> Some (fun k ->
+          let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
+          Unix.set_nonblock unix_fd;
+          continue k (Net.listening_socket ~hook:Switch.null_hook fd)
+        )
       | Eio_unix.Net.Import_socket_datagram (sw, close_unix, unix_fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
           Unix.set_nonblock unix_fd;

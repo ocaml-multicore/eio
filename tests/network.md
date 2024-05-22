@@ -373,6 +373,29 @@ Wrapping a Unix FD as an Eio stream socket:
 - : unit = ()
 ```
 
+Wrapping a Unix FD as a listening Eio socket:
+
+```ocaml
+# run @@ fun ~net sw ->
+  let l = Unix.(socket PF_INET SOCK_STREAM 0) in
+  Unix.bind l (Unix.ADDR_INET (Unix.inet_addr_loopback, 8082));
+  Unix.listen l 40;
+  let l = Eio_unix.Net.import_socket_listening ~sw ~close_unix:true l in
+  Fiber.both
+    (fun () -> run_server ~sw l)
+    (fun () ->
+      run_client ~sw ~net ~addr:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 8082));
+      traceln "Client finished - cancelling server";
+      raise Graceful_shutdown
+    );;
++Connecting to server...
++Server accepted connection from client
++Server received: "Hello from client"
++Client received: "Bye"
++Client finished - cancelling server
+Exception: Graceful_shutdown.
+```
+
 Wrapping a Unix FD as an datagram Eio socket:
 
 ```ocaml
