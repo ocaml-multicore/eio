@@ -130,7 +130,7 @@ let test_read_exact () =
   let ( / ) = Eio.Path.( / ) in
   let path = env#cwd / "test.data" in
   let msg = "hello" in
-  Eio.Path.save path ("!" ^ msg) ~create:(`Exclusive 0o600);
+  Eio.Path.save path ("!" ^ msg) ~create:(`Or_truncate 0o600);
   Switch.run @@ fun sw ->
   let fd = Eio_linux.Low_level.openat2 ~sw
     ~access:`R
@@ -162,7 +162,7 @@ let test_statx () =
   Eio_linux.run ~queue_depth:4 @@ fun env ->
   let ( / ) = Eio.Path.( / ) in
   let path = env#cwd / "test2.data" in
-  Eio.Path.with_open_out path ~create:(`Exclusive 0o600) @@ fun file ->
+  Eio.Path.with_open_out path ~create:(`Or_truncate 0o600) @@ fun file ->
   Eio.Flow.copy_string "hello" file;
   let buf = Uring.Statx.create () in
   let test expected_len ~follow dir path =
@@ -198,6 +198,19 @@ let test_statx () =
     );
   ()
 
+(* Ensure that an OCaml signal handler will run, even if we're sleeping in liburing at the time.
+   The problem here is that [__sys_io_uring_enter2] doesn't return EINTR, because it did successfully
+   submit an item. This causes liburing to retry without giving our OCaml signal handler a chance to run.
+   Note: we can't run this test with a timeout because liburing does return in that case! *)
+let test_signal_race () =
+  Eio_linux.run @@ fun _env ->
+  let cond = Eio.Condition.create () in
+  let handle _ = Eio.Condition.broadcast cond in
+  Sys.(set_signal sigalrm) (Signal_handle handle);
+  Fiber.both
+    (fun () -> Eio.Condition.await_no_mutex cond)
+    (fun () -> ignore (Unix.setitimer ITIMER_REAL { it_interval = 0.; it_value = 0.001 } : Unix.interval_timer_status))
+
 let () =
   let open Alcotest in
   run "eio_linux" [
@@ -211,5 +224,6 @@ let () =
       test_case "read_exact"    `Quick test_read_exact;
       test_case "expose_backend"    `Quick test_expose_backend;
       test_case "statx"         `Quick test_statx;
+      test_case "signal_race"   `Quick test_signal_race;
     ];
   ]
