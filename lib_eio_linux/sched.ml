@@ -257,7 +257,14 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
                If [need_wakeup] is still [true], this is fine because we don't promise to do that.
                If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
             Trace.suspend_domain Begin;
-            let result = Uring.wait ?timeout uring in
+            let result =
+              (* Hack: liburing automatically retries [io_uring_enter] if an
+                 interrupt is received and no timeout is set. However, we need
+                 to return to OCaml mode so any pending signal handlers can
+                 run. See: https://github.com/ocaml-multicore/eio/issues/732 *)
+              let timeout = Option.value timeout ~default:1e9 in
+              Uring.wait ~timeout uring
+            in
             Trace.suspend_domain End;
             Atomic.set st.need_wakeup false;
             Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
