@@ -6,6 +6,8 @@ New features:
 
 - Add `Eio.Pool.use ~never_block` (@SGrondin #657, reviewed by @talex5).
 
+- Add `Eio_unix.Net.import_socket_listening` (@alyssais #733).
+
 - Add `Eio.Time.Timeout.sleep` (@talex5 #726).
 
 Documentation:
@@ -28,6 +30,8 @@ Linux backend:
   Makes the traces a bit clearer.
 
 - Split flow into its own file (@talex5 #727).
+
+- Add work-around for signals race (@talex5 #734).
 
 POSIX backend:
 
