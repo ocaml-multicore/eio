@@ -56,15 +56,22 @@ end
 (** {2 Creating or importing sockets} *)
 
 val import_socket_stream : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [`Unix_fd | stream_socket_ty] r
-(** [import_socket_stream ~sw ~close_unix:true fd] is an Eio flow that uses [fd].
+(** [import_socket_stream ~sw ~close_unix fd] is an Eio flow that uses [fd].
 
     It can be cast to e.g. {!source} for a one-way flow.
     The socket object will be closed when [sw] finishes.
 
     The [close_unix] and [sw] arguments are passed to {!Fd.of_unix}. *)
 
+val import_socket_listening : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [`Unix_fd | listening_socket_ty] r
+(** [import_socket_listening ~sw ~close_unix fd] is an Eio listening socket that uses [fd].
+
+    The socket object will be closed when [sw] finishes.
+
+    The [close_unix] and [sw] arguments are passed to {!Fd.of_unix}. *)
+
 val import_socket_datagram : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [`Unix_fd | datagram_socket_ty] r
-(** [import_socket_datagram ~sw ~close_unix:true fd] is an Eio datagram socket that uses [fd].
+(** [import_socket_datagram ~sw ~close_unix fd] is an Eio datagram socket that uses [fd].
 
     The socket object will be closed when [sw] finishes.
 
@@ -100,6 +107,8 @@ val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
 type _ Effect.t +=
   | Import_socket_stream :
       Switch.t * bool * Unix.file_descr -> [`Unix_fd | stream_socket_ty] r Effect.t     (** See {!import_socket_stream} *)
+  | Import_socket_listening :
+      Switch.t * bool * Unix.file_descr -> [`Unix_fd | listening_socket_ty] r Effect.t  (** See {!import_socket_listening} *)
   | Import_socket_datagram :
       Switch.t * bool * Unix.file_descr -> [`Unix_fd | datagram_socket_ty] r Effect.t   (** See {!import_socket_datagram} *)
   | Socketpair_stream : Eio.Switch.t * Unix.socket_domain * int ->

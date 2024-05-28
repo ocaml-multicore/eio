@@ -504,6 +504,10 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
           let fd = Fd.of_unix ~sw ~seekable:false ~close_unix fd in
           continue k (Flow.of_fd fd :> _ Eio_unix.Net.stream_socket)
         )
+      | Eio_unix.Net.Import_socket_listening (sw, close_unix, fd) -> Some (fun k ->
+          let fd = Fd.of_unix ~sw ~seekable:false ~close_unix fd in
+          continue k (listening_socket fd)
+        )
       | Eio_unix.Net.Import_socket_datagram (sw, close_unix, fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~seekable:false ~close_unix fd in
           continue k (datagram_socket fd)
