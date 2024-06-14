@@ -218,6 +218,13 @@ val seq : ?stop:bool parser -> 'a parser -> 'a Seq.t parser
     It is not necessary to consume all the elements of the
     sequence.
 
+    Example ([head 4] is a parser that takes 4 lines):
+
+    {[
+      let head n r =
+        r |> Buf_read.(seq line) |> Seq.take n |> List.of_seq
+    ]}
+
     @param stop This is used before parsing each item.
                 The sequence ends if this returns [true].
                 The default is {!at_end_of_input}. *)
