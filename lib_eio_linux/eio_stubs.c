@@ -39,7 +39,11 @@
 #ifndef SYS_clone3
 # define SYS_clone3 435
 # define CLONE_PIDFD 0x00001000
-struct clone_args {
+#endif
+
+// struct clone_args isn't defined in linux-lts headers, so define it here
+// Note that this struct is versioned by size. See linux/sched.h for details
+struct caml_eio_clone_args {
   uint64_t flags;
   uint64_t pidfd;
   uint64_t child_tid;
@@ -48,11 +52,7 @@ struct clone_args {
   uint64_t stack;
   uint64_t stack_size;
   uint64_t tls;
-  uint64_t set_tid;
-  uint64_t set_tid_size;
-  uint64_t cgroup;
 };
-#endif
 
 // Make sure we have enough space for at least one entry.
 #define DIRENT_BUF_SIZE (PATH_MAX + sizeof(struct dirent64))
@@ -178,9 +178,9 @@ static int pidfd_open(pid_t pid, unsigned int flags) {
 
 /* Like clone3, but falls back to fork if not supported.
    Also, raises exceptions rather then returning an error. */
-static pid_t clone3_with_fallback(struct clone_args *cl_args) {
+static pid_t clone3_with_fallback(struct caml_eio_clone_args *cl_args) {
   int *pidfd = (int *)(uintptr_t) cl_args->pidfd;
-  pid_t child_pid = syscall(SYS_clone3, cl_args, sizeof(struct clone_args));
+  pid_t child_pid = syscall(SYS_clone3, cl_args, sizeof(struct caml_eio_clone_args));
 
   if (child_pid >= 0)
     return child_pid;		/* Success! */
@@ -216,7 +216,7 @@ CAMLprim value caml_eio_clone3(value v_errors, value v_actions) {
   CAMLlocal1(v_result);
   pid_t child_pid;
   int pidfd = -1;		/* Is automatically close-on-exec */
-  struct clone_args cl_args = {
+  struct caml_eio_clone_args cl_args = {
     .flags = CLONE_PIDFD,
     .pidfd = (uintptr_t) &pidfd,
     .exit_signal = SIGCHLD,	/* Needed for wait4 to work if we exit before exec */
