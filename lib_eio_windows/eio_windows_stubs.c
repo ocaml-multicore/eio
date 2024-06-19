@@ -237,7 +237,7 @@ CAMLprim value caml_eio_windows_unlinkat(value v_dirfd, value v_pathname, value 
 
   if (!NT_SUCCESS(r)) {
     caml_win32_maperr(RtlNtStatusToDosError(r));
-    uerror("openat", Nothing);
+    uerror("openat", v_pathname);
   }
 
   // Now close the file to delete it
