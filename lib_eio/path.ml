@@ -1,11 +1,22 @@
 type 'a t = 'a Fs.dir * Fs.path
 
+(* Like [Filename.is_relative] but always using "/" as the separator. *)
+let is_relative = function
+  | "" -> true
+  | x -> x.[0] <> '/'
+
+(* Like [Filename.concat] but always using "/" as the separator. *)
+let concat a b =
+  let l = String.length a in
+  if l = 0 || a.[l - 1] = '/' then a ^ b
+  else a ^ "/" ^ b
+
 let ( / ) (dir, p1) p2 =
   match p1, p2 with
-  | p1, "" -> (dir, Filename.concat p1 p2)
-  | _, p2 when not (Filename.is_relative p2) -> (dir, p2)
+  | p1, "" -> (dir, concat p1 p2)
+  | _, p2 when not (is_relative p2) -> (dir, p2)
   | ".", p2 -> (dir, p2)
-  | p1, p2 -> (dir, Filename.concat p1 p2)
+  | p1, p2 -> (dir, concat p1 p2)
 
 let pp f (Resource.T (t, ops), p) =
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
