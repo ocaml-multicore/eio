@@ -82,7 +82,7 @@ end = struct
         let dir = resolve t dir in
         Switch.run @@ fun sw ->
         let open Low_level in
-        let dirfd = Low_level.openat ~sw ~nofollow:true dir Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_if) Flags.Create.(directory) in
+        let dirfd = Err.run (Low_level.openat ~sw ~nofollow:true dir Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_if)) Flags.Create.(directory) in
         fn (Some dirfd) leaf
       )
     ) else fn None path
