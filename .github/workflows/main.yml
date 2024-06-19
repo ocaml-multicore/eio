@@ -57,6 +57,7 @@ jobs:
       - run: opam exec -- dune build
       - run: opam exec -- dune runtest
       - run: opam exec -- dune exec -- ./examples/net/main.exe
+      - run: opam exec -- dune exec -- ./examples/fs/main.exe
   docker:
     runs-on: ubuntu-latest
     steps:
