@@ -985,3 +985,29 @@ Exception: Failure "Simulated error".
 +seek from end: 9
 - : unit = ()
 ```
+
+# Extending paths
+
+```ocaml
+# run @@ fun env ->
+  let base = fst env#cwd in
+  List.iter (fun (a, b) -> traceln "%S / %S = %S" a b (snd ((base, a) / b))) [
+    "foo", "bar";
+    "foo/", "bar";
+    "foo", "/bar";
+    "foo", "";
+    "foo/", "";
+    "", "";
+    "", "bar";
+    "/", "";
+  ]
++"foo" / "bar" = "foo/bar"
++"foo/" / "bar" = "foo/bar"
++"foo" / "/bar" = "/bar"
++"foo" / "" = "foo/"
++"foo/" / "" = "foo/"
++"" / "" = ""
++"" / "bar" = "bar"
++"/" / "" = "/"
+- : unit = ()
+```
