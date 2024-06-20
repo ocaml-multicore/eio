@@ -55,7 +55,7 @@ end
 
 (** {2 Creating or importing sockets} *)
 
-val import_socket_stream : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [`Unix_fd | stream_socket_ty] r
+val import_socket_stream : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [< `Unix_fd | stream_socket_ty] r
 (** [import_socket_stream ~sw ~close_unix fd] is an Eio flow that uses [fd].
 
     It can be cast to e.g. {!source} for a one-way flow.
@@ -63,14 +63,14 @@ val import_socket_stream : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> 
 
     The [close_unix] and [sw] arguments are passed to {!Fd.of_unix}. *)
 
-val import_socket_listening : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [`Unix_fd | listening_socket_ty] r
+val import_socket_listening : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [< `Unix_fd | listening_socket_ty] r
 (** [import_socket_listening ~sw ~close_unix fd] is an Eio listening socket that uses [fd].
 
     The socket object will be closed when [sw] finishes.
 
     The [close_unix] and [sw] arguments are passed to {!Fd.of_unix}. *)
 
-val import_socket_datagram : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [`Unix_fd | datagram_socket_ty] r
+val import_socket_datagram : sw:Switch.t -> close_unix:bool -> Unix.file_descr -> [< `Unix_fd | datagram_socket_ty] r
 (** [import_socket_datagram ~sw ~close_unix fd] is an Eio datagram socket that uses [fd].
 
     The socket object will be closed when [sw] finishes.
@@ -82,7 +82,7 @@ val socketpair_stream :
   ?domain:Unix.socket_domain ->
   ?protocol:int ->
   unit ->
-  [`Unix_fd | stream_socket_ty] r * [`Unix_fd | stream_socket_ty] r
+  [< `Unix_fd | stream_socket_ty] r * [< `Unix_fd | stream_socket_ty] r
 (** [socketpair_stream ~sw ()] returns a connected pair of flows, such that writes to one can be read by the other.
 
     This creates OS-level resources using [socketpair(2)].
@@ -93,7 +93,7 @@ val socketpair_datagram :
   ?domain:Unix.socket_domain ->
   ?protocol:int ->
   unit ->
-  [`Unix_fd | datagram_socket_ty] r * [`Unix_fd | datagram_socket_ty] r
+  [< `Unix_fd | datagram_socket_ty] r * [< `Unix_fd | datagram_socket_ty] r
 (** [socketpair_datagram ~sw ()] returns a connected pair of flows, such that writes to one can be read by the other.
 
     This creates OS-level resources using [socketpair(2)].
