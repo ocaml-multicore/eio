@@ -68,9 +68,9 @@ type _ Effect.t +=
   | Socketpair_datagram : Switch.t * Unix.socket_domain * int ->
       ([`Unix_fd | datagram_socket_ty] r * [`Unix_fd | datagram_socket_ty] r) Effect.t
 
-let open_stream s = (s : _ stream_socket :> [< `Unix_fd | stream_socket_ty] r)
-let open_listening s = (s : _ listening_socket :> [< `Unix_fd | listening_socket_ty] r)
-let open_datagram s = (s : _ datagram_socket :> [< `Unix_fd | datagram_socket_ty] r)
+let open_stream s = (s : [`Unix_fd | stream_socket_ty] r :> [< `Unix_fd | stream_socket_ty] r)
+let open_listening s = (s : [`Unix_fd | listening_socket_ty] r :> [< `Unix_fd | listening_socket_ty] r)
+let open_datagram s = (s : [`Unix_fd | datagram_socket_ty] r :> [< `Unix_fd | datagram_socket_ty] r)
 
 let import_socket_stream ~sw ~close_unix fd =
   open_stream @@ Effect.perform (Import_socket_stream (sw, close_unix, fd))
@@ -86,7 +86,8 @@ let socketpair_stream ~sw ?(domain=Unix.PF_UNIX) ?(protocol=0) () =
   (open_stream a, open_stream b)
 
 let socketpair_datagram ~sw ?(domain=Unix.PF_UNIX) ?(protocol=0) () =
-  Effect.perform (Socketpair_datagram (sw, domain, protocol))
+  let a, b = Effect.perform (Socketpair_datagram (sw, domain, protocol)) in
+  (open_datagram a, open_datagram b)
 
 let fd socket =
   Option.get (Resource.fd_opt socket)
