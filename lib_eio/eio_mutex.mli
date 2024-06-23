@@ -38,6 +38,9 @@ val use_ro : t -> (unit -> 'a) -> 'a
     Note: a mutex still only allows one fiber to have the mutex locked at a time,
     even if all operations are "read-only". *)
 
+val wrap_rw : protect:bool -> t -> ('a -> 'b) -> 'a -> 'b
+val wrap_ro : t -> ('a -> 'b) -> 'a -> 'b
+
 (** {2 Low-level API}
 
     Care must be taken when locking a mutex manually. It is easy to forget to unlock it in some cases,
