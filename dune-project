@@ -58,6 +58,7 @@
   (eio (= :version))
   (fmt (>= 0.8.9))
   (kcas (and (>= 0.3.0) :with-test))
+  (mdx (and (>= 2.4.1) :with-test))
   (alcotest (and (>= 1.7.0) :with-test))))
 (package
  (name eio_main)
