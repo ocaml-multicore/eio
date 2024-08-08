@@ -558,6 +558,7 @@ module Process = struct
     let t =
       let pid =
         Fd.use_exn "errors-w" errors_w @@ fun errors_w ->
+        Eio.Private.Trace.with_span "spawn" @@ fun () ->
         eio_spawn errors_w c_actions
       in
       Fd.close errors_w;
