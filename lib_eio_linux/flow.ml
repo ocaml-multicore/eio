@@ -1,5 +1,32 @@
 open Eio.Std
 
+(* When copying between files of finite size (e.g. regular files and
+   block devices), we want to batch up read and write requests to
+   submit at one go *)
+let batch_copy src dst =
+  let read_then_write_chunk infd outfd file_offset =
+    let buf = Low_level.alloc_fixed_or_wait () in
+    let len = Uring.Region.length buf in
+    Low_level.read_exactly ~file_offset infd buf len;
+    Low_level.write ~file_offset outfd buf len;
+    Low_level.free_fixed buf
+  in
+  let copy_file infd outfd insize block_size =
+    let module Int63 = Optint.Int63 in
+    Switch.run @@ fun sw ->
+    let rec copy_block file_offset =
+      let remaining = Int63.(sub insize file_offset) in
+      if remaining <> Int63.zero then (
+        let len = Int63.to_int (min (Int63.of_int block_size) remaining) in
+        Fiber.fork ~sw (fun () -> read_then_write_chunk infd outfd file_offset);
+        copy_block Int63.(add file_offset (of_int len))
+      )
+    in
+    copy_block Int63.zero
+  in
+  let insize = (Low_level.fstat src).size in
+  copy_file src dst insize 4096
+
 (* When copying between a source with an FD and a sink with an FD, we can share the chunk
    and avoid copying. *)
 let fast_copy src dst =
@@ -13,14 +40,17 @@ let fast_copy src dst =
       done
     with End_of_file -> ()
   in
-  Low_level.with_chunk ~fallback @@ fun chunk ->
-  let chunk_size = Uring.Region.length chunk in
-  try
-    while true do
-      let got = Low_level.read_upto src chunk chunk_size in
-      Low_level.write dst chunk got
-    done
-  with End_of_file -> ()
+  match (Low_level.fstat src).kind with
+  | `Block_device | `Regular_file ->  batch_copy src dst
+  | _ ->
+    Low_level.with_chunk ~fallback @@ fun chunk ->
+    let chunk_size = Uring.Region.length chunk in
+    try
+      while true do
+        let got = Low_level.read_upto src chunk chunk_size in
+        Low_level.write dst chunk got
+      done
+    with End_of_file -> ()
 
 (* Try a fast copy using splice. If the FDs don't support that, switch to copying. *)
 let _fast_copy_try_splice src dst =
@@ -35,7 +65,7 @@ let _fast_copy_try_splice src dst =
 
 (* XXX workaround for issue #319, PR #327 *)
 let fast_copy_try_splice src dst = fast_copy src dst
-    
+
 let[@tail_mod_cons] rec list_take n = function
   | [] -> []
   | x :: xs ->
