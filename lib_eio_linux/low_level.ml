@@ -571,7 +571,10 @@ module Process = struct
     let exit_status, set_exit_status = Promise.create () in
     let t =
       Fd.use_exn "errors-w" errors_w @@ fun errors_w ->
-      let pid, pid_fd = eio_spawn errors_w c_actions in
+      let pid, pid_fd =
+        Eio.Private.Trace.with_span "spawn" @@ fun () ->
+        eio_spawn errors_w c_actions
+      in
       let pid_fd = Fd.of_unix ~sw ~seekable:false ~close_unix:true pid_fd in
       { pid; pid_fd; exit_status }
     in
