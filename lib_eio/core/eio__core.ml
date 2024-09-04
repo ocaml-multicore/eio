@@ -7,6 +7,7 @@ module Private = struct
   module Suspend = Suspend
   module Cells = Cells
   module Broadcast = Broadcast
+  module Single_waiter = Single_waiter
   module Trace = Trace
   module Fiber_context = Cancel.Fiber_context
   module Debug = Debug
