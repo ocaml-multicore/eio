@@ -207,11 +207,34 @@ let write ?file_offset:off fd buf len =
     raise @@ Err.wrap (Uring.error_of_errno res) "write" ""
   )
 
-let alloc_fixed () = Effect.perform Sched.Alloc
+let alloc_fixed () =
+  let s = Sched.get () in
+  match s.mem with
+  | None -> None
+  | Some mem ->
+    match Uring.Region.alloc mem with
+    | buf -> Some buf
+    | exception Uring.Region.No_space -> None
 
-let alloc_fixed_or_wait () = Effect.perform Sched.Alloc_or_wait
+let alloc_fixed_or_wait () =
+  let s = Sched.get () in
+  match s.mem with
+  | None -> failwith "No fixed buffer available"
+  | Some mem ->
+    match Uring.Region.alloc mem with
+    | buf -> buf
+    | exception Uring.Region.No_space ->
+      let id = Eio.Private.Trace.mint_id () in
+      let trigger = Eio.Private.Single_waiter.create () in
+      Queue.push trigger s.mem_q;
+      (* todo: remove protect; but needs to remove from queue on cancel *)
+      Eio.Private.Single_waiter.await_protect trigger "alloc_fixed_or_wait" id
 
-let free_fixed buf = Effect.perform (Sched.Free buf)
+let free_fixed buf =
+  let s = Sched.get () in
+  match Queue.take_opt s.mem_q with
+  | None -> Uring.Region.free buf
+  | Some k -> Eio.Private.Single_waiter.wake k (Ok buf)
 
 let splice src ~dst ~len =
   Fd.use_exn "splice-src" src @@ fun src ->
