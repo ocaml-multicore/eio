@@ -211,19 +211,52 @@ let test_signal_race () =
     (fun () -> Eio.Condition.await_no_mutex cond)
     (fun () -> ignore (Unix.setitimer ITIMER_REAL { it_interval = 0.; it_value = 0.001 } : Unix.interval_timer_status))
 
+let test_alloc_fixed_or_wait () =
+  Eio_linux.run ~n_blocks:1 @@ fun _env ->
+  let block = Eio_linux.Low_level.alloc_fixed_or_wait () in
+  (* We have to wait for the block, but get cancelled while waiting. *)
+  begin
+    try
+      Fiber.both
+        (fun () -> ignore (Eio_linux.Low_level.alloc_fixed_or_wait () : Uring.Region.chunk))
+        (fun () -> raise Exit);
+    with Exit -> ()
+  end;
+  (* We have to wait for the block, and get it when the old one is freed. *)
+  Fiber.both
+    (fun () ->
+       let x = Eio_linux.Low_level.alloc_fixed_or_wait () in
+       Eio_linux.Low_level.free_fixed x
+    )
+    (fun () ->
+       Eio_linux.Low_level.free_fixed block
+    );
+  (* The old block is passed to the waiting fiber, but it's cancelled. *)
+  let block = Eio_linux.Low_level.alloc_fixed_or_wait () in
+  Fiber.both
+    (fun () ->
+       Fiber.first
+         (fun () -> ignore (Eio_linux.Low_level.alloc_fixed_or_wait ()); assert false)
+         (fun () -> ())
+    )
+    (fun () -> Eio_linux.Low_level.free_fixed block);
+  let block = Eio_linux.Low_level.alloc_fixed_or_wait () in
+  Eio_linux.Low_level.free_fixed block
+
 let () =
   let open Alcotest in
   run "eio_linux" [
     "io", [
-      test_case "copy"          `Quick test_copy;
-      test_case "direct_copy"   `Quick test_direct_copy;
-      test_case "poll_add"      `Quick test_poll_add;
-      test_case "poll_add_busy" `Quick test_poll_add_busy;
-      test_case "iovec"         `Quick test_iovec;
-      test_case "no_sqe"        `Quick test_no_sqe;
-      test_case "read_exact"    `Quick test_read_exact;
-      test_case "expose_backend"    `Quick test_expose_backend;
-      test_case "statx"         `Quick test_statx;
-      test_case "signal_race"   `Quick test_signal_race;
+      test_case "copy"                 `Quick test_copy;
+      test_case "direct_copy"          `Quick test_direct_copy;
+      test_case "poll_add"             `Quick test_poll_add;
+      test_case "poll_add_busy"        `Quick test_poll_add_busy;
+      test_case "iovec"                `Quick test_iovec;
+      test_case "no_sqe"               `Quick test_no_sqe;
+      test_case "read_exact"           `Quick test_read_exact;
+      test_case "expose_backend"       `Quick test_expose_backend;
+      test_case "statx"                `Quick test_statx;
+      test_case "signal_race"          `Quick test_signal_race;
+      test_case "alloc-fixed-or-wait"  `Quick test_alloc_fixed_or_wait;
     ];
   ]

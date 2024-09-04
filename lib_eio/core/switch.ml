@@ -72,7 +72,7 @@ let dec_fibers t =
   if t.daemon_fibers > 0 && t.fibers = t.daemon_fibers then
     Cancel.cancel t.cancel Exit;
   if t.fibers = 0 then
-    Single_waiter.wake t.waiter (Ok ())
+    Single_waiter.wake_if_sleeping t.waiter
 
 let with_op t fn =
   inc_fibers t;

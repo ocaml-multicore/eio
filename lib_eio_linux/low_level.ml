@@ -226,15 +226,20 @@ let alloc_fixed_or_wait () =
     | exception Uring.Region.No_space ->
       let id = Eio.Private.Trace.mint_id () in
       let trigger = Eio.Private.Single_waiter.create () in
-      Queue.push trigger s.mem_q;
-      (* todo: remove protect; but needs to remove from queue on cancel *)
-      Eio.Private.Single_waiter.await_protect trigger "alloc_fixed_or_wait" id
+      let node = Lwt_dllist.add_r trigger s.mem_q in
+      try
+        Eio.Private.Single_waiter.await trigger "alloc_fixed_or_wait" id
+      with ex ->
+        Lwt_dllist.remove node;
+        raise ex
 
-let free_fixed buf =
+let rec free_fixed buf =
   let s = Sched.get () in
-  match Queue.take_opt s.mem_q with
+  match Lwt_dllist.take_opt_l s.mem_q with
   | None -> Uring.Region.free buf
-  | Some k -> Eio.Private.Single_waiter.wake k (Ok buf)
+  | Some k ->
+    if not (Eio.Private.Single_waiter.wake k (Ok buf)) then
+      free_fixed buf    (* [k] was already cancelled, but not yet removed from the queue *)
 
 let splice src ~dst ~len =
   Fd.use_exn "splice-src" src @@ fun src ->

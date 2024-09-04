@@ -1,25 +1,32 @@
-(* Allows a single fiber to wait to be notified by another fiber in the same domain.
-   If multiple fibers need to wait at once, or the notification comes from another domain,
-   this can't be used. *)
+type 'a state =
+  | Running
+  | Sleeping of (('a, exn) result -> unit)
 
-type 'a t = {
-  mutable wake : ('a, exn) result -> unit;
-}
+type 'a t = 'a state ref
 
-let create () = { wake = ignore }
+let create () = ref Running
 
-let wake t v = t.wake v
+let wake t v =
+  match !t with
+  | Running -> false
+  | Sleeping fn ->
+    t := Running;
+    fn v;
+    true
+
+let wake_if_sleeping t =
+  ignore (wake t (Ok ()) : bool)
 
 let await t op id =
   let x =
     Suspend.enter op @@ fun ctx enqueue ->
     Cancel.Fiber_context.set_cancel_fn ctx (fun ex ->
-        t.wake <- ignore;
+        t := Running;
         enqueue (Error ex)
       );
-    t.wake <- (fun x ->
+    t := Sleeping (fun x ->
         Cancel.Fiber_context.clear_cancel_fn ctx;
-        t.wake <- ignore;
+        t := Running;
         enqueue x
       )
   in
@@ -29,7 +36,7 @@ let await t op id =
 let await_protect t op id =
   let x =
     Suspend.enter_unchecked op @@ fun _ctx enqueue ->
-    t.wake <- (fun x -> t.wake <- ignore; enqueue x)
+    t := Sleeping (fun x -> t := Running; enqueue x)
   in
   Trace.get id;
   x

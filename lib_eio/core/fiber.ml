@@ -226,7 +226,7 @@ module List = struct
 
     let release t =
       t.free_fibers <- t.free_fibers + 1;
-      if t.free_fibers = 1 then Single_waiter.wake t.cond (Ok ())
+      if t.free_fibers = 1 then Single_waiter.wake_if_sleeping t.cond
 
     let use t fn x =
       await_free t;

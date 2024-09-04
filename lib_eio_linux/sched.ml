@@ -50,7 +50,7 @@ type t = {
   uring: io_job Uring.t;
   mem: Uring.Region.t option;
   io_q: (t -> unit) Queue.t;     (* waiting for room on [uring] *)
-  mem_q : Uring.Region.chunk Eio.Private.Single_waiter.t Queue.t;
+  mem_q : Uring.Region.chunk Eio.Private.Single_waiter.t Lwt_dllist.t;
 
   (* The queue of runnable fibers ready to be resumed. Note: other domains can also add work items here. *)
   run_q : runnable Lf_queue.t;
@@ -247,7 +247,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
         ) else if timeout = None && Uring.active_ops uring = 0 then (
           (* Nothing further can happen at this point.
              If there are no events in progress but also still no memory available, something has gone wrong! *)
-          assert (Queue.length mem_q = 0);
+          assert (Lwt_dllist.length mem_q = 0);
           Lf_queue.close st.run_q;      (* Just to catch bugs if something tries to enqueue later *)
           `Exit_scheduler
         ) else (
@@ -536,7 +536,7 @@ let with_sched ?(fallback=no_fallback) config fn =
         Lf_queue.push run_q IO;
         let sleep_q = Zzz.create () in
         let io_q = Queue.create () in
-        let mem_q = Queue.create () in
+        let mem_q = Lwt_dllist.create () in
         with_eventfd @@ fun eventfd ->
         let thread_pool = Eio_unix.Private.Thread_pool.create ~sleep_q in
         fn { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; thread_pool }
