@@ -606,6 +606,7 @@ module Private : sig
 
   module Cells = Cells
   module Broadcast = Broadcast
+  module Single_waiter = Single_waiter
 
   (** Every fiber has an associated context. *)
   module Fiber_context : sig
