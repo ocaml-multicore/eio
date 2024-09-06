@@ -521,7 +521,10 @@ let with_sched ?(fallback=no_fallback) config fn =
       Uring.exit uring;
       fallback (`Msg "Linux >= 5.15 is required for io_uring support")
     ) else (
-      statx_works := Uring.op_supported probe Uring.Op.msg_ring;
+      (* The reason for an if here is to make sure we only set it once, when
+         the first domain is starting. This is just to avoid a tsan warning. *)
+      if not !statx_works && Uring.op_supported probe Uring.Op.msg_ring then
+        statx_works := true;
       match
         let mem =
           let fixed_buf_len = block_size * n_blocks in
