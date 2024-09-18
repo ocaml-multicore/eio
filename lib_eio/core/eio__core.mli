@@ -782,8 +782,4 @@ module Private : sig
     val v : t
     (** Backends should use this for {!Eio.Stdenv.debug}. *)
   end
-
-  module Dla : sig
-    val prepare_for_await : unit -> Domain_local_await.t
-  end
 end

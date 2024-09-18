@@ -19,6 +19,4 @@ module Private = struct
       | Fork = Fiber.Fork
       | Get_context = Cancel.Get_context
   end
-
-  module Dla = Dla
 end
