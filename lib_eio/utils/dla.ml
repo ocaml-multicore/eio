@@ -7,10 +7,10 @@ let prepare_for_await () =
       | _ -> ()
   and await () =
     if Atomic.get state != `Released then
-      Suspend.enter "domain-local-await" @@ fun ctx enqueue ->
+      Eio.Private.Suspend.enter "domain-local-await" @@ fun ctx enqueue ->
       let awaiting = `Awaiting enqueue in
       if Atomic.compare_and_set state `Init awaiting then (
-        Cancel.Fiber_context.set_cancel_fn ctx (fun ex ->
+        Eio.Private.Fiber_context.set_cancel_fn ctx (fun ex ->
             if Atomic.compare_and_set state awaiting `Released then (
               enqueue (Error ex)
             )

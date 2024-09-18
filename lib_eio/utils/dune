@@ -1,4 +1,4 @@
 (library
  (name eio_utils)
  (public_name eio.utils)
- (libraries eio psq fmt optint))
+ (libraries eio psq fmt optint domain-local-await))

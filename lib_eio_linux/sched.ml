@@ -460,7 +460,7 @@ let run ~extra_effects st main arg =
   let `Exit_scheduler =
     let new_fiber = Fiber_context.make_root () in
     Domain_local_await.using
-      ~prepare_for_await:Eio.Private.Dla.prepare_for_await
+      ~prepare_for_await:Eio_utils.Dla.prepare_for_await
       ~while_running:(fun () ->
         fork ~new_fiber (fun () ->
             Switch.run_protected ~name:"eio_linux" (fun sw ->

@@ -105,7 +105,7 @@ let run_full main =
   let result = ref None in
   let `Exit_scheduler =
     Domain_local_await.using
-      ~prepare_for_await:Eio.Private.Dla.prepare_for_await
+      ~prepare_for_await:Eio_utils.Dla.prepare_for_await
       ~while_running:(fun () ->
         fork ~new_fiber (fun () -> result := Some (main stdenv))) in
   match !result with
