@@ -1,3 +1,0 @@
-(executable
- (name stress_resource_leak)
- (libraries eio eio_main))
