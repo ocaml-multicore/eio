@@ -63,10 +63,10 @@ module Pi = struct
     type tag
     type t
 
-    val pipe :
+  
       t ->
       sw:Switch.t ->
-      [Flow.source_ty | Resource.close_ty] r * [Flow.sink_ty | Resource.close_ty] r
+      [< Flow.source_ty | Resource.close_ty] r * [< Flow.sink_ty | Resource.close_ty] r
 
     val spawn :
       t ->
