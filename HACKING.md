@@ -135,4 +135,15 @@ Try to avoid making unnecessary changes; this makes review harder and clutters u
 `ocamlformat` may be useful to get badly messed up code to a baseline unformatted state,
 from which human formatting can be added where needed.
 
+## AI-generated Code
+
+Contributing to Eio should not be done _solely_ using "AI tools" such as ChatGPT. This is for a few reasons:
+
+1. **It obfuscates how you think**. Purely AI-generated code tells us little about how you think and the problems you might be having. This makes it harder to provide good feedback on PRs and issues.
+2. **It is often more work to review**. Particularly for the OCaml ecosystem and libraries like Eio, it seems that these tools are not very good and generate a lot of believable code that is in actual fact completely wrong. PR comments and the code submitted with them can say completely different things.
+3. **It is a grey area for licensing**. Models like ChatGPT have been trained on lots of code with different licenses and has been known to simply copy code as an answer to a prompt. We would like to avoid this headache as best we can.
+
+Use AI tools, if you wish, to help you understand OCaml and Eio. Do not offload all of the work of a PR or a comment to these tools.
+
 [dscheck]: https://github.com/ocaml-multicore/dscheck
+
