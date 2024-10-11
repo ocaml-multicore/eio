@@ -1,5 +1,7 @@
 (test
-  (name test)
+  (name test)  ; Main test suite
+  (libraries alcotest kcas eio.mock eio_windows)
   (package eio_windows)
-  (build_if (= %{os_type} "Win32"))
-  (libraries alcotest kcas eio.mock eio_windows))
+  (build_if (= %{os_type} "Win32")))
+
+

@@ -85,8 +85,10 @@ let test_wrap_socket pipe_or_socketpair () =
     | `Pipe -> Unix.pipe ()
     | `Socketpair -> Unix.socketpair Unix.PF_UNIX Unix.SOCK_STREAM 0
   in
-  let source = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true r :> Eio.Flow.source_ty r) in
-  let sink = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true w :> Eio.Flow.sink_ty r) in
+  let source = Eio_unix.Net.import_socket_stream ~sw ~close_unix:true r in
+
+
+  let sink = Eio_unix.Net.import_socket_stream ~sw ~close_unix:true w in
   let msg = "Hello" in
   Fiber.both
     (fun () -> Eio.Flow.copy_string (msg ^ "\n") sink)
@@ -98,8 +100,8 @@ let test_wrap_socket pipe_or_socketpair () =
 let test_eio_socketpair () =
   Switch.run @@ fun sw ->
   let a, b = Eio_unix.Net.socketpair_stream ~sw () in
-  ignore (Eio_unix.Net.fd a : Eio_unix.Fd.t);
-  ignore (Eio_unix.Net.fd b : Eio_unix.Fd.t);
+  ignore (Eio_unix.Resource.fd a : Eio_unix.Fd.t);
+  ignore (Eio_unix.Resource.fd b : Eio_unix.Fd.t);
   Eio.Flow.copy_string "foo" a;
   Eio.Flow.close a;
   let msg = Eio.Buf_read.of_flow b ~max_size:10 |> Eio.Buf_read.take_all in
