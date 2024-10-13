@@ -114,16 +114,6 @@ let test_append env () =
   Path.save ~create:`Never ~append:true test_file "2nd-write";
   Alcotest.(check string) "append" "1st-write-original2nd-write" (Path.load test_file)
 
-let test_mkdir env () =
-  let cwd = Eio.Stdenv.cwd env in
-  try_mkdir (cwd / "subdir");
-  try_mkdir (cwd / "subdir\\nested");
-  let test_file = cwd / "subdir\\nested\\test-file" in
-  Path.save ~create:(`Exclusive 0o600) test_file "data";
-  Alcotest.(check string) "mkdir" "data" (Path.load test_file);
-  Unix.unlink "subdir\\nested\\test-file";
-  Unix.rmdir "subdir\\nested";
-  Unix.rmdir "subdir"
 
 let test_symlink env () =
   (* 
@@ -140,23 +130,15 @@ let test_symlink env () =
      Unix.mkdir "another" 0o700;
      print_endline @@ Unix.realpath "to-subdir" |} 
   *)
-    let symlink_safe ~to_dir src dst = 
-      try
-        Unix.symlink ~to_dir src dst
-      with
-      Unix.Unix_error (Unix.EPERM, _, _) ->
-        Printf.printf "User lacks permission to create symlinks. Skipping symlink creation for %s -> %s.\n" src dst
-        | e -> raise e
-      in
 
-  if Sys.os_type = "Win32" then
-      symlink_safe ~to_dir:true "another" "to-subdir"
+  if not (Unix.has_symlink ()) then
+    Printf.printf "Skipping test_symlink on systems that don't support symlinks.\n"
   else
     let cwd = Eio.Stdenv.cwd env in
     try_mkdir (cwd / "sandbox");
-    symlink_safe ~to_dir:true ".." "sandbox\\to-root";
-    symlink_safe ~to_dir:true "subdir" "sandbox\\to-subdir";
-    symlink_safe ~to_dir:true "foo" "sandbox\\dangle";
+    Unix.symlink ~to_dir:true ".." "sandbox\\to-root";
+    Unix.symlink ~to_dir:true "subdir" "sandbox\\to-subdir";
+    Unix.symlink ~to_dir:true "foo" "sandbox\\dangle";
     try_mkdir (cwd / "tmp");
     Eio.Path.with_open_dir (cwd / "sandbox") @@ fun sandbox ->
     try_mkdir (sandbox / "subdir");
@@ -235,6 +217,17 @@ let try_failing_unlink env () =
     with Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ()
   in
   ()
+
+  let test_mkdir env () =
+    let cwd = Eio.Stdenv.cwd env in
+    try_mkdir (cwd / "subdir");
+    try_mkdir (cwd / "subdir\\nested");
+    let test_file = cwd / "subdir\\nested\\test-file" in
+    Path.save ~create:(`Exclusive 0o600) test_file "data";
+    Alcotest.(check string) "mkdir" "data" (Path.load test_file);
+    Unix.unlink "subdir\\nested\\test-file";
+    Unix.rmdir "subdir\\nested";
+    Unix.rmdir "subdir"
 
 let test_remove_dir env () =
   let cwd = Eio.Stdenv.cwd env in
