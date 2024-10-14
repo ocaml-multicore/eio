@@ -4,7 +4,6 @@
 let () =
   assert (Eio.Buf_read.(parse_string_exn take_all) "hi" = "hi")
 
-o(* Assume the necessary modules are already imported *)
 
 module Flow = struct
   type source_ty = Source

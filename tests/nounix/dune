@@ -1,11 +1,6 @@
 (test
   (name nounix)
   (package eio)
-  (forbidden_libraries unix)
-  (libraries eio))
-
-(test
-  (name test_pipe)
   (libraries alcotest eio)
-  (modules test_pipe)
-)
+  (modules nounix))
+

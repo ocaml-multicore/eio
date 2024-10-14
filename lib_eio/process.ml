@@ -64,7 +64,7 @@ module Pi = struct
     type t
 
     val pipe :
-      t ->
+      'a t ->
       sw:Switch.t ->
       ([> Flow.source_ty | Resource.close_ty] r * [> Flow.sink_ty | Resource.close_ty] r)
 
