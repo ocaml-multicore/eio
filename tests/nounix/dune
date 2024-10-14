@@ -6,4 +6,6 @@
 
 (test
   (name test_pipe)
-  (libraries alcotest eio))
+  (libraries alcotest eio)
+  (modules test_pipe)
+)
