@@ -2,21 +2,28 @@
 
 open Eio.Std
 open Types
+open Eio.Flow
+open Eio.Resource
+
+type close_ty = [`Close]
+
 
 type _ Effect.t +=
   | Await_readable : Unix.file_descr -> unit Effect.t
   | Await_writable : Unix.file_descr -> unit Effect.t
   | Get_monotonic_clock : Eio.Time.Mono.ty r Effect.t
-  | Pipe : Switch.t -> (source_ty r * sink_ty r) Effect.t
+  | Pipe : Switch.t -> ([< Eio.Flow.source_ty | Resource.close_ty] r * [< Eio.Flow.sink_ty | Resource.close_ty] r) Effect.t
 
 let await_readable fd = Effect.perform (Await_readable fd)
 let await_writable fd = Effect.perform (Await_writable fd)
 
-let pipe sw = Effect.perform (Pipe sw)
+let pipe ~sw =
+  perform (Pipe sw : ([< Eio.Flow.source_ty | Resource.close_ty] r * [< Eio.Flow.sink_ty | Resource.close_ty] r))
 
 module Rcfd = Rcfd
 module Fork_action = Fork_action
 module Thread_pool = Thread_pool
+
 
 external eio_readlinkat : Unix.file_descr -> string -> Cstruct.t -> int = "eio_unix_readlinkat"
 

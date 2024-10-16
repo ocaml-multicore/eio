@@ -7,6 +7,9 @@
 [@@@alert "-unstable"]
 
 open Eio.Std
+open Eio.Flow
+open Eio.Resource
+
 
 type Eio.Exn.Backend.t += Unix_error of Unix.error * string * string
 (** Wrapper for embedding {!Unix.Unix_error} errors. *)
@@ -23,6 +26,8 @@ module Resource : sig
 
   val fd : _ t -> Fd.t
   (** [fd t] returns the FD being wrapped by a resource. *)
+
+  type close_ty = [`Close]
 
   val fd_opt : _ Eio.Resource.t -> Fd.t option
   (** [fd_opt t] returns the FD being wrapped by a generic resource, if any.
@@ -58,7 +63,7 @@ val run_in_systhread : ?label:string -> (unit -> 'a) -> 'a
 
     @param label The operation name to use in trace output. *)
 
-val pipe : Switch.t -> source_ty r * sink_ty r
+val pipe : Switch.t -> ([< Eio.Flow.source_ty | Resource.close_ty] r * [< Eio.Flow.sink_ty | Resource.close_ty] r)
 (** [pipe sw] returns a connected pair of flows [src] and [sink]. Data written to [sink]
     can be read from [src].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
@@ -97,7 +102,7 @@ module Private : sig
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
     | Get_monotonic_clock : Eio.Time.Mono.ty r Effect.t
-    | Pipe : Eio.Switch.t -> (source_ty r * sink_ty r) Effect.t    (** See {!pipe} *)
+    | Pipe : Eio.Switch.t -> ([< Eio.Flow.source_ty | Resource.close_ty] r * [< Eio.Flow.sink_ty | Resource.close_ty] r) Effect.t    (** See {!pipe} *)
 
   module Rcfd = Rcfd
 

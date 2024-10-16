@@ -140,11 +140,7 @@ val parse_out :
 
 (** {2 Pipes} *)
 
-  val pipe :
-    'a t ->
-    sw:Switch.t ->
-    ([> Flow.source_ty | Resource.close_ty] r * [> Flow.sink_ty | Resource.close_ty] r)
-
+val pipe : sw:Switch.t -> _ mgr -> ([< Flow.source_ty | Resource.close_ty] r) * ([< Flow.sink_ty | Resource.close_ty] r)
 (** [pipe ~sw mgr] creates a pipe backed by the OS.
 
     The flows can be used by {!spawn} without the need for extra fibers to copy the data.
@@ -175,7 +171,7 @@ module Pi : sig
   val pipe :
     t ->
     sw:Switch.t ->
-    ([> Flow.source_ty | Resource.close_ty] r * [> Flow.sink_ty | Resource.close_ty] r)
+    ([< Flow.source_ty | Resource.close_ty] r) * ([< Flow.sink_ty | Resource.close_ty] r)
 
     val spawn :
       t ->
