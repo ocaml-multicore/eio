@@ -158,6 +158,9 @@ let test_symlink env () =
      Unix.mkdir "another" 0o700;
      print_endline @@ Unix.realpath "to-subdir" |}
   *)
+if not (Unix.has_symlink ()) then
+  Printf.printf "Skipping test_symlink on systems that don't support symlinks.\n"
+else
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "sandbox");
   Unix.symlink ~to_dir:true ".." "sandbox\\to-root";
@@ -277,4 +280,5 @@ let tests env = [
   "unlink", `Quick, test_unlink env;
   "failing-unlink", `Quick, try_failing_unlink env;
   "rmdir", `Quick, test_remove_dir env;
+  "mkdirs", `Quick, test_mkdirs env; 
 ]
