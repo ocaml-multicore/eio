@@ -61,12 +61,12 @@ module Pi = struct
 
   module type MGR = sig
     type tag
-    type t
+    type t 
 
     val pipe :
       t ->
       sw:Switch.t ->
-      [< `Flow_source | `Resource_close] r * [< `Flow_sink | `Resource_close] r
+      [< Flow.source_ty | Resource.close_ty] r * [< Flow.sink_ty | Resource.close_ty] r
 
     val spawn :
       t ->
@@ -141,7 +141,8 @@ let run t ?cwd ?stdin ?stdout ?stderr ?(is_success = Int.equal 0) ?env ?executab
     let ex = err (Child_error status) in
     raise (Exn.add_context ex "running command: %a" pp_args args)
 
-let pipe (type tag) ~sw ((Resource.T (v, ops)) : [> tag mgr_ty] r) =
+let pipe (type tag) ~sw ((Resource.T (v, ops)) : [> tag mgr_ty] r) :
+  ([< Flow.source_ty | Resource.close_ty ] r * [< Flow.sink_ty | Resource.close_ty ] r) =
   let module X = (val (Resource.get ops Pi.Mgr)) in
   X.pipe v ~sw
 
