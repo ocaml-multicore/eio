@@ -537,8 +537,8 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
           match
             let r, w = Low_level.pipe ~sw in
-            let r = (Flow.of_fd r :> [< Eio_unix.source_ty] Eio.Std.r) in
-            let w = (Flow.of_fd w :> [< Eio_unix.sink_ty] Eio.Std.r) in
+            let r = Flow.of_fd r in
+            let w = Flow.of_fd w in
             (r, w)
           with
           | r -> continue k r
