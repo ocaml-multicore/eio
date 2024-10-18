@@ -114,6 +114,16 @@ let test_append env () =
   Path.save ~create:`Never ~append:true test_file "2nd-write";
   Alcotest.(check string) "append" "1st-write-original2nd-write" (Path.load test_file)
 
+  let test_mkdir env () =
+    let cwd = Eio.Stdenv.cwd env in
+    try_mkdir (cwd / "subdir");
+    try_mkdir (cwd / "subdir\\nested");
+    let test_file = cwd / "subdir\\nested\\test-file" in
+    Path.save ~create:(`Exclusive 0o600) test_file "data";
+    Alcotest.(check string) "mkdir" "data" (Path.load test_file);
+    Unix.unlink "subdir\\nested\\test-file";
+    Unix.rmdir "subdir\\nested";
+    Unix.rmdir "subdir"
 
 let test_symlink env () =
   (* 
@@ -218,17 +228,6 @@ let try_failing_unlink env () =
   in
   ()
 
-  let test_mkdir env () =
-    let cwd = Eio.Stdenv.cwd env in
-    try_mkdir (cwd / "subdir");
-    try_mkdir (cwd / "subdir\\nested");
-    let test_file = cwd / "subdir\\nested\\test-file" in
-    Path.save ~create:(`Exclusive 0o600) test_file "data";
-    Alcotest.(check string) "mkdir" "data" (Path.load test_file);
-    Unix.unlink "subdir\\nested\\test-file";
-    Unix.rmdir "subdir\\nested";
-    Unix.rmdir "subdir"
-
 let test_remove_dir env () =
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "d1");
@@ -251,6 +250,19 @@ let test_remove_dir env () =
   in
   ()
 
+  let test_mkdirs env () =
+    let cwd = Eio.Stdenv.cwd env in
+    let nested = cwd / "subdir1" / "subdir2" / "subdir3" in
+    try_mkdirs nested;
+    let one_more = Path.(nested / "subdir4") in
+    (try
+      try_mkdirs one_more
+    with Eio.Io (Eio.Fs.E (Already_exists _), _) -> ());
+    try_mkdirs ~exists_ok:true one_more;
+    try
+      try_mkdirs (cwd / ".." / "outside")
+    with Eio.Io (Eio.Fs.E (Permission_denied _), _) -> () 
+
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
   "cwd-abs-path", `Quick, test_cwd_no_access_abs env;
@@ -264,4 +276,5 @@ let tests env = [
   "unlink", `Quick, test_unlink env;
   "failing-unlink", `Quick, try_failing_unlink env;
   "rmdir", `Quick, test_remove_dir env;
+  "mkdirs", `Quick, test_mkdirs env; 
 ]
