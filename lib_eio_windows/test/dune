@@ -1,3 +1,8 @@
+(mdx
+  (package eio_windows)
+  (enabled_if (= %{os_type} "Win32"))
+  (deps (package eio_windows)))
+
 (test
   (name test)
   (package eio_windows)

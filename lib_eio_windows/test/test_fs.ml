@@ -264,6 +264,34 @@ let test_remove_dir env () =
   in
   ()
 
+let test_native env () =
+  let cwd = Sys.getcwd () ^ "\\" in
+  let test x =
+    let native = Eio.Path.native x in
+    let result =
+      native |> Option.map @@ fun native ->
+      if String.starts_with ~prefix:cwd native then
+        ".\\" ^ String.sub native (String.length cwd) (String.length native - String.length cwd)
+      else native
+    in
+    traceln "%a -> %a" Eio.Path.pp x Fmt.(Dump.option string) result
+  in
+  test env#fs;
+  test (env#fs / "\\");
+  test (env#fs / "\\etc\\hosts");
+  test (env#fs / ".");
+  test (env#fs / "foo\\bar");
+  test env#cwd;
+  test (env#cwd / "..");
+  let sub = env#cwd / "native-sub" in
+  Eio.Path.mkdir sub ~perm:0o700;
+  Eio.Path.with_open_dir sub @@ fun sub ->
+  test sub;
+  test (sub / "foo.txt");
+  test (sub / ".");
+  test (sub / "..");
+  test (sub / "\\etc\\passwd")
+
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
   "cwd-abs-path", `Quick, test_cwd_no_access_abs env;
@@ -277,4 +305,5 @@ let tests env = [
   "unlink", `Quick, test_unlink env;
   "failing-unlink", `Quick, try_failing_unlink env;
   "rmdir", `Quick, test_remove_dir env;
+  "native", `Quick, test_native env;
 ]
