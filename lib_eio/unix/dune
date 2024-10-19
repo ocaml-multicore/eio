@@ -1,6 +1,7 @@
 (library
  (name eio_unix)
  (public_name eio.unix)
+ (public_headers include/fork_action.h)
  (foreign_stubs
   (language c)
   (include_dirs include)
