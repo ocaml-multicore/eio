@@ -97,7 +97,7 @@ module Private : sig
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
     | Get_monotonic_clock : Eio.Time.Mono.ty r Effect.t
-    | Pipe : Eio.Switch.t -> ([< source_ty] r * [< sink_ty] r) Effect.t   
+    | Pipe : Eio.Switch.t -> ([< source_ty] r * [< sink_ty] r) Effect.t   (** See {!pipe} *)
 
   module Rcfd = Rcfd
 
