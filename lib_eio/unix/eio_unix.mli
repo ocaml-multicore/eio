@@ -58,7 +58,7 @@ val run_in_systhread : ?label:string -> (unit -> 'a) -> 'a
 
     @param label The operation name to use in trace output. *)
 
-val pipe : Switch.t -> [< source_ty] r * [< sink_ty] r
+val pipe : Switch.t -> source_ty r * sink_ty r
 (** [pipe sw] returns a connected pair of flows [src] and [sink]. Data written to [sink]
     can be read from [src].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
@@ -97,7 +97,7 @@ module Private : sig
     | Await_readable : Unix.file_descr -> unit Effect.t      (** See {!await_readable} *)
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
     | Get_monotonic_clock : Eio.Time.Mono.ty r Effect.t
-    | Pipe : Eio.Switch.t -> ([< source_ty] r * [< sink_ty] r) Effect.t   (** See {!pipe} *)
+    | Pipe : Eio.Switch.t -> (source_ty r * sink_ty r) Effect.t   (** See {!pipe} *)
 
   module Rcfd = Rcfd
 

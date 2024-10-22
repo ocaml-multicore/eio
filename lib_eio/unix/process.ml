@@ -118,9 +118,7 @@ end) = struct
   type tag = [ `Generic | `Unix ]
 
   let pipe _ ~sw =
-    let source, sink = Private.pipe sw in
-    (source, sink)
-
+(Private.pipe sw :> ([Eio.Flow.source_ty | Eio.Resource.close_ty] r * [Eio.Flow.sink_ty | Eio.Resource.close_ty] r))
   let spawn v ~sw ?cwd ?stdin ?stdout ?stderr ?env ?executable args =
     let executable = get_executable executable ~args in
     let env = get_env env in
