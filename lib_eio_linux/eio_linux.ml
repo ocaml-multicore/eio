@@ -452,11 +452,11 @@ end = struct
     | Some fd2 -> Low_level.rename t.fd old_path fd2 new_path
     | None -> raise (Unix.Unix_error (Unix.EXDEV, "rename-dst", new_path))
 
-let symlink ~link_to t path =
-  Low_level.symlink ~link_to t.fd path
-  
-let chmod t ~follow ~perm path =
-  Low_level.chmod t.fd ~follow ~perm path
+  let symlink ~link_to t path =
+    Low_level.symlink ~link_to t.fd path
+    
+  let chmod t ~follow ~perm path =
+    Low_level.chmod t.fd ~follow ~perm path
 
   let pp f t = Fmt.string f (String.escaped t.label)
 
