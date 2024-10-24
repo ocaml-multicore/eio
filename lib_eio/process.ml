@@ -147,7 +147,6 @@ let pipe (type tag) ~sw ((Resource.T (v, ops)) : [> tag mgr_ty] r) =
   let r = (r : [Flow.source_ty | Resource.close_ty] r :> [< Flow.source_ty | Resource.close_ty] r) in
   let w = (w : [Flow.sink_ty   | Resource.close_ty] r :> [< Flow.sink_ty   | Resource.close_ty] r) in
   r, w
-  
 let parse_out (type tag) (t : [> tag mgr_ty] r) parse ?cwd ?stdin ?stderr ?is_success ?env ?executable args =
   Switch.run ~name:"Process.parse_out" @@ fun sw ->
   let r, w = pipe t ~sw in
