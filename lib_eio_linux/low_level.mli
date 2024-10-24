@@ -153,6 +153,9 @@ val rename : dir_fd -> string -> dir_fd -> string -> unit
 val symlink : link_to:string -> dir_fd -> string -> unit
 (** [symlink ~link_to dir path] creates a new symlink at [dir / path] pointing to [link_to]. *)
 
+val chmod : follow:bool -> perm:int -> dir_fd -> string -> unit
+(** [chmod ~follow ~perm dir path] sets the permissions of [dir / path]. *)
+
 val pipe : sw:Switch.t -> fd * fd
 (** [pipe ~sw] returns a pair [r, w] with the readable and writeable ends of a new pipe. *)
 
