@@ -219,6 +219,7 @@ val symlink : link_to:string -> _ t -> unit
     ]} *)
 
 val chmod : follow:bool -> perm:int -> _ t -> unit
-(** [chmod ~follow ~perm t] allows you to change the file mode bits.
-    
-    @param follow If [true] and [t] is a symlink then change the file mode bits target. *)
+(** [chmod ~follow ~perm t] changes the permissions of [t] to [perm].
+
+    If [follow = true], the permissions of the target of a symlink are changed.
+    Otherwise, the permissions of the symlink itself are changed. *)
