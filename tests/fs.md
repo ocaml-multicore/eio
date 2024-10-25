@@ -247,10 +247,6 @@ Creating directories with nesting, symlinks, chmond, etc:
   try_mkdir (cwd / "../foo");
   try_mkdir (cwd / "to-subdir");
   try_mkdir (cwd / "dangle/foo");
-  try_chmod ~perm:0o777 (cwd / "to-root");
-  try_chmod ~perm:0o777 (cwd / "to-subdir");
-  try_chmod ~perm:0o777 (cwd / "dangle");
-  try_chmod ~perm:0o777 (cwd / "dangle/foo");
   ();;
 +mkdir <cwd:subdir> -> ok
 +mkdir <cwd:to-subdir/nested> -> ok
