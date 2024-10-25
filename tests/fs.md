@@ -94,6 +94,11 @@ let try_symlink ~link_to path =
   match Path.symlink ~link_to path with
   | s -> traceln "symlink %a -> %S" Path.pp path link_to
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+
+let try_chmod ~perm path =
+  match Eio.Path.chmod ~perm path with
+  | () -> Eio.traceln "chmod %o -> %a" perm Eio.Path.pp path
+  | exception ex -> Eio.traceln "@[<h>%a@]" Eio.Exn.pp ex
 ```
 
 # Basic test cases
@@ -228,7 +233,7 @@ Appending to an existing file:
 - : unit = ()
 ```
 
-Creating directories with nesting, symlinks, etc:
+Creating directories with nesting, symlinks, chmond, etc:
 
 ```ocaml
 # run ~clear:["to-subdir"; "to-root"; "dangle"] @@ fun env ->
@@ -242,6 +247,10 @@ Creating directories with nesting, symlinks, etc:
   try_mkdir (cwd / "../foo");
   try_mkdir (cwd / "to-subdir");
   try_mkdir (cwd / "dangle/foo");
+  try_chmod ~perm:0o777 (cwd / "to-root");
+  try_chmod ~perm:0o777 (cwd / "to-subdir");
+  try_chmod ~perm:0o777 (cwd / "dangle");
+  try_chmod ~perm:0o777 (cwd / "dangle/foo");
   ();;
 +mkdir <cwd:subdir> -> ok
 +mkdir <cwd:to-subdir/nested> -> ok
