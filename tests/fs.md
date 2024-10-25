@@ -95,10 +95,10 @@ let try_symlink ~link_to path =
   | s -> traceln "symlink %a -> %S" Path.pp path link_to
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
-let try_chmod ~perm path =
+(* let try_chmod ~perm path =
   match Eio.Path.chmod ~perm path with
   | () -> Eio.traceln "chmod %o -> %a" perm Eio.Path.pp path
-  | exception ex -> Eio.traceln "@[<h>%a@]" Eio.Exn.pp ex
+  | exception ex -> Eio.traceln "@[<h>%a@]" Eio.Exn.pp ex *)
 ```
 
 # Basic test cases
