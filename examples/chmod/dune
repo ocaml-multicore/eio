@@ -1,0 +1,3 @@
+(executable
+ (name main)
+ (libraries eio eio_linux unix))
