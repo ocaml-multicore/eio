@@ -2,9 +2,7 @@ open Eio.Std
 
 let get_permissions path env =
   let fs = Eio.Stdenv.fs env in
-
   let full_path = Eio.Path.(fs / path) in
-
   let stats = Eio.Path.stat ~follow:true full_path in
   stats.perm 
 
@@ -23,7 +21,6 @@ let test_chmod env =
     let new_permissions = get_permissions (Eio.Path.native_exn file_path) env in
     Printf.printf "New Permissions: %o\n" new_permissions;
     ()
-
 
 let () =
   Eio_main.run @@ fun env ->
