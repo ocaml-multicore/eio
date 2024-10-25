@@ -13,7 +13,7 @@ let test_chmod env =
     let fs = Eio.Stdenv.fs env in
     let tmp_dir = Eio.Path.(fs / "tmp") in
     let file_path = Eio.Path.(tmp_dir / "test_file") in
-    Eio.Path.(open_out ~sw ~create:(`Exclusive 0o644) file_path) |> Eio.Flow.close;
+    Eio.Path.(open_out ~sw ~create:(`If_missing 0o600) file_path) |> Eio.Flow.close;
 
     let permissions = get_permissions (Eio.Path.native_exn file_path) env in
     Printf.printf "Permissions: %o\n" permissions;
@@ -26,5 +26,5 @@ let test_chmod env =
 
 
 let () =
-  Eio_linux.run @@ fun env ->
+  Eio_main.run @@ fun env ->
     test_chmod env
