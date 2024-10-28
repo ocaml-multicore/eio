@@ -1,3 +1,0 @@
-(executable
- (name main)
- (libraries eio eio_main unix))

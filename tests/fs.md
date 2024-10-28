@@ -95,6 +95,11 @@ let try_symlink ~link_to path =
   | s -> traceln "symlink %a -> %S" Path.pp path link_to
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
+let try_chmod ~perm path =
+  match Eio.Path.chmod ~perm path with
+  | () -> Eio.traceln "chmod %o -> %a" perm Path.pp path
+  | exception ex -> Eio.traceln "@[<h>%a@]" Eio.Exn.pp ex
+
 ```
 
 # Basic test cases
@@ -1011,4 +1016,34 @@ Exception: Failure "Simulated error".
 +"" / "bar" = "bar"
 +"/" / "" = "/"
 - : unit = ()
+```
+# Testing ``chmod`` 
+
+```ocaml
+let chmod_test_directory () =
+  run ~clear:["test-dir"] @@ fun env ->
+    let cwd = Eio.Stdenv.cwd env in
+    let dir_path = cwd / "test-dir" in
+
+    try_mkdir dir_path;
+
+    try_chmod ~perm:0o700 dir_path;
+    let dir_stat = Unix.stat "test-dir" in
+    Printf.printf "Directory permissions after chmod 0o700: %o\n" dir_stat.st_perm;
+    assert (dir_stat.st_perm = 0o700);
+
+    try_chmod ~perm:0o755 dir_path;
+    let dir_stat = Unix.stat "test-dir" in
+    Printf.printf "Directory permissions after chmod 0o755: %o\n" dir_stat.st_perm;
+    assert (dir_stat.st_perm = 0o755);
+
+    Unix.rmdir "test-dir";
+    ()
+
+let () =
+  Printf.printf "Running chmod tests...\n";
+  chmod_test_file ();
+  chmod_test_directory ();
+  Printf.printf "chmod tests completed successfully.\n"
+  
 ```
