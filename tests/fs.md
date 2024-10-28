@@ -95,9 +95,10 @@ let try_symlink ~link_to path =
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
 let try_chmod ~perm path =
-  match Eio.Path.chmod ~perm path with
+  match Path.chmod ~perm path with
   | () -> Eio.traceln "chmod %o -> %a" perm Path.pp path
   | exception ex -> Eio.traceln "@[<h>%a@]" Eio.Exn.pp ex
+
 ```
 
 # Basic test cases
@@ -848,6 +849,7 @@ Unconfined:
 - : unit = ()
 ```
 
+
 # read_link
 
 ```ocaml
@@ -1014,4 +1016,24 @@ Exception: Failure "Simulated error".
 +"" / "bar" = "bar"
 +"/" / "" = "/"
 - : unit = ()
+```
+
+```ocaml
+run ~clear:["stat_subdir2"; "symlink"; "broken-symlink"; "parent-symlink"] @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  Switch.run @@ fun sw ->
+  Path.mkdir (cwd / "stat_subdir2");
+  Path.symlink ~link_to:"stat_subdir2" (cwd / "symlink");
+  Path.symlink ~link_to:"missing" (cwd / "broken-symlink");
+  try_stat (cwd / "stat_subdir2");
+  try_stat (cwd / "symlink");
+  try_stat (cwd / "broken-symlink");
+  try_chmod ~perm:0o777 (cwd / "stat_subdir2");
+  try_stat cwd;
+  try_stat (cwd / "..");
+  try_stat (cwd / "stat_subdir2/..");
+  Path.symlink ~link_to:".." (cwd / "parent-symlink");
+  try_stat (cwd / "parent-symlink");
+  try_stat (cwd / "missing1" / "missing2");
+  ();
 ```
