@@ -12,7 +12,11 @@ type _ Effect.t +=
 let await_readable fd = Effect.perform (Await_readable fd)
 let await_writable fd = Effect.perform (Await_writable fd)
 
-let pipe sw = Effect.perform (Pipe sw)
+let pipe sw =
+  let r, w = Effect.perform (Pipe sw) in
+  let r = (r : source_ty r :> [< source_ty] r) in
+  let w = (w : sink_ty r :> [< sink_ty] r) in
+  r, w
 
 module Rcfd = Rcfd
 module Fork_action = Fork_action
