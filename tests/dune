@@ -1,6 +1,5 @@
 (mdx
   (package eio_main)
-  (files domains.md)
   (deps
     (env_var "EIO_BACKEND")
     (package eio_main)))
