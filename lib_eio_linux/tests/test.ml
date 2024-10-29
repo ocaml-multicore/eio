@@ -19,7 +19,7 @@ let read_one_byte ~sw r =
     )
 
 let test_poll_add () =
-  Eio_linux.run @@ fun _stdenv ->
+  Eio_linux.run ~fallback:skip (fun _stdenv ->
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   let thread = read_one_byte ~sw r in
@@ -32,9 +32,10 @@ let test_poll_add () =
   assert (sent = 1);
   let result = Promise.await_exn thread in
   Alcotest.(check string) "Received data" "!" result
+  )
 
 let test_poll_add_busy () =
-  Eio_linux.run ~queue_depth:2 @@ fun _stdenv ->
+  Eio_linux.run ~fallback:skip (fun _stdenv ->
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   let a = read_one_byte ~sw r in
@@ -50,6 +51,7 @@ let test_poll_add_busy () =
   Alcotest.(check string) "Received data" "!" a;
   let b = Promise.await_exn b in
   Alcotest.(check string) "Received data" "!" b
+  )
 
 (* Write a string to a pipe and read it out again. *)
 let test_copy () =
