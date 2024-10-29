@@ -101,6 +101,7 @@ let try_chmod path ~follow ~perm =
   match Eio.Path.chmod ~follow path ~perm with
   | () -> traceln "chmod %a to %o -> ok" Path.pp path perm
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+
 ```
 
 # Basic test cases
