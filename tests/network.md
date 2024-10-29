@@ -610,7 +610,7 @@ Exception: Eio.Io Fs Not_found _,
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo ~service:"https" env#net "google.com";;
 - : Eio.Net.Sockaddr.t list =
-[`Tcp ("ÿ:‘Œ", 443); `Udp ("ÿ:‘Œ", 443);
+[`Tcp ("√ò:√î√é", 443); `Udp ("√ò:√î√é", 443);
  `Tcp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443);
  `Udp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443)]
 ```
