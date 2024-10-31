@@ -181,9 +181,7 @@ end = struct
     with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.symlink ~link_to dirfd) path
 
-  let chmod t ~follow ~perm path =
-    failwith "TODO: Implement Windows chmod functionality"
-  
+
   let close t = t.closed <- true
 
   let open_dir t ~sw path =
