@@ -831,6 +831,7 @@ Unconfined:
   try_mkdir (cwd / "stat_subdir2");
   Path.symlink ~link_to:"stat_subdir2" (cwd / "symlink");
   Path.symlink ~link_to:"missing" (cwd / "broken-symlink");
+  try_chmod (cwd / "stat_subdir2") ~follow:true ~perm:0o755;
   try_stat (cwd / "stat_subdir2");
   try_stat (cwd / "symlink");
   try_stat (cwd / "broken-symlink");
