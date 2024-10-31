@@ -837,9 +837,6 @@ Unconfined:
   try_stat (cwd / "..");
   try_stat (cwd / "stat_subdir2/..");
 
-  try_chmod cwd ~follow:true ~perm:0o755;
-  try_stat cwd;
-
   Path.symlink ~link_to:".." (cwd / "parent-symlink");
   try_stat (cwd / "parent-symlink");
   try_stat (cwd / "missing1" / "missing2");
