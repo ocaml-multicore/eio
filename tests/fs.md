@@ -102,9 +102,11 @@ let try_chmod ~follow ~perm path =
     Path.chmod ~follow ~perm path; 
     traceln "Chmod applied on %a with permissions %o" Eio.Path.pp path perm
   with
-  | Exn.Io _ as ex ->
+  | Eio.Io (ex, _) ->  (* Handle Eio.IO exceptions directly *)
       let bt = Printexc.get_raw_backtrace () in
-      Exn.reraise_with_context ex bt "Error applying chmod on %a with permissions %o" Eio.Path.pp path perm
+      Printexc.raise_with_backtrace ex bt  (* Reraise the exception with context *)
+      |> Fmt.failwith "Error applying chmod on %a with permissions %o" Eio.Path.pp path perm
+
 
 ```
 
