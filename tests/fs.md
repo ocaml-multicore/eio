@@ -98,8 +98,13 @@ let try_symlink ~link_to path =
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
 let try_chmod ~follow ~perm path =
-  Path.chmod ~follow ~perm path;
-  traceln "Chmod applied on %s with permissions %o" path perm
+  try
+    Path.chmod ~follow ~perm path; 
+    traceln "Chmod applied on %a with permissions %o" Eio.Path.pp path perm
+  with
+  | Exn.Io _ as ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      Exn.reraise_with_context ex bt "Error applying chmod on %a with permissions %o" Eio.Path.pp path perm
 
 ```
 
