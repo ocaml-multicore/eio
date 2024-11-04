@@ -101,8 +101,6 @@ let try_chmod ~follow ~perm path =
   Path.chmod ~follow ~perm path;
   traceln "Chmod applied on %s with permissions %o" path perm
 
-
-
 ```
 
 # Basic test cases
