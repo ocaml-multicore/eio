@@ -39,7 +39,8 @@ let fork_daemon ~sw f =
       (* The daemon was cancelled because all non-daemon fibers are finished. *)
       ()
     | exception ex ->
-      Switch.fail sw ex;  (* The [with_daemon] ensures this will succeed *)
+      let bt = Printexc.get_raw_backtrace () in
+      Switch.fail ~bt sw ex;  (* The [with_daemon] ensures this will succeed *)
   ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
 
 let fork_promise ~sw f =
@@ -65,7 +66,8 @@ let fork_promise_exn ~sw f =
       match Switch.with_op sw f with
       | x -> Promise.resolve r x
       | exception ex ->
-        Switch.fail sw ex  (* The [with_op] ensures this will succeed *)
+        let bt = Printexc.get_raw_backtrace () in
+        Switch.fail ~bt sw ex  (* The [with_op] ensures this will succeed *)
     );
   p
 
