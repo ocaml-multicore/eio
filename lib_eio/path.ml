@@ -214,17 +214,18 @@ let symlink ~link_to source =
   let (Resource.T (dir, ops), path) = source in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
   try X.symlink dir path ~link_to
-with Exn.Io _ as ex ->
-  let bt = Printexc.get_raw_backtrace () in
-  Exn.reraise_with_context ex bt "creating symlink %a -> %s" pp source link_to
-    
-  let chmod ~follow ~perm t =
-    let (Resource.T (dir, ops), path) = t in
-    let module X = (val (Resource.get ops Fs.Pi.Dir)) in
-    try X.chmod dir ~follow ~perm path
-    with Exn.Io _ as ex ->
-      let bt = Printexc.get_raw_backtrace () in
-      Exn.reraise_with_context ex bt "chmoding file %a" pp t
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "creating symlink %a -> %s" pp source link_to
+
+let chmod ~follow ~perm t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try
+    X.chmod dir ~follow ~perm path
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "chmoding file %a" pp t
 
 let rec mkdirs ?(exists_ok=false) ~perm t =
   (* Check parent exists first. *)

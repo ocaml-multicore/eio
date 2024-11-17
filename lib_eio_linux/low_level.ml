@@ -486,12 +486,12 @@ let symlink ~link_to dir path =
   with_parent_dir "symlinkat-new" dir path @@ fun parent leaf ->
   try
     eio_symlinkat link_to parent leaf
-    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
   let chmod ~follow ~perm dir path =
     let module X = Uring.Statx in
     with_parent_dir "chmodat" dir path @@ fun parent leaf ->
-    let flags = if follow then 0 else (* at_symlink_nofollow *) 0x100 in
+    let flags = if follow then 0 else  0x100 in
     try
       eio_fchmodat parent leaf perm flags
       with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg

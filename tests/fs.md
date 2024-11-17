@@ -14,10 +14,12 @@ module Path = Eio.Path
 let () = Eio.Exn.Backend.show := false
 
 open Eio.Std
+open Eio.Exn
 
 let ( / ) = Path.( / )
 
 let run ?clear:(paths = []) fn =
+  Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p)) paths;
   fn env
@@ -76,12 +78,13 @@ let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
 
-let try_stat path =
+let try_stat ?(info_type=`Kind) path =
   let stat ~follow =
-    match Eio.Path.stat ~follow path with
-    | info -> Fmt.str "@[<h>%a@]" Eio.File.Stat.pp_kind info.kind
-    | exception Eio.Io (e, _) -> Fmt.str "@[<h>%a@]" Eio.Exn.pp_err e
-  in
+    match Eio.Path.stat ~follow path, info_type with
+      | info, `Perm -> Fmt.str "@[<h>%o@]" info.perm
+      | info, `Kind -> Fmt.str "@[<h>%a@]" Eio.File.Stat.pp_kind info.kind
+      | exception Eio.Io (e, _) -> Fmt.str "@[<h>%a@]" Eio.Exn.pp_err e
+   in
   let a = stat ~follow:false in
   let b = stat ~follow:true in
   if a = b then
@@ -94,10 +97,10 @@ let try_symlink ~link_to path =
   | s -> traceln "symlink %a -> %S" Path.pp path link_to
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
-let try_chmod ~perm path =
-  match Path.chmod ~perm path with
-  | () -> Eio.traceln "chmod %o -> %a" perm Path.pp path
-  | exception ex -> Eio.traceln "@[<h>%a@]" Eio.Exn.pp ex
+let try_chmod path ~follow ~perm =
+  match Eio.Path.chmod ~follow path ~perm with
+  | () -> traceln "chmod %a to %o -> ok" Path.pp path perm
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 
 ```
 
@@ -834,6 +837,7 @@ Unconfined:
   try_stat cwd;
   try_stat (cwd / "..");
   try_stat (cwd / "stat_subdir2/..");
+
   Path.symlink ~link_to:".." (cwd / "parent-symlink");
   try_stat (cwd / "parent-symlink");
   try_stat (cwd / "missing1" / "missing2");
@@ -848,7 +852,6 @@ Unconfined:
 +<cwd:missing1/missing2> -> Fs Not_found _
 - : unit = ()
 ```
-
 
 # read_link
 
@@ -1019,21 +1022,34 @@ Exception: Failure "Simulated error".
 ```
 
 ```ocaml
-run ~clear:["stat_subdir2"; "symlink"; "broken-symlink"; "parent-symlink"] @@ fun env ->
+# run ~clear:["test-file"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   Switch.run @@ fun sw ->
-  Path.mkdir (cwd / "stat_subdir2");
-  Path.symlink ~link_to:"stat_subdir2" (cwd / "symlink");
-  Path.symlink ~link_to:"missing" (cwd / "broken-symlink");
-  try_stat (cwd / "stat_subdir2");
-  try_stat (cwd / "symlink");
-  try_stat (cwd / "broken-symlink");
-  try_chmod ~perm:0o777 (cwd / "stat_subdir2");
-  try_stat cwd;
-  try_stat (cwd / "..");
-  try_stat (cwd / "stat_subdir2/..");
-  Path.symlink ~link_to:".." (cwd / "parent-symlink");
-  try_stat (cwd / "parent-symlink");
-  try_stat (cwd / "missing1" / "missing2");
-  ();
+
+  let file_path = cwd / "test-file" in
+  Path.save ~create:(`Exclusive 0o644) file_path "test data";
+  traceln "+create <cwd:test-file> with permissions 0o644 -> ok";
+
+  let initial_perm = (Path.stat ~follow:true file_path).perm in
+  traceln "+<cwd:test-file> initial permissions = %o" initial_perm;
+  assert (initial_perm = 0o644);
+
+  try_chmod ~follow:true ~perm:0o400 file_path;
+
+  try_stat ~info_type:`Perm file_path;
+
+  try_chmod ~follow:true ~perm:0o600 file_path;
+  try_stat ~info_type:`Perm file_path;
+
+  Eio.Path.unlink file_path;
+  traceln "+unlink <cwd:test-file> -> ok";
+  ()
+++create <cwd:test-file> with permissions 0o644 -> ok
+++<cwd:test-file> initial permissions = 644
++chmod <cwd:test-file> to 400 -> ok
++<cwd:test-file> -> 400
++chmod <cwd:test-file> to 600 -> ok
++<cwd:test-file> -> 600
+++unlink <cwd:test-file> -> ok
+- : unit = ()
 ```

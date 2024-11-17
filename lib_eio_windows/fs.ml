@@ -89,6 +89,11 @@ end = struct
 
   let v ~label ~sandbox dir_path = { dir_path; sandbox; label; closed = false }
 
+  let chmod (_t : t) ~(follow : bool) ~(perm : int) (_path : string) : unit =
+    ignore (follow);
+    ignore (perm);
+    failwith "chmod not implemented on Windows yet"
+  
   (* Sandboxes use [O_NOFOLLOW] when opening files ([resolve] already removed any symlinks).
      This avoids a race where symlink might be added after [realpath] returns.
      TODO: Emulate [O_NOFOLLOW] here. *)

@@ -257,6 +257,9 @@ CAMLprim value caml_eio_windows_symlinkat(value v_old_path, value v_new_fd, valu
   uerror("symlinkat is not supported on windows yet", Nothing);
 }
 
+CAMLprim value eio_windows_chmod(value path, value perm) {
+    caml_failwith("chmod is not implemented on Windows");
+}
 
 CAMLprim value caml_eio_windows_spawn(value v_errors, value v_actions)
 {
