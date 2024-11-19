@@ -4,6 +4,16 @@ let skip _stdenv =
 
 open Eio.Std
 
+let skip_io_uring msg =
+  Eio.traceln "Skipping test: %s" msg;
+  Alcotest.skip ()
+
+  let handle_fallback = function
+  | `Msg msg ->
+    Eio.traceln "Fallback triggered with message: %s" msg;
+    skip_io_uring msg
+
+
 module Trace = Eio.Private.Trace
 
 let () =
@@ -23,7 +33,7 @@ let read_one_byte ~sw r =
     )
 
 let test_poll_add () =
-  Eio_linux.run ~fallback:skip (fun _stdenv ->
+  Eio_linux.run @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   let thread = read_one_byte ~sw r in
@@ -38,8 +48,8 @@ let test_poll_add () =
   Alcotest.(check string) "Received data" "!" result
 )
 let test_poll_add_busy () =
-  Eio_linux.run ~queue_depth:2 ~fallback:skip (fun _stdenv ->
-    Switch.run @@ fun sw ->
+  Eio_linux.run ~queue_depth:2 @@ fun _stdenv ->
+  Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   let a = read_one_byte ~sw r in
   let b = read_one_byte ~sw r in
