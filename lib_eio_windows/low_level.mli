@@ -43,6 +43,7 @@ val lstat : string -> Unix.LargeFile.stats
 
 val realpath : string -> string
 val read_link : ?dirfd:fd -> string -> string
+val chown : ?dirfd:fd -> follow:bool -> uid:int64 -> gid:int64 -> string -> unit
 
 val mkdir : ?dirfd:fd -> ?nofollow:bool -> mode:int -> string -> unit
 val unlink : ?dirfd:fd -> dir:bool -> string -> unit
