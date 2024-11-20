@@ -524,6 +524,15 @@ let read_link fd path =
     Eio_unix.run_in_systhread ~label:"read_link" (fun () -> Eio_unix.Private.read_link (Some parent) leaf)
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
+let chown ~follow ~uid ~gid fd path =
+  let module At = Uring.Linkat_flags in
+  let follow = if follow then At.empty_path else At.(empty_path + symlink_follow) in
+  let flags = (follow :> int) in
+  try
+    with_parent_dir_fd fd path @@ fun parent leaf ->
+    Eio_unix.run_in_systhread ~label:"chown" (fun () -> Eio_unix.Private.chown ~flags ~uid ~gid (Some parent) leaf)
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+
 (* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
 let getaddrinfo ~service node =
   let to_eio_sockaddr_t {Unix.ai_family; ai_addr; ai_socktype; ai_protocol; _ } =
