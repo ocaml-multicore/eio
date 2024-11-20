@@ -140,7 +140,9 @@ let read_link ?dirfd path =
 
 let chown ?dirfd ~follow:_ ~uid ~gid path =
   in_worker_thread @@ fun () ->
-  Eio_unix.Private.chown ~flags:0 ~uid ~gid dirfd path
+  match dirfd with
+  | None -> failwith "Chown is unsupported on Windows"
+  | Some dirfd -> Eio_unix.Private.chown ~flags:0 ~uid ~gid dirfd path
 
 external eio_readv : Unix.file_descr -> Cstruct.t array -> int = "caml_eio_windows_readv"
 
