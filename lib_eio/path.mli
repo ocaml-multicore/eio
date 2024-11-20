@@ -217,3 +217,6 @@ val symlink : link_to:string -> _ t -> unit
     {[
       Eio.Path.symlink (dir / "current") ~link_to:"version-1.0"
     ]} *)
+
+val chown : follow:bool -> uid:int64 -> gid:int64 -> _ t -> unit
+(** [chown ~follow ~uid ~gid t] changes the ownership of [t] to be [uid, gid]. *)

@@ -428,6 +428,13 @@ let read_link dirfd path =
   Resolve.with_parent "read_link" dirfd path @@ fun dirfd path ->
   Eio_unix.Private.read_link_unix dirfd path
 
+let chown ~follow ~uid ~gid dirfd path =
+  let flags = if follow then 0 else Config.at_symlink_nofollow in
+  in_worker_thread "chown" @@ fun () ->
+  Resolve.with_parent "chown" dirfd path @@ fun dirfd path ->
+  let dirfd = Option.value dirfd ~default:at_fdcwd in
+  Eio_unix.Private.chown_unix ~flags ~uid ~gid (Some dirfd) path
+
 type stat
 external create_stat : unit -> stat = "caml_eio_posix_make_stat"
 external eio_fstatat : stat -> Unix.file_descr -> string -> int -> unit = "caml_eio_posix_fstatat"

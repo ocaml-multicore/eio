@@ -52,3 +52,24 @@ CAMLprim value eio_unix_readlinkat(value v_fd, value v_path, value v_cs) {
   CAMLreturn(Val_int(ret));
   #endif
 }
+
+CAMLprim value eio_unix_fchownat(value v_fd, value v_path, value v_uid, value v_gid, value v_flags) {
+#ifdef _WIN32
+  caml_unix_error(EOPNOTSUPP, "fchownat not supported on Windows", v_path);
+#else
+  CAMLparam3(v_path, v_uid, v_gid);
+  char *path;
+  int fd = Int_val(v_fd);
+  int ret;
+  caml_unix_check_path(v_path, "fchownat");
+  path = caml_stat_strdup(String_val(v_path));
+  caml_enter_blocking_section();
+  ret = fchownat(fd, path, Int64_val(v_uid), Int64_val(v_gid), Int_val(v_flags));
+  caml_leave_blocking_section();
+  caml_stat_free_preserving_errno(path);
+  if (ret == -1)
+    caml_uerror("fchownat", v_path);
+  CAMLreturn(Val_unit);
+#endif
+}
+

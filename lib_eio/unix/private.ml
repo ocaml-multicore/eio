@@ -33,3 +33,13 @@ let read_link_unix fd path =
     aux 1024
 
 let read_link fd path = Fd.use_exn_opt "readlink" fd (fun fd -> read_link_unix fd path)
+
+external eio_fchownat : Unix.file_descr -> string -> int64 -> int64 -> int -> unit = "eio_unix_fchownat"
+
+let chown_unix ~flags ~uid ~gid fd path =
+  match fd with
+  | None -> Unix.chown path (Int64.to_int uid) (Int64.to_int gid)
+  | Some fd -> eio_fchownat fd path uid gid flags
+
+let chown ~flags ~uid ~gid fd path =
+  Fd.use_exn_opt "chown" fd (fun fd -> chown_unix ~uid ~gid ~flags fd path)
