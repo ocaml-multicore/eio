@@ -530,7 +530,7 @@ let chown ~follow ~uid ~gid fd path =
   let flags = (follow :> int) in
   try
     with_parent_dir_fd fd path @@ fun parent leaf ->
-    Eio_unix.run_in_systhread ~label:"chown" (fun () -> Eio_unix.Private.chown ~flags ~uid ~gid (Some parent) leaf)
+    Eio_unix.run_in_systhread ~label:"chown" (fun () -> Eio_unix.Private.chown ~flags ~uid ~gid parent leaf)
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
 (* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)

@@ -433,7 +433,7 @@ let chown ~follow ~uid ~gid dirfd path =
   in_worker_thread "chown" @@ fun () ->
   Resolve.with_parent "chown" dirfd path @@ fun dirfd path ->
   let dirfd = Option.value dirfd ~default:at_fdcwd in
-  Eio_unix.Private.chown_unix ~flags ~uid ~gid (Some dirfd) path
+  Eio_unix.Private.chown_unix ~flags ~uid ~gid dirfd path
 
 type stat
 external create_stat : unit -> stat = "caml_eio_posix_make_stat"

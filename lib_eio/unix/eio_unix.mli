@@ -108,8 +108,8 @@ module Private : sig
   val read_link : Fd.t option -> string -> string
   val read_link_unix : Unix.file_descr option -> string -> string
 
-  val chown : flags:int -> uid:int64 -> gid:int64 -> Fd.t option -> string -> unit
-  val chown_unix : flags:int -> uid:int64 -> gid:int64 -> Unix.file_descr option -> string -> unit
+  val chown : flags:int -> uid:int64 -> gid:int64 -> Fd.t -> string -> unit
+  val chown_unix : flags:int -> uid:int64 -> gid:int64 -> Unix.file_descr -> string -> unit
 end
 
 module Pi = Pi
