@@ -180,6 +180,12 @@ val symlink : link_to:string -> dir_fd -> string -> unit
 val chmod : follow:bool -> mode:int -> dir_fd -> string -> unit
 (** [chmod ~follow ~mode dir path] changes the file mode bits of [dir / path]. *)
 
+val chown : follow:bool -> ?uid:int64 -> ?gid:int64 -> dir_fd -> string -> unit
+(** [chown ~follow ~uid ~gid dir path] changes the ownership of [dir / path] to [uid, gid].
+
+    If [follow = true] and [dir / path] is a symlink, then the ownership of the {e target} is
+    changed. If it is [false] then the ownership of the symlink itself is changed. *)
+
 val pipe : sw:Switch.t -> fd * fd
 (** [pipe ~sw] returns a pair [r, w] with the readable and writeable ends of a new pipe. *)
 

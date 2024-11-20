@@ -247,3 +247,10 @@ val chmod : follow:bool -> perm:File.Unix_perm.t -> _ t -> unit
 (** [chmod ~follow ~perm t] allows you to change the file mode bits.
 
     @param follow If [true] and [t] is a symlink then change the target's mode bits. *)
+
+val chown : follow:bool -> ?uid:int64 -> ?gid:int64 -> _ t -> unit
+(** [chown ~follow ~uid ~gid t] changes the ownership of [t] to be [uid, gid].
+
+    [uid] or [gid] can be omitted to leave the current value unchanged.
+
+    @param follow If [t] is a symbolic link, change the permission of its target. *)
