@@ -1019,3 +1019,36 @@ Exception: Failure "Simulated error".
 +"/" / "" = "/"
 - : unit = ()
 ```
+
+```ocaml
+# run ~clear:["test-file"] @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  Switch.run @@ fun sw ->
+
+  let file_path = cwd / "test-file" in
+  Path.save ~create:(`Exclusive 0o644) file_path "test data";
+  traceln "+create <cwd:test-file> with permissions 0o644 -> ok";
+
+  let initial_perm = (Path.stat ~follow:true file_path).perm in
+  traceln "+<cwd:test-file> initial permissions = %o" initial_perm;
+  assert (initial_perm = 0o644);
+
+  try_chmod ~follow:true ~perm:0o400 file_path;
+
+  try_stat ~info_type:`Perm file_path;
+
+  try_chmod ~follow:true ~perm:0o600 file_path;
+  try_stat ~info_type:`Perm file_path;
+
+  Eio.Path.unlink file_path;
+  traceln "+unlink <cwd:test-file> -> ok";
+  ()
+++create <cwd:test-file> with permissions 0o644 -> ok
+++<cwd:test-file> initial permissions = 644
++chmod <cwd:test-file> to 400 -> ok
++<cwd:test-file> -> 400
++chmod <cwd:test-file> to 600 -> ok
++<cwd:test-file> -> 600
+++unlink <cwd:test-file> -> ok
+- : unit = ()
+```
