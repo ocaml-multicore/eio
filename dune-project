@@ -48,6 +48,7 @@
   (eio (= :version))
   (iomux (>= 0.2))
   (mdx (and (>= 2.4.1) :with-test))
+  (conf-bash :with-test)
   (fmt (>= 0.8.9))))
 (package
  (name eio_windows)
