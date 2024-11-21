@@ -20,7 +20,7 @@ let wrap code name arg =
   | ENOENT -> Eio.Fs.err (Not_found e)
   | EXDEV | EACCES | EPERM -> Eio.Fs.err (Permission_denied e)
   | ECONNREFUSED -> Eio.Net.err (Connection_failure (Refused e))
-  | ECONNRESET | EPIPE -> Eio.Net.err (Connection_reset e)
+  | ECONNRESET | EPIPE | ECONNABORTED -> Eio.Net.err (Connection_reset e)
   | _ -> unclassified_error e
 
 let run fn x =
