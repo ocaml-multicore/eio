@@ -620,7 +620,9 @@ Exception: Eio.Io Fs Not_found _,
 ```ocaml
 # Eio_main.run @@ fun env ->
   let sockaddr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 80) in
-  Eio.Net.getnameinfo env#net sockaddr;;
+  let (host, service) = Eio.Net.getnameinfo env#net sockaddr in
+  let service = if service = "www" then "http" else service in (* OpenBSD *)
+  (host, service)
 - : string * string = ("localhost", "http")
 ```
 
