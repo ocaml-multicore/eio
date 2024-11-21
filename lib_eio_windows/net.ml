@@ -83,24 +83,23 @@ let datagram_handler = Eio_unix.Pi.datagram_handler (module Datagram_socket)
 let datagram_socket fd =
   Eio.Resource.T (fd, datagram_handler)
 
-(* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
 let getaddrinfo ~service node =
-  let to_eio_sockaddr_t {Unix.ai_family; ai_addr; ai_socktype; ai_protocol; _ } =
-    match ai_family, ai_socktype, ai_addr with
-    | (Unix.PF_INET | PF_INET6),
-      (Unix.SOCK_STREAM | SOCK_DGRAM),
-      Unix.ADDR_INET (inet_addr,port) -> (
-        match ai_protocol with
-        | 6 -> Some (`Tcp (Eio_unix.Net.Ipaddr.of_unix inet_addr, port))
-        | 17 -> Some (`Udp (Eio_unix.Net.Ipaddr.of_unix inet_addr, port))
-        | _ -> None)
-    | _ -> None
+  (* OCaml's [Unix.getaddrinfo] on Windows doesn't set [ai_protocol] to
+     anything useful, so you can't tell which addresses are TCP and which are
+     UDP. So, do two separate queries. *)
+  let get ty k =
+    Unix.getaddrinfo node service [AI_SOCKTYPE ty]
+    |> List.filter_map (function
+        | {Unix.ai_addr = ADDR_INET (host, port); _} ->
+          Some (k (Eio_unix.Net.Ipaddr.of_unix host, port))
+        | _ -> None
+      )
   in
   Err.run (Eio_unix.run_in_systhread ~label:"getaddrinfo") @@ fun () ->
   let rec aux () =
     try
-      Unix.getaddrinfo node service []
-      |> List.filter_map to_eio_sockaddr_t
+      get SOCK_STREAM (fun x -> `Tcp x) @
+      get SOCK_DGRAM (fun x -> `Udp x)
     with Unix.Unix_error (EINTR, _, _) -> aux ()
   in
   aux ()
