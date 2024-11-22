@@ -245,4 +245,4 @@ let chown ~follow ~uid ~gid t =
   try X.chown ~follow ~uid ~gid dir path
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "chowing file %a" pp t
+    Exn.reraise_with_context ex bt "changing ownership of %a" pp t
