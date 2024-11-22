@@ -1,3 +1,60 @@
+## v1.2
+
+Changes:
+
+- Make `fork_action.h` a public header (@patricoferris #769, reviewed by @talex5).  
+  Allows other libraries to add new actions.
+
+- Record trace event when spawning processes (@talex5 #749).  
+  Spawning a subprocess can take a long time in some cases, so show it clearly in the traces.
+
+- Eio_unix.Net: make some return types more polymorphic (@talex5 #744).
+
+Bug fixes:
+
+- Preserve backtraces in `fork_daemon` (@talex5 #779).
+
+- Eio.Path: always use "/" as separator (@talex5 #743).
+
+Linux backend:
+
+- Allow `alloc_fixed_or_wait` to be cancelled (@talex5 #753).
+
+- Avoid triggering a (harmless) TSan warning (@talex5 #754, reported by @avsm).
+
+Windows backend:
+
+- Unregister FDs on cancel (@talex5 #756).  
+  Fixes `exception Unix.Unix_error(Unix.ENOTSOCK, "select", "")`.
+
+- Work around problems in `Unix.getaddrinfo` (@talex5 #780).  
+  Fixes e.g. `No addresses found for host name "127.0.0.1"`.
+
+- Group `ECONNABORTED` with other connection reset errors (@talex5 #783).
+
+- Check `has_symlink` for tests (@create2000 #771, reviewed by @patricoferris and @talex5).
+
+- Improve `openat` error handling (@talex5 #742, reported by @kentookura).  
+  Fixes `exception Unix.Unix_error(Unix.ENOENT, "openat", "")`.
+
+Documentation:
+
+- examples/fs: show how to read files while scanning (@talex5 #745).
+
+- Add example to `Buf_read.seq` documentation (@talex5 #739, requested by @darrenldl and @rizo).
+
+Build and test:
+
+- Fix tests on OpenBSD (@talex5 #782).
+
+- Add advice about using AI for code generation (@patricoferris #765, reviewed by @avsm and @talex5).
+
+- Minor code cleanups (@talex5 #755).
+
+- Define `struct clone_args` for linux-lts versions that don't have it (@copy #741, reviewed by @talex5).
+
+- eio_linux: refactor fixed buffer code (@talex5 #752).
+
 ## v1.1
 
 New features:
