@@ -526,7 +526,7 @@ let read_link fd path =
 
 let chown ~follow ~uid ~gid fd path =
   let module At = Uring.Linkat_flags in
-  let follow = if follow then At.empty_path else At.(empty_path + symlink_follow) in
+  let follow = if follow then At.(empty_path + symlink_follow) else At.empty_path in
   let flags = (follow :> int) in
   try
     with_parent_dir_fd fd path @@ fun parent leaf ->
