@@ -60,11 +60,13 @@ CAMLprim value eio_unix_fchownat(value v_fd, value v_path, value v_uid, value v_
   CAMLparam3(v_path, v_uid, v_gid);
   char *path;
   int fd = Int_val(v_fd);
+  uid_t uid = Int64_val(v_uid);
+  gid_t gid = Int64_val(v_gid);
   int ret;
   caml_unix_check_path(v_path, "fchownat");
   path = caml_stat_strdup(String_val(v_path));
   caml_enter_blocking_section();
-  ret = fchownat(fd, path, Int64_val(v_uid), Int64_val(v_gid), Int_val(v_flags));
+  ret = fchownat(fd, path, uid, gid, Int_val(v_flags));
   caml_leave_blocking_section();
   caml_stat_free_preserving_errno(path);
   if (ret == -1)
