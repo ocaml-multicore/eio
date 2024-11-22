@@ -360,8 +360,6 @@ external eio_renameat : Unix.file_descr -> string -> Unix.file_descr -> string -
 
 external eio_symlinkat : string -> Unix.file_descr -> string -> unit = "caml_eio_symlinkat"
 
-external eio_fchmodat : Unix.file_descr -> string -> int -> int -> unit = "caml_eio_fchmodat"
-
 external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
 
 external eio_getdents : Unix.file_descr -> string list = "caml_eio_getdents"
@@ -488,15 +486,6 @@ let symlink ~link_to dir path =
     eio_symlinkat link_to parent leaf
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
-
-let chmod ~follow ~mode dir path =
-  let module X = Uring.Statx in
-  with_parent_dir "chmodat" dir path @@ fun parent leaf ->
-  let flags = if follow then 0 else (* at_symlink_nofollow *) 0x100 in
-  try
-    eio_fchmodat parent leaf mode flags
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
-
 let shutdown socket command =
   try
     Fd.use_exn "shutdown" socket @@ fun fd ->
@@ -533,6 +522,15 @@ let read_link fd path =
   try
     with_parent_dir_fd fd path @@ fun parent leaf ->
     Eio_unix.run_in_systhread ~label:"read_link" (fun () -> Eio_unix.Private.read_link (Some parent) leaf)
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+
+let chmod ~follow ~mode dir path =
+  let module X = Uring.Statx in
+  let flags = if follow then X.Flags.empty_path else X.Flags.(empty_path + symlink_nofollow) in
+  let flags = (flags :> int) in
+  try
+    with_parent_dir_fd dir path @@ fun parent leaf ->
+    Eio_unix.run_in_systhread ~label:"chmod" (fun () -> Eio_unix.Private.chmod parent leaf ~mode ~flags)
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
 (* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
