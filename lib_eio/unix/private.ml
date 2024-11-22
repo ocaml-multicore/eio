@@ -33,3 +33,10 @@ let read_link_unix fd path =
     aux 1024
 
 let read_link fd path = Fd.use_exn_opt "readlink" fd (fun fd -> read_link_unix fd path)
+
+external eio_fchmodat : Unix.file_descr -> string -> int -> int -> unit = "eio_unix_fchmodat"
+
+let chmod_unix fd path ~flags ~mode = eio_fchmodat fd path mode flags
+
+let chmod fd path ~flags ~mode =
+  Fd.use_exn "chmod" fd (fun fd -> chmod_unix ~flags ~mode fd path)

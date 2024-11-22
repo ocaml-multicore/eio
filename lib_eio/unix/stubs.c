@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 #include <caml/mlvalues.h>
 #include <caml/unixsupport.h>
@@ -51,4 +52,18 @@ CAMLprim value eio_unix_readlinkat(value v_fd, value v_path, value v_cs) {
   if (ret == -1) caml_uerror("readlinkat", v_path);
   CAMLreturn(Val_int(ret));
   #endif
+}
+
+CAMLprim value eio_unix_fchmodat(value v_fd, value v_path, value v_mode, value v_flags) {
+  CAMLparam1(v_path);
+  char *path;
+  int ret;
+  caml_unix_check_path(v_path, "fchmodat");
+  path = caml_stat_strdup(String_val(v_path));
+  caml_enter_blocking_section();
+  ret = fchmodat(Int_val(v_fd), path, Int_val(v_mode), Int_val(v_flags));
+  caml_leave_blocking_section();
+  caml_stat_free_preserving_errno(path);
+  if (ret == -1) uerror("fchmodat", v_path);
+  CAMLreturn(Val_unit);
 }

@@ -405,20 +405,6 @@ CAMLprim value caml_eio_posix_symlinkat(value v_old_path, value v_new_fd, value 
   CAMLreturn(Val_unit);
 }
 
-CAMLprim value caml_eio_posix_fchmodat(value v_fd, value v_path, value v_mode, value v_flags) {
-  CAMLparam1(v_path);
-  char *path;
-  int ret;
-  caml_unix_check_path(v_path, "fchmodat");
-  path = caml_stat_strdup(String_val(v_path));
-  caml_enter_blocking_section();
-  ret = fchmodat(Int_val(v_fd), path, Int_val(v_mode), Int_val(v_flags));
-  caml_leave_blocking_section();
-  caml_stat_free_preserving_errno(path);
-  if (ret == -1) uerror("fchmodat", v_path);
-  CAMLreturn(Val_unit);
-}
-
 CAMLprim value caml_eio_posix_spawn(value v_errors, value v_actions) {
   CAMLparam1(v_actions);
   pid_t child_pid;
