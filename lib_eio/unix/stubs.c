@@ -55,6 +55,9 @@ CAMLprim value eio_unix_readlinkat(value v_fd, value v_path, value v_cs) {
 }
 
 CAMLprim value eio_unix_fchmodat(value v_fd, value v_path, value v_mode, value v_flags) {
+  #ifdef _WIN32
+  caml_unix_error(EOPNOTSUPP, "fchmodat not supported on Windows", v_path);
+  #else
   CAMLparam1(v_path);
   char *path;
   int ret;
@@ -66,4 +69,5 @@ CAMLprim value eio_unix_fchmodat(value v_fd, value v_path, value v_mode, value v
   caml_stat_free_preserving_errno(path);
   if (ret == -1) uerror("fchmodat", v_path);
   CAMLreturn(Val_unit);
+  #endif
 }
