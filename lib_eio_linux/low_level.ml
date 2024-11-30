@@ -526,7 +526,7 @@ let read_link fd path =
 
 let chmod ~follow ~mode dir path =
   let module X = Uring.Statx in
-  let flags = if follow then X.Flags.empty_path else X.Flags.(empty_path + symlink_nofollow) in
+  let flags = if follow then 0 else Config.at_symlink_nofollow in
   let flags = (flags :> int) in
   try
     with_parent_dir_fd dir path @@ fun parent leaf ->
