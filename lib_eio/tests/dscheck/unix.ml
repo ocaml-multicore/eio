@@ -1,3 +1,7 @@
+type error = ECONNRESET
+
+exception Unix_error of error * string * string
+
 type file_descr = [`Open | `Closed] Atomic.t
 
 let make () = Atomic.make `Open
