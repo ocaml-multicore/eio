@@ -98,7 +98,13 @@ let get t =
     None
 
 let close_fd fd =
-  Eio.Private.Trace.with_span "close" (fun () -> Unix.close fd)
+  Eio.Private.Trace.with_span "close" (fun () ->
+      try
+        Unix.close fd
+      with Unix.Unix_error (ECONNRESET, _, _) ->
+        (* For FreeBSD. See https://github.com/ocaml-multicore/eio/issues/786 *)
+        ()
+    )
 
 (* Note: we could simplify this a bit by incrementing [t.ops], as [remove] does.
    However, that makes dscheck too slow. *)
