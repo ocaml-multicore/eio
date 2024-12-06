@@ -1,6 +1,7 @@
 (lang dune 3.9)
 (name eio)
 (formatting disabled)
+(subst disabled)
 (generate_opam_files true)
 (source (github ocaml-multicore/eio))
 (license ISC)

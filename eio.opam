@@ -29,7 +29,6 @@ conflicts: [
   "seq" {< "0.3"}
 ]
 build: [
-  ["dune" "subst"] {dev}
   [
     "dune"
     "build"
