@@ -107,6 +107,8 @@ module Private : sig
 
   val read_link : Fd.t option -> string -> string
   val read_link_unix : Unix.file_descr option -> string -> string
+  val chmod : Fd.t -> string -> flags:int -> mode:int -> unit
+  val chmod_unix : Unix.file_descr -> string -> flags:int -> mode:int -> unit
 end
 
 module Pi = Pi

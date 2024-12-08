@@ -455,6 +455,9 @@ end = struct
   let symlink ~link_to t path =
     Low_level.symlink ~link_to t.fd path
 
+  let chmod t ~follow ~perm path =
+    Low_level.chmod t.fd ~follow ~mode:perm path
+
   let pp f t = Fmt.string f (String.escaped t.label)
 
   let fd t = t.fd

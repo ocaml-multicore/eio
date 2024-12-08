@@ -211,7 +211,7 @@ external eio_openat : Unix.file_descr option -> bool -> string -> Flags.Open.t -
 let openat ?dirfd ?(nofollow=false) ~sw path flags dis create =
   with_dirfd "openat" dirfd @@ fun dirfd ->
   Switch.check sw;
-  in_worker_thread (fun () -> eio_openat dirfd nofollow path Flags.Open.(flags + cloexec (* + nonblock *)) dis create)
+  in_worker_thread ~label:"openat" (fun () -> eio_openat dirfd nofollow path Flags.Open.(flags + cloexec (* + nonblock *)) dis create)
   |> Fd.of_unix ~sw ~blocking:false ~close_unix:true
 
 let mkdir ?dirfd ?(nofollow=false) ~mode:_ path =
@@ -223,7 +223,7 @@ external eio_unlinkat : Unix.file_descr option -> string -> bool -> unit = "caml
 
 let unlink ?dirfd ~dir path =
   with_dirfd "unlink" dirfd @@ fun dirfd ->
-  in_worker_thread @@ fun () ->
+  in_worker_thread ~label:"unlink" @@ fun () ->
   eio_unlinkat dirfd path dir
 
 external eio_renameat : Unix.file_descr option -> string -> Unix.file_descr option -> string -> unit = "caml_eio_windows_renameat"
@@ -231,7 +231,7 @@ external eio_renameat : Unix.file_descr option -> string -> Unix.file_descr opti
 let rename ?old_dir old_path ?new_dir new_path =
   with_dirfd "rename-old" old_dir @@ fun old_dir ->
   with_dirfd "rename-new" new_dir @@ fun new_dir ->
-  in_worker_thread @@ fun () ->
+  in_worker_thread ~label:"rename" @@ fun () ->
   eio_renameat old_dir old_path new_dir new_path
 
 
@@ -239,8 +239,16 @@ external eio_symlinkat : string -> Unix.file_descr option -> string -> unit = "c
 
 let symlink ~link_to new_dir new_path =
   with_dirfd "symlink-new" new_dir @@ fun new_dir ->
-  in_worker_thread @@ fun () ->
+  in_worker_thread ~label:"symlink" @@ fun () ->
   eio_symlinkat link_to new_dir new_path
+
+let chmod ~mode new_dir new_path =
+  with_dirfd "chmod" new_dir @@ fun new_dir ->
+  match new_dir with
+  | Some _ -> failwith "chmod not supported on Windows"
+  | None ->
+    in_worker_thread ~label:"chmod" @@ fun () ->
+    Unix.chmod new_path mode
 
 let lseek fd off cmd =
   Fd.use_exn "lseek" fd @@ fun fd ->
