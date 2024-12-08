@@ -1,4 +1,18 @@
+exception Skip_test of string
+let skip _stdenv =
+  raise (Skip_test "io_uring not available in Docker")
+
 open Eio.Std
+
+let skip_io_uring msg =
+  Eio.traceln "Skipping test: %s" msg;
+  Alcotest.skip ()
+
+  let handle_fallback = function
+  | `Msg msg ->
+    Eio.traceln "Fallback triggered with message: %s" msg;
+    skip_io_uring msg
+
 
 module Trace = Eio.Private.Trace
 
@@ -32,7 +46,7 @@ let test_poll_add () =
   assert (sent = 1);
   let result = Promise.await_exn thread in
   Alcotest.(check string) "Received data" "!" result
-
+)
 let test_poll_add_busy () =
   Eio_linux.run ~queue_depth:2 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
@@ -50,7 +64,7 @@ let test_poll_add_busy () =
   Alcotest.(check string) "Received data" "!" a;
   let b = Promise.await_exn b in
   Alcotest.(check string) "Received data" "!" b
-
+)
 (* Write a string to a pipe and read it out again. *)
 let test_copy () =
   Eio_linux.run ~queue_depth:3 @@ fun _stdenv ->
