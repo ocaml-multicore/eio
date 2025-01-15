@@ -231,6 +231,9 @@ val run_server :
     In such cases you must ensure that [connection_handler] only accesses thread-safe values.
     Note that having more than {!Domain.recommended_domain_count} domains in total is likely to result in bad performance.
 
+    For services that are bottlenecked on CPU rather than IO,
+    you can run a single accept loop and have the handler submit CPU-intensive jobs to an {!module:Executor_pool}.
+
     @param max_connections The maximum number of concurrent connections accepted by [s] at any time.
                            The default is [Int.max_int].
     @param stop Resolving this promise causes [s] to stop accepting new connections.
