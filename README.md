@@ -79,9 +79,8 @@ Additionally, modern operating systems provide high-performance alternatives to 
 For example, Linux's io_uring system has applications write the operations they want to perform to a ring buffer,
 which Linux handles asynchronously, and Eio can take advantage of this.
 
-Please try porting your programs to use Eio and submit PRs or open issues when you find problems.
-Remember that you can always [fall back to using Lwt libraries](#lwt) to provide missing features if necessary.
-See [Awesome Multicore OCaml][] for links to work migrating other projects to Eio.
+You can always [fall back to using Lwt libraries](#lwt) to provide missing features if necessary.
+See [Awesome Multicore OCaml][] for links to other projects using Eio.
 
 ## Eio packages
 
@@ -232,12 +231,7 @@ The green segments show when each fiber is running.
 Note that the output from `traceln` appears in the trace as well as on the console.
 In the eio-trace window, scrolling with the mouse or touchpad will zoom in or out of the diagram.
 
-There are various third-party tools that can also consume this data
-(but may currently require patches to support the new system):
-
-- [Meio][] (Monitoring for Eio) provides an interactive console-based UI for exploring running fibers.
-- [Olly][] can save Perfetto traces and report statistics.
-
+Third-party tools, such as [Olly][], can also consume this data.
 [examples/trace](./examples/trace/) shows how to consume the events manually.
 
 ## Cancellation
@@ -311,22 +305,23 @@ For example:
 ```ocaml
 # Eio_main.run @@ fun _env ->
   Switch.run (fun sw ->
-    Fiber.fork ~sw
-      (fun () -> for i = 1 to 3 do traceln "i = %d" i; Fiber.yield () done);
-    traceln "First thread forked";
-    Fiber.fork ~sw
-      (fun () -> for j = 1 to 3 do traceln "j = %d" j; Fiber.yield () done);
-    traceln "Second thread forked; top-level code is finished"
-  );
+      for i = 1 to 3 do
+        Fiber.fork ~sw (fun () ->
+            traceln "Job %d starting" i;
+            Fiber.yield ();
+            traceln "%d done" i;
+          );
+      done;
+      traceln "All child fibers forked";
+    );
   traceln "Switch is finished";;
-+i = 1
-+First thread forked
-+j = 1
-+Second thread forked; top-level code is finished
-+i = 2
-+j = 2
-+i = 3
-+j = 3
++Job 1 starting
++Job 2 starting
++Job 3 starting
++All child fibers forked
++1 done
++2 done
++3 done
 +Switch is finished
 - : unit = ()
 ```
@@ -1015,12 +1010,8 @@ Usually you will only want one pool for an entire application, so the pool is ty
 let () =
   Eio_main.run @@ fun env ->
   Switch.run @@ fun sw ->
-  let pool =
-    Eio.Executor_pool.create
-      ~sw (Eio.Stdenv.domain_mgr env)
-      ~domain_count:4
-  in
-  main ~pool
+  let dm = Eio.Stdenv.domain_mgr env in
+  main ~pool:(Eio.Executor_pool.create ~sw ~domain_count:2 dm)
 ```
 
 The pool starts its domain workers immediately upon creation.
@@ -1034,11 +1025,7 @@ The total number of domains should not exceed `Domain.recommended_domain_count` 
 We can run the previous example using an Executor Pool like this:
 
 ```ocaml
-let main ~domain_mgr =
-  Switch.run @@ fun sw ->
-  let pool =
-    Eio.Executor_pool.create ~sw domain_mgr ~domain_count:4
-  in
+let main ~pool =
   let test n =
     traceln "sum 1..%d = %d" n
       (Eio.Executor_pool.submit_exn pool ~weight:1.0
@@ -1052,7 +1039,9 @@ let main ~domain_mgr =
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
-  main ~domain_mgr:(Eio.Stdenv.domain_mgr env);;
+  Switch.run @@ fun sw ->
+  let dm = Eio.Stdenv.domain_mgr env in
+  main ~pool:(Eio.Executor_pool.create ~sw ~domain_count:2 dm)
 +Starting CPU-intensive task...
 +Starting CPU-intensive task...
 +Finished
@@ -1632,7 +1621,8 @@ It can then be used like any other Eio flow:
 ## Example Applications
 
 - [gemini-eio][] is a simple Gemini browser. It shows how to integrate Eio with `ocaml-tls` and `notty`.
-- [ocaml-multicore/retro-httpaf-bench](https://github.com/ocaml-multicore/retro-httpaf-bench) includes a simple HTTP server using Eio. It shows how to use Eio with `httpaf`, and how to use multiple domains for increased performance.
+- [cohttp-eio/examples](https://github.com/mirage/ocaml-cohttp/tree/master/cohttp-eio/examples) shows how to use Eio with HTTP.
+- [capnp-rpc](https://github.com/mirage/capnp-rpc) shows how to use Eio with Cap'n Proto.
 - [Awesome Multicore OCaml][] lists many other projects.
 
 ## Integrations
@@ -1906,7 +1896,6 @@ Some background about the effects system can be found in:
 [Eio.Condition]: https://ocaml-multicore.github.io/eio/eio/Eio/Condition/index.html
 [Domainslib]: https://github.com/ocaml-multicore/domainslib
 [kcas]: https://github.com/ocaml-multicore/kcas
-[Meio]: https://github.com/tarides/meio
 [Lambda Capabilities]: https://roscidus.com/blog/blog/2023/04/26/lambda-capabilities/
 [Eio.Process]: https://ocaml-multicore.github.io/eio/eio/Eio/Process/index.html
 [Dev meetings]: https://docs.google.com/document/d/1ZBfbjAkvEkv9ldumpZV5VXrEc_HpPeYjHPW_TiwJe4Q
