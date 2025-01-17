@@ -82,6 +82,10 @@ val symlink : link_to:string -> dir_fd -> string -> unit
 (** [symlink ~link_to dir path] will create a new symlink at [dir / path]
     linking to [link_to]. *)
 
+val chown : follow:bool -> uid:int64 -> gid:int64 -> dir_fd -> string -> unit
+(** [chown ~follow ~uid ~gid dir path] will change the ownership of [dir / path]
+    to [uid, gid]. *)
+
 val readdir : dir_fd -> string -> string array
 
 val readv : fd -> Cstruct.t array -> int
