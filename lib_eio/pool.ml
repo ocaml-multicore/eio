@@ -133,7 +133,7 @@ let run_new_and_dispose t f =
     t.dispose x;
     Printexc.raise_with_backtrace ex bt
 
-let use t ?(never_block=false) f =
+let use ?(never_block=false) t f =
   let segment, cell = Q.next_suspend t.q in
   match Atomic.get cell with
   | Finished | Request _ -> assert false
