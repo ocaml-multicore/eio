@@ -22,6 +22,7 @@ val sleep_until : Mtime.t -> unit
 val read : fd -> bytes -> int -> int -> int
 val read_cstruct : fd -> Cstruct.t -> int
 val write : fd -> bytes -> int -> int -> int
+val write_cstruct : fd -> Cstruct.t -> int
 
 val socket : sw:Switch.t -> Unix.socket_domain -> Unix.socket_type -> int -> fd
 val connect : fd -> Unix.sockaddr -> unit

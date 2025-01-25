@@ -6,7 +6,7 @@
  (foreign_stubs
   (language c)
   (include_dirs ../lib_eio/unix/include)
-  (names eio_windows_stubs eio_windows_cstruct_stubs))
+  (names eio_windows_stubs))
  (c_library_flags :standard -lbcrypt -lntdll)
  (libraries eio eio.unix eio.utils fmt))
 
