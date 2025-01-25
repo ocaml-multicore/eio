@@ -32,6 +32,26 @@ let as_posix_dir (Eio.Resource.T (t, ops)) =
   | None -> None
   | Some fn -> Some (fn t)
 
+module Fifo_reader = struct
+  include Flow.Impl
+
+  let single_read t buf =
+    Low_level.await_readable "single_read" t;
+    Flow.Impl.single_read t buf
+
+  let pread t ~file_offset bufs =
+    Low_level.await_readable "pread" t;
+    Flow.Impl.pread t ~file_offset bufs
+end
+
+(* After opening a FIFO with no writers, it is not readable according to select,
+   but [read] returns end-of-file rather than EAGAIN!
+   Therefore, use a slightly slower implementation that always checks readability first.
+   See https://github.com/ocaml-multicore/eio/issues/856 *)
+let fifo_reader =
+  let handler = Eio_unix.Pi.flow_handler (module Fifo_reader) in
+  fun fd -> (Eio.Resource.T (fd, handler) :> Eio.File.ro_ty Eio.Resource.t)
+
 module rec Dir : sig
   include Eio.Fs.Pi.DIR
 
@@ -51,7 +71,9 @@ end = struct
 
   let open_in t ~sw path =
     let fd = Err.run (Low_level.openat ~mode:0 ~sw t.fd path) Low_level.Open_flags.rdonly in
-    (Flow.of_fd fd :> Eio.File.ro_ty Eio.Resource.t)
+    let info = Fd.use_exn "fstat" fd Unix.fstat in
+    if info.st_kind = S_FIFO then fifo_reader fd
+    else (Flow.of_fd fd :> Eio.File.ro_ty Eio.Resource.t)
 
   let open_out t ~sw ~append ~create path =
     let mode, flags =
