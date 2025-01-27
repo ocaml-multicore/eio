@@ -14,7 +14,7 @@
  (description "An effect-based IO API for multicore OCaml with fibers.")
  (conflicts (seq (< 0.3)))
  (depends
-  (ocaml (>= 5.1.0))
+  (ocaml (>= 5.2.0))
   (bigstringaf (>= 0.9.0))
   (cstruct (>= 6.0.1))
   lwt-dllist

@@ -12,7 +12,7 @@ jobs:
         os:
           - macos-latest
         ocaml-compiler:
-          - 5.1.x
+          - 5.2.x
         local-packages:
           - eio eio_posix eio_main
 
@@ -44,7 +44,7 @@ jobs:
         with:
           opam-pin: false
           opam-depext: false
-          ocaml-compiler: ocaml.5.1.0,ocaml-option-mingw
+          ocaml-compiler: ocaml.5.2.0,ocaml-option-mingw
           opam-repositories: |
             dra27: https://github.com/dra27/opam-repository.git#windows-5.0
             normal: https://github.com/ocaml/opam-repository.git

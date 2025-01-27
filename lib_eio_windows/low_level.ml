@@ -39,16 +39,24 @@ let rec do_nonblocking ty fn fd =
     do_nonblocking ty fn fd
 
 let read fd buf start len =
+  await_readable fd;
   Fd.use_exn "read" fd @@ fun fd ->
   do_nonblocking Read (fun fd -> Unix.read fd buf start len) fd
 
-let read_cstruct fd buf =
+let read_cstruct fd (buf:Cstruct.t) =
+  await_readable fd;
   Fd.use_exn "read_cstruct" fd @@ fun fd ->
-  do_nonblocking Read (fun fd -> Unix_cstruct.read fd buf) fd
+  do_nonblocking Read (fun fd -> Unix.read_bigarray fd buf.buffer buf.off buf.len) fd
 
 let write fd buf start len =
+  await_writable fd;
   Fd.use_exn "write" fd @@ fun fd ->
   do_nonblocking Write (fun fd -> Unix.write fd buf start len) fd
+
+let write_cstruct fd (buf:Cstruct.t) =
+  await_writable fd;
+  Fd.use_exn "write_cstruct" fd @@ fun fd ->
+  do_nonblocking Write (fun fd -> Unix.write_bigarray fd buf.buffer buf.off buf.len) fd
 
 let sleep_until time =
   Sched.enter @@ fun t k ->
@@ -148,8 +156,11 @@ let readv fd bufs =
   do_nonblocking Read (fun fd -> eio_readv fd bufs) fd
 
 let writev fd bufs =
-  Fd.use_exn "writev" fd @@ fun fd ->
-  do_nonblocking Write (fun fd -> Unix_cstruct.writev fd bufs) fd
+  let rec loop buf = if Cstruct.length buf > 0 then begin
+    let n = write_cstruct fd buf in
+    loop @@ Cstruct.shift buf n
+  end in
+  List.iter loop bufs
 
 let preadv ~file_offset fd bufs =
   Fd.use_exn "preadv" fd @@ fun fd ->
