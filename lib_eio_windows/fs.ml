@@ -185,6 +185,10 @@ end = struct
     Switch.on_release sw (fun () -> close d);
     Eio.Resource.T (d, Handler.v)
 
+  let chmod t ~follow:_ ~perm path =
+    with_parent_dir t path @@ fun dirfd path ->
+    Low_level.chmod ~mode:perm dirfd path
+
   let pp f t = Fmt.string f (String.escaped t.label)
 
   let native _t _path =
