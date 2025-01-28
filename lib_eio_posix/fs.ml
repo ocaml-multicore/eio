@@ -97,6 +97,9 @@ end = struct
   let symlink ~link_to t path =
     Err.run (Low_level.symlink ~link_to t.fd) path
 
+  let chown ~follow ~uid ~gid t path =
+    Err.run (Low_level.chown ~follow ~uid ~gid t.fd) path
+
   let open_dir t ~sw path =
     let flags = Low_level.Open_flags.(rdonly + directory +? path) in
     let fd = Err.run (Low_level.openat ~sw ~mode:0 t.fd path) flags in
