@@ -20,6 +20,16 @@ let add t v =
   S.add t v;
   traceln "Added %d to stream" v
 
+let add_nonblocking ~drop_priority t v =
+  traceln "Adding %d to stream" v;
+  match S.add_nonblocking ~drop_priority t v with
+  | None -> traceln "Added %d to stream" v
+  | Some d ->
+    match drop_priority, S.capacity t with
+    | Newest, _ | _, 0 -> assert (d = v); traceln "Dropped %i instead of adding it to stream" v
+    | Oldest, _ -> traceln "Dropped %i from stream and added %i to stream" d v
+  
+
 let take t =
   traceln "Reading from stream";
   traceln "Got %d from stream" (S.take t)
@@ -317,6 +327,23 @@ Cancelling writing to a stream:
 +Added 2 to stream
 +Reading from stream
 +Got 2 from stream
+- : unit = ()
+```
+
+Non-blocking add:
+
+```ocaml
+# run @@ fun () ->
+  let t = S.create 1 in
+  add t 0;
+  add_nonblocking ~drop_priority:Newest t 1;
+  add_nonblocking ~drop_priority:Oldest t 2;;
++Adding 0 to stream
++Added 0 to stream
++Adding 1 to stream
++Dropped 1 instead of adding it to stream
++Adding 2 to stream
++Dropped 0 from stream and added 2 to stream
 - : unit = ()
 ```
 
