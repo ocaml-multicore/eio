@@ -237,3 +237,24 @@ static void action_dups(int errors, value v_config) {
 CAMLprim value eio_unix_fork_dups(value v_unit) {
   return Val_fork_fn(action_dups);
 }
+
+static void action_setpgid(int errors, value v_config) {
+  #ifdef _WIN32
+  eio_unix_fork_error(errors, "setpgid", "Unsupported operation on windows");
+  _exit(1);
+  #else
+  value vpid = Field(v_config, 1);
+  value vpgid = Field(v_config, 2);
+
+  int r;
+  r = setpgid(Int_val(vpid), Int_val(vpgid));
+  if (r != 0) {
+    eio_unix_fork_error(errors, "setpgid", strerror(errno));
+    _exit(1);
+  }
+  #endif
+}
+
+CAMLprim value eio_unix_fork_setpgid(value v_unit) {
+  return Val_fork_fn(action_setpgid);
+}
