@@ -191,21 +191,23 @@ Cancelled from parent:
 Exception: Failure "Parent cancel".
 ```
 
-Cancelled from parent while already cancelling:
+Return value despite cancellation from parent:
 
 ```ocaml
 # run @@ fun () ->
   Fiber.both
     (fun () ->
-      let _ = Fiber.first
+      traceln "%s" @@ Fiber.first
         (fun () -> "a")
-        (fun () -> Fiber.yield (); failwith "cancel-b")
-      in
-      traceln "Parent cancel failed"
+        (fun () -> Fiber.yield (); failwith "cancel-b");
+
+      traceln "Canceled from parent"
     )
     (fun () -> traceln "Cancelling parent"; failwith "Parent cancel");
   "not-reached";;
 +Cancelling parent
++a
++Canceled from parent
 Exception: Failure "Parent cancel".
 ```
 
