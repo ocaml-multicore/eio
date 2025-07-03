@@ -12,7 +12,9 @@ let check ~mode dirfd path flags =
     try Ok (L.Resolve.open_unconfined ~sw ~mode (Some dirfd) path flags) with Unix.Unix_error _ as e -> Error e in
   let y =
     Eio_unix.Fd.use_exn "check" dirfd @@ fun dirfd ->
-    try Ok (L.Resolve.open_beneath_fallback ~sw ~dirfd ~mode path flags) with Unix.Unix_error _ as e -> Error e
+    try Ok (L.Resolve.open_beneath_fallback ~sw ~dirfd ~mode path flags) with
+    | Unix.Unix_error _ as e -> Error e
+    | Eio.Io _ as e -> Error e
   in
   match x, y with
   | Ok x, Ok y ->
@@ -30,7 +32,8 @@ let check ~mode dirfd path flags =
     if x <> y then (
       Fmt.failwith "Different errors: %a vs %a" Fmt.exn e1 Fmt.exn e2
     )
-  | Error _, Error _ -> assert false
+  | Error (Unix.Unix_error _), Error (Eio.Io (Eio.Fs.E Permission_denied _, _)) -> ()
+  | Error e1, Error e2 -> Fmt.failwith "Multiple errors: %a vs %a" Fmt.exn e1 Fmt.exn e2
   | Error e, Ok _ -> Fmt.failwith "Only OS open failed: %a" Fmt.exn e
   | Ok _, Error e -> Fmt.failwith "Only open_beneath failed: %a" Fmt.exn e
 
