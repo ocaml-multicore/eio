@@ -35,7 +35,9 @@ module Impl = struct
           | None -> Fmt.invalid_arg "cwd is not an OS directory!"
           | Some dirfd ->
             Switch.run ~name:"spawn_unix" @@ fun launch_sw ->
-            let cwd = Low_level.openat ~sw:launch_sw ~mode:0 dirfd path Low_level.Open_flags.(rdonly + directory) in
+            let cwd = Err.run (fun () ->
+              let flags = Low_level.Open_flags.(rdonly + directory) in
+              Low_level.openat ~sw:launch_sw ~mode:0 dirfd path flags) () in
             fn (Low_level.Process.Fork_action.fchdir cwd :: actions)
       in
       with_actions cwd @@ fun actions ->
