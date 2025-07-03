@@ -12,7 +12,7 @@ jobs:
         os:
           - macos-latest
         ocaml-compiler:
-          - 5.2.x
+          - 5
         local-packages:
           - eio eio_posix eio_main
 
@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Use OCaml ${{ matrix.ocaml-compiler }}
-        uses: ocaml/setup-ocaml@v2
+        uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
           opam-local-packages:
@@ -40,14 +40,10 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Set-up OCaml
-        uses: ocaml/setup-ocaml@v2
+        uses: ocaml/setup-ocaml@v3
         with:
           opam-pin: false
-          opam-depext: false
-          ocaml-compiler: ocaml.5.2.0,ocaml-option-mingw
-          opam-repositories: |
-            dra27: https://github.com/dra27/opam-repository.git#windows-5.0
-            normal: https://github.com/ocaml/opam-repository.git
+          ocaml-compiler: 5
       # --with-version=dev is not available, and --with-test also tries running tests for packages (like MDX) which fail...
       - run: | 
           opam pin -yn eio.dev .

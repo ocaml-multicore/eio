@@ -19,6 +19,7 @@ let wrap code name arg =
   | EEXIST -> Eio.Fs.err (Already_exists e)
   | ENOENT -> Eio.Fs.err (Not_found e)
   | EXDEV | EACCES | EPERM -> Eio.Fs.err (Permission_denied e)
+  | EUNKNOWNERR x when Some x = Config.enotcapable -> Eio.Fs.err (Permission_denied e)
   | ECONNREFUSED -> Eio.Net.err (Connection_failure (Refused e))
   | ECONNRESET | EPIPE -> Eio.Net.err (Connection_reset e)
   | _ -> unclassified_error e

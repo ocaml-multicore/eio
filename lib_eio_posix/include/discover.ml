@@ -4,12 +4,13 @@ let optional_flags = [
   "O_DSYNC";
   "O_RESOLVE_BENEATH";
   "O_PATH";
+  "ENOTCAPABLE";
 ]
 
 let () =
   C.main ~name:"discover" (fun c ->
-      let c_flags = ["-D_LARGEFILE64_SOURCE"; "-D_XOPEN_SOURCE=700"; "-D_DARWIN_C_SOURCE"; "-D_GNU_SOURCE"; "-D_BSD_SOURCE"] in
-      let includes = ["sys/types.h"; "sys/stat.h"; "fcntl.h"] in
+      let c_flags = ["-D_LARGEFILE64_SOURCE"; "-D_XOPEN_SOURCE=700"; "-D_DARWIN_C_SOURCE"; "-D_GNU_SOURCE"; "-D_BSD_SOURCE"; "-D__BSD_VISIBLE"] in
+      let includes = ["errno.h"; "sys/types.h"; "sys/stat.h"; "fcntl.h"; "limits.h"] in
       let extra_flags, missing_defs =
         C.C_define.import c ~c_flags ~includes
           C.C_define.Type.(List.map (fun name -> name, Switch) optional_flags)
@@ -21,8 +22,7 @@ let () =
           )
       in
       let present_defs =
-        C.C_define.import c ~c_flags
-          ~includes:["sys/types.h"; "sys/stat.h"; "fcntl.h"; "limits.h"]
+        C.C_define.import c ~c_flags ~includes
           C.C_define.Type.(extra_flags @ [
             "O_RDONLY", Int;
             "O_RDWR", Int;
