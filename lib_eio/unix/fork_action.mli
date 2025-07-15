@@ -58,3 +58,8 @@ val inherit_fds : (int * Fd.t * [< blocking]) list -> t
     A mapping from an FD to itself simply clears the close-on-exec flag.
 
     After this, the new FDs may also be set as blocking or non-blocking, depending on [flags]. *)
+
+val setpgid : pid:int -> pgid:int -> t
+(** [setpgid ~pid ~pgid] sets the process group ID to [pgid] for the process [pid].
+
+    If [pid] is [0] then the process ID of the calling process shall be used. *)
