@@ -3,3 +3,29 @@
   (deps (package eio_main) (env_var "EIO_BACKEND"))
   (enabled_if (<> %{os_type} "Win32"))
   (files multicore.md))
+
+(install
+ (section doc)
+ (files
+  (odoc-config-eio.sexp as odoc-config.sexp))
+ (package eio))
+
+(install
+ (section doc)
+ (files
+  odoc-config.sexp)
+ (package eio_linux))
+
+(install
+ (section doc)
+ (files
+  odoc-config.sexp)
+ (package eio_posix))
+
+(install
+ (section doc)
+ (files
+  odoc-config.sexp)
+ (package eio_windows))
+
+

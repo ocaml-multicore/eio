@@ -34,3 +34,6 @@ build: [
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
 available: [os = "linux"]
+x-extra-doc-deps: [
+  "eio_main" {= version}
+]

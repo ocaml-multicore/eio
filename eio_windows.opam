@@ -31,3 +31,6 @@ build: [
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
 #available: [os = "win32"]
+x-extra-doc-deps: [
+  "eio_main" {= version}
+]

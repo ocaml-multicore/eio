@@ -1,4 +1,4 @@
-available: [os = "linux"]
 x-extra-doc-deps: [
   "eio_main" {= version}
+  "bigstring"
 ]

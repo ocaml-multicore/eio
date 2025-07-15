@@ -127,7 +127,7 @@ module Pi : sig
     val copy : t -> src:_ source -> unit
     (** [copy t ~src] allows for optimising copy operations.
 
-        If you have no optimisations, you can use {!simple_copy} to implement this using {!single_write}. *)
+        If you have no optimisations, you can use {!Eio.Flow.Pi.simple_copy} to implement this using {!single_write}. *)
   end
 
   module type SHUTDOWN = sig

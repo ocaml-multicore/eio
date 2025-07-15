@@ -1,1 +1,4 @@
 x-ci-accept-failures: ["macos-homebrew"]
+x-extra-doc-deps: [
+  "eio_main" {= version}
+]
