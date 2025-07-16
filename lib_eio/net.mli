@@ -71,7 +71,7 @@ module Ipaddr : sig
 
   (** {2 Interoperability}
 
-  To convert to or from OCaml Unix addresses, use {!Eio_unix.Ipaddr}.
+  To convert to or from OCaml Unix addresses, use {!Eio_unix.Net.Ipaddr}.
 
   To interoperate with the {{:https://opam.ocaml.org/packages/ipaddr/} ipaddr} library:
   - [Ipaddr.to_octets ipaddr_ip |> Eio.Net.Ipaddr.of_raw]

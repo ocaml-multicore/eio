@@ -382,7 +382,7 @@ module Fiber : sig
 
   val get : 'a key -> 'a option
   (** [get key] reads [key] from the map of fiber local variables, returning its
-      value or {!None} if it has not been bound. *)
+      value or [None] if it has not been bound. *)
 
   val with_binding : 'a key -> 'a -> (unit -> 'b) -> 'b
   (** [with_binding key value fn] runs [fn] with [key] bound to the provided

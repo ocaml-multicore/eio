@@ -61,7 +61,7 @@ val spawn_unix :
 (** [spawn_unix ~sw mgr ~fds args] spawns a child process running the command [args].
 
     The arguments are as for {!Eio.Process.spawn},
-    except that it takes a list of FD mappings for {!Fork_action.inherit_fds}
+    except that it takes a list of FD mappings for {!Private.Fork_action.inherit_fds}
     directly, rather than just flows for the standard streams. *)
 
 val sigchld : Eio.Condition.t

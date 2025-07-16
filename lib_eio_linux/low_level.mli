@@ -109,7 +109,7 @@ val splice : fd -> dst:fd -> len:int -> int
 
     @return The number of bytes copied.
     @raise End_of_file [src] is at the end of the file.
-    @raise Unix.Unix_error(EINVAL, "splice", _) if splice is not supported for these FDs. *)
+    @raise Unix.Unix_error with args [(EINVAL, "splice", _)] if splice is not supported for these FDs. *)
 
 val connect : fd -> Unix.sockaddr -> unit
 (** [connect fd addr] attempts to connect socket [fd] to [addr]. *)

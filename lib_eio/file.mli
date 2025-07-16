@@ -29,7 +29,7 @@ module Stat : sig
   (** Kind of file from st_mode. **)
 
   val pp_kind : kind Fmt.t
-  (** Pretty printer for {! kind}. *)
+  (** Pretty printer for {!type-kind}. *)
 
   type t = {
     dev : Int64.t;              (** Device containing the filesystem where the file resides. *)

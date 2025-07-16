@@ -101,6 +101,7 @@ module Private : sig
 
   module Rcfd = Rcfd
 
+  (** @canonical Eio_unix.Private.Fork_action *)
   module Fork_action = Fork_action
 
   module Thread_pool = Thread_pool

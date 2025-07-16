@@ -97,7 +97,7 @@ val register_immediate : t -> (unit -> unit) -> request
     Therefore, care is needed here. This is typically used to send a wake-up event to some non-Eio library. *)
 
 val cancel : request -> bool
-(** [cancel request] tries to cancel a request created with {!register_unsafe}.
+(** [cancel request] tries to cancel a request created with {!register_immediate}.
 
     It returns [true] if the request was cancelled (the callback will never be called),
     or [false] if the request was already complete (the callback has already been called). *)
