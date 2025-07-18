@@ -44,6 +44,9 @@ val chdir : string -> t
 val fchdir : Fd.t -> t
 (** [fchdir fd] changes directory to [fd]. *)
 
+val setuid : int -> t
+(** [setuid uid] sets the user ID to [uid]. *)
+
 type blocking = [
   | `Blocking            (** Clear the [O_NONBLOCK] flag in the child process. *)
   | `Nonblocking         (** Set the [O_NONBLOCK] flag in the child process. *)

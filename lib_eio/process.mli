@@ -75,6 +75,7 @@ val signal : _ t -> int -> unit
 val spawn :
   sw:Switch.t ->
   [> 'tag mgr_ty] r ->
+  ?uid:int ->
   ?cwd:Fs.dir_ty Path.t ->
   ?stdin:_ Flow.source ->
   ?stdout:_ Flow.sink ->
@@ -90,6 +91,7 @@ val spawn :
     this also creates pipes and spawns fibers to copy the data as necessary.
     If you need more control over file descriptors, see {!Eio_unix.Process}.
 
+    @param uid The uid for the child process (default: same as parent process).
     @param cwd The current working directory of the process (default: same as parent process).
     @param stdin The flow to attach to the process's standard input (default: same as parent process).
     @param stdout A flow that the process's standard output goes to (default: same as parent process).
@@ -101,6 +103,7 @@ val spawn :
 
 val run :
   _ mgr ->
+  ?uid:int ->
   ?cwd:_ Path.t ->
   ?stdin:_ Flow.source ->
   ?stdout:_ Flow.sink ->
@@ -120,6 +123,7 @@ val run :
 val parse_out :
   _ mgr ->
   'a Buf_read.parser ->
+  ?uid:int ->
   ?cwd:_ Path.t ->
   ?stdin:_ Flow.source ->
   ?stderr:_ Flow.sink ->
@@ -176,6 +180,7 @@ module Pi : sig
     val spawn :
       t ->
       sw:Switch.t ->
+      ?uid:int ->
       ?cwd:Fs.dir_ty Path.t ->
       ?stdin:Flow.source_ty r ->
       ?stdout:Flow.sink_ty r ->
