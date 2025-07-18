@@ -1,3 +1,5 @@
+type drop_priority = Newest | Oldest
+
 module Locking = struct
   type 'a t = {
     mutex : Mutex.t;
@@ -64,6 +66,26 @@ module Locking = struct
           )
       )
 
+  let add_nonblocking ~drop_priority t item =
+    Mutex.lock t.mutex;
+    match Waiters.wake_one t.readers item with
+    | `Ok -> Mutex.unlock t.mutex; None
+    | `Queue_empty ->
+      (* No-one is waiting for an item. Queue it. *)
+      if Queue.length t.items < t.capacity then (
+        Queue.add item t.items;
+        Mutex.unlock t.mutex;
+        None
+      ) else (
+        match drop_priority with
+        | Newest -> Mutex.unlock t.mutex; Some item
+        | Oldest ->
+          let dropped_item = Queue.take t.items in
+          Queue.add item t.items;
+          Mutex.unlock t.mutex;
+          Some dropped_item
+      )
+
   let take t =
     Mutex.lock t.mutex;
     match Queue.take_opt t.items with
@@ -101,6 +123,8 @@ module Locking = struct
     let len = Queue.length t.items in
     Mutex.unlock t.mutex;
     len
+  
+  let capacity t = t.capacity
 
   let dump f t =
     Fmt.pf f "<Locking stream: %d/%d items>" (length t) t.capacity
@@ -123,6 +147,11 @@ let take = function
   | Sync x -> Sync.take x |> Result.get_ok     (* todo: allow closing streams *)
   | Locking x -> Locking.take x
 
+let add_nonblocking ~drop_priority t v =
+  match t with
+  | Sync _ -> Some v
+  | Locking x -> Locking.add_nonblocking ~drop_priority x v
+
 let take_nonblocking = function
   | Locking x -> Locking.take_nonblocking x
   | Sync x ->
@@ -134,7 +163,13 @@ let length = function
   | Sync _ -> 0
   | Locking x -> Locking.length x
 
+let capacity = function
+  | Sync _ -> 0
+  | Locking x -> Locking.capacity x
+
 let is_empty t = (length t = 0)
+
+let is_full t = (length t = capacity t)
 
 let dump f = function
   | Sync x -> Sync.dump f x
