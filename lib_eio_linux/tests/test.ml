@@ -213,35 +213,37 @@ let test_signal_race () =
 
 let test_alloc_fixed_or_wait () =
   Eio_linux.run ~n_blocks:1 @@ fun _env ->
-  let block = Eio_linux.Low_level.alloc_fixed_or_wait () in
-  (* We have to wait for the block, but get cancelled while waiting. *)
-  begin
-    try
-      Fiber.both
-        (fun () -> ignore (Eio_linux.Low_level.alloc_fixed_or_wait () : Uring.Region.chunk))
-        (fun () -> raise Exit);
-    with Exit -> ()
-  end;
-  (* We have to wait for the block, and get it when the old one is freed. *)
-  Fiber.both
-    (fun () ->
-       let x = Eio_linux.Low_level.alloc_fixed_or_wait () in
-       Eio_linux.Low_level.free_fixed x
-    )
-    (fun () ->
-       Eio_linux.Low_level.free_fixed block
-    );
-  (* The old block is passed to the waiting fiber, but it's cancelled. *)
-  let block = Eio_linux.Low_level.alloc_fixed_or_wait () in
-  Fiber.both
-    (fun () ->
-       Fiber.first
-         (fun () -> ignore (Eio_linux.Low_level.alloc_fixed_or_wait ()); assert false)
-         (fun () -> ())
-    )
-    (fun () -> Eio_linux.Low_level.free_fixed block);
-  let block = Eio_linux.Low_level.alloc_fixed_or_wait () in
-  Eio_linux.Low_level.free_fixed block
+  match Eio_linux.Low_level.alloc_fixed_or_wait () with
+  | exception (Failure "No fixed buffer available") [@warning "-52"] -> Alcotest.skip ()
+  | block ->
+    (* We have to wait for the block, but get cancelled while waiting. *)
+    begin
+      try
+        Fiber.both
+          (fun () -> ignore (Eio_linux.Low_level.alloc_fixed_or_wait () : Uring.Region.chunk))
+          (fun () -> raise Exit);
+      with Exit -> ()
+    end;
+    (* We have to wait for the block, and get it when the old one is freed. *)
+    Fiber.both
+      (fun () ->
+         let x = Eio_linux.Low_level.alloc_fixed_or_wait () in
+         Eio_linux.Low_level.free_fixed x
+      )
+      (fun () ->
+         Eio_linux.Low_level.free_fixed block
+      );
+    (* The old block is passed to the waiting fiber, but it's cancelled. *)
+    let block = Eio_linux.Low_level.alloc_fixed_or_wait () in
+    Fiber.both
+      (fun () ->
+         Fiber.first
+           (fun () -> ignore (Eio_linux.Low_level.alloc_fixed_or_wait ()); assert false)
+           (fun () -> ())
+      )
+      (fun () -> Eio_linux.Low_level.free_fixed block);
+    let block = Eio_linux.Low_level.alloc_fixed_or_wait () in
+    Eio_linux.Low_level.free_fixed block
 
 let () =
   let open Alcotest in
