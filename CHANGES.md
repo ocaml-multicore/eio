@@ -1,3 +1,33 @@
+## v1.3
+
+Bug fixes:
+
+- posix: ensure `spawn_unix` wraps errors when calling `openat` (@dijkstracula #809).
+
+- Use `O_RESOLVE_BENEATH` on FreeBSD (@talex5 #810, reported by @dijkstracula).  
+  FreeBSD needs `-D__BSD_VISIBLE` to be able to see this.
+  Fixed the CI bug this revealed, which had started also affecting macos.
+
+- Ignore `ECONNRESET` on close (@talex5 #787).  
+  FreeBSD returns `ECONNRESET` in certain (unclear) circumstances, but it does still close the FD successfully.
+  If you care about this case, you should probably use `shutdown` instead and check for it there.
+  Python and Ruby at least both explicitly check for and ignore this error too.
+
+- On Windows, fix stdin broken-pipe and blocked domains (@bdodrem @talex5 #795).
+  - Ensure blocking FDs are ready before trying to use them.
+  - Replace `eio_windows_cstruct_stubs.c` by Unix functions added in OCaml 5.2,
+    which correctly handle Window's strange use of `EPIPE`.
+
+Documentation:
+
+- Documentation fixes (@jonludlam #813).
+
+- Minor documentation improvements (@talex5 #794).
+
+Build fixes:
+
+- Disable `dune subst` (@talex5 #789).
+
 ## v1.2
 
 Changes:
