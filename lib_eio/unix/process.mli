@@ -20,6 +20,7 @@ module Pi : sig
       t ->
       sw:Switch.t ->
       ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
+      ?pgid:int ->
       env:string array ->
       fds:(int * Fd.t * Fork_action.blocking) list ->
       executable:string ->
@@ -42,6 +43,7 @@ module Make_mgr (X : sig
     t ->
     sw:Switch.t ->
     ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
+    ?pgid:int ->
     env:string array ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     executable:string ->
@@ -53,6 +55,7 @@ val spawn_unix :
     sw:Switch.t ->
     _ mgr ->
     ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
+    ?pgid:int ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     ?env:string array ->
     ?executable:string ->
