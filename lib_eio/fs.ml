@@ -71,6 +71,7 @@ module Pi = struct
     val rename : t -> path -> _ dir -> path -> unit
     val read_link : t -> path -> string
     val symlink : link_to:path -> t -> path -> unit
+    val chmod : t -> follow:bool -> perm:File.Unix_perm.t -> path -> unit
     val pp : t Fmt.t
     val native : t -> string -> string option
   end
