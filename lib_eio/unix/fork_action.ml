@@ -68,3 +68,8 @@ let inherit_fds m =
   with_fds m @@ fun m ->
   let plan : action list = Inherit_fds.plan m in
   { run = fun k -> k (Obj.repr (action_dups, plan, blocking)) }
+
+external action_setuid : unit -> fork_fn = "eio_unix_fork_setuid"
+let action_setuid = action_setuid ()
+let setuid uid = {
+  run = fun k -> k (Obj.repr (action_setuid, uid)) }

@@ -71,6 +71,7 @@ module Pi = struct
     val spawn :
       t ->
       sw:Switch.t ->
+      ?uid:int ->
       ?cwd:Fs.dir_ty Path.t ->
       ?stdin:Flow.source_ty r ->
       ?stdout:Flow.sink_ty r ->
@@ -121,10 +122,11 @@ let signal (type tag) (t : [> tag ty] r) s =
   let module X = (val (Resource.get ops Pi.Process)) in
   X.signal v s
 
-let spawn (type tag) ~sw (t : [> tag mgr_ty] r) ?cwd ?stdin ?stdout ?stderr ?env ?executable args : tag ty r =
+let spawn (type tag) ~sw (t : [> tag mgr_ty] r) ?uid ?cwd ?stdin ?stdout ?stderr ?env ?executable args : tag ty r =
   let (Resource.T (v, ops)) = t in
   let module X = (val (Resource.get ops Pi.Mgr)) in
   X.spawn v ~sw
+    ?uid
     ?cwd:(cwd :> Fs.dir_ty Path.t option)
     ?env
     ?executable args
@@ -132,9 +134,9 @@ let spawn (type tag) ~sw (t : [> tag mgr_ty] r) ?cwd ?stdin ?stdout ?stderr ?env
     ?stdout:(stdout :> Flow.sink_ty r option)
     ?stderr:(stderr :> Flow.sink_ty r option)
 
-let run t ?cwd ?stdin ?stdout ?stderr ?(is_success = Int.equal 0) ?env ?executable args =
+let run t ?uid ?cwd ?stdin ?stdout ?stderr ?(is_success = Int.equal 0) ?env ?executable args =
   Switch.run ~name:"Process.run" @@ fun sw ->
-  let child = spawn ~sw t ?cwd ?stdin ?stdout ?stderr ?env ?executable args in
+  let child = spawn ~sw t ?uid ?cwd ?stdin ?stdout ?stderr ?env ?executable args in
   match await child with
   | `Exited code when is_success code -> ()
   | status ->
@@ -145,11 +147,11 @@ let pipe (type tag) ~sw ((Resource.T (v, ops)) : [> tag mgr_ty] r) =
   let module X = (val (Resource.get ops Pi.Mgr)) in
   X.pipe v ~sw
 
-let parse_out (type tag) (t : [> tag mgr_ty] r) parse ?cwd ?stdin ?stderr ?is_success ?env ?executable args =
+let parse_out (type tag) (t : [> tag mgr_ty] r) parse ?uid ?cwd ?stdin ?stderr ?is_success ?env ?executable args =
   Switch.run ~name:"Process.parse_out" @@ fun sw ->
   let r, w = pipe t ~sw in
   try
-    let child = spawn ~sw t ?cwd ?stdin ~stdout:w ?stderr ?env ?executable args in
+    let child = spawn ~sw t ?uid ?cwd ?stdin ~stdout:w ?stderr ?env ?executable args in
     Flow.close w;
     let output = Buf_read.parse_exn parse r ~max_size:max_int in
     Flow.close r;
