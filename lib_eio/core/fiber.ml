@@ -150,8 +150,8 @@ let any_gen ~return ~combine fs =
       )
   in
   match !r, Cancel.get_error parent_c with
-  | OK r, None -> r
-  | (OK _ | New), Some ex -> raise ex
+  | OK r, _ -> r
+  | New, Some ex -> raise ex
   | Ex (ex, bt), None -> Printexc.raise_with_backtrace ex bt
   | Ex ex1, Some ex2 ->
     let bt2 = Printexc.get_raw_backtrace () in
