@@ -23,11 +23,15 @@ module Impl = struct
   module T = struct
     type t = unit
 
-    let spawn_unix () ~sw ?cwd ~env ~fds ~executable args =
+    let spawn_unix () ~sw ?uid ?cwd ~env ~fds ~executable args =
       let actions = Low_level.Process.Fork_action.[
           inherit_fds fds;
           execve executable ~argv:(Array.of_list args) ~env
       ] in
+      let actions = match uid with
+        | None -> actions
+        | Some uid -> Eio_unix.Private.Fork_action.setuid uid :: actions
+      in
       let with_actions cwd fn = match cwd with
         | None -> fn actions
         | Some ((dir, path) : Eio.Fs.dir_ty Eio.Path.t) ->
