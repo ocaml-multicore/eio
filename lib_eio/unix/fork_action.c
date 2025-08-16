@@ -240,7 +240,8 @@ CAMLprim value eio_unix_fork_dups(value v_unit) {
 
 static void action_setpgid(int errors, value v_config) {
   #ifdef _WIN32
-  eio_unix_fork_error(errors, "set_cloexec", "Unsupported operation on windows");
+  eio_unix_fork_error(errors, "setpgid", "Unsupported operation on windows");
+  _exit(1);
   #else
   value vpid = Field(v_config, 1);
   value vpgid = Field(v_config, 2);
