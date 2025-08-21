@@ -219,11 +219,15 @@ module Process_mgr = struct
   module T = struct
     type t = unit 
     
-    let spawn_unix () ~sw ?cwd ~env ~fds ~executable args =
+    let spawn_unix () ~sw ?cwd ?pgid ~env ~fds ~executable args =
       let actions = Low_level.Process.Fork_action.[
           Eio_unix.Private.Fork_action.inherit_fds fds;
           execve executable ~argv:(Array.of_list args) ~env
       ] in
+      let actions = match pgid with
+        | None -> actions
+        | Some pgid -> Eio_unix.Private.Fork_action.setpgid pgid :: actions
+      in
       let with_actions cwd fn = match cwd with
         | None -> fn actions
         | Some (fd, s) ->
