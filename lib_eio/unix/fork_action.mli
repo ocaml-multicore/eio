@@ -64,3 +64,9 @@ val setpgid : int -> t
 
     If [pgid] is [0] the child's process ID will be used as the PGID, placing
     the child in a {e new} process group. *)
+
+val setuid : int -> t
+(** [setuid uid] sets the user ID to [uid]. *)
+
+val setgid : int -> t
+(** [setgid gid] sets the group ID to [gid]. *)
