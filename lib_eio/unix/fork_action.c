@@ -258,3 +258,41 @@ static void action_setpgid(int errors, value v_config) {
 CAMLprim value eio_unix_fork_setpgid(value v_unit) {
   return Val_fork_fn(action_setpgid);
 }
+
+static void action_setuid(int errors, value v_config) {
+  #ifdef _WIN32
+  eio_unix_fork_error(errors, "action_setuid", "Unsupported operation on windows");
+  _exit(1);
+  #else
+  value v_uid = Field(v_config, 1);
+  int r;
+  r = setuid(Int_val(v_uid));
+  if (r != 0) {
+    eio_unix_fork_error(errors, "setuid", strerror(errno));
+    _exit(1);
+  }
+  #endif
+}
+
+CAMLprim value eio_unix_fork_setuid(value v_unit) {
+  return Val_fork_fn(action_setuid);
+}
+
+static void action_setgid(int errors, value v_config) {
+  #ifdef _WIN32
+  eio_unix_fork_error(errors, "action_setgid", "Unsupported operation on windows");
+  _exit(1);
+  #else
+  value v_gid = Field(v_config, 1);
+  int r;
+  r = setgid(Int_val(v_gid));
+  if (r != 0) {
+    eio_unix_fork_error(errors, "setgid", strerror(errno));
+    _exit(1);
+  }
+  #endif
+}
+
+CAMLprim value eio_unix_fork_setgid(value v_unit) {
+  return Val_fork_fn(action_setgid);
+}

@@ -71,6 +71,15 @@ let inherit_fds m =
 
 external action_setpgid : unit -> fork_fn = "eio_unix_fork_setpgid"
 let action_setpgid = action_setpgid ()
-
 let setpgid pgid =
   { run = fun k -> k (Obj.repr (action_setpgid, 0, pgid)) }
+
+external action_setuid : unit -> fork_fn = "eio_unix_fork_setuid"
+let action_setuid = action_setuid ()
+let setuid uid = {
+  run = fun k -> k (Obj.repr (action_setuid, uid)) }
+
+external action_setgid : unit -> fork_fn = "eio_unix_fork_setgid"
+let action_setgid = action_setgid ()
+let setgid gid = {
+  run = fun k -> k (Obj.repr (action_setgid, gid)) }
