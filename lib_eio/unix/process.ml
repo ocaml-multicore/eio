@@ -1,7 +1,7 @@
 open Eio.Std
 
 let resolve_program name =
-  if Filename.is_implicit name then (
+  if not (String.contains name '/') then (
     Sys.getenv_opt "PATH"
     |> Option.value ~default:"/bin:/usr/bin"
     |> String.split_on_char ':'
