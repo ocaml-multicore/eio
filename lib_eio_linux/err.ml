@@ -5,6 +5,7 @@ let wrap code name arg =
   match code with
   | ECONNREFUSED -> Eio.Net.err (Connection_failure (Refused ex))
   | ECONNRESET | EPIPE -> Eio.Net.err (Connection_reset ex)
+  | ENOPROTOOPT -> Eio.Net.err Invalid_option
   | _ -> unclassified ex
 
 let wrap_fs code name arg =
