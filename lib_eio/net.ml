@@ -159,6 +159,29 @@ module Sockaddr = struct
       Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
+module Sockopt = struct
+  type _ t = ..
+
+  type _ t +=
+    | SO_DEBUG : bool t
+    | SO_BROADCAST : bool t
+    | SO_REUSEADDR : bool t
+    | SO_KEEPALIVE : bool t
+    | SO_DONTROUTE : bool t
+    | SO_OOBINLINE : bool t
+    | TCP_NODELAY : bool t
+    | IPV6_ONLY : bool t
+    | SO_REUSEPORT : bool t
+    | SO_SNDBUF : int t
+    | SO_RCVBUF : int t
+    | SO_TYPE : int t
+    | SO_RCVLOWAT : int t
+    | SO_SNDLOWAT : int t
+    | SO_LINGER : int option t
+    | SO_RCVTIMEO : float t
+    | SO_SNDTIMEO : float t
+end
+
 type socket_ty = [`Socket | `Close]
 type 'a socket = ([> socket_ty] as 'a) r
 
@@ -181,22 +204,34 @@ type 'a t = 'a r
   constraint 'a = [> [> `Generic] ty]
 
 module Pi = struct
+  module type SOCKET = sig
+    type t
+    val setsockopt : t -> 'a Sockopt.t -> 'a -> unit
+    val getsockopt : t -> 'a Sockopt.t -> 'a
+  end
+
+  type (_, _, _) Resource.pi +=
+    | Socket : ('t, (module SOCKET with type t = 't), [> `Socket]) Resource.pi
+
   module type STREAM_SOCKET = sig
     type tag
     include Flow.Pi.SHUTDOWN
     include Flow.Pi.SOURCE with type t := t
     include Flow.Pi.SINK with type t := t
+    include SOCKET with type t := t
     val close : t -> unit
   end
 
   let stream_socket (type t tag) (module X : STREAM_SOCKET with type t = t and type tag = tag) =
     Resource.handler @@
     H (Resource.Close, X.close) ::
+    H (Socket, (module X)) ::
     Resource.bindings (Flow.Pi.two_way (module X))
 
   module type DATAGRAM_SOCKET = sig
     type tag
     include Flow.Pi.SHUTDOWN
+    include SOCKET with type t := t
     val send : t -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
     val recv : t -> Cstruct.t -> Sockaddr.datagram * int
     val close : t -> unit
@@ -208,6 +243,7 @@ module Pi = struct
   let datagram_socket (type t tag) (module X : DATAGRAM_SOCKET with type t = t and type tag = tag) =
     Resource.handler @@
     Resource.bindings (Flow.Pi.shutdown (module X)) @ [
+      H (Socket, (module X));
       H (Datagram_socket, (module X));
       H (Resource.Close, X.close)
     ]
@@ -215,7 +251,7 @@ module Pi = struct
   module type LISTENING_SOCKET = sig
     type t
     type tag
-
+    include SOCKET with type t := t
     val accept : t -> sw:Switch.t -> tag stream_socket_ty r * Sockaddr.stream
     val close : t -> unit
     val listening_addr : t -> Sockaddr.stream
@@ -227,6 +263,7 @@ module Pi = struct
   let listening_socket (type t tag) (module X : LISTENING_SOCKET with type t = t and type tag = tag) =
     Resource.handler [
       H (Resource.Close, X.close);
+      H (Socket, (module X));
       H (Listening_socket, (module X))
     ]
 
@@ -277,6 +314,14 @@ let accept_fork ~sw (t : [> 'a listening_socket_ty] r) ~on_error handle =
              on_error (Exn.add_context ex "handling connection from %a" Sockaddr.pp addr)
          )
     )
+
+let setsockopt (Resource.T (t, ops)) opt v =
+  let module X = (val (Resource.get ops Pi.Socket)) in
+  X.setsockopt t opt v
+
+let getsockopt (Resource.T (t, ops)) opt =
+  let module X = (val (Resource.get ops Pi.Socket)) in
+  X.getsockopt t opt
 
 let listening_addr (type tag) (Resource.T (t, ops) : [> tag listening_socket_ty] r) =
   let module X = (val (Resource.get ops Pi.Listening_socket)) in

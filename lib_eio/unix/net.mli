@@ -99,6 +99,47 @@ val socketpair_datagram :
     This creates OS-level resources using [socketpair(2)].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
+(** Socket options *)
+module Sockopt : sig
+  (** Unix-specific socket options.
+
+      This module extends {!Eio.Net.Sockopt} with support for any Unix socket option. *)
+
+  (** Generic wrappers for Unix socket options *)
+  type _ Eio.Net.Sockopt.t +=
+    | Unix_bool : Unix.socket_bool_option -> bool Eio.Net.Sockopt.t
+        (** Wrap any Unix boolean socket option *)
+    | Unix_int : Unix.socket_int_option -> int Eio.Net.Sockopt.t
+        (** Wrap any Unix integer socket option *)
+    | Unix_optint : Unix.socket_optint_option -> int option Eio.Net.Sockopt.t
+        (** Wrap any Unix optional integer socket option *)
+    | Unix_float : Unix.socket_float_option -> float Eio.Net.Sockopt.t
+        (** Wrap any Unix float socket option *)
+
+  val set : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a -> unit
+  (** [set fd opt v] sets socket option [opt] to value [v] on file descriptor [fd].
+
+      Supports both portable options from {!Eio.Net.Sockopt} and Unix-specific options
+      wrapped with [Unix_bool], [Unix_int], [Unix_optint], or [Unix_float].
+
+      Example:
+      {[
+        (* Using portable options *)
+        Eio.Net.setsockopt sock Eio.Net.Sockopt.SO_KEEPALIVE true;
+
+        (* Using Unix-specific options *)
+        let fd = Eio_unix.Net.fd sock in
+        Eio_unix.Net.Sockopt.set fd (Unix_int Unix.SO_SNDBUF) 65536;
+        Eio_unix.Net.Sockopt.set fd (Unix_optint Unix.SO_LINGER) (Some 10);
+      ]} *)
+
+  val get : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a
+  (** [get fd opt] gets the value of socket option [opt] on file descriptor [fd].
+
+      Supports both portable options from {!Eio.Net.Sockopt} and Unix-specific options
+      wrapped with [Unix_bool], [Unix_int], [Unix_optint], or [Unix_float]. *)
+end
+
 (** {2 Private API for backends} *)
 
 val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)

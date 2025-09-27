@@ -102,6 +102,33 @@ module Sockaddr : sig
   val pp : Format.formatter -> [< t] -> unit
 end
 
+(** Socket options. *)
+module Sockopt : sig
+  (** An extensible type for socket options. Portable options can be defined
+      here, while platform-specific options can be added by backends. *)
+
+  type _ t = ..
+
+  type _ t +=
+    | SO_DEBUG : bool t         (** Enable socket debugging *)
+    | SO_BROADCAST : bool t     (** Permit sending of broadcast messages *)
+    | SO_REUSEADDR : bool t     (** Allow reuse of local addresses *)
+    | SO_KEEPALIVE : bool t     (** Keep TCP connection alive *)
+    | SO_DONTROUTE : bool t     (** Bypass routing tables *)
+    | SO_OOBINLINE : bool t     (** Leave out-of-band data in line *)
+    | TCP_NODELAY : bool t      (** Disable Nagle's algorithm *)
+    | IPV6_ONLY : bool t        (** Restrict to IPv6 only *)
+    | SO_REUSEPORT : bool t     (** Allow reuse of local port *)
+    | SO_SNDBUF : int t         (** Send buffer size *)
+    | SO_RCVBUF : int t         (** Receive buffer size *)
+    | SO_TYPE : int t           (** Socket type (get only) *)
+    | SO_RCVLOWAT : int t       (** Receive low water mark *)
+    | SO_SNDLOWAT : int t       (** Send low water mark *)
+    | SO_LINGER : int option t  (** Linger on close if data present *)
+    | SO_RCVTIMEO : float t     (** Receive timeout *)
+    | SO_SNDTIMEO : float t     (** Send timeout *)
+end
+
 (** {2 Types} *)
 
 type socket_ty = [`Socket | `Close]
@@ -126,6 +153,18 @@ type 'tag ty = [`Network | `Platform of 'tag]
 
 type 'a t = 'a r
   constraint 'a = [> [> `Generic] ty]
+
+(** {2 Socket options} *)
+
+val setsockopt : [> `Socket] r -> 'a Sockopt.t -> 'a -> unit
+(** [setsockopt s opt v] sets socket option [opt] to value [v] on socket [s].
+
+    @raise Invalid_argument if the socket option is not supported by the backend. *)
+
+val getsockopt : [> `Socket] r -> 'a Sockopt.t -> 'a
+(** [getsockopt s opt] gets the value of socket option [opt] on socket [s].
+
+    @raise Invalid_argument if the socket option is not supported by the backend. *)
 
 (** {2 Out-bound Connections} *)
 
@@ -304,11 +343,18 @@ val close : [> `Close] r -> unit
 (** {2 Provider Interface} *)
 
 module Pi : sig
+  module type SOCKET = sig
+    type t
+    val setsockopt : t -> 'a Sockopt.t -> 'a -> unit
+    val getsockopt : t -> 'a Sockopt.t -> 'a
+  end
+
   module type STREAM_SOCKET = sig
     type tag
     include Flow.Pi.SHUTDOWN
     include Flow.Pi.SOURCE with type t := t
     include Flow.Pi.SINK with type t := t
+    include SOCKET with type t := t
     val close : t -> unit
   end
 
@@ -319,6 +365,7 @@ module Pi : sig
   module type DATAGRAM_SOCKET = sig
     type tag
     include Flow.Pi.SHUTDOWN
+    include SOCKET with type t := t
     val send : t -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
     val recv : t -> Cstruct.t -> Sockaddr.datagram * int
     val close : t -> unit
@@ -331,7 +378,7 @@ module Pi : sig
   module type LISTENING_SOCKET = sig
     type t
     type tag
-
+    include SOCKET with type t := t
     val accept : t -> sw:Switch.t -> tag stream_socket_ty r * Sockaddr.stream
     val close : t -> unit
     val listening_addr : t -> Sockaddr.stream

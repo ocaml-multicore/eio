@@ -200,6 +200,79 @@ val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> fd -> Cstruct.t list -> Ur
 (** [recv_msg_with_fds] is like [recv_msg] but also allows receiving up to [max_fds] file descriptors
     (sent using SCM_RIGHTS over a Unix domain socket). *)
 
+module Sockopt : sig
+  (** Linux-specific socket options *)
+
+  type _ Eio.Net.Sockopt.t +=
+    | TCP_CORK : bool Eio.Net.Sockopt.t
+        (** When enabled, partial frames are not sent out.
+            Data is only sent when the option is disabled or the buffer becomes full. *)
+    | TCP_KEEPIDLE : int Eio.Net.Sockopt.t
+        (** Time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes. *)
+    | TCP_KEEPINTVL : int Eio.Net.Sockopt.t
+        (** Interval (in seconds) between individual keepalive probes. *)
+    | TCP_KEEPCNT : int Eio.Net.Sockopt.t
+        (** Maximum number of keepalive probes TCP should send before dropping the connection. *)
+    | TCP_USER_TIMEOUT : int Eio.Net.Sockopt.t
+        (** Maximum time (in milliseconds) that transmitted data may remain unacknowledged
+            before TCP will forcibly close the connection. *)
+    | TCP_MAXSEG : int Eio.Net.Sockopt.t
+        (** The maximum segment size for outgoing TCP packets. If set before connection
+            establishment, it also changes the MSS value announced to the other end. *)
+    | TCP_LINGER2 : int option Eio.Net.Sockopt.t
+        (** The lifetime of orphaned FIN_WAIT2 state sockets.
+            [Some n] sets the timeout to [n] seconds.
+            [None] uses the system default from /proc/sys/net/ipv4/tcp_fin_timeout.
+            Not to be confused with SO_LINGER. *)
+    | TCP_DEFER_ACCEPT : int Eio.Net.Sockopt.t
+        (** Allow a listener to be awakened only when data arrives on the socket.
+            Value is the maximum time in seconds to wait for data. *)
+    | TCP_CONGESTION : string Eio.Net.Sockopt.t
+        (** Set the TCP congestion control algorithm to be used (e.g., "cubic", "reno").
+            Unprivileged processes are restricted to algorithms in tcp_allowed_congestion_control. *)
+    | TCP_SYNCNT : int Eio.Net.Sockopt.t
+        (** Set the number of SYN retransmits that TCP should send before aborting
+            the attempt to connect. Cannot exceed 255. *)
+    | TCP_WINDOW_CLAMP : int Eio.Net.Sockopt.t
+        (** Bound the size of the advertised window to this value.
+            The kernel imposes a minimum size. *)
+    | TCP_QUICKACK : bool Eio.Net.Sockopt.t
+        (** Enable quickack mode if set or disable if cleared. In quickack mode,
+            acks are sent immediately rather than delayed. This flag is not permanent. *)
+    | TCP_FASTOPEN : int Eio.Net.Sockopt.t
+        (** Enable Fast Open (RFC 7413) on the listener socket. The value specifies
+            the maximum length of pending SYNs (similar to backlog in listen). *)
+    | IP_FREEBIND : bool Eio.Net.Sockopt.t
+        (** Allow binding to an IP address that is nonlocal or does not (yet) exist.
+            This permits listening on a socket without requiring the underlying
+            network interface to be up. *)
+    | IP_BIND_ADDRESS_NO_PORT : bool Eio.Net.Sockopt.t
+        (** Inform the kernel to not reserve an ephemeral port when using bind()
+            with a port number of 0. The port will be chosen at connect() time. *)
+    | IP_LOCAL_PORT_RANGE : (int * int) Eio.Net.Sockopt.t
+        (** Set the per-socket local port range as (lower_bound, upper_bound).
+            Both bounds are inclusive and must be in range 0-65535.
+            Use (0, 0) to reset to system defaults. *)
+    | IP_TTL : int Eio.Net.Sockopt.t
+        (** Set or retrieve the time-to-live field used in every packet sent from this socket.
+            Valid range is 1-255. *)
+    | IP_MTU : int Eio.Net.Sockopt.t
+        (** Retrieve the current known path MTU of the current socket.
+            Only valid for connected sockets. This is a read-only option. *)
+    | IP_MTU_DISCOVER : [`Want | `Dont | `Do | `Probe] Eio.Net.Sockopt.t
+        (** Set or receive the Path MTU Discovery setting for a socket.
+            - [`Want]: Use per-route settings (fragment if needed)
+            - [`Dont]: Never do Path MTU Discovery
+            - [`Do]: Always do Path MTU Discovery (reject large datagrams with EMSGSIZE)
+            - [`Probe]: Set DF but ignore Path MTU (for diagnostic tools) *)
+
+  val set : fd -> 'a Eio.Net.Sockopt.t -> 'a -> unit
+  (** [set fd opt v] sets socket option [opt] to value [v] on file descriptor [fd]. *)
+
+  val get : fd -> 'a Eio.Net.Sockopt.t -> 'a
+  (** [get fd opt] gets the value of socket option [opt] on file descriptor [fd]. *)
+end
+
 (** {1 Randomness} *)
 
 val getrandom : Cstruct.t -> unit
