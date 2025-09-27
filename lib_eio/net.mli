@@ -23,6 +23,7 @@ type error =
     (** This is a wrapper for epipe, econnreset and similar errors.
         It indicates that the flow has failed, and data may have been lost. *)
   | Connection_failure of connection_failure
+  | Invalid_option (** Option not supported by backend. *)
 
 type Exn.err += E of error
 
@@ -126,6 +127,47 @@ type 'tag ty = [`Network | `Platform of 'tag]
 
 type 'a t = 'a r
   constraint 'a = [> [> `Generic] ty]
+
+(** {2 Socket options} *)
+
+module Sockopt : sig
+  (** An extensible type for socket options. Portable options can be defined
+      here, while platform-specific options can be added by backends.
+
+      @since 1.4 *)
+
+  type _ t = ..
+
+  val pp : 'a t Fmt.t
+  val pp_binding : ('a t * 'a) Fmt.t
+
+  (** {2 Registering printers (for backend use only)} *)
+
+  type printer_fn = {
+    get : 'a. 'a t -> (string * 'a Fmt.t) option
+  } [@@unboxed]
+
+  val register_printer : printer_fn -> unit
+  (** [register_printer { get }] adds [get] to the list of printers.
+
+      If called with an option it recognises, it should return the option's name
+      and a printer for values of the appropriate type. If the option isn't known,
+      return [None]. *)
+end
+
+val setsockopt : [> `Socket] r -> 'a Sockopt.t -> 'a -> unit
+(** [setsockopt s opt v] sets socket option [opt] to value [v] on socket [s].
+
+    @raise Eio.Io if the operating system rejects the option for this socket.
+
+    @since 1.4 *)
+
+val getsockopt : [> `Socket] r -> 'a Sockopt.t -> 'a
+(** [getsockopt s opt] gets the value of socket option [opt] on socket [s].
+
+    @raise Eio.Io if the operating system rejects the option for this socket.
+
+    @since 1.4 *)
 
 (** {2 Out-bound Connections} *)
 
@@ -304,11 +346,18 @@ val close : [> `Close] r -> unit
 (** {2 Provider Interface} *)
 
 module Pi : sig
+  module type SOCKET = sig
+    type t
+    val setsockopt : t -> 'a Sockopt.t -> 'a -> unit
+    val getsockopt : t -> 'a Sockopt.t -> 'a
+  end
+
   module type STREAM_SOCKET = sig
     type tag
     include Flow.Pi.SHUTDOWN
     include Flow.Pi.SOURCE with type t := t
     include Flow.Pi.SINK with type t := t
+    include SOCKET with type t := t
     val close : t -> unit
   end
 
@@ -319,6 +368,7 @@ module Pi : sig
   module type DATAGRAM_SOCKET = sig
     type tag
     include Flow.Pi.SHUTDOWN
+    include SOCKET with type t := t
     val send : t -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
     val recv : t -> Cstruct.t -> Sockaddr.datagram * int
     val close : t -> unit
@@ -331,7 +381,7 @@ module Pi : sig
   module type LISTENING_SOCKET = sig
     type t
     type tag
-
+    include SOCKET with type t := t
     val accept : t -> sw:Switch.t -> tag stream_socket_ty r * Sockaddr.stream
     val close : t -> unit
     val listening_addr : t -> Sockaddr.stream

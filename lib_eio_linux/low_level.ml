@@ -327,6 +327,9 @@ let recv_msg_with_fds ~sw ~max_fds fd buf =
   let fds = Uring.Msghdr.get_fds msghdr |> Fd.of_unix_list ~sw in
   addr, res, fds
 
+let setsockopt t opt v = Err.run (Eio_unix.Net.setsockopt t opt) v
+let getsockopt t opt = Err.run (Eio_unix.Net.getsockopt t) opt
+
 let rec openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
   let use dir_opt =
     let res = Sched.enter "openat2" (enqueue_openat2 (access, flags, perm, resolve, dir_opt, path)) in

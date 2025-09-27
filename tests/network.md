@@ -564,6 +564,42 @@ Exception: Eio.Io Fs Not_found _,
 - : unit = ()
 ```
 
+## Socket Options
+
+```ocaml
+let try_getsockopt sock opt =
+  match Eio.Net.getsockopt sock opt with
+  | v -> traceln "%a" Eio.Net.Sockopt.pp_binding (opt, v)
+  | exception ex -> traceln "%a -> %a" Eio.Net.Sockopt.pp opt Fmt.exn ex
+```
+
+Test Unix-specific socket option wrappers:
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let a, b = Eio_unix.Net.socketpair_stream ~sw () in
+  Eio.Net.setsockopt a (Eio_unix.Net.Sockopt_int SO_SNDBUF) 32768;
+  let sndbuf = Eio.Net.getsockopt a (Eio_unix.Net.Sockopt_int Unix.SO_SNDBUF) in
+  traceln "Unix SO_SNDBUF: %s" (if sndbuf > 0 then "positive" else "zero");
+  assert (sndbuf > 0);
+  Eio.Net.setsockopt a (Eio_unix.Net.Sockopt_optint SO_LINGER) (Some 5);
+  try_getsockopt a (Eio_unix.Net.Sockopt_optint SO_LINGER);;
++Unix SO_SNDBUF: positive
++Unix.SO_LINGER = 5
+- : unit = ()
+```
+
+Unknown options report `Invalid_option`:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let ls = Eio_mock.Net.listening_socket "socket" in
+  Eio.Net.getsockopt ls (Eio_unix.Net.Sockopt_optint SO_LINGER);;
+Exception: Eio.Io Net Invalid_option,
+  getting socket option Unix.SO_LINGER
+```
+
 ## Getaddrinfo
 
 ```ocaml

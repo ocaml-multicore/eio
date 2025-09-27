@@ -91,3 +91,55 @@ let socketpair_datagram ~sw ?(domain=Unix.PF_UNIX) ?(protocol=0) () =
 
 let fd socket =
   Option.get (Resource.fd_opt socket)
+
+type _ Eio.Net.Sockopt.t +=
+  | Sockopt_bool : Unix.socket_bool_option -> bool Eio.Net.Sockopt.t
+  | Sockopt_int : Unix.socket_int_option -> int Eio.Net.Sockopt.t
+  | Sockopt_optint : Unix.socket_optint_option -> int option Eio.Net.Sockopt.t
+  | Sockopt_float : Unix.socket_float_option -> float Eio.Net.Sockopt.t
+
+let () =
+  let get : type a. a Eio.Net.Sockopt.t -> (string * a Fmt.t) option = function
+    | Sockopt_bool SO_DEBUG -> Some ("Unix.SO_DEBUG", Fmt.bool)
+    | Sockopt_bool SO_BROADCAST -> Some ("Unix.SO_BROADCAST", Fmt.bool)
+    | Sockopt_bool SO_REUSEADDR -> Some ("Unix.SO_REUSEADDR", Fmt.bool)
+    | Sockopt_bool SO_KEEPALIVE -> Some ("Unix.SO_KEEPALIVE", Fmt.bool)
+    | Sockopt_bool SO_DONTROUTE -> Some ("Unix.SO_DONTROUTE", Fmt.bool)
+    | Sockopt_bool SO_OOBINLINE -> Some ("Unix.SO_OOBINLINE", Fmt.bool)
+    | Sockopt_bool SO_ACCEPTCONN -> Some ("Unix.SO_ACCEPTCONN", Fmt.bool)
+    | Sockopt_bool TCP_NODELAY -> Some ("Unix.TCP_NODELAY", Fmt.bool)
+    | Sockopt_bool IPV6_ONLY -> Some ("Unix.IPV6_ONLY", Fmt.bool)
+    | Sockopt_bool SO_REUSEPORT -> Some ("Unix.SO_REUSEPORT", Fmt.bool)
+    | Sockopt_int SO_SNDBUF -> Some ("Unix.SO_SNDBUF", Fmt.int)
+    | Sockopt_int SO_RCVBUF -> Some ("Unix.SO_RCVBUF", Fmt.int)
+    | Sockopt_int SO_ERROR -> Some ("Unix.SO_ERROR", Fmt.int)
+    | Sockopt_int SO_TYPE -> Some ("Unix.SO_TYPE", Fmt.int)
+    | Sockopt_int SO_RCVLOWAT -> Some ("Unix.SO_RCVLOWAT", Fmt.int)
+    | Sockopt_int SO_SNDLOWAT -> Some ("Unix.SO_SNDLOWAT", Fmt.int)
+    | Sockopt_optint SO_LINGER -> Some ("Unix.SO_LINGER", Fmt.(option ~none:(any "<none>") int))
+    | Sockopt_float SO_RCVTIMEO -> Some ("Unix.SO_RCVTIMEO", Fmt.float)
+    | Sockopt_float SO_SNDTIMEO -> Some ("Unix.SO_SNDTIMEO", Fmt.float)
+    | _ -> None
+  [@@alert "-deprecated"]
+  in
+  Eio.Net.Sockopt.register_printer { get }
+
+let setsockopt : type a. Fd.t -> a Eio.Net.Sockopt.t -> a -> unit = fun fd opt v ->
+  Fd.use_exn "setsockopt" fd @@ fun fd ->
+  match opt with
+  | Sockopt_bool bo -> Unix.setsockopt fd bo v
+  | Sockopt_int bo -> Unix.setsockopt_int fd bo v
+  | Sockopt_optint bo -> Unix.setsockopt_optint fd bo v
+  | Sockopt_float bo -> Unix.setsockopt_float fd bo v
+  | _ -> raise (Eio.Net.err Invalid_option)
+
+let getsockopt_descr : type a. Unix.file_descr -> a Eio.Net.Sockopt.t -> a = fun fd opt ->
+  match opt with
+  | Sockopt_bool bo -> Unix.getsockopt fd bo
+  | Sockopt_int bo -> Unix.getsockopt_int fd bo
+  | Sockopt_optint bo -> Unix.getsockopt_optint fd bo
+  | Sockopt_float bo -> Unix.getsockopt_float fd bo
+  | _ -> raise (Eio.Net.err Invalid_option)
+
+let getsockopt : type a. Fd.t -> a Eio.Net.Sockopt.t -> a = fun fd opt ->
+  Fd.use_exn "getsockopt" fd @@ fun fd -> getsockopt_descr fd opt
