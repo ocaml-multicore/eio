@@ -1,3 +1,11 @@
+## v1.4
+
+Changes:
+
+- Add support for setting/getting socket options (@avsm #575)
+  This adds a Eio.Net.Sockopt.t extensible variant where portable
+  options are exposed, and backend-specific sockopts for Unix/Linux.
+  
 ## v1.3
 
 Bug fixes:
