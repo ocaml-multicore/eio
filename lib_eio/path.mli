@@ -155,6 +155,9 @@ val read_dir : _ t -> string list
 
     Note: The special Unix entries "." and ".." are not included in the results. *)
 
+val walk : _ t -> ((File.Stat.kind * string) Seq.t -> 'a) -> 'a
+(** [walk t] traverses the directory [t] producing a sequence of results. *)
+
 (** {1 Metadata} *)
 
 val stat : follow:bool -> _ t -> File.Stat.t
