@@ -1,11 +1,11 @@
 (library
  (name eio_unix)
  (public_name eio.unix)
- (public_headers include/fork_action.h)
+ (public_headers include/fork_action.h include/eio_unix_stubs.h)
  (foreign_stubs
   (language c)
   (include_dirs include)
-  (names fork_action stubs cap))
+  (names fork_action eio_unix_stubs cap))
  (libraries eio eio.utils unix threads mtime.clock.os))
 
 (rule

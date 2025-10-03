@@ -106,6 +106,14 @@ let read_dir t =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "reading directory %a" pp t
 
+let walk t fn =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.with_dir_entries dir path fn
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "reading directory %a" pp t
+
 let stat ~follow t =
   let (Resource.T (dir, ops), path) = t in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in

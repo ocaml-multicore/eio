@@ -83,6 +83,7 @@ val symlink : link_to:string -> dir_fd -> string -> unit
     linking to [link_to]. *)
 
 val readdir : dir_fd -> string -> string array
+val with_dir_entries : dir_fd -> string -> ((Eio.File.Stat.kind * string) Seq.t -> 'a) -> 'a
 
 val readv : fd -> Cstruct.t array -> int
 val writev : fd -> Cstruct.t array -> int

@@ -29,6 +29,7 @@
 #include <caml/fail.h>
 
 #include "fork_action.h"
+#include "eio_unix_stubs.h"
 
 #ifdef ARCH_SIXTYFOUR
 #define Int63_val(v) Long_val(v)
@@ -558,4 +559,26 @@ CAMLprim value caml_eio_posix_fdopendir(value v_fd) {
   value v_result = caml_alloc_small(1, Abstract_tag);
   DIR_Val(v_result) = d;
   return v_result;
+}
+
+CAMLprim value caml_eio_posix_readdir(value v_dir_handle) {
+  CAMLparam1(v_dir_handle);
+  CAMLlocal3(v_result, v_kind, v_name);
+  DIR *dir;
+  struct dirent *ent;
+
+  dir = DIR_Val(v_dir_handle);
+  if (!dir) caml_unix_error(EBADF, "readdir", Nothing);
+
+  caml_enter_blocking_section();
+  ent = readdir(dir);
+  caml_leave_blocking_section();
+
+  if (!ent) caml_raise_end_of_file();
+
+  v_result = caml_alloc(2, 0);
+  Store_field(v_result, 0, eio_unix_file_type_of_dtype(ent->d_type));
+  Store_field(v_result, 1, caml_copy_string_of_os(ent->d_name));
+
+  CAMLreturn(v_result);
 }

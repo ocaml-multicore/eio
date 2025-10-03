@@ -3,11 +3,15 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <dirent.h>
 
 #include <caml/mlvalues.h>
 #include <caml/unixsupport.h>
 #include <caml/memory.h>
 #include <caml/bigarray.h>
+#include <caml/alloc.h>
+
+#define BUF_SIZE 4096
 
 static void caml_stat_free_preserving_errno(void *ptr) {
   int saved = errno;
@@ -38,7 +42,7 @@ CAMLprim value eio_unix_readlinkat(value v_fd, value v_path, value v_cs) {
   value v_ba = Field(v_cs, 0);
   value v_off = Field(v_cs, 1);
   value v_len = Field(v_cs, 2);
-  char *buf = (char *)Caml_ba_data_val(v_ba) + Long_val(v_off); 
+  char *buf = (char *)Caml_ba_data_val(v_ba) + Long_val(v_off);
   size_t buf_size = Long_val(v_len);
   int fd = Int_val(v_fd);
   int ret;
@@ -51,4 +55,18 @@ CAMLprim value eio_unix_readlinkat(value v_fd, value v_path, value v_cs) {
   if (ret == -1) caml_uerror("readlinkat", v_path);
   CAMLreturn(Val_int(ret));
   #endif
+}
+
+CAMLprim value eio_unix_file_type_of_dtype (int d_type) {
+  switch (d_type) {
+    case DT_REG: return caml_hash_variant("Regular_file");
+    case DT_DIR: return caml_hash_variant("Directory");
+    case DT_CHR: return caml_hash_variant("Character_special");
+    case DT_BLK: return caml_hash_variant("Block_device");
+	case DT_LNK: return caml_hash_variant("Symbolic_link");
+	case DT_FIFO: return caml_hash_variant("Fifo");
+	case DT_SOCK: return caml_hash_variant("Socket");
+	default:
+      return caml_hash_variant("Unknown");
+  }
 }
