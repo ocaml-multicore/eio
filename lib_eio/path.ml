@@ -112,7 +112,7 @@ let walk t fn =
   try X.with_dir_entries dir path fn
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "reading directory %a" pp t
+    Exn.reraise_with_context ex bt "walking directory %a" pp t
 
 let stat ~follow t =
   let (Resource.T (dir, ops), path) = t in
