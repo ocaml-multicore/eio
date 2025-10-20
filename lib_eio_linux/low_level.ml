@@ -708,7 +708,7 @@ module Sockopt = struct
           | `Probe -> "Probe"
         in
         Fmt.pf f "IP_MTU_DISCOVER = %s" s
-    | _ -> Eio.Net.Sockopt.pp opt f v
+    | _ -> Eio_unix.Net.Sockopt.pp opt f v
 
   let with_fd_set fd fn =
     Fd.use_exn "setsockopt" fd fn

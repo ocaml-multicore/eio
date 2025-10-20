@@ -99,6 +99,29 @@ module Sockopt = struct
     | Unix_optint : Unix.socket_optint_option -> int option Eio.Net.Sockopt.t
     | Unix_float : Unix.socket_float_option -> float Eio.Net.Sockopt.t
 
+  let pp : type a. a Eio.Net.Sockopt.t -> Format.formatter -> a -> unit = fun opt f v ->
+    (match opt with
+    | Unix_bool Unix.SO_DEBUG -> Fmt.pf f "Unix.SO_DEBUG = %b" v
+    | Unix_bool Unix.SO_BROADCAST -> Fmt.pf f "Unix.SO_BROADCAST = %b" v
+    | Unix_bool Unix.SO_REUSEADDR -> Fmt.pf f "Unix.SO_REUSEADDR = %b" v
+    | Unix_bool Unix.SO_KEEPALIVE -> Fmt.pf f "Unix.SO_KEEPALIVE = %b" v
+    | Unix_bool Unix.SO_DONTROUTE -> Fmt.pf f "Unix.SO_DONTROUTE = %b" v
+    | Unix_bool Unix.SO_OOBINLINE -> Fmt.pf f "Unix.SO_OOBINLINE = %b" v
+    | Unix_bool Unix.SO_ACCEPTCONN -> Fmt.pf f "Unix.SO_ACCEPTCONN = %b" v
+    | Unix_bool Unix.TCP_NODELAY -> Fmt.pf f "Unix.TCP_NODELAY = %b" v
+    | Unix_bool Unix.IPV6_ONLY -> Fmt.pf f "Unix.IPV6_ONLY = %b" v
+    | Unix_bool Unix.SO_REUSEPORT -> Fmt.pf f "Unix.SO_REUSEPORT = %b" v
+    | Unix_int Unix.SO_SNDBUF -> Fmt.pf f "Unix.SO_SNDBUF = %d" v
+    | Unix_int Unix.SO_RCVBUF -> Fmt.pf f "Unix.SO_RCVBUF = %d" v
+    | Unix_int Unix.SO_ERROR -> Fmt.pf f "Unix.SO_ERROR = %d" v
+    | Unix_int Unix.SO_TYPE -> Fmt.pf f "Unix.SO_TYPE = %d" v
+    | Unix_int Unix.SO_RCVLOWAT -> Fmt.pf f "Unix.SO_RCVLOWAT = %d" v
+    | Unix_int Unix.SO_SNDLOWAT -> Fmt.pf f "Unix.SO_SNDLOWAT = %d" v
+    | Unix_optint Unix.SO_LINGER -> Fmt.(pf f "Unix.SO_LINGER = %a" (option ~none:(any "<none>") int) v)
+    | Unix_float Unix.SO_RCVTIMEO -> Fmt.pf f "Unix.SO_RCVTIMEO = %f" v
+    | Unix_float Unix.SO_SNDTIMEO -> Fmt.pf f "Unix.SO_SNDTIMEO = %f" v
+    | _ -> Eio.Net.Sockopt.pp opt f v) [@alert "-deprecated"]
+
   let set : type a. Fd.t -> a Eio.Net.Sockopt.t -> a -> unit = fun fd opt v ->
     Fd.use_exn "setsockopt" fd @@ fun fd ->
     match opt with

@@ -116,6 +116,10 @@ module Sockopt : sig
     | Unix_float : Unix.socket_float_option -> float Eio.Net.Sockopt.t
         (** Wrap any Unix float socket option *)
 
+  val pp : 'a Eio.Net.Sockopt.t -> Format.formatter -> 'a -> unit
+  (** [pp opt f v] formats socket option [opt] with value [v] to formatter [f].
+      Handles Unix-specific socket options with a [Unix] prefix to distinguish them from native Eio options. *)
+
   val set : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a -> unit
   (** [set fd opt v] sets socket option [opt] to value [v] on file descriptor [fd].
 
