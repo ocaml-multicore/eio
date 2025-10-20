@@ -266,6 +266,10 @@ module Sockopt : sig
             - [`Do]: Always do Path MTU Discovery (reject large datagrams with EMSGSIZE)
             - [`Probe]: Set DF but ignore Path MTU (for diagnostic tools) *)
 
+  val pp : 'a Eio.Net.Sockopt.t -> Format.formatter -> 'a -> unit
+  (** [pp opt f v] formats socket option [opt] with value [v] to formatter [f].
+      Handles both Linux-specific and standard socket options. *)
+
   val set : fd -> 'a Eio.Net.Sockopt.t -> 'a -> unit
   (** [set fd opt v] sets socket option [opt] to value [v] on file descriptor [fd]. *)
 

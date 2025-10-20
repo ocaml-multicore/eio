@@ -180,6 +180,27 @@ module Sockopt = struct
     | SO_LINGER : int option t
     | SO_RCVTIMEO : float t
     | SO_SNDTIMEO : float t
+
+  let pp (type a) (opt : a t) f (v:a) =
+    match opt with
+    | SO_DEBUG -> Fmt.pf f "SO_DEBUG = %b" v
+    | SO_BROADCAST -> Fmt.pf f "SO_BROADCAST = %b" v
+    | SO_REUSEADDR -> Fmt.pf f "SO_REUSEADDR = %b" v
+    | SO_KEEPALIVE -> Fmt.pf f "SO_KEEPALIVE = %b" v
+    | SO_DONTROUTE -> Fmt.pf f "SO_DONTROUTE = %b" v
+    | SO_OOBINLINE -> Fmt.pf f "SO_OOBINLINE = %b" v
+    | TCP_NODELAY -> Fmt.pf f "TCP_NODELAY = %b" v
+    | IPV6_ONLY -> Fmt.pf f "IPV6_ONLY = %b" v
+    | SO_REUSEPORT -> Fmt.pf f "SO_REUSEPORT = %b" v
+    | SO_SNDBUF -> Fmt.pf f "SO_SNDBUF = %d" v
+    | SO_RCVBUF -> Fmt.pf f "SO_RCVBUF = %d" v
+    | SO_TYPE -> Fmt.pf f "SO_TYPE = %d" v
+    | SO_RCVLOWAT -> Fmt.pf f "SO_RCVLOWAT = %d" v
+    | SO_SNDLOWAT -> Fmt.pf f "SO_SNDLOWAT = %d" v
+    | SO_LINGER -> Fmt.(pf f "SO_LINGER = %a" (option ~none:(any "<none>") int) v)
+    | SO_RCVTIMEO -> Fmt.pf f "SO_RCVTIMEO = %f" v
+    | SO_SNDTIMEO -> Fmt.pf f "SO_SNDTIMEO = %f" v
+    | _ -> Fmt.pf f "<unknown>"
 end
 
 type socket_ty = [`Socket | `Close]

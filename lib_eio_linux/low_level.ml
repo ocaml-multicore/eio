@@ -650,11 +650,6 @@ module Sockopt = struct
   let ip_ttl = 2             (* IP_TTL *)
   let ip_mtu = 14            (* IP_MTU *)
   let ip_mtu_discover = 10   (* IP_MTU_DISCOVER *)
-  (* IP_MTU_DISCOVER values *)
-  let ip_pmtudisc_want = 1   (* IP_PMTUDISC_WANT *)
-  let ip_pmtudisc_dont = 0   (* IP_PMTUDISC_DONT *)
-  let ip_pmtudisc_do = 2     (* IP_PMTUDISC_DO *)
-  let ip_pmtudisc_probe = 3  (* IP_PMTUDISC_PROBE *)
 
   external setsockopt_int : Unix.file_descr -> int -> int -> int -> unit = "caml_eio_sockopt_int_set"
   external getsockopt_int : Unix.file_descr -> int -> int -> int = "caml_eio_sockopt_int_get"
@@ -683,36 +678,68 @@ module Sockopt = struct
     | IP_MTU : int Eio.Net.Sockopt.t
     | IP_MTU_DISCOVER : [`Want | `Dont | `Do | `Probe] Eio.Net.Sockopt.t
 
+  let pp : type a. a Eio.Net.Sockopt.t -> Format.formatter -> a -> unit = fun opt f v ->
+    match opt with
+    | TCP_CORK -> Fmt.pf f "TCP_CORK = %b" v
+    | TCP_KEEPIDLE -> Fmt.pf f "TCP_KEEPIDLE = %d" v
+    | TCP_KEEPINTVL -> Fmt.pf f "TCP_KEEPINTVL = %d" v
+    | TCP_KEEPCNT -> Fmt.pf f "TCP_KEEPCNT = %d" v
+    | TCP_USER_TIMEOUT -> Fmt.pf f "TCP_USER_TIMEOUT = %d" v
+    | TCP_MAXSEG -> Fmt.pf f "TCP_MAXSEG = %d" v
+    | TCP_LINGER2 -> Fmt.(pf f "TCP_LINGER2 = %a" (option ~none:(any "<none>") int) v)
+    | TCP_DEFER_ACCEPT -> Fmt.pf f "TCP_DEFER_ACCEPT = %d" v
+    | TCP_CONGESTION -> Fmt.pf f "TCP_CONGESTION = %s" v
+    | TCP_SYNCNT -> Fmt.pf f "TCP_SYNCNT = %d" v
+    | TCP_WINDOW_CLAMP -> Fmt.pf f "TCP_WINDOW_CLAMP = %d" v
+    | TCP_QUICKACK -> Fmt.pf f "TCP_QUICKACK = %b" v
+    | TCP_FASTOPEN -> Fmt.pf f "TCP_FASTOPEN = %d" v
+    | IP_FREEBIND -> Fmt.pf f "IP_FREEBIND = %b" v
+    | IP_BIND_ADDRESS_NO_PORT -> Fmt.pf f "IP_BIND_ADDRESS_NO_PORT = %b" v
+    | IP_LOCAL_PORT_RANGE ->
+        let (lower, upper) = v in
+        Fmt.pf f "IP_LOCAL_PORT_RANGE = (%d, %d)" lower upper
+    | IP_TTL -> Fmt.pf f "IP_TTL = %d" v
+    | IP_MTU -> Fmt.pf f "IP_MTU = %d" v
+    | IP_MTU_DISCOVER ->
+        let s = match v with
+          | `Want -> "Want"
+          | `Dont -> "Dont"
+          | `Do -> "Do"
+          | `Probe -> "Probe"
+        in
+        Fmt.pf f "IP_MTU_DISCOVER = %s" s
+    | _ -> Eio.Net.Sockopt.pp opt f v
+
+  let with_fd_set fd fn =
+    Fd.use_exn "setsockopt" fd fn
+
+  let with_fd_get fd fn =
+    Fd.use_exn "getsockopt" fd fn
+
   let set : type a. Fd.t -> a Eio.Net.Sockopt.t -> a -> unit = fun fd opt v ->
     match opt with
     | TCP_CORK ->
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_cork (if v then 1 else 0))
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_cork (if v then 1 else 0))
     | TCP_KEEPIDLE ->
       if v < 0 then
         invalid_arg (Printf.sprintf "TCP_KEEPIDLE must be non-negative, got %d" v);
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_keepidle v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_keepidle v)
     | TCP_KEEPINTVL ->
       if v < 0 then
         invalid_arg (Printf.sprintf "TCP_KEEPINTVL must be non-negative, got %d" v);
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_keepintvl v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_keepintvl v)
     | TCP_KEEPCNT ->
       if v < 0 then
         invalid_arg (Printf.sprintf "TCP_KEEPCNT must be non-negative, got %d" v);
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_keepcnt v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_keepcnt v)
     | TCP_USER_TIMEOUT ->
       if v < 0 then
         invalid_arg (Printf.sprintf "TCP_USER_TIMEOUT must be non-negative, got %d" v);
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_user_timeout v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_user_timeout v)
     | TCP_MAXSEG ->
       if v < 0 then
         invalid_arg (Printf.sprintf "TCP_MAXSEG must be non-negative, got %d" v);
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_maxseg v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_maxseg v)
     | TCP_LINGER2 ->
       let v = match v with
         | None -> -1
@@ -720,40 +747,31 @@ module Sockopt = struct
             invalid_arg (Printf.sprintf "TCP_LINGER2 must be non-negative, got %d" n);
         | Some n -> n
       in
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_linger2 v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_linger2 v)
     | TCP_DEFER_ACCEPT ->
       if v < 0 then
         invalid_arg (Printf.sprintf "TCP_DEFER_ACCEPT must be non-negative, got %d" v);
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_defer_accept v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_defer_accept v)
     | TCP_CONGESTION ->
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_string fd ipproto_tcp tcp_congestion v)
+      with_fd_set fd (fun fd -> setsockopt_string fd ipproto_tcp tcp_congestion v)
     | TCP_SYNCNT ->
       if v < 1 || v > 255 then
         invalid_arg (Printf.sprintf "TCP_SYNCNT must be between 1 and 255, got %d" v);
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_syncnt v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_syncnt v)
     | TCP_WINDOW_CLAMP ->
       if v < 0 then
         invalid_arg (Printf.sprintf "TCP_WINDOW_CLAMP must be non-negative, got %d" v);
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_window_clamp v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_window_clamp v)
     | TCP_QUICKACK ->
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_quickack (if v then 1 else 0))
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_quickack (if v then 1 else 0))
     | TCP_FASTOPEN ->
       if v < 0 then
         invalid_arg (Printf.sprintf "TCP_FASTOPEN queue length must be non-negative, got %d" v);
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_tcp tcp_fastopen v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_tcp tcp_fastopen v)
     | IP_FREEBIND ->
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_ip ip_freebind (if v then 1 else 0))
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_ip ip_freebind (if v then 1 else 0))
     | IP_BIND_ADDRESS_NO_PORT ->
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_ip ip_bind_address_no_port (if v then 1 else 0))
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_ip ip_bind_address_no_port (if v then 1 else 0))
     | IP_LOCAL_PORT_RANGE ->
       let (lower, upper) = v in
       if lower < 0 || lower > 65535 then
@@ -763,95 +781,73 @@ module Sockopt = struct
       if lower <> 0 && upper <> 0 && lower > upper then
         invalid_arg (Printf.sprintf "IP_LOCAL_PORT_RANGE lower bound (%d) must be <= upper bound (%d)" lower upper);
       let combined = (upper lsl 16) lor lower in
-      Fd.use_exn "setsockopt" fd (fun fd ->
+      with_fd_set fd (fun fd ->
         setsockopt_int fd ipproto_ip ip_local_port_range combined)
     | IP_TTL ->
       if v < 1 || v > 255 then
         invalid_arg (Printf.sprintf "IP_TTL must be between 1 and 255, got %d" v);
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_ip ip_ttl v)
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_ip ip_ttl v)
     | IP_MTU ->
       invalid_arg "IP_MTU is a read-only socket option"
     | IP_MTU_DISCOVER ->
-      let intval = match v with
-        | `Want -> ip_pmtudisc_want
-        | `Dont -> ip_pmtudisc_dont
-        | `Do -> ip_pmtudisc_do
-        | `Probe -> ip_pmtudisc_probe
-      in
-      Fd.use_exn "setsockopt" fd (fun fd ->
-        setsockopt_int fd ipproto_ip ip_mtu_discover intval)
+      let i = match v with
+        | `Dont -> 0
+        | `Want -> 1
+        | `Do -> 2
+        | `Probe -> 3 in
+      with_fd_set fd (fun fd -> setsockopt_int fd ipproto_ip ip_mtu_discover i)
     | _ -> Eio_unix.Net.Sockopt.set fd opt v
 
   let get : type a. Fd.t -> a Eio.Net.Sockopt.t -> a = fun fd opt ->
     match opt with
     | TCP_CORK ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_cork <> 0)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_cork <> 0)
     | TCP_KEEPIDLE ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_keepidle)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_keepidle)
     | TCP_KEEPINTVL ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_keepintvl)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_keepintvl)
     | TCP_KEEPCNT ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_keepcnt)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_keepcnt)
     | TCP_USER_TIMEOUT ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_user_timeout)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_user_timeout)
     | TCP_MAXSEG ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_maxseg)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_maxseg)
     | TCP_LINGER2 ->
-      let v = Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_linger2)
-      in
+      let v = with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_linger2) in
       if v = -1 then None else Some v
     | TCP_DEFER_ACCEPT ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_defer_accept)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_defer_accept)
     | TCP_CONGESTION ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_string fd ipproto_tcp tcp_congestion)
+      with_fd_get fd (fun fd -> getsockopt_string fd ipproto_tcp tcp_congestion)
     | TCP_SYNCNT ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_syncnt)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_syncnt)
     | TCP_WINDOW_CLAMP ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_window_clamp)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_window_clamp)
     | TCP_QUICKACK ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_quickack <> 0)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_quickack <> 0)
     | TCP_FASTOPEN ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_tcp tcp_fastopen)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_tcp tcp_fastopen)
     | IP_FREEBIND ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_ip ip_freebind <> 0)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_ip ip_freebind <> 0)
     | IP_BIND_ADDRESS_NO_PORT ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_ip ip_bind_address_no_port <> 0)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_ip ip_bind_address_no_port <> 0)
     | IP_LOCAL_PORT_RANGE ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
+      with_fd_get fd (fun fd ->
         let combined = getsockopt_int fd ipproto_ip ip_local_port_range in
         let lower = combined land 0xFFFF in
         let upper = (combined lsr 16) land 0xFFFF in
-        (lower, upper))
+        lower, upper)
     | IP_TTL ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_ip ip_ttl)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_ip ip_ttl)
     | IP_MTU ->
-      Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_ip ip_mtu)
-    | IP_MTU_DISCOVER ->
-      let intval = Fd.use_exn "getsockopt" fd (fun fd ->
-        getsockopt_int fd ipproto_ip ip_mtu_discover)
-      in
-      if intval = ip_pmtudisc_want then `Want
-      else if intval = ip_pmtudisc_dont then `Dont
-      else if intval = ip_pmtudisc_do then `Do
-      else if intval = ip_pmtudisc_probe then `Probe
-      else failwith (Printf.sprintf "Unknown IP_MTU_DISCOVER value: %d" intval)
+      with_fd_get fd (fun fd -> getsockopt_int fd ipproto_ip ip_mtu)
+    | IP_MTU_DISCOVER -> begin
+      let i = with_fd_get fd (fun fd -> getsockopt_int fd ipproto_ip ip_mtu_discover) in
+      match i with
+      | 0 (* IP_PMTUDISC_DONT *)  -> `Dont
+      | 1 (* IP_PMTUDISC_WANT *)  -> `Want
+      | 2 (* IP_PMTUDISC_DO *)    -> `Do
+      | 3 (* IP_PMTUDISC_PROBE *) -> `Probe
+      | i -> failwith (Printf.sprintf "Unknown IP_MTU_DISCOVER value: %d" i) end
     | _ -> Eio_unix.Net.Sockopt.get fd opt
 end

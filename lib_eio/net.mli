@@ -127,6 +127,8 @@ module Sockopt : sig
     | SO_LINGER : int option t  (** Linger on close if data present *)
     | SO_RCVTIMEO : float t     (** Receive timeout *)
     | SO_SNDTIMEO : float t     (** Send timeout *)
+
+  val pp : 'a t -> Format.formatter -> 'a -> unit
 end
 
 (** {2 Types} *)
