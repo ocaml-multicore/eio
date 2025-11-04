@@ -362,7 +362,7 @@ external eio_symlinkat : string -> Unix.file_descr -> string -> unit = "caml_eio
 
 external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_getrandom"
 
-external eio_getdents : Unix.file_descr -> string list = "caml_eio_getdents"
+external eio_getdents : Unix.file_descr -> (Eio.File.Stat.kind * string) list = "caml_eio_getdents"
 
 let lseek fd off cmd =
   Fd.use_exn "lseek" fd @@ fun fd ->
@@ -513,10 +513,16 @@ let read_dir fd =
     match eio_getdents fd with
     | [] -> acc
     | files ->
-      let files = List.filter (function ".." | "." -> false | _ -> true) files in
+      let files = List.filter_map (function (_, "..") | (_, ".") -> None | (_, f) -> Some f) files in
       read_all (files @ acc) fd
   in
   Eio_unix.run_in_systhread ~label:"read_dir" (fun () -> read_all [] fd)
+
+let read_some_dir fd =
+  Fd.use_exn "read_some_dir" fd @@ fun fd ->
+  Eio_unix.run_in_systhread ~label:"read_some_dir" @@ fun () ->
+  let files = eio_getdents fd in
+  List.filter_map (function _, ".." | _, "." -> None | v -> Some v) files
 
 let read_link fd path =
   try

@@ -86,6 +86,9 @@ end = struct
     Err.run (Low_level.readdir t.fd) path
     |> Array.to_list
 
+  let with_dir_entries t path fn =
+    Err.run (Low_level.with_dir_entries t.fd path) fn
+
   let read_link t path =
     Err.run (Low_level.read_link t.fd) path
 

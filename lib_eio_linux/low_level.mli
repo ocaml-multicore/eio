@@ -161,6 +161,11 @@ val read_dir : fd -> string list
     The entries are not returned in any particular order
     (not even necessarily the order in which Linux returns them). *)
 
+val read_some_dir : fd -> (Eio.File.Stat.kind * string) list
+(** [read_some_dir dir] reads some of the directory entries from [dir], including their kind.
+    The entries are not returned in any particular order
+    (not even necessarily the order in which Linux returns them). *)
+
 val lseek : fd -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
 (** Set and/or get the current file position.
 

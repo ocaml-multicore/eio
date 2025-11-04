@@ -410,6 +410,28 @@ end = struct
     in
     Low_level.read_dir fd
 
+  let with_dir_entries t path fn =
+    Switch.run ~name:"with_dir_entries" @@ fun sw ->
+    let path = if path = "" then "." else path in
+    let fd =
+      Low_level.openat ~sw t.fd path ~seekable:false ~access:`R
+        ~flags:Uring.Open_flags.(cloexec + directory)
+        ~perm:0
+    in
+    let rec read_entries fd : (Eio.File.Stat.kind * string) Seq.t =
+      let entries = Low_level.read_some_dir fd in
+      match entries with
+      | [] -> fun () -> Seq.Nil
+      | es ->
+          let rec loop = function
+            | [] -> read_entries fd
+            | e :: es -> fun () -> Seq.Cons (e, loop es)
+          in
+          loop es
+    in
+    fn (read_entries fd)
+
+
   let read_link t path = Low_level.read_link t.fd path
 
   let close t =

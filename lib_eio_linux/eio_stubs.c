@@ -29,6 +29,7 @@
 #include <caml/bigarray.h>
 
 #include "fork_action.h"
+#include "eio_unix_stubs.h"
 
 #ifndef SYS_pidfd_send_signal
 # define SYS_pidfd_send_signal 424
@@ -136,7 +137,7 @@ CAMLprim value caml_eio_getrandom(value v_ba, value v_off, value v_len) {
 
 CAMLprim value caml_eio_getdents(value v_fd) {
   CAMLparam1(v_fd);
-  CAMLlocal2(result, cons);
+  CAMLlocal3(result, cons, ventry);
   char buf[DIRENT_BUF_SIZE];
   struct dirent64 *d;
   int nread, pos;
@@ -145,13 +146,18 @@ CAMLprim value caml_eio_getdents(value v_fd) {
   caml_leave_blocking_section();
   if (nread == -1) uerror("getdents", Nothing);
 
-  result = Val_int(0); /* The empty list */
+  result = Val_emptylist;
 
   for (pos = 0; pos < nread;) {
     d = (struct dirent64 *) (buf + pos);
-    cons = caml_alloc(2, 0);
-    Store_field(cons, 0, caml_copy_string_of_os(d->d_name)); // Head
-    Store_field(cons, 1, result);                            // Tail
+
+	ventry = caml_alloc(2, 0);
+    Store_field(ventry, 0, eio_unix_file_type_of_dtype(d->d_type));
+    Store_field(ventry, 1, caml_copy_string_of_os(d->d_name));
+
+	cons = caml_alloc(2, 0);
+    Store_field(cons, 0, ventry);                              // Head
+    Store_field(cons, 1, result);                              // Tail
     result = cons;
     pos += d->d_reclen;
   }
