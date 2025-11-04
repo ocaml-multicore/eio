@@ -394,7 +394,7 @@ module Fiber : sig
       used after this function returns. *)
 
   val without_binding : 'a key -> (unit -> 'b) -> 'b
-  (** [with_binding key value fn] runs [fn] with any binding for [key] removed.
+  (** [without_binding key value fn] runs [fn] with any binding for [key] removed.
       *)
 end
 
