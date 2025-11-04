@@ -33,6 +33,23 @@ val take : 'a t -> 'a
 
     If no items are available, it waits until one becomes available. *)
 
+type drop_priority = Newest | Oldest
+
+val add_nonblocking : drop_priority: drop_priority -> 'a t -> 'a -> 'a option
+(** [add_nonblocking ~drop_priority t item] is like [(add t item); None] except that
+    it returns [Some dropped_item] if the stream is full rather than waiting, where
+    [dropped_item] is [item] if [drop_priority = Newest], and the first element of the
+    stream if [drop_priority = Oldest].
+        
+    In other words, if the stream is full then:
+    - [add_nonblocking ~drop_priority:Newest t item] is like [Some item]; and
+    - [add_nonblocking ~drop_priority:Oldest t item] is like
+      [let dropped_item = take t in add t item; Some dropped_item]
+      except that no other stream operation can happen (even in other threads)
+      between the [take] and the [add].
+    
+    On streams of capacity [0], this always returns [Some item], even if a reader is waiting. *)
+
 val take_nonblocking : 'a t -> 'a option
 (** [take_nonblocking t] is like [Some (take t)] except that
     it returns [None] if the stream is empty rather than waiting.
@@ -43,8 +60,14 @@ val take_nonblocking : 'a t -> 'a option
 val length : 'a t -> int
 (** [length t] returns the number of items currently in [t]. *)
 
+val capacity : 'a t -> int
+(** [capacity t] returns the number of items [t] can hold without blocking writers. *)
+
 val is_empty : 'a t -> bool
 (** [is_empty t] is [length t = 0]. *)
+
+val is_full : 'a t -> bool
+(** [is_full t] is [length t = capacity t]. *)
 
 val dump : 'a t Fmt.t
 (** For debugging. *)
