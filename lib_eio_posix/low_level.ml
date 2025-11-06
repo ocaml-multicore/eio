@@ -423,6 +423,13 @@ let symlink ~link_to new_dir new_path =
   let new_dir = Option.value new_dir ~default:at_fdcwd in
   eio_symlinkat link_to new_dir new_path
 
+let chmod ~follow ~mode dir path =
+  in_worker_thread "chmod" @@ fun () ->
+  let flags = if follow then 0 else Config.at_symlink_nofollow in
+  Resolve.with_parent "chmod" dir path @@ fun dir path ->
+  let new_dir = Option.value dir ~default:at_fdcwd in
+  Eio_unix.Private.chmod_unix new_dir path ~mode ~flags
+
 let read_link dirfd path =
   in_worker_thread "read_link" @@ fun () ->
   Resolve.with_parent "read_link" dirfd path @@ fun dirfd path ->

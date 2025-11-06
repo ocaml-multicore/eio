@@ -77,10 +77,11 @@ let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
 
-let try_stat path =
+let try_stat ?(info_type=`Kind) path =
   let stat ~follow =
-    match Eio.Path.stat ~follow path with
-    | info -> Fmt.str "@[<h>%a@]" Eio.File.Stat.pp_kind info.kind
+    match Eio.Path.stat ~follow path, info_type with
+    | info, `Perm -> Fmt.str "@[<h>%o@]" info.perm
+    | info, `Kind -> Fmt.str "@[<h>%a@]" Eio.File.Stat.pp_kind info.kind
     | exception Eio.Io (e, _) -> Fmt.str "@[<h>%a@]" Eio.Exn.pp_err e
   in
   let a = stat ~follow:false in
@@ -93,6 +94,11 @@ let try_stat path =
 let try_symlink ~link_to path =
   match Path.symlink ~link_to path with
   | s -> traceln "symlink %a -> %S" Path.pp path link_to
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+
+let try_chmod path ~follow ~perm =
+  match Eio.Path.chmod ~follow path ~perm with
+  | () -> traceln "chmod %a to %o -> ok" Path.pp path perm
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 ```
 
@@ -864,6 +870,27 @@ Unconfined:
 +Eio.Io Fs Permission_denied _, reading target of symlink <cwd:../unknown>
 - : unit = ()
 ```
+
+# chmod
+
+Chmod works.
+
+```ocaml
+# run ~clear:["test-file"] @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  let file_path = cwd / "test-file" in
+  Path.save ~create:(`Exclusive 0o644) file_path "test data";
+  try_chmod ~follow:false ~perm:0o400 file_path;
+  try_stat ~info_type:`Perm file_path;
+  try_chmod ~follow:false ~perm:0o600 file_path;
+  try_stat ~info_type:`Perm file_path
++chmod <cwd:test-file> to 400 -> ok
++<cwd:test-file> -> 400
++chmod <cwd:test-file> to 600 -> ok
++<cwd:test-file> -> 600
+- : unit = ()
+```
+
 
 # pread/pwrite
 

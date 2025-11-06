@@ -14,6 +14,15 @@
  (libraries eio eio.utils eio.unix uring fmt))
 
 (rule
+ (targets config.ml)
+ (enabled_if ; See https://github.com/ocaml/dune/issues/4895
+   (or (= %{system} "linux")          ; Historically, just Linux-x86
+       (= %{system} "linux_eabihf")   ; Historically, Linux-arm32
+       (= %{system} "linux_elf")      ; Historically, Linux-x86_32
+       (= %{system} "elf")))          ; Historically, Linux-ppc64
+ (action (run ./include/discover.exe)))
+
+(rule
  (enabled_if
    (and
      %{bin-available:lintcstubs_arity_cmt}
