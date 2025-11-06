@@ -123,6 +123,9 @@ module Listening_socket = struct
 
   let listening_addr { listening_addr; _ } = listening_addr
 
+  let setsockopt t opt v = Sockopt.setsockopt t.label opt v
+  let getsockopt t opt = Sockopt.getsockopt t.label opt
+
   type (_, _, _) Eio.Resource.pi += Type : ('t, 't -> t, listening_socket_ty) Eio.Resource.pi
   let raw (Eio.Resource.T (t, ops)) = Eio.Resource.get ops Type t
 end

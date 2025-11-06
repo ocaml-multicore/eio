@@ -62,6 +62,9 @@ module Datagram_socket = struct
     | `Receive -> Unix.SHUTDOWN_RECEIVE
     | `Send -> Unix.SHUTDOWN_SEND
     | `All -> Unix.SHUTDOWN_ALL
+
+  let setsockopt t opt v = Low_level.Sockopt.set t opt v
+  let getsockopt t opt = Low_level.Sockopt.get t opt
 end
 
 let datagram_handler = Eio_unix.Pi.datagram_handler (module Datagram_socket)
@@ -91,6 +94,9 @@ module Listening_socket = struct
   let listening_addr fd =
     Eio_unix.Fd.use_exn "listening_addr" fd
       (fun fd -> Eio_unix.Net.sockaddr_of_unix_stream (Unix.getsockname fd))
+
+  let setsockopt t opt v = Low_level.Sockopt.set t opt v
+  let getsockopt t opt = Low_level.Sockopt.get t opt
 end
 
 let listening_handler = Eio_unix.Pi.listening_socket_handler (module Listening_socket)

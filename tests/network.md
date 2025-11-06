@@ -563,6 +563,96 @@ Exception: Eio.Io Fs Not_found _,
 - : unit = ()
 ```
 
+## Socket Options
+
+Test portable socket options on a TCP socket:
+
+```ocaml
+# run @@ fun ~net sw ->
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
+  let client = Eio.Net.connect ~sw net (Eio.Net.listening_addr server) in
+  Eio.Net.setsockopt client Eio.Net.Sockopt.TCP_NODELAY true;
+  assert (Eio.Net.getsockopt client Eio.Net.Sockopt.TCP_NODELAY);
+  Eio.Net.setsockopt client Eio.Net.Sockopt.SO_KEEPALIVE true;
+  assert (Eio.Net.getsockopt client Eio.Net.Sockopt.SO_KEEPALIVE);
+  Eio.Net.setsockopt client Eio.Net.Sockopt.SO_SNDBUF 32768;
+  let sndbuf = Eio.Net.getsockopt client Eio.Net.Sockopt.SO_SNDBUF in
+  traceln "SO_SNDBUF: %s" (if sndbuf > 0 then "positive" else "error");
+  assert (sndbuf > 0);
+  let sock_type = Eio.Net.getsockopt client Eio.Net.Sockopt.SO_TYPE in
+  traceln "SO_TYPE: %d" sock_type;
+  Eio.Net.setsockopt client Eio.Net.Sockopt.SO_LINGER (Some 10);
+  (match Eio.Net.getsockopt client Eio.Net.Sockopt.SO_LINGER with
+   | None -> traceln "SO_LINGER: disabled"
+   | Some n -> traceln "SO_LINGER: %d seconds" n);
+  Eio.Net.setsockopt client Eio.Net.Sockopt.SO_RCVTIMEO 5.0;
+  let timeout = Eio.Net.getsockopt client Eio.Net.Sockopt.SO_RCVTIMEO in
+  traceln "SO_RCVTIMEO: %.1f seconds" timeout;;
++SO_SNDBUF: positive
++SO_TYPE: 1
++SO_LINGER: 10 seconds
++SO_RCVTIMEO: 5.0 seconds
+- : unit = ()
+```
+
+Test socket options on listening socket:
+
+```ocaml
+# run @@ fun ~net sw ->
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
+  Eio.Net.setsockopt server Eio.Net.Sockopt.SO_REUSEADDR true;
+  assert (Eio.Net.getsockopt server Eio.Net.Sockopt.SO_REUSEADDR);
+  traceln "SO_REUSEADDR is set on listening socket";;
++SO_REUSEADDR is set on listening socket
+- : unit = ()
+```
+
+Test socket options on datagram socket:
+
+```ocaml
+# run @@ fun ~net sw ->
+  let udp = Eio.Net.datagram_socket net ~sw `UdpV4 in
+  Eio.Net.setsockopt udp Eio.Net.Sockopt.SO_BROADCAST true;
+  assert (Eio.Net.getsockopt udp Eio.Net.Sockopt.SO_BROADCAST);
+  traceln "UDP socket broadcast enabled";;
++UDP socket broadcast enabled
+- : unit = ()
+```
+
+Test Unix-specific socket option wrappers:
+
+```ocaml
+# Eio_main.run @@ fun _ ->
+  Switch.run @@ fun sw ->
+  let a, b = Eio_unix.Net.socketpair_stream ~sw () in
+  let fd = Eio_unix.Net.fd a in
+  Eio_unix.Net.Sockopt.set fd (Eio_unix.Net.Sockopt.Unix_int Unix.SO_SNDBUF) 32768;
+  let sndbuf = Eio_unix.Net.Sockopt.get fd (Eio_unix.Net.Sockopt.Unix_int Unix.SO_SNDBUF) in
+  traceln "Unix SO_SNDBUF: %s" (if sndbuf > 0 then "positive" else "zero");
+  assert (sndbuf > 0);
+  Eio_unix.Net.Sockopt.set fd (Eio_unix.Net.Sockopt.Unix_optint Unix.SO_LINGER) (Some 5);
+  (match Eio_unix.Net.Sockopt.get fd (Eio_unix.Net.Sockopt.Unix_optint Unix.SO_LINGER) with
+   | None -> traceln "Unix SO_LINGER: disabled"
+   | Some n -> traceln "Unix SO_LINGER: %d seconds" n);;
++Unix SO_SNDBUF: positive
++Unix SO_LINGER: 5 seconds
+- : unit = ()
+```
+
+Error handling for read-only options:
+
+```ocaml
+# run @@ fun ~net sw ->
+  let a, _b = Eio_unix.Net.socketpair_stream ~sw () in
+  match Eio.Net.setsockopt a Eio.Net.Sockopt.SO_TYPE 2 with
+  | () -> failwith "Should have failed!"
+  | exception Invalid_argument msg ->
+    traceln "Expected error: %s" msg;;
++Expected error: SO_TYPE is read-only
+- : unit = ()
+```
+
+
 ## Getaddrinfo
 
 ```ocaml
@@ -610,7 +700,7 @@ Exception: Eio.Io Fs Not_found _,
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo ~service:"https" env#net "google.com";;
 - : Eio.Net.Sockaddr.t list =
-[`Tcp ("ь:тн", 443); `Udp ("ь:тн", 443);
+[`Tcp ("О©╫:О©╫О©╫", 443); `Udp ("О©╫:О©╫О©╫", 443);
  `Tcp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443);
  `Udp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443)]
 ```

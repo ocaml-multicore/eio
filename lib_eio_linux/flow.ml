@@ -130,6 +130,9 @@ module Impl = struct
   let seek = Low_level.lseek
   let sync = Low_level.fsync
   let truncate = Low_level.ftruncate
+
+  let setsockopt t opt v = Low_level.Sockopt.set t opt v
+  let getsockopt t opt = Low_level.Sockopt.get t opt
 end
 
 let flow_handler = Eio_unix.Pi.flow_handler (module Impl)
