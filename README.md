@@ -1840,7 +1840,7 @@ module Status : sig
     net : _ Eio.Net.t;             (** To connect to the servers *)
     clock : _ Eio.Time.clock;      (** Needed for timeouts *)
     ..
-  > as 'a
+  >
 
   val check : _ env -> bool
 end
