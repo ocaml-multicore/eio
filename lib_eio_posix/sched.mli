@@ -10,10 +10,12 @@ type exit
     and so does not return until the whole event loop is finished. Such functions should normally
     be called in tail position. *)
 
-val with_sched : (t -> 'a) -> 'a
+val with_sched : ?pipe:(cloexec:bool -> Unix.file_descr * Unix.file_descr) -> (t -> 'a) -> 'a
 (** [with_sched fn] sets up a scheduler and calls [fn t].
     Typically [fn] will call {!run}.
-    When [fn] returns, the scheduler's resources are freed. *)
+    When [fn] returns, the scheduler's resources are freed.
+
+    @param pipe Can be used to change the function that provides a pipe for the scheduler. *)
 
 val run :
   extra_effects:exit Effect.Deep.effect_handler ->

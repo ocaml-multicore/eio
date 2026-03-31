@@ -505,8 +505,8 @@ let stdenv ~run_event_loop =
     method backend_id = "linux"
   end
 
-let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
-  Sched.with_sched ?fallback config @@ fun st ->
+let run_event_loop (type a) ?fallback ?eventfd config (main : _ -> a) arg : a =
+  Sched.with_sched ?fallback ?eventfd config @@ fun st ->
   let open Effect.Deep in
   let extra_effects : _ effect_handler = {
     effc = fun (type a) (e : a Effect.t) : ((a, Sched.exit) continuation -> Sched.exit) option ->
@@ -561,9 +561,9 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
   } in
   Sched.run ~extra_effects st main arg
 
-let run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
+let run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback ?eventfd main =
   let config = Sched.config ?queue_depth ?n_blocks ?block_size ?polling_timeout () in
-  let stdenv = stdenv ~run_event_loop:(run_event_loop ?fallback:None config) in
+  let stdenv = stdenv ~run_event_loop:(run_event_loop ?fallback:None ?eventfd config) in
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
-  run_event_loop ?fallback config main stdenv
+  run_event_loop ?fallback ?eventfd config main stdenv

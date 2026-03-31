@@ -31,6 +31,7 @@ val run :
   ?block_size:int ->
   ?polling_timeout:int ->
   ?fallback:([`Msg of string] -> 'a) ->
+  ?eventfd:(int -> Unix.file_descr) ->
   (stdenv -> 'a) -> 'a
 (** Run an event loop using io_uring.
 
@@ -45,6 +46,8 @@ val run :
 
     @param fallback Call this instead if io_uring is not available for some reason.
                     The argument is a message describing the problem (for logging).
-                    The default simply raises an exception. *)
+                    The default simply raises an exception.
+    @param eventfd Call this instead of a binding to eventfd(2) to create an eventfd
+                   for the scheduler. *)
 
 module Low_level = Low_level

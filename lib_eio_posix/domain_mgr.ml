@@ -36,8 +36,8 @@ let socketpair k ~sw ~domain ~ty ~protocol wrap_a wrap_b =
     discontinue k (Err.wrap code name arg)
 
 (* Run an event loop in the current domain, using [fn x] as the root fiber. *)
-let run_event_loop fn x =
-  Sched.with_sched @@ fun sched ->
+let run_event_loop ?pipe fn x =
+  Sched.with_sched ?pipe @@ fun sched ->
   let open Effect.Deep in
   let extra_effects : _ effect_handler = {
     effc = fun (type a) (e : a Effect.t) : ((a, Sched.exit) continuation -> Sched.exit) option ->
@@ -94,14 +94,16 @@ let unwrap_backtrace = function
   | Error (ex, bt) -> Printexc.raise_with_backtrace ex bt
 
 module Impl = struct
-  type t = unit
+  type t = {
+    pipe : (cloexec:bool -> Unix.file_descr * Unix.file_descr) option;
+  }
 
   let domain_spawn ctx enqueue fn =
     Domain.spawn @@ fun () ->
     Trace.domain_spawn ~parent:(Eio.Private.Fiber_context.tid ctx);
     Fun.protect fn ~finally:(fun () -> enqueue (Ok ()))
 
-  let run_raw () fn =
+  let run_raw _t fn =
     let domain = ref None in
     Eio.Private.Suspend.enter "run-domain" (fun ctx enqueue ->
         domain := Some (domain_spawn ctx enqueue (wrap_backtrace fn))
@@ -109,19 +111,19 @@ module Impl = struct
     Trace.with_span "Domain.join" @@ fun () ->
     unwrap_backtrace (Domain.join (Option.get !domain))
 
-  let run () fn =
+  let run t fn =
     let domain = ref None in
     Eio.Private.Suspend.enter "run-domain" (fun ctx enqueue ->
         let cancelled, set_cancelled = Promise.create () in
         Eio.Private.Fiber_context.set_cancel_fn ctx (Promise.resolve set_cancelled);
         domain := Some (domain_spawn ctx enqueue (fun () ->
-            run_event_loop (wrap_backtrace (fun () -> fn ~cancelled)) ()
+            run_event_loop ?pipe:t.pipe (wrap_backtrace (fun () -> fn ~cancelled)) ()
           ))
       );
     Trace.with_span "Domain.join" @@ fun () ->
     unwrap_backtrace (Domain.join (Option.get !domain))
 end
 
-let v =
+let v ?pipe () =
   let handler = Eio.Domain_manager.Pi.mgr (module Impl) in
-  Eio.Resource.T ((), handler)
+  Eio.Resource.T (Impl.{ pipe }, handler)

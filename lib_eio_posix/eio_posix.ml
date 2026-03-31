@@ -18,7 +18,7 @@ module Low_level = Low_level
 
 type stdenv = Eio_unix.Stdenv.base
 
-let run main =
+let run ?pipe main =
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
   Eio_unix.Process.install_sigchld_handler ();
@@ -34,7 +34,7 @@ let run main =
     method mono_clock = Time.mono_clock
     method net = Net.v
     method process_mgr = Process.mgr
-    method domain_mgr = Domain_mgr.v
+    method domain_mgr = Domain_mgr.v ?pipe ()
     method cwd = ((Fs.cwd, "") :> Eio.Fs.dir_ty Eio.Path.t)
     method fs = ((Fs.fs, "") :> Eio.Fs.dir_ty Eio.Path.t)
     method secure_random = Flow.secure_random

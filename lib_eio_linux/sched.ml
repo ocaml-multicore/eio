@@ -498,8 +498,8 @@ external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
 let no_fallback (`Msg msg) = failwith msg
 
-let with_eventfd fn =
-  let eventfd = Eio_unix.Private.Rcfd.make (eio_eventfd 0) in
+let with_eventfd ?(eventfd = eio_eventfd) fn =
+  let eventfd = Eio_unix.Private.Rcfd.make (eventfd 0) in
   let close () =
     if not (Eio_unix.Private.Rcfd.close eventfd) then failwith "eventfd already closed!"
   in
@@ -510,7 +510,7 @@ let with_eventfd fn =
     close ();
     Printexc.raise_with_backtrace ex bt
 
-let with_sched ?(fallback=no_fallback) config fn =
+let with_sched ?(fallback=no_fallback) ?eventfd config fn =
   let { queue_depth; n_blocks; block_size; polling_timeout } = config in
   match Uring.create ~queue_depth ?polling_timeout () with
   | exception Unix.Unix_error(ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
@@ -540,7 +540,7 @@ let with_sched ?(fallback=no_fallback) config fn =
         let sleep_q = Zzz.create () in
         let io_q = Queue.create () in
         let mem_q = Lwt_dllist.create () in
-        with_eventfd @@ fun eventfd ->
+        with_eventfd ?eventfd @@ fun eventfd ->
         let thread_pool = Eio_unix.Private.Thread_pool.create ~sleep_q in
         fn { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; thread_pool }
       with
