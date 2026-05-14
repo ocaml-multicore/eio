@@ -229,7 +229,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
       match Uring.get_cqe_nonblocking uring with
       | Some { data = runnable; result } ->
         Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
-        handle_complete st ~runnable result
+        handle_complete st ~runnable (result :> int)
       | None ->
         let timeout =
           match next_due with
@@ -273,7 +273,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
               (* Woken by a timeout, which is now due, or by a signal. *)
               schedule st
             | Some { data = runnable; result } ->
-              handle_complete st ~runnable result
+              handle_complete st ~runnable (result :> int)
           ) else (
             (* Someone added a new job while we were setting [need_wakeup] to [true].
                They might or might not have seen that, so we can't be sure they'll send an event. *)
