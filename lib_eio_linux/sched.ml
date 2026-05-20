@@ -510,9 +510,15 @@ let with_eventfd fn =
     close ();
     Printexc.raise_with_backtrace ex bt
 
+let uring_create ~queue_depth ?polling_timeout () =
+  let flags = Uring.Setup_flags.single_issuer in (* Requires Linux >= 6.0 *)
+  match Uring.create ~queue_depth ~flags ?polling_timeout () with
+  | exception Unix.Unix_error(EINVAL, _, _) -> Uring.create ~queue_depth ?polling_timeout ()
+  | x -> x
+
 let with_sched ?(fallback=no_fallback) config fn =
   let { queue_depth; n_blocks; block_size; polling_timeout } = config in
-  match Uring.create ~queue_depth ?polling_timeout () with
+  match uring_create ~queue_depth ?polling_timeout () with
   | exception Unix.Unix_error(ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
   | exception Unix.Unix_error(EPERM, _, _) -> fallback (`Msg "io_uring is not available (permission denied)")
   | uring ->
