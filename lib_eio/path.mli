@@ -183,8 +183,11 @@ val read_link : _ t -> string
 
 (** {1 Other} *)
 
-val unlink : _ t -> unit
+val unlink : ?missing_ok:bool -> _ t -> unit
 (** [unlink t] removes directory entry [t].
+
+    @param missing_ok If [false] (the default), raise an {!Fs.Not_found} IO error if [t] doesn't exist.
+                      If [true], do nothing if [t] is missing.
 
     Note: this cannot be used to unlink directories.
     Use {!rmdir} for directories. *)

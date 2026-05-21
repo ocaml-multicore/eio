@@ -160,11 +160,13 @@ let save ?append ~create path data =
   with_open_out ?append ~create path @@ fun flow ->
   Flow.copy_string data flow
 
-let unlink t =
+let unlink ?(missing_ok=false) t =
   let (Resource.T (dir, ops), path) = t in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
   try X.unlink dir path
-  with Exn.Io _ as ex ->
+  with
+  | Exn.Io (Fs.(E (Not_found _)), _) when missing_ok -> ()
+  | Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "removing file %a" pp t
 
