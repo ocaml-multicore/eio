@@ -1,8 +1,7 @@
-FROM ocaml/opam:debian-11-ocaml-5.2
-# Make sure we're using opam-2.1:
-RUN sudo ln -sf /usr/bin/opam-2.1 /usr/bin/opam
+FROM ocaml/opam:debian-13-ocaml-5.4
+RUN sudo ln -sf /usr/bin/opam-2.5 /usr/bin/opam
 # Ensure opam-repository is up-to-date:
-RUN cd opam-repository && git pull -q origin 97de3378749cf8d2d70a5d710d310e5cc17c9dea && opam update
+RUN cd opam-repository && git pull -q origin 85e16f902396ddeb2ceae04e43fca88275e7a626 && opam update
 # Install utop for interactive use:
 RUN opam install utop fmt
 # Install Eio's dependencies (adding just the opam files first to help with caching):
@@ -10,7 +9,7 @@ RUN mkdir eio
 WORKDIR eio
 COPY *.opam ./
 RUN opam pin --with-version=dev . -yn
-RUN opam install --deps-only eio_main eio_linux eio
+RUN opam install --deps-only eio && opam install uring iomux yojson
 # Build Eio:
 COPY . ./
 RUN opam install eio_main
