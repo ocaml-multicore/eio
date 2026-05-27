@@ -511,7 +511,7 @@ static value safe_caml_unix_alloc_sockaddr(union sock_addr_union *adr, socklen_p
   return caml_unix_alloc_sockaddr(adr, adr_len, close_on_error);
 }
 
-CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs) {
+CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs, value v_flags) {
   CAMLparam1(v_bufs);
   CAMLlocal2(v_result, v_addr);
   int max_fds = Int_val(v_max_fds);
@@ -535,7 +535,7 @@ CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs
   msg.msg_iov = iov;
 
   caml_enter_blocking_section();
-  r = recvmsg(Int_val(v_fd), &msg, 0);
+  r = recvmsg(Int_val(v_fd), &msg, Int_val(v_flags));
   caml_leave_blocking_section();
   caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("recv_msg", Nothing);

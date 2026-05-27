@@ -3,7 +3,7 @@
 #define _GNU_SOURCE
 #include <caml/mlvalues.h>
 CAMLprim value caml_eio_posix_send_msg(value, value, value, value, value);
-CAMLprim value caml_eio_posix_recv_msg(value, value, value);
+CAMLprim value caml_eio_posix_recv_msg(value, value, value, value);
 CAMLprim value caml_eio_posix_getrandom(value, value, value);
 CAMLprim value caml_eio_posix_readv(value, value);
 CAMLprim value caml_eio_posix_writev(value, value);
