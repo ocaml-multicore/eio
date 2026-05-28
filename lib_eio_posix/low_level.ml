@@ -89,7 +89,7 @@ let shutdown sock cmd =
   Fd.use_exn "shutdown" sock (fun fd -> Unix.shutdown fd cmd)
 
 external eio_send_msg : Unix.file_descr -> int -> Unix.file_descr list -> Unix.sockaddr option -> Cstruct.t array -> int = "caml_eio_posix_send_msg"
-external eio_recv_msg : Unix.file_descr -> int -> Cstruct.t array -> Unix.sockaddr * int * Unix.file_descr list = "caml_eio_posix_recv_msg"
+external eio_recv_msg : Unix.file_descr -> int -> Cstruct.t array -> int -> Unix.sockaddr * int * Unix.file_descr list = "caml_eio_posix_recv_msg"
 
 let send_msg fd ?(fds = []) ?dst buf =
   Fd.use_exn "send_msg" fd @@ fun fd ->
@@ -99,15 +99,18 @@ let send_msg fd ?(fds = []) ?dst buf =
 let recv_msg fd buf =
   let addr, got, _ =
     Fd.use_exn "recv_msg" fd @@ fun fd ->
-    do_nonblocking Read "recv_msg" (fun fd -> eio_recv_msg fd 0 buf) fd
+    let flags = 0 in
+    do_nonblocking Read "recv_msg" (fun fd -> eio_recv_msg fd 0 buf flags) fd
   in
   (addr, got)
 
 let recv_msg_with_fds ~sw ~max_fds fd buf =
   let addr, got, fds =
     Fd.use_exn "recv_msg" fd @@ fun fd ->
-    do_nonblocking Read "recv_msg" (fun fd -> eio_recv_msg fd max_fds buf) fd
+    let flags = Option.value Config.msg_cmsg_cloexec ~default:0 in
+    do_nonblocking Read "recv_msg" (fun fd -> eio_recv_msg fd max_fds buf flags) fd
   in
+  if Config.msg_cmsg_cloexec = None then List.iter Unix.set_close_on_exec fds; (* For macos *)
   (addr, got, Eio_unix.Fd.of_unix_list ~sw fds)
 
 external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_posix_getrandom"
