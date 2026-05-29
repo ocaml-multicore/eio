@@ -511,7 +511,7 @@ let with_eventfd fn =
     Printexc.raise_with_backtrace ex bt
 
 let uring_create ~queue_depth ?polling_timeout () =
-  let flags = Uring.Setup_flags.single_issuer in (* Requires Linux >= 6.0 *)
+  let flags = Uring.Setup_flags.(single_issuer + defer_taskrun + taskrun_flag) in (* Requires Linux >= 6.1 *)
   match Uring.create ~queue_depth ~flags ?polling_timeout () with
   | exception Unix.Unix_error(EINVAL, _, _) -> Uring.create ~queue_depth ?polling_timeout ()
   | x -> x
