@@ -26,6 +26,7 @@
   (crowbar (and (>= 0.2) :with-test))
   (mtime (>= 2.0.0))
   (mdx (and (>= 2.4.1) :with-test))
+  (lintcstubs-arity :with-test)
   (dscheck (and (>= 0.1.0) :with-test))))
 (package
  (name eio_linux)
@@ -36,6 +37,7 @@
   (alcotest (and (>= 1.7.0) :with-test))
   (eio (= :version))
   (mdx (and (>= 2.4.1) :with-test))
+  (lintcstubs-arity :with-test)
   (logs (and (>= 0.7.0) :with-test))
   (fmt (>= 0.8.9))
   (cmdliner (and (>= 1.1.0) :with-test))
@@ -49,6 +51,7 @@
   (eio (= :version))
   (iomux (>= 0.2))
   (mdx (and (>= 2.4.1) :with-test))
+  (lintcstubs-arity :with-test)
   (conf-bash :with-test)
   (fmt (>= 0.8.9))))
 (package

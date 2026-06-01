@@ -16,6 +16,7 @@
 
 (rule
  (enabled_if (and (= %{os_type} "Unix") %{bin-available:lintcstubs_arity_cmt}))
+ (package eio_posix)
  (action
   (with-stdout-to
    primitives.h.new
@@ -23,6 +24,7 @@
 
 (rule
  (enabled_if (and (= %{os_type} "Unix") %{bin-available:lintcstubs_arity_cmt}))
+ (package eio_posix)
  (alias runtest)
  (action
   (diff primitives.h primitives.h.new)))

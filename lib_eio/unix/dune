@@ -9,6 +9,7 @@
  (libraries eio eio.utils unix threads mtime.clock.os))
 
 (rule
+ (package eio)
  (enabled_if %{bin-available:lintcstubs_arity_cmt})
  (action
   (with-stdout-to
@@ -20,6 +21,7 @@
         %{dep:.eio_unix.objs/byte/eio_unix__Fork_action.cmt}))))
 
 (rule
+ (package eio)
  (enabled_if %{bin-available:lintcstubs_arity_cmt})
  (alias runtest)
  (action
