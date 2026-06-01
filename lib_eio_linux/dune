@@ -14,6 +14,7 @@
  (libraries eio eio.utils eio.unix uring fmt))
 
 (rule
+ (package eio_linux)
  (enabled_if
    (and
      %{bin-available:lintcstubs_arity_cmt}
@@ -27,6 +28,7 @@
    (run %{bin:lintcstubs_arity_cmt} %{dep:.eio_linux.objs/byte/eio_linux__Low_level.cmt} %{dep:.eio_linux.objs/byte/eio_linux__Sched.cmt}))))
 
 (rule
+ (package eio_linux)
  (enabled_if
    (and
      %{bin-available:lintcstubs_arity_cmt}

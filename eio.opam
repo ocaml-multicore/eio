@@ -22,6 +22,7 @@ depends: [
   "crowbar" {>= "0.2" & with-test}
   "mtime" {>= "2.0.0"}
   "mdx" {>= "2.4.1" & with-test}
+  "lintcstubs-arity" {with-test}
   "dscheck" {>= "0.1.0" & with-test}
   "odoc" {with-doc}
 ]
