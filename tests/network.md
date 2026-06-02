@@ -3,6 +3,7 @@
 ```ocaml
 # #require "eio_main";;
 # #require "eio.mock";;
+# #install_printer Eio.Net.Ipaddr.pp;;
 ```
 
 ```ocaml
@@ -568,51 +569,47 @@ Exception: Eio.Io Fs Not_found _,
 ```ocaml
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo_stream env#net "127.0.0.1";;
-- : Eio.Net.Sockaddr.stream list = [`Tcp ("\127\000\000\001", 0)]
+- : Eio.Net.Sockaddr.stream list = [`Tcp (127.0.0.1, 0)]
 ```
 
 ```ocaml
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo_stream env#net "127.0.0.1" ~service:"80";;
-- : Eio.Net.Sockaddr.stream list = [`Tcp ("\127\000\000\001", 80)]
+- : Eio.Net.Sockaddr.stream list = [`Tcp (127.0.0.1, 80)]
 ```
 
 ```ocaml
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo_datagram env#net "127.0.0.1";;
-- : Eio.Net.Sockaddr.datagram list = [`Udp ("\127\000\000\001", 0)]
+- : Eio.Net.Sockaddr.datagram list = [`Udp (127.0.0.1, 0)]
 ```
 
 ```ocaml
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo_datagram env#net "127.0.0.1" ~service:"80";;
-- : Eio.Net.Sockaddr.datagram list = [`Udp ("\127\000\000\001", 80)]
+- : Eio.Net.Sockaddr.datagram list = [`Udp (127.0.0.1, 80)]
 ```
 
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo ~service:"http" env#net "127.0.0.1";;
-- : Eio.Net.Sockaddr.t list =
-[`Tcp ("\127\000\000\001", 80); `Udp ("\127\000\000\001", 80)]
+- : Eio.Net.Sockaddr.t list = [`Tcp (127.0.0.1, 80)]
 ```
 
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo ~service:"ftp" env#net "127.0.0.1";;
-- : Eio.Net.Sockaddr.t list =
-[`Tcp ("\127\000\000\001", 21); `Udp ("\127\000\000\001", 21)]
+- : Eio.Net.Sockaddr.t list = [`Tcp (127.0.0.1, 21)]
 ```
 
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
-  Eio.Net.getaddrinfo ~service:"https" env#net "google.com";;
+  Eio.Net.getaddrinfo ~service:"https" env#net "ocaml.org";;
 - : Eio.Net.Sockaddr.t list =
-[`Tcp ("ь:тн", 443); `Udp ("ь:тн", 443);
- `Tcp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443);
- `Udp ("*\000\020P@\t\b \000\000\000\000\000\000 \014", 443)]
+[`Tcp (51.159.83.169, 443); `Udp (51.159.83.169, 443)]
 ```
 
 ## getnameinfo
