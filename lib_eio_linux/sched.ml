@@ -26,7 +26,7 @@ type rw_req = {
   file_offset : file_offset;    (* Read from here + cur_off (unless using current pos) *)
   fd : Unix.file_descr;
   len : amount;
-  buf : Uring.Region.chunk;
+  buf : Region.chunk;
   mutable cur_off : int;
   action : int Suspended.t;
 }
@@ -48,9 +48,9 @@ type runnable =
 
 type t = {
   uring: io_job Uring.t;
-  mem: Uring.Region.t option;
+  mem: Region.t option;
   io_q: (t -> unit) Queue.t;     (* waiting for room on [uring] *)
-  mem_q : Uring.Region.chunk Eio.Private.Single_waiter.t Lwt_dllist.t;
+  mem_q : Region.chunk Eio.Private.Single_waiter.t Lwt_dllist.t;
 
   (* The queue of runnable fibers ready to be resumed. Note: other domains can also add work items here. *)
   run_q : runnable Lf_queue.t;
@@ -175,7 +175,7 @@ let submit_pending_io st =
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
   let {uring;io_q;_} = st in
-  let off = Uring.Region.to_offset buf + cur_off in
+  let off = Region.to_offset buf + cur_off in
   let len = match len with Exactly l | Upto l -> l in
   let len = len - cur_off in
   let retry = with_cancel_hook ~action st (fun () ->
@@ -537,7 +537,7 @@ let with_sched ?(fallback=no_fallback) config fn =
           let buf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
           match Uring.set_fixed_buffer uring buf with
           | Ok () ->
-            Some (Uring.Region.init ~block_size buf n_blocks)
+            Some (Region.init ~block_size buf)
           | Error `ENOMEM ->
             None
         in

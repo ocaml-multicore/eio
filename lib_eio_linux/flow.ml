@@ -14,7 +14,7 @@ let fast_copy src dst =
     with End_of_file -> ()
   in
   Low_level.with_chunk ~fallback @@ fun chunk ->
-  let chunk_size = Uring.Region.length chunk in
+  let chunk_size = Region.length chunk in
   try
     while true do
       let got = Low_level.read_upto src chunk chunk_size in
@@ -69,7 +69,7 @@ let fallback_copy (type src) (module Src : Eio.Flow.Pi.SOURCE with type t = src)
     with End_of_file -> ()
   in
   Low_level.with_chunk ~fallback @@ fun chunk ->
-  let chunk_cs = Uring.Region.to_cstruct chunk in
+  let chunk_cs = Region.to_cstruct chunk in
   try
     while true do
       let got = Src.single_read src chunk_cs in

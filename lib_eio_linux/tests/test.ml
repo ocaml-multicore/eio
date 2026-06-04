@@ -147,7 +147,7 @@ let test_read_exact () =
     Eio_linux.Low_level.read_exactly ~file_offset:Optint.Int63.one fd chunk len;
     assert false
   with End_of_file ->
-    let got = Uring.Region.to_string chunk ~len:(String.length msg) in
+    let got = Eio_linux.Low_level.Region.to_string chunk ~len:(String.length msg) in
     if got <> msg then Fmt.failwith "%S vs %S" got msg
 
 let test_expose_backend () =
@@ -220,7 +220,7 @@ let test_alloc_fixed_or_wait () =
     begin
       try
         Fiber.both
-          (fun () -> ignore (Eio_linux.Low_level.alloc_fixed_or_wait () : Uring.Region.chunk))
+          (fun () -> ignore (Eio_linux.Low_level.alloc_fixed_or_wait () : Eio_linux.Low_level.Region.chunk))
           (fun () -> raise Exit);
       with Exit -> ()
     end;
