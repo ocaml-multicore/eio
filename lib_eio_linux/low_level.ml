@@ -4,7 +4,7 @@ open Eio.Std
 
 module Trace = Eio.Private.Trace
 module Fd = Eio_unix.Fd
-module Region = Region
+module Fixed = Fixed
 
 type dir_fd =
   | FD of Fd.t
@@ -213,18 +213,18 @@ let alloc_fixed () =
   match s.mem with
   | None -> None
   | Some mem ->
-    match Region.alloc mem with
+    match Fixed.alloc mem with
     | buf -> Some buf
-    | exception Region.No_space -> None
+    | exception Fixed.No_space -> None
 
 let alloc_fixed_or_wait () =
   let s = Sched.get () in
   match s.mem with
   | None -> failwith "No fixed buffer available"
   | Some mem ->
-    match Region.alloc mem with
+    match Fixed.alloc mem with
     | buf -> buf
-    | exception Region.No_space ->
+    | exception Fixed.No_space ->
       let id = Eio.Private.Trace.mint_id () in
       let trigger = Eio.Private.Single_waiter.create () in
       let node = Lwt_dllist.add_r trigger s.mem_q in
@@ -237,7 +237,7 @@ let alloc_fixed_or_wait () =
 let rec free_fixed buf =
   let s = Sched.get () in
   match Lwt_dllist.take_opt_l s.mem_q with
-  | None -> Region.free buf
+  | None -> Fixed.free buf
   | Some k ->
     if not (Eio.Private.Single_waiter.wake k (Ok buf)) then
       free_fixed buf    (* [k] was already cancelled, but not yet removed from the queue *)

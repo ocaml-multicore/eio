@@ -2,13 +2,13 @@
  * by the uring IO stack *)
 
 (* TODO turn into a variable length slab allocator *)
-type t = {
+type region = {
   buf: Cstruct.buffer;
   block_size: int;
   freelist: int Queue.t;
 }
 
-type chunk = t * int
+type chunk = region * int
 
 exception No_space
 

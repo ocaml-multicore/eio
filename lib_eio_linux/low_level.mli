@@ -4,8 +4,6 @@
 
 open Eio.Std
 
-module Region = Region
-
 type fd := Eio_unix.Fd.t
 
 type dir_fd =
@@ -23,10 +21,33 @@ val sleep_until : Mtime.t -> unit
 
 (** {1 Fixed-buffer memory allocation functions}
 
-    The size of the fixed buffer is set when calling {!run}, which attempts to allocate a fixed buffer.
+    The size of the fixed buffer is set when calling {!Eio_linux.run}, which attempts to allocate a fixed buffer.
     However, that may fail due to resource limits. *)
 
-val alloc_fixed : unit -> Region.chunk option
+module Fixed : sig
+  type chunk
+
+  val length : chunk -> int
+  (** [length chunk] is the block size. *)
+
+  val to_cstruct : ?len:int -> chunk -> Cstruct.t
+  (** [to_cstruct chunk] is a cstruct of [chunk]'s slice of the region.
+      Note that this is a zero-copy view into the underlying region [t]
+      and so [chunk] should not be freed until this cstruct is no longer used.
+      @param len Use only the first [len] bytes of [chunk]. *)
+
+  val to_bigstring : ?len:int -> chunk -> Cstruct.buffer
+  (** [to_bigstring] is like {!to_cstruct}, but creates a {!Bigarray}.
+      Note that this is a zero-copy view into the underlying region [t]
+      and so [chunk] should not be freed until this Bigarray reference is no longer used.
+      @param len Use only the first [len] bytes of [chunk]. *)
+
+  val to_string : ?len:int -> chunk -> string
+  (** [to_string ?len chunk] will return a copy of [chunk] as an OCaml string.
+      @param len Use only the first [len] bytes of [chunk]. *)
+end
+
+val alloc_fixed : unit -> Fixed.chunk option
 (** Allocate a chunk of memory from the fixed buffer.
 
     Warning: The memory is NOT zeroed out.
@@ -34,12 +55,12 @@ val alloc_fixed : unit -> Region.chunk option
     Passing such memory to Linux can be faster than using normal memory, in certain cases.
     There is a limited amount of such memory, and this will return [None] if none is available at present. *)
 
-val alloc_fixed_or_wait : unit -> Region.chunk
+val alloc_fixed_or_wait : unit -> Fixed.chunk
 (** Like {!alloc_fixed}, but if there are no chunks available then it waits until one is. *)
 
-val free_fixed : Region.chunk -> unit
+val free_fixed : Fixed.chunk -> unit
 
-val with_chunk : fallback:(unit -> 'a) -> (Region.chunk -> 'a) -> 'a
+val with_chunk : fallback:(unit -> 'a) -> (Fixed.chunk -> 'a) -> 'a
 (** [with_chunk ~fallback fn] runs [fn chunk] with a freshly allocated chunk and then frees it.
 
     If no chunks are available, it runs [fallback ()] instead. *)
@@ -69,14 +90,14 @@ val openat2 :
     It provides full access to the resolve flags.
     See {!Uring.openat2} for details. *)
 
-val read_upto : ?file_offset:Optint.Int63.t -> fd -> Region.chunk -> int -> int
+val read_upto : ?file_offset:Optint.Int63.t -> fd -> Fixed.chunk -> int -> int
 (** [read_upto fd chunk len] reads at most [len] bytes from [fd],
     returning as soon as some data is available.
 
     @param file_offset Read from the given position in [fd] (default: 0).
     @raise End_of_file Raised if all data has already been read. *)
 
-val read_exactly : ?file_offset:Optint.Int63.t -> fd -> Region.chunk -> int -> unit
+val read_exactly : ?file_offset:Optint.Int63.t -> fd -> Fixed.chunk -> int -> unit
 (** [read_exactly fd chunk len] reads exactly [len] bytes from [fd],
     performing multiple read operations if necessary.
 
@@ -89,7 +110,7 @@ val readv : ?file_offset:Optint.Int63.t -> fd -> Cstruct.t list -> int
 
     If multiple buffers are given, they are filled in order. *)
 
-val write : ?file_offset:Optint.Int63.t -> fd -> Region.chunk -> int -> unit
+val write : ?file_offset:Optint.Int63.t -> fd -> Fixed.chunk -> int -> unit
 (** [write fd buf len] writes exactly [len] bytes from [buf] to [fd].
 
     It blocks until the OS confirms the write is done,
