@@ -13,7 +13,7 @@ let fast_copy src dst =
       done
     with End_of_file -> ()
   in
-  Low_level.with_chunk ~fallback @@ fun chunk ->
+  Low_level.Fixed.use ~fallback @@ fun chunk ->
   let chunk_size = Low_level.Fixed.length chunk in
   try
     while true do
@@ -68,7 +68,7 @@ let fallback_copy (type src) (module Src : Eio.Flow.Pi.SOURCE with type t = src)
       done
     with End_of_file -> ()
   in
-  Low_level.with_chunk ~fallback @@ fun chunk ->
+  Low_level.Fixed.use ~fallback @@ fun chunk ->
   let chunk_cs = Low_level.Fixed.to_cstruct chunk in
   try
     while true do

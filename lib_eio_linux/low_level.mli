@@ -32,38 +32,39 @@ module Fixed : sig
 
   val to_cstruct : ?len:int -> chunk -> Cstruct.t
   (** [to_cstruct chunk] is a cstruct of [chunk]'s slice of the region.
-      Note that this is a zero-copy view into the underlying region [t]
+      Note that this is a zero-copy view into the underlying region
       and so [chunk] should not be freed until this cstruct is no longer used.
       @param len Use only the first [len] bytes of [chunk]. *)
 
   val to_bigstring : ?len:int -> chunk -> Cstruct.buffer
   (** [to_bigstring] is like {!to_cstruct}, but creates a {!Bigarray}.
-      Note that this is a zero-copy view into the underlying region [t]
+      Note that this is a zero-copy view into the underlying region
       and so [chunk] should not be freed until this Bigarray reference is no longer used.
       @param len Use only the first [len] bytes of [chunk]. *)
 
   val to_string : ?len:int -> chunk -> string
   (** [to_string ?len chunk] will return a copy of [chunk] as an OCaml string.
       @param len Use only the first [len] bytes of [chunk]. *)
+
+  val alloc : unit -> chunk option
+  (** Allocate a chunk of memory from the fixed buffer.
+
+      Warning: The memory is NOT zeroed out.
+
+      Passing such memory to Linux can be faster than using normal memory, in certain cases.
+      There is a limited amount of such memory, and this will return [None] if none is available at present. *)
+
+  val alloc_or_wait : unit -> chunk
+  (** Like {!alloc}, but if there are no chunks available then it waits until one is. *)
+
+  val free : chunk -> unit
+
+  val use : fallback:(unit -> 'a) -> (chunk -> 'a) -> 'a
+  (** [use ~fallback fn] runs [fn chunk] with a freshly allocated chunk and then frees it.
+
+      If no chunks are available, it runs [fallback ()] instead. *)
+
 end
-
-val alloc_fixed : unit -> Fixed.chunk option
-(** Allocate a chunk of memory from the fixed buffer.
-
-    Warning: The memory is NOT zeroed out.
-
-    Passing such memory to Linux can be faster than using normal memory, in certain cases.
-    There is a limited amount of such memory, and this will return [None] if none is available at present. *)
-
-val alloc_fixed_or_wait : unit -> Fixed.chunk
-(** Like {!alloc_fixed}, but if there are no chunks available then it waits until one is. *)
-
-val free_fixed : Fixed.chunk -> unit
-
-val with_chunk : fallback:(unit -> 'a) -> (Fixed.chunk -> 'a) -> 'a
-(** [with_chunk ~fallback fn] runs [fn chunk] with a freshly allocated chunk and then frees it.
-
-    If no chunks are available, it runs [fallback ()] instead. *)
 
 (** {1 File manipulation functions} *)
 

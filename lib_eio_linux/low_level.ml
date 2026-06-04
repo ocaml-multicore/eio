@@ -4,7 +4,52 @@ open Eio.Std
 
 module Trace = Eio.Private.Trace
 module Fd = Eio_unix.Fd
-module Fixed = Fixed
+
+module Fixed = struct
+  include Fixed
+
+  let alloc () =
+    let s = Sched.get () in
+    match s.mem with
+    | None -> None
+    | Some mem ->
+      match Fixed.alloc mem with
+      | buf -> Some buf
+      | exception Fixed.No_space -> None
+
+  let alloc_or_wait () =
+    let s = Sched.get () in
+    match s.mem with
+    | None -> failwith "No fixed buffer available"
+    | Some mem ->
+      match Fixed.alloc mem with
+      | buf -> buf
+      | exception Fixed.No_space ->
+        let id = Eio.Private.Trace.mint_id () in
+        let trigger = Eio.Private.Single_waiter.create () in
+        let node = Lwt_dllist.add_r trigger s.mem_q in
+        try
+          Eio.Private.Single_waiter.await trigger "alloc_fixed_or_wait" id
+        with ex ->
+          Lwt_dllist.remove node;
+          raise ex
+
+  let rec free buf =
+    let s = Sched.get () in
+    match Lwt_dllist.take_opt_l s.mem_q with
+    | None -> Fixed.free buf
+    | Some k ->
+      if not (Eio.Private.Single_waiter.wake k (Ok buf)) then
+        free buf    (* [k] was already cancelled, but not yet removed from the queue *)
+
+  let use ~fallback fn =
+    match alloc () with
+    | Some chunk ->
+      Fun.protect ~finally:(fun () -> free chunk) @@ fun () ->
+      fn chunk
+    | None ->
+      fallback ()
+end
 
 type dir_fd =
   | FD of Fd.t
@@ -208,40 +253,6 @@ let write ?file_offset:off fd buf len =
     raise @@ Err.wrap (Uring.error_of_errno res) "write" ""
   )
 
-let alloc_fixed () =
-  let s = Sched.get () in
-  match s.mem with
-  | None -> None
-  | Some mem ->
-    match Fixed.alloc mem with
-    | buf -> Some buf
-    | exception Fixed.No_space -> None
-
-let alloc_fixed_or_wait () =
-  let s = Sched.get () in
-  match s.mem with
-  | None -> failwith "No fixed buffer available"
-  | Some mem ->
-    match Fixed.alloc mem with
-    | buf -> buf
-    | exception Fixed.No_space ->
-      let id = Eio.Private.Trace.mint_id () in
-      let trigger = Eio.Private.Single_waiter.create () in
-      let node = Lwt_dllist.add_r trigger s.mem_q in
-      try
-        Eio.Private.Single_waiter.await trigger "alloc_fixed_or_wait" id
-      with ex ->
-        Lwt_dllist.remove node;
-        raise ex
-
-let rec free_fixed buf =
-  let s = Sched.get () in
-  match Lwt_dllist.take_opt_l s.mem_q with
-  | None -> Fixed.free buf
-  | Some k ->
-    if not (Eio.Private.Single_waiter.wake k (Ok buf)) then
-      free_fixed buf    (* [k] was already cancelled, but not yet removed from the queue *)
-
 let splice src ~dst ~len =
   Fd.use_exn "splice-src" src @@ fun src ->
   Fd.use_exn "splice-dst" dst @@ fun dst ->
@@ -290,14 +301,6 @@ let recv_msg_with_fds ~sw ~max_fds fd buf =
   );
   let fds = Uring.Msghdr.get_fds msghdr |> Fd.of_unix_list ~sw in
   addr, res, fds
-
-let with_chunk ~fallback fn =
-  match alloc_fixed () with
-  | Some chunk ->
-    Fun.protect ~finally:(fun () -> free_fixed chunk) @@ fun () ->
-    fn chunk
-  | None ->
-    fallback ()
 
 let rec openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
   let use dir_opt =

@@ -6,12 +6,12 @@ module U = Eio_linux.Low_level
 module Int63 = Optint.Int63
 
 let read_then_write_chunk infd outfd file_offset len =
-  let buf = U.alloc_fixed_or_wait () in
+  let buf = U.Fixed.alloc_or_wait () in
   Logs.debug (fun l -> l "r/w start %a (%d)" Int63.pp file_offset len);
   U.read_exactly ~file_offset infd buf len;
   U.write ~file_offset outfd buf len;
   Logs.debug (fun l -> l "r/w done  %a (%d)" Int63.pp file_offset len);
-  U.free_fixed buf
+  U.Fixed.free buf
 
 let copy_file infd outfd insize block_size =
   Switch.run @@ fun sw ->
