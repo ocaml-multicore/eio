@@ -9,6 +9,10 @@ module Suspended = Eio_utils.Suspended
 module Zzz = Eio_utils.Zzz
 module Lf_queue = Eio_utils.Lf_queue
 
+let socket_works = ref false    (* IORING_OP_SOCKET requires Linux >= 5.19 *)
+let bind_works = ref false      (* IORING_OP_BIND requires Linux >= 6.11 *)
+let listen_works = ref false    (* IORING_OP_LISTEN requires Linux >= 6.11 *)
+
 type exit = [`Exit_scheduler]
 
 (* Type of user-data attached to jobs. *)
@@ -455,6 +459,14 @@ let with_sched ?(fallback=no_fallback) config fn =
       Uring.exit uring;
       fallback (`Msg "Linux >= 5.18 is required for io_uring support")
     ) else (
+      (* The reason for an if here is to make sure we only set it once, when
+         the first domain is starting. This is just to avoid a tsan warning. *)
+      if not !socket_works && Uring.op_supported probe Uring.Op.socket then
+        socket_works := true;
+      if not !bind_works && Uring.op_supported probe Uring.Op.bind then
+        bind_works := true;
+      if not !listen_works && Uring.op_supported probe Uring.Op.listen then
+        listen_works := true;
       match
         let mem =
           let fixed_buf_len = block_size * n_blocks in

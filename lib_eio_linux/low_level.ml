@@ -700,30 +700,87 @@ let symlink ~link_to dir path =
     eio_symlinkat link_to parent leaf
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
+let rec enqueue_shutdown fd command st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.shutdown st.uring fd command (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_shutdown fd command st action) st.io_q
+
 let shutdown socket command =
-  try
-    Fd.use_exn "shutdown" socket @@ fun fd ->
-    Unix.shutdown fd command
-  with
-  | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
-  | Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  Fd.use_exn "shutdown" socket @@ fun fd ->
+  let res = Sched.enter "shutdown" (enqueue_shutdown fd command) in
+  match Res.unit_result res with
+  | Ok () -> ()
+  | Error Unix.ENOTCONN -> ()
+  | Error e -> raise @@ Err.wrap e "shutdown" ""
+
+let rec enqueue_socket domain ty protocol st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      (* The default [flags] sets close-on-exec on the new socket. *)
+      Uring.socket st.uring domain ty protocol (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_socket domain ty protocol st action) st.io_q
 
 let socket ~sw domain ty protocol =
   let fd =
-    try Unix.socket ~cloexec:true domain ty protocol
-    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+    if !Sched.socket_works then (
+      let res = Sched.enter "socket" (enqueue_socket domain ty protocol) in
+      match Uring.Res.fd_result res with
+      | Ok fd -> fd
+      | Error e -> raise @@ Err.wrap e "socket" ""
+    ) else (
+      (* IORING_OP_SOCKET requires Linux >= 5.19; fall back to a blocking call. *)
+      try Unix.socket ~cloexec:true domain ty protocol
+      with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+    )
   in
   Fd.of_unix ~sw ~seekable:false ~close_unix:true fd
 
+let rec enqueue_bind fd addr st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.bind st.uring fd addr (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_bind fd addr st action) st.io_q
+
 let bind fd addr =
   Fd.use_exn "bind" fd @@ fun fd ->
-  try Unix.bind fd addr
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  if !Sched.bind_works then (
+    let res = Sched.enter "bind" (enqueue_bind fd addr) in
+    match Res.unit_result res with
+    | Ok () -> ()
+    | Error e -> raise @@ Err.wrap e "bind" ""
+  ) else (
+    (* IORING_OP_BIND requires Linux >= 6.11; fall back to a blocking call. *)
+    try Unix.bind fd addr
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  )
+
+let rec enqueue_listen fd backlog st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.listen st.uring fd backlog (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_listen fd backlog st action) st.io_q
 
 let listen fd backlog =
   Fd.use_exn "listen" fd @@ fun fd ->
-  try Unix.listen fd backlog
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  if !Sched.listen_works then (
+    let res = Sched.enter "listen" (enqueue_listen fd backlog) in
+    match Res.unit_result res with
+    | Ok () -> ()
+    | Error e -> raise @@ Err.wrap e "listen" ""
+  ) else (
+    (* IORING_OP_LISTEN requires Linux >= 6.11; fall back to a blocking call. *)
+    try Unix.listen fd backlog
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  )
 
 let accept ~sw fd =
   Fd.use_exn "accept" fd @@ fun fd ->
