@@ -404,15 +404,69 @@ let lseek fd off cmd =
   Unix.LargeFile.lseek fd (Optint.Int63.to_int64 off) cmd
   |> Optint.Int63.of_int64
 
+let rec enqueue_fsync fd st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.fsync st.uring fd (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_fsync fd st action) st.io_q
+
 let fsync fd =
-  (* todo: https://github.com/ocaml-multicore/ocaml-uring/pull/103 *)
-  Eio_unix.run_in_systhread ~label:"fsync" @@ fun () ->
-  Fd.use_exn "fsync" fd Unix.fsync
+  Fd.use_exn "fsync" fd @@ fun fd ->
+  let res = Sched.enter "fsync" (enqueue_fsync fd) in
+  if res <> 0 then raise @@ Err.wrap (Uring.error_of_errno res) "fsync" ""
+
+let rec enqueue_fdatasync fd st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.fdatasync st.uring fd (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_fdatasync fd st action) st.io_q
+
+let fdatasync fd =
+  Fd.use_exn "fdatasync" fd @@ fun fd ->
+  let res = Sched.enter "fdatasync" (enqueue_fdatasync fd) in
+  if res <> 0 then raise @@ Err.wrap (Uring.error_of_errno res) "fdatasync" ""
+
+let rec enqueue_ftruncate fd len st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.ftruncate st.uring fd ~len (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_ftruncate fd len st action) st.io_q
 
 let ftruncate fd len =
-  Eio_unix.run_in_systhread ~label:"ftruncate" @@ fun () ->
-  Fd.use_exn "ftruncate" fd @@ fun fd ->
-  Unix.LargeFile.ftruncate fd (Optint.Int63.to_int64 len)
+  let len = Optint.Int63.to_int64 len in
+  match !Sched.ftruncate_works with
+  | true ->
+    Fd.use_exn "ftruncate" fd @@ fun fd ->
+    let res = Sched.enter "ftruncate" (enqueue_ftruncate fd len) in
+    if res <> 0 then raise @@ Err.wrap (Uring.error_of_errno res) "ftruncate" ""
+  | false -> begin
+    try
+      Eio_unix.run_in_systhread ~label:"ftruncate" @@ fun () ->
+      Fd.use_exn "ftruncate" fd @@ fun fd ->
+      Unix.LargeFile.ftruncate fd len
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  end
+
+let rec enqueue_fallocate fd ~mode ~off ~len st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.fallocate st.uring ~mode fd ~off ~len (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_fallocate fd ~mode ~off ~len st action) st.io_q
+
+let fallocate ?(mode=Uring.Fallocate_flags.empty) fd ~off ~len =
+  let off = Optint.Int63.to_int64 off in
+  let len = Optint.Int63.to_int64 len in
+  Fd.use_exn "fallocate" fd @@ fun fd ->
+  let res = Sched.enter "fallocate" (enqueue_fallocate fd ~mode ~off ~len) in
+  if res <> 0 then raise @@ Err.wrap (Uring.error_of_errno res) "fallocate" ""
 
 let getrandom { Cstruct.buffer; off; len } =
   let rec loop n =
@@ -463,7 +517,7 @@ let with_parent_dir op dir path fn =
 let statx_raw ?fd ~mask path buf flags =
   let res =
     match fd with
-    | None -> Sched.enter "statx" (enqueue_statx (None, path, buf, flags, mask)) 
+    | None -> Sched.enter "statx" (enqueue_statx (None, path, buf, flags, mask))
     | Some fd ->
       Fd.use_exn "statx" fd @@ fun fd ->
       Sched.enter "statx" (enqueue_statx (Some fd, path, buf, flags, mask))
@@ -515,13 +569,83 @@ let symlink ~link_to dir path =
     eio_symlinkat link_to parent leaf
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
+let rec enqueue_shutdown fd command st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.shutdown st.uring fd command (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_shutdown fd command st action) st.io_q
+
 let shutdown socket command =
-  try
-    Fd.use_exn "shutdown" socket @@ fun fd ->
-    Unix.shutdown fd command
-  with
-  | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
-  | Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  Fd.use_exn "shutdown" socket @@ fun fd ->
+  let res = Sched.enter "shutdown" (enqueue_shutdown fd command) in
+  if res < 0 then (
+    match Uring.error_of_errno res with
+    | Unix.ENOTCONN -> ()
+    | e -> raise @@ Err.wrap e "shutdown" ""
+  )
+
+let rec enqueue_socket domain ty protocol st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      (* The default [flags] sets close-on-exec on the new socket. *)
+      Uring.socket st.uring domain ty protocol (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_socket domain ty protocol st action) st.io_q
+
+let socket ~sw domain ty protocol =
+  let fd =
+    if !Sched.socket_works then (
+      let res = Sched.enter "socket" (enqueue_socket domain ty protocol) in
+      if res < 0 then raise @@ Err.wrap (Uring.error_of_errno res) "socket" ""
+      else (Obj.magic res : Unix.file_descr)
+    ) else (
+      (* IORING_OP_SOCKET requires Linux >= 5.19; fall back to a blocking call. *)
+      try Unix.socket ~cloexec:true domain ty protocol
+      with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+    )
+  in
+  Fd.of_unix ~sw ~seekable:false ~close_unix:true fd
+
+let rec enqueue_bind fd addr st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.bind st.uring fd addr (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_bind fd addr st action) st.io_q
+
+let bind fd addr =
+  Fd.use_exn "bind" fd @@ fun fd ->
+  if !Sched.bind_works then (
+    let res = Sched.enter "bind" (enqueue_bind fd addr) in
+    if res <> 0 then raise @@ Err.wrap (Uring.error_of_errno res) "bind" ""
+  ) else (
+    (* IORING_OP_BIND requires Linux >= 6.11; fall back to a blocking call. *)
+    try Unix.bind fd addr
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  )
+
+let rec enqueue_listen fd backlog st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.listen st.uring fd backlog (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_listen fd backlog st action) st.io_q
+
+let listen fd backlog =
+  Fd.use_exn "listen" fd @@ fun fd ->
+  if !Sched.listen_works then (
+    let res = Sched.enter "listen" (enqueue_listen fd backlog) in
+    if res <> 0 then raise @@ Err.wrap (Uring.error_of_errno res) "listen" ""
+  ) else (
+    (* IORING_OP_LISTEN requires Linux >= 6.11; fall back to a blocking call. *)
+    try Unix.listen fd backlog
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  )
 
 let accept ~sw fd =
   Fd.use_exn "accept" fd @@ fun fd ->
