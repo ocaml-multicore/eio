@@ -148,7 +148,8 @@ let test_read_exact () =
     assert false
   with End_of_file ->
     let got = Eio_linux.Low_level.Fixed.to_string chunk ~len:(String.length msg) in
-    if got <> msg then Fmt.failwith "%S vs %S" got msg
+    if got <> msg then Fmt.failwith "%S vs %S" got msg;
+    Eio.Path.unlink path
 
 let test_expose_backend () =
   Eio_linux.run @@ fun env ->
@@ -196,7 +197,7 @@ let test_statx () =
       in
       test 7L ~follow:false (FD fd) "test2.data"
     );
-  ()
+  Eio.Path.unlink path
 
 let test_fstat () =
   Eio_linux.run ~queue_depth:4 @@ fun env ->

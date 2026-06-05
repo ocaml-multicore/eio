@@ -638,7 +638,7 @@ let with_parent_dir op dir path fn =
 let statx_raw ?fd ~mask path buf flags =
   let res =
     match fd with
-    | None -> Sched.enter "statx" (enqueue_statx (None, path, buf, flags, mask)) 
+    | None -> Sched.enter "statx" (enqueue_statx (None, path, buf, flags, mask))
     | Some fd ->
       Fd.use_exn "statx" fd @@ fun fd ->
       Sched.enter "statx" (enqueue_statx (Some fd, path, buf, flags, mask))
