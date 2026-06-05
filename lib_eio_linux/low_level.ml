@@ -60,13 +60,19 @@ let uring_file_offset t =
   if Fd.is_seekable t then Optint.Int63.minus_one else Optint.Int63.zero
 
 let file_offset t = function
-  | Some x -> `Pos x
-  | None when Fd.is_seekable t -> `Seekable_current
-  | None -> `Nonseekable_current
+  | Some x -> x
+  | None when Fd.is_seekable t -> Optint.Int63.minus_one
+  | None -> Optint.Int63.zero
 
-let enqueue_read st action (file_offset,fd,buf,len) =
-  let req = { Sched.op=`R; file_offset; len; fd; cur_off = 0; buf; action } in
-  Sched.submit_rw_req st req
+let rec enqueue_read st action req =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      let (file_offset,fd,buf,len) = req in
+      let off = Fixed.to_offset buf in
+      Uring.read_fixed st.uring ~file_offset fd ~off ~len (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_read st action req) st.io_q
 
 let rec enqueue_writev args st action =
   let (file_offset,fd,bufs) = args in
@@ -77,9 +83,15 @@ let rec enqueue_writev args st action =
   if retry then (* wait until an sqe is available *)
     Queue.push (fun st -> enqueue_writev args st action) st.io_q
 
-let enqueue_write st action (file_offset,fd,buf,len) =
-  let req = { Sched.op=`W; file_offset; len; fd; cur_off = 0; buf; action } in
-  Sched.submit_rw_req st req
+let rec enqueue_write st action req =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      let (file_offset,fd,buf,len) = req in
+      let off = Fixed.to_offset buf in
+      Uring.write_fixed st.uring ~file_offset fd ~off ~len (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_write st action req) st.io_q
 
 let rec enqueue_splice ~src ~dst ~len st action =
   let retry = Sched.with_cancel_hook ~action st (fun () ->
@@ -165,19 +177,27 @@ let sleep_until time =
       Sched.enqueue_failed_thread t k ex
     )
 
-let read ?file_offset:off fd buf amount =
-  let off = file_offset fd off in
-  Fd.use_exn "read" fd @@ fun fd ->
-  let res = Sched.enter "read" (fun t k -> enqueue_read t k (off, fd, buf, amount)) in
-  if res < 0 then (
-    raise @@ Err.wrap (Uring.error_of_errno res) "read" ""
+(* TODO bind from unixsupport *)
+let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
+
+let rec read_upto ?file_offset:off fd buf amount =
+  let res = Sched.enter "read" (fun t k ->
+      let off = file_offset fd off in
+      Fd.use_exn "read" fd @@ fun fd ->
+      enqueue_read t k (off, fd, buf, amount)
+    ) in
+  if res = 0 then raise End_of_file
+  else if res < 0 then (
+    if errno_is_retry res then read_upto ?file_offset:off fd buf amount
+    else raise @@ Err.wrap (Uring.error_of_errno res) "read" ""
   ) else res
 
-let read_exactly ?file_offset fd buf len =
-  ignore (read ?file_offset fd buf (Exactly len) : int)
-
-let read_upto ?file_offset fd buf len =
-  read ?file_offset fd buf (Upto len)
+let rec read_exactly ?file_offset fd buf len =
+  let got = read_upto ?file_offset fd buf len in
+  if got < len then (
+    let file_offset = Option.map (Optint.Int63.(add (of_int got))) file_offset in
+    read_exactly ?file_offset fd (Fixed.shift buf got) (len - got)
+  )
 
 let rec enqueue_readv args st action =
   let (file_offset,fd,bufs) = args in
@@ -245,12 +265,22 @@ let await_writable fd =
     raise (Err.unclassified (Eio_unix.Unix_error (Uring.error_of_errno res, "await_writable", "")))
   )
 
-let write ?file_offset:off fd buf len =
-  let off = file_offset fd off in
-  Fd.use_exn "write" fd @@ fun fd ->
-  let res = Sched.enter "write" (fun t k -> enqueue_write t k (off, fd, buf, Exactly len)) in
+let rec write_single ?file_offset:off fd buf len =
+  let res = Sched.enter "write" (fun t k ->
+      let off = file_offset fd off in
+      Fd.use_exn "write" fd @@ fun fd ->
+      enqueue_write t k (off, fd, buf, len)
+    ) in
   if res < 0 then (
-    raise @@ Err.wrap (Uring.error_of_errno res) "write" ""
+    if errno_is_retry res then write_single ?file_offset:off fd buf len
+    else raise @@ Err.wrap (Uring.error_of_errno res) "write" ""
+  ) else res
+
+let rec write ?file_offset fd buf len =
+  let wrote = write_single ?file_offset fd buf len in
+  if wrote < len then (
+    let file_offset = Option.map (Optint.Int63.(add (of_int wrote))) file_offset in
+    write ?file_offset fd (Fixed.shift buf wrote) (len - wrote)
   )
 
 let splice src ~dst ~len =
