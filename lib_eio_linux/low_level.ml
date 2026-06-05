@@ -708,6 +708,23 @@ let shutdown socket command =
   | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
   | Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
 
+let socket ~sw domain ty protocol =
+  let fd =
+    try Unix.socket ~cloexec:true domain ty protocol
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  in
+  Fd.of_unix ~sw ~seekable:false ~close_unix:true fd
+
+let bind fd addr =
+  Fd.use_exn "bind" fd @@ fun fd ->
+  try Unix.bind fd addr
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+
+let listen fd backlog =
+  Fd.use_exn "listen" fd @@ fun fd ->
+  try Unix.listen fd backlog
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+
 let accept ~sw fd =
   Fd.use_exn "accept" fd @@ fun fd ->
   let client_addr = Uring.Sockaddr.create () in
