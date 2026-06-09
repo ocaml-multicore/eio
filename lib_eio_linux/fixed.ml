@@ -52,3 +52,5 @@ let to_string ?len (t, chunk) =
 let avail {freelist;_} = Queue.length freelist
 
 let to_offset (_,t) = t
+
+let shift (r, off) n = (r, off + n)

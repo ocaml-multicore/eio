@@ -13,31 +13,20 @@ let statx_works = ref false     (* Before Linux 5.18, statx is unreliable *)
 
 type exit = [`Exit_scheduler]
 
-type file_offset = [
-  | `Pos of Optint.Int63.t
-  | `Seekable_current
-  | `Nonseekable_current
-]
-
-type amount = Exactly of int | Upto of int
-
 type rw_req = {
   op : [`R|`W];
-  file_offset : file_offset;    (* Read from here + cur_off (unless using current pos) *)
+  file_offset : Optint.Int63.t;
   fd : Unix.file_descr;
-  len : amount;
+  len : int;
   buf : Fixed.chunk;
-  mutable cur_off : int;
   action : int Suspended.t;
 }
 
 (* Type of user-data attached to jobs. *)
 type io_job =
-  | Read : rw_req -> io_job
   | Job_no_cancel : int Suspended.t -> io_job
   | Cancel_job : io_job
   | Job : int Suspended.t -> io_job     (* A negative result indicates error, and may report cancellation *)
-  | Write : rw_req -> io_job
   | Job_fn : 'a Suspended.t * (int -> [`Exit_scheduler]) -> io_job
   (* When done, remove the cancel_fn from [Suspended.t] and call the callback (unless cancelled). *)
 
@@ -173,32 +162,6 @@ let submit_pending_io st =
     Trace.log "submit_pending_io";
     fn st
 
-let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
-  let {uring;io_q;_} = st in
-  let off = Fixed.to_offset buf + cur_off in
-  let len = match len with Exactly l | Upto l -> l in
-  let len = len - cur_off in
-  let retry = with_cancel_hook ~action st (fun () ->
-      let file_offset =
-        match file_offset with
-        | `Pos x -> Optint.Int63.add x (Optint.Int63.of_int cur_off)
-        | `Seekable_current -> Optint.Int63.minus_one
-        | `Nonseekable_current -> Optint.Int63.zero
-      in
-      match op with
-      |`R -> Uring.read_fixed uring ~file_offset fd ~off ~len (Read req)
-      |`W -> Uring.write_fixed uring ~file_offset fd ~off ~len (Write req)
-    )
-  in
-  if retry then (
-    Trace.log "await-sqe";
-    (* wait until an sqe is available *)
-    Queue.push (fun st -> submit_rw_req st req) io_q
-  )
-
-(* TODO bind from unixsupport *)
-let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
-
 (* Switch control to the next ready continuation.
    If none is ready, wait until we get an event to wake one and then switch.
    Returns only if there is nothing to do and no queued operations. *)
@@ -286,10 +249,6 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
 and handle_complete st ~runnable result =
   submit_pending_io st;                       (* If something was waiting for a slot, submit it now. *)
   match runnable with
-  | Read req ->
-    complete_rw_req st req result
-  | Write req ->
-    complete_rw_req st req result
   | Job k ->
     Fiber_context.clear_cancel_fn k.fiber;
     if result >= 0 then Suspended.continue k result
@@ -313,31 +272,9 @@ and handle_complete st ~runnable result =
     Fiber_context.clear_cancel_fn k.fiber;
     (* Should we only do this on error, to avoid losing the return value?
        We already do that with rw jobs. *)
-    begin match Fiber_context.get_error k.fiber with
-      | None -> f result
-      | Some e -> Suspended.discontinue k e
-    end
-and complete_rw_req st ({len; cur_off; action; _} as req) res =
-  Fiber_context.clear_cancel_fn action.fiber;
-  match res, len with
-  | 0, _ -> Suspended.discontinue action End_of_file
-  | e, _ when e < 0 ->
-    begin match Fiber_context.get_error action.fiber with
-      | Some e -> Suspended.discontinue action e        (* If cancelled, report that instead. *)
-      | None ->
-        if errno_is_retry e then (
-          submit_rw_req st req;
-          schedule st
-        ) else (
-          Suspended.continue action e
-        )
-    end
-  | n, Exactly len when n < len - cur_off ->
-    req.cur_off <- req.cur_off + n;
-    submit_rw_req st req;
-    schedule st
-  | _, Exactly len -> Suspended.continue action len
-  | n, Upto _ -> Suspended.continue action n
+    match Fiber_context.get_error k.fiber with
+    | None -> f result
+    | Some e -> Suspended.discontinue k e
 
 let rec enqueue_poll_add fd poll_mask st action =
   Trace.log "poll_add";

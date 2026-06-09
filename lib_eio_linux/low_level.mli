@@ -95,14 +95,14 @@ val read_upto : ?file_offset:Optint.Int63.t -> fd -> Fixed.chunk -> int -> int
 (** [read_upto fd chunk len] reads at most [len] bytes from [fd],
     returning as soon as some data is available.
 
-    @param file_offset Read from the given position in [fd] (default: 0).
+    @param file_offset Read from the given position in [fd] (default: current position).
     @raise End_of_file Raised if all data has already been read. *)
 
 val read_exactly : ?file_offset:Optint.Int63.t -> fd -> Fixed.chunk -> int -> unit
 (** [read_exactly fd chunk len] reads exactly [len] bytes from [fd],
     performing multiple read operations if necessary.
 
-    @param file_offset Read from the given position in [fd] (default: 0).
+    @param file_offset Read from the given position in [fd] (default: current position).
     @raise End_of_file Raised if the stream ends before [len] bytes have been read. *)
 
 val readv : ?file_offset:Optint.Int63.t -> fd -> Cstruct.t list -> int
