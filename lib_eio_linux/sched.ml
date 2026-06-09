@@ -13,15 +13,6 @@ let statx_works = ref false     (* Before Linux 5.18, statx is unreliable *)
 
 type exit = [`Exit_scheduler]
 
-type rw_req = {
-  op : [`R|`W];
-  file_offset : Optint.Int63.t;
-  fd : Unix.file_descr;
-  len : int;
-  buf : Fixed.chunk;
-  action : int Suspended.t;
-}
-
 (* Type of user-data attached to jobs. *)
 type io_job =
   | Job_no_cancel : int Suspended.t -> io_job
