@@ -177,10 +177,7 @@ let sleep_until time =
       Sched.enqueue_failed_thread t k ex
     )
 
-(* TODO bind from unixsupport *)
-let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
-
-let rec read_upto ?file_offset:off fd buf amount =
+let read_upto ?file_offset:off fd buf amount =
   let res = Sched.enter "read" (fun t k ->
       let off = file_offset fd off in
       Fd.use_exn "read" fd @@ fun fd ->
@@ -188,8 +185,7 @@ let rec read_upto ?file_offset:off fd buf amount =
     ) in
   if res = 0 then raise End_of_file
   else if res < 0 then (
-    if errno_is_retry res then read_upto ?file_offset:off fd buf amount
-    else raise @@ Err.wrap (Uring.error_of_errno res) "read" ""
+    raise @@ Err.wrap (Uring.error_of_errno res) "read" ""
   ) else res
 
 let rec read_exactly ?file_offset fd buf len =
@@ -265,15 +261,14 @@ let await_writable fd =
     raise (Err.unclassified (Eio_unix.Unix_error (Uring.error_of_errno res, "await_writable", "")))
   )
 
-let rec write_single ?file_offset:off fd buf len =
+let write_single ?file_offset:off fd buf len =
   let res = Sched.enter "write" (fun t k ->
       let off = file_offset fd off in
       Fd.use_exn "write" fd @@ fun fd ->
       enqueue_write t k (off, fd, buf, len)
     ) in
   if res < 0 then (
-    if errno_is_retry res then write_single ?file_offset:off fd buf len
-    else raise @@ Err.wrap (Uring.error_of_errno res) "write" ""
+    raise @@ Err.wrap (Uring.error_of_errno res) "write" ""
   ) else res
 
 let rec write ?file_offset fd buf len =
