@@ -532,7 +532,7 @@ Create a sandbox, write a file with it, then read it from outside:
   Switch.run @@ fun sw ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "sandbox");
-  let subdir = Path.open_dir ~sw (cwd / "sandbox") in
+  let subdir = Path.open_subtree ~sw (cwd / "sandbox") in
   Path.save ~create:(`Exclusive 0o600) (subdir / "test-file") "data";
   try_mkdir (subdir / "../new-sandbox");
   traceln "Got %S" @@ Path.load (cwd / "sandbox/test-file");;
@@ -551,8 +551,8 @@ Create a sandbox, write a file with it, then read it from outside:
     Eio.Exn.Backend.show := succeeds;
     try
       Switch.run @@ fun sw ->
-      let _ : _ Path.t = Path.open_dir ~sw path in
-      traceln "open_dir %a -> OK" Path.pp path
+      let _ : _ Path.t = Path.open_subtree ~sw path in
+      traceln "open_subtree %a -> OK" Path.pp path
     with ex ->
       traceln "@[<h>%a@]" Eio.Exn.pp ex
   in
@@ -569,13 +569,13 @@ Create a sandbox, write a file with it, then read it from outside:
   Path.symlink ~link_to:"/" (cwd / "foo/root");
   reject (cwd / "foo/root/..");
   reject (cwd / "missing");
-+open_dir <cwd:foo/bar> -> OK
++open_subtree <cwd:foo/bar> -> OK
 +Eio.Io Fs Permission_denied _, opening directory <cwd:..>
-+open_dir <cwd:.> -> OK
++open_subtree <cwd:.> -> OK
 +Eio.Io Fs Permission_denied _, opening directory <cwd:/>
-+open_dir <cwd:foo/bar/..> -> OK
-+open_dir <fs:foo/bar> -> OK
-+open_dir <cwd:foo/up/foo/bar> -> OK
++open_subtree <cwd:foo/bar/..> -> OK
++open_subtree <fs:foo/bar> -> OK
++open_subtree <cwd:foo/up/foo/bar> -> OK
 +Eio.Io Fs Permission_denied _, opening directory <cwd:foo/up/../bar>
 +Eio.Io Fs Permission_denied _, opening directory <cwd:foo/root/..>
 +Eio.Io Fs Not_found _, opening directory <cwd:missing>
@@ -620,7 +620,7 @@ Reading directory entries under `cwd` and outside of `cwd`.
 # run ~clear:["readdir"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "readdir");
-  Path.with_open_dir (cwd / "readdir") @@ fun tmpdir ->
+  Path.with_subtree (cwd / "readdir") @@ fun tmpdir ->
   try_mkdir (tmpdir / "test-1");
   try_mkdir (tmpdir / "test-2");
   try_write_file ~create:(`Exclusive 0o600) (tmpdir / "test-1/file") "data";
@@ -751,7 +751,7 @@ In that case, `with_open_in` will no longer close it on exit:
 
 ```ocaml
 # run @@ fun env ->
-  let closed = Switch.run (fun sw -> Path.open_dir ~sw env#cwd) in
+  let closed = Switch.run (fun sw -> Path.open_subtree ~sw env#cwd) in
   try
     failwith (Path.read_dir closed |> String.concat ",")
   with Invalid_argument _ -> traceln "Got Invalid_argument for closed FD";;
@@ -768,7 +768,7 @@ let try_rename t =
   try_write_file (t / "foo") "FOO" ~create:(`Exclusive 0o600);
   try_rename (t / "foo") (t / "dir/bar");
   try_read_file (t / "dir/bar");
-  Path.with_open_dir (t / "dir") @@ fun dir ->
+  Path.with_subtree (t / "dir") @@ fun dir ->
   try_rename (dir / "bar") (t / "foo");
   try_read_file (t / "foo");
   Unix.chdir "dir";
@@ -952,7 +952,7 @@ Exception: Failure "Simulated error".
   test (env#cwd / "..");
   let sub = env#cwd / "native-sub" in
   Eio.Path.mkdir sub ~perm:0o700;
-  Eio.Path.with_open_dir sub @@ fun sub ->
+  Eio.Path.with_subtree sub @@ fun sub ->
   test sub;
   test (sub / "foo.txt");
   test (sub / ".");

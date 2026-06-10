@@ -189,7 +189,7 @@ end = struct
 
   let close t = t.closed <- true
 
-  let open_dir t ~sw path =
+  let open_subtree t ~sw path =
     Switch.check sw;
     let label = Filename.basename path in
     let d = v ~label (resolve t path) ~sandbox:true in

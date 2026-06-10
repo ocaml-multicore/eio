@@ -386,7 +386,7 @@ end = struct
       else p
     ) else path
 
-  let open_dir t ~sw path =
+  let open_subtree t ~sw path =
     let fd = Low_level.openat ~sw ~seekable:false t.fd (if path = "" then "." else path)
         ~access:`R
         ~flags:Uring.Open_flags.(cloexec + path + directory)
