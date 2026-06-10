@@ -106,13 +106,19 @@ let read_dir t =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "reading directory %a" pp t
 
-let walk t fn =
+let with_dir_entries t fn =
   let (Resource.T (dir, ops), path) = t in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
-  try X.with_dir_entries dir path fn
+  (* Note: we don't handle exceptions here as that would include the user's [fn]
+     (and this is likely to be called recursively). *)
+  X.with_dir_entries dir path fn
+
+let read_dir_entries t =
+  try
+    with_dir_entries t List.of_seq |> List.sort (fun (_, a) (_, b) -> String.compare a b)
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "walking directory %a" pp t
+    Exn.reraise_with_context ex bt "reading directory %a" pp t
 
 let stat ~follow t =
   let (Resource.T (dir, ops), path) = t in

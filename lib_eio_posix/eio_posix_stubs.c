@@ -570,11 +570,17 @@ CAMLprim value caml_eio_posix_readdir(value v_dir_handle) {
   dir = DIR_Val(v_dir_handle);
   if (!dir) caml_unix_error(EBADF, "readdir", Nothing);
 
+  errno = 0;
   caml_enter_blocking_section();
   ent = readdir(dir);
   caml_leave_blocking_section();
 
-  if (!ent) caml_raise_end_of_file();
+  if (!ent) {
+    if (errno == 0)
+      caml_raise_end_of_file();
+    else
+      uerror("readdir", Nothing);
+  }
 
   v_result = caml_alloc(2, 0);
   Store_field(v_result, 0, eio_unix_file_type_of_dtype(ent->d_type));

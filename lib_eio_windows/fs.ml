@@ -160,6 +160,17 @@ end = struct
     Err.run Low_level.readdir path
     |> Array.to_list
 
+  let with_dir_entries t path fn =
+    let entries =
+      read_dir t path
+      |> List.map (fun name ->
+          match stat ~follow:false t (Filename.concat path name) with
+          | info -> (info.kind, name)
+          | exception Eio.Exn.Io _ -> (`Unknown, name)
+        )
+    in
+    fn (List.to_seq entries)
+
   let read_link t path =
     with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.read_link ?dirfd) path

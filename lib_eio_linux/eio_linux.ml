@@ -414,7 +414,9 @@ end = struct
     Switch.run ~name:"with_dir_entries" @@ fun sw ->
     let path = if path = "" then "." else path in
     let fd =
-      Low_level.openat ~sw t.fd path ~seekable:false ~access:`R
+      Low_level.openat ~sw t.fd path
+        ~seekable:false
+        ~access:`R
         ~flags:Uring.Open_flags.(cloexec + directory)
         ~perm:0
     in
@@ -430,7 +432,6 @@ end = struct
           loop es
     in
     fn (read_entries fd)
-
 
   let read_link t path = Low_level.read_link t.fd path
 

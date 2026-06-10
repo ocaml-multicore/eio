@@ -11,8 +11,6 @@
 #include <caml/bigarray.h>
 #include <caml/alloc.h>
 
-#define BUF_SIZE 4096
-
 static void caml_stat_free_preserving_errno(void *ptr) {
   int saved = errno;
   caml_stat_free(ptr);
@@ -58,6 +56,9 @@ CAMLprim value eio_unix_readlinkat(value v_fd, value v_path, value v_cs) {
 }
 
 CAMLprim value eio_unix_file_type_of_dtype (int d_type) {
+  #ifdef _WIN32
+  return caml_hash_variant("Unknown");
+  #else
   switch (d_type) {
     case DT_REG: return caml_hash_variant("Regular_file");
     case DT_DIR: return caml_hash_variant("Directory");
@@ -69,4 +70,5 @@ CAMLprim value eio_unix_file_type_of_dtype (int d_type) {
 	default:
       return caml_hash_variant("Unknown");
   }
+  #endif
 }

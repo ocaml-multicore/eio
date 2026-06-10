@@ -542,7 +542,7 @@ let read_dir fd =
     match eio_getdents fd with
     | [] -> acc
     | files ->
-      let files = List.filter_map (function (_, "..") | (_, ".") -> None | (_, f) -> Some f) files in
+      let files = List.map snd files in
       read_all (files @ acc) fd
   in
   Eio_unix.run_in_systhread ~label:"read_dir" (fun () -> read_all [] fd)
@@ -550,8 +550,7 @@ let read_dir fd =
 let read_some_dir fd =
   Fd.use_exn "read_some_dir" fd @@ fun fd ->
   Eio_unix.run_in_systhread ~label:"read_some_dir" @@ fun () ->
-  let files = eio_getdents fd in
-  List.filter_map (function _, ".." | _, "." -> None | v -> Some v) files
+  eio_getdents fd
 
 let read_link fd path =
   try

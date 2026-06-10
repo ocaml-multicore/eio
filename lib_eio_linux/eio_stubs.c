@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <string.h>
 #include <unistd.h>
 
 // We need caml_convert_signal_number
@@ -150,16 +151,19 @@ CAMLprim value caml_eio_getdents(value v_fd) {
 
   for (pos = 0; pos < nread;) {
     d = (struct dirent64 *) (buf + pos);
+    pos += d->d_reclen;
 
-	ventry = caml_alloc(2, 0);
+    if (strcmp(d->d_name, ".") == 0 || strcmp(d->d_name, "..") == 0)
+      continue;
+
+    ventry = caml_alloc(2, 0);
     Store_field(ventry, 0, eio_unix_file_type_of_dtype(d->d_type));
     Store_field(ventry, 1, caml_copy_string_of_os(d->d_name));
 
-	cons = caml_alloc(2, 0);
-    Store_field(cons, 0, ventry);                              // Head
-    Store_field(cons, 1, result);                              // Tail
+    cons = caml_alloc(2, 0);
+    Store_field(cons, 0, ventry);  // Head
+    Store_field(cons, 1, result);  // Tail
     result = cons;
-    pos += d->d_reclen;
   }
 
   CAMLreturn(result);

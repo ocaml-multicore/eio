@@ -370,66 +370,66 @@ let openat ~sw ~mode fd path flags =
 external eio_fdopendir : Unix.file_descr -> Unix.dir_handle = "caml_eio_posix_fdopendir"
 external eio_readdir : Unix.dir_handle -> Eio.File.Stat.kind * string = "caml_eio_posix_readdir"
 
-let readdir dirfd path =
-  in_worker_thread "readdir" @@ fun () ->
-  let use h =
-    match read_entries h with
-    | r -> Unix.closedir h; r
-    | exception ex ->
-      let bt = Printexc.get_raw_backtrace () in
-      Unix.closedir h;
-      Printexc.raise_with_backtrace ex bt
-  in
+let open_dir_handle label dirfd path =
   let use_confined dirfd =
     Resolve.with_parent_loop ?dirfd path @@ fun dirfd path ->
     match eio_openat dirfd path Open_flags.(rdonly + directory + nofollow) 0 with
-    | fd -> Ok (use (eio_fdopendir fd))
+    | fd -> Ok (eio_fdopendir fd)
     | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) -> Error (`Symlink (Some e))
   in
   match dirfd with
-  | Fs -> use (Unix.opendir path)
+  | Fs -> Unix.opendir path
   | Cwd -> use_confined None
   | Fd dirfd ->
-    Fd.use_exn "readdir" dirfd @@ fun dirfd ->
+    Fd.use_exn label dirfd @@ fun dirfd ->
     use_confined (Some dirfd)
 
-let with_dir_entries dirfd path fn =
-  let rec read_entry h =
-    match eio_readdir h with _, "." | _, ".." -> read_entry h | v -> v
-  in
-  let it h () =
-    match in_worker_thread "with_dir_entries" @@ fun () -> read_entry h with
-    | r -> Some r
-    | exception End_of_file -> None
-    | exception ex ->
-        let bt = Printexc.get_raw_backtrace () in
-        Unix.closedir h;
-        Printexc.raise_with_backtrace ex bt
-  in
-  let use h =
-    let seq = Seq.of_dispenser (it h) in
-    let v = fn seq in
+let readdir dirfd path =
+  in_worker_thread "readdir" @@ fun () ->
+  let h = open_dir_handle "readdir" dirfd path in
+  match read_entries h with
+  | r -> Unix.closedir h; r
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
     Unix.closedir h;
-    v
-  in
-  let use_confined dirfd =
-    Resolve.with_parent_loop ?dirfd path @@ fun dirfd path ->
-    match
-      eio_openat dirfd path Open_flags.(rdonly + directory + nofollow) 0
-    with
-    | fd -> Ok (use (eio_fdopendir fd))
-    | exception
-        (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e)
-      ->
-        Error (`Symlink (Some e))
-  in
-  match dirfd with
-  | Fs -> use (Unix.opendir path)
-  | Cwd -> use_confined None
-  | Fd dirfd ->
-      Fd.use_exn "with_dir_entries" dirfd @@ fun dirfd ->
-      use_confined (Some dirfd)
+    Printexc.raise_with_backtrace ex bt
 
+let rec read_entry h =
+  match eio_readdir h with
+  | exception End_of_file -> None
+  | _, ("." | "..") -> read_entry h
+  | v -> Some v
+
+let dir_entry_seq h =
+  let read_dir_batch_size = 100 in
+  let read_batch () =
+    in_worker_thread "with_dir_entries" @@ fun () ->
+    Seq.of_dispenser (fun () -> Err.run read_entry h)
+    |> Seq.take read_dir_batch_size
+    |> List.of_seq
+  in
+  let rec aux () =
+    let items = read_batch () in
+    let maybe_more = (List.length items = read_dir_batch_size) in
+    if maybe_more then (
+      Seq.append (List.to_seq items) aux ()
+    ) else (
+      List.to_seq items ()
+    )
+  in
+  aux
+
+let with_dir_entries dirfd path fn =
+  let h =
+    in_worker_thread "readdir" @@ fun () ->
+    Err.run (open_dir_handle "readdir" dirfd) path
+  in
+  match fn @@ dir_entry_seq h with
+  | v -> Unix.closedir h; v
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Unix.closedir h;
+    Printexc.raise_with_backtrace ex bt
 
 external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_posix_mkdirat"
 

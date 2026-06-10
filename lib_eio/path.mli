@@ -149,14 +149,23 @@ val with_open_dir : _ t -> ([< `Close | dir_ty] t -> 'a) -> 'a
     it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
 val read_dir : _ t -> string list
-(** [read_dir t] reads directory entries for [t].
+(** [read_dir t] reads directory entry names for [t].
 
     The entries are sorted using {! String.compare}.
 
     Note: The special Unix entries "." and ".." are not included in the results. *)
 
-val walk : _ t -> ((File.Stat.kind * string) Seq.t -> 'a) -> 'a
-(** [walk t] traverses the directory [t] producing a sequence of results. *)
+val read_dir_entries : _ t -> (File.Stat.kind * string) list
+(** [read_dir_entries] is like {!read_dir}, but also includes the kind of each entry.
+
+    This is typically much faster than calling {!kind} on each entry individually. *)
+
+val with_dir_entries : _ t -> ((File.Stat.kind * string) Seq.t -> 'a) -> 'a
+(** [with_dir_entries t fn] runs [fn items], where [items] is the entries as a sequence.
+
+    This is like {!read_dir_entries}, but loads the entries incrementally,
+    which may be more efficient. Unlike {!read_dir_entries}, it does not sort
+    the results, which may be returned in any order. *)
 
 (** {1 Metadata} *)
 
