@@ -449,6 +449,7 @@ let with_sched ?(fallback=no_fallback) config fn =
   match uring_create ~queue_depth ?polling_timeout () with
   | exception Unix.Unix_error(ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
   | exception Unix.Unix_error(EPERM, _, _) -> fallback (`Msg "io_uring is not available (permission denied)")
+  | exception Unix.Unix_error(ENOMEM, _, _) -> fallback (`Msg "io_uring is not available (ENOMEM)")
   | uring ->
     let probe = Uring.get_probe uring in
     if not (Uring.op_supported probe Uring.Op.mkdirat) then (
