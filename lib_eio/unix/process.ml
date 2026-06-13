@@ -69,6 +69,17 @@ let get_env = function
   | Some e -> e
   | None -> Unix.environment ()
 
+let translate_execve_error ~executable f =
+  try f () with
+  | Unix.Unix_error (Unix.E2BIG, "execve", _) ->
+    raise (Eio.Process.err Eio.Process.Argument_list_too_long)
+  | Unix.Unix_error (Unix.ENOENT, "execve", _) ->
+    raise (Eio.Process.err (Executable_not_found executable))
+  | Unix.Unix_error (Unix.EACCES, "execve", _) ->
+    raise (Eio.Process.err (Permission_denied executable))
+  | Unix.Unix_error (Unix.ENOEXEC, "execve", _) ->
+    raise (Eio.Process.err (Executable_format_error executable))
+
 type ty = [ `Generic | `Unix ] Eio.Process.ty
 type 'a t = ([> ty] as 'a) r
 
@@ -139,6 +150,7 @@ end) = struct
       1, stdout_fd, `Blocking;
       2, stderr_fd, `Blocking;
     ] in
+    translate_execve_error ~executable @@ fun () ->
     X.spawn_unix v ~sw ?cwd ~env ~fds ~executable args
 
   let spawn_unix = X.spawn_unix
@@ -148,6 +160,7 @@ let spawn_unix ~sw (Eio.Resource.T (v, ops)) ?cwd ?pgid ?uid ?gid ~fds ?env ?exe
   let module X = (val (Eio.Resource.get ops Pi.Mgr_unix)) in
   let executable = get_executable executable ~args in
   let env = get_env env in
+  translate_execve_error ~executable @@ fun () ->
   X.spawn_unix v ~sw ?cwd ?pgid ?uid ?gid ~fds ~env ~executable args
 
 let sigchld = Eio.Condition.create ()

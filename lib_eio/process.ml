@@ -15,6 +15,9 @@ let pp_status ppf = function
 type error =
   | Executable_not_found of string
   | Child_error of exit_status
+  | Argument_list_too_long
+  | Permission_denied of string
+  | Executable_format_error of string
 
 type Exn.err += E of error
 
@@ -27,6 +30,9 @@ let () =
       begin match e with
         | Executable_not_found e -> Fmt.pf f "Executable %S not found" e;
         | Child_error e -> Fmt.pf f "Child_error %a" pp_status e;
+        | Argument_list_too_long -> Fmt.pf f "Argument list too long"
+        | Permission_denied e -> Fmt.pf f "Permission denied when executing %S" e
+        | Executable_format_error e -> Fmt.pf f "Executable %S has an invalid format" e
       end;
       true
     | _ -> false
