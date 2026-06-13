@@ -126,7 +126,7 @@ Changing directory (confined):
   let cwd = Eio.Stdenv.cwd env in
   let subdir = cwd / "proc-sub-dir" in
   Eio.Path.mkdir subdir ~perm:0o700;
-  Eio.Path.with_open_dir subdir @@ fun subdir ->
+  Eio.Path.with_subtree subdir @@ fun subdir ->
   Eio.Path.save (subdir / "test-cwd") "test-data" ~create:(`Exclusive 0o600);
   Process.run mgr ~cwd:subdir [ "cat"; "test-cwd" ];;
 test-data

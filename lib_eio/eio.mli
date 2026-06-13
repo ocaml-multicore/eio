@@ -197,7 +197,7 @@ module Stdenv : sig
       {[
         let () =
           Eio_main.run @@ fun env ->
-          Eio.Path.with_open_dir env#fs "/srv/www" @@ fun www ->
+          Eio.Path.with_subtree env#fs "/srv/www" @@ fun www ->
           serve_files www
             ~net:env#net
       ]}

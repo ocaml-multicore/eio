@@ -167,7 +167,7 @@ let test_symlink env () =
   Unix.symlink ~to_dir:true "subdir" "sandbox\\to-subdir";
   Unix.symlink ~to_dir:true "foo" "sandbox\\dangle";
   try_mkdir (cwd / "tmp");
-  Eio.Path.with_open_dir (cwd / "sandbox") @@ fun sandbox ->
+  Eio.Path.with_subtree (cwd / "sandbox") @@ fun sandbox ->
   try_mkdir (sandbox / "subdir");
   try_mkdir (sandbox / "to-subdir\\nested");
   let () =

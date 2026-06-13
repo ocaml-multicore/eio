@@ -28,7 +28,7 @@ let () =
   in 
   if not (Eio.Path.is_directory path) then Fmt.failwith "%a is not a directory" Eio.Path.pp path;
   (* Get access to resources before calling cap_enter: *)
-  Eio.Path.with_open_dir path @@ fun dir ->
+  Eio.Path.with_subtree path @@ fun dir ->
   traceln "Opened directory %a" Eio.Path.pp path;
   (* Switch to capability mode, if possible: *)
   begin match Eio_unix.Cap.enter () with

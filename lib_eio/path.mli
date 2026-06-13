@@ -50,7 +50,7 @@ val native : _ t -> string option
     This is intended for interoperability with non-Eio libraries.
 
     This does not check for confinement (the resulting path might not be accessible
-    via [t] itself). Also, if a directory was opened with {!open_dir} and later
+    via [t] itself). Also, if a directory was opened with {!open_subtree} and later
     renamed, this might use the old name.
 
     Using strings as paths is not secure if components in the path can be
@@ -139,14 +139,24 @@ val mkdirs : ?exists_ok:bool -> perm:File.Unix_perm.t -> _ t -> unit
 
     @param exist_ok If [false] (the default) then we raise {! Fs.Already_exists} if [t] is already a directory. *)
 
-val open_dir : sw:Switch.t -> _ t -> [< `Close | dir_ty] t
-(** [open_dir ~sw t] opens [t].
+val open_subtree : sw:Switch.t -> _ t -> [< `Close | dir_ty] t
+(** [open_subtree ~sw t] returns a path that grants access only to the subtree at [t].
 
-    This can be passed to functions to grant access only to the subtree [t]. *)
+    The returned path will not allow use of ".." or symlinks to escape the subtree.
+
+    @since 1.4 *)
+
+val open_dir : sw:Switch.t -> _ t -> [< `Close | dir_ty] t
+(** Deprecated alias of {!open_subtree}. *)
+
+val with_subtree : _ t -> ([< `Close | dir_ty] t -> 'a) -> 'a
+(** [with_subtree] is like [open_subtree], but calls [fn dir] with the new directory and closes
+    it automatically when [fn] returns (if it hasn't already been closed by then).
+
+    @since 1.4 *)
 
 val with_open_dir : _ t -> ([< `Close | dir_ty] t -> 'a) -> 'a
-(** [with_open_dir] is like [open_dir], but calls [fn dir] with the new directory and closes
-    it automatically when [fn] returns (if it hasn't already been closed by then). *)
+(** Deprecated alias of {!with_subtree}. *)
 
 val read_dir : _ t -> string list
 (** [read_dir t] reads directory entry names for [t].

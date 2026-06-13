@@ -809,12 +809,12 @@ The checks also apply to following symlinks:
 - : unit = ()
 ```
 
-You can use `open_dir` (or `with_open_dir`) to create a restricted capability to a subdirectory:
+You can use `open_subtree` (or `with_subtree`) to create a restricted capability to a subdirectory:
 
 ```ocaml
 # Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  Eio.Path.with_open_dir (cwd / "dir1") @@ fun dir1 ->
+  Eio.Path.with_subtree (cwd / "dir1") @@ fun dir1 ->
   try_save (dir1 / "file4") "D";
   try_save (dir1 / "../file5") "E";;
 +save <dir1:file4> : ok
@@ -822,13 +822,13 @@ You can use `open_dir` (or `with_open_dir`) to create a restricted capability to
 - : unit = ()
 ```
 
-You only need to use `open_dir` if you want to create a new sandboxed environment.
+You only need to use `subtree` if you want to create a new sandboxed environment.
 You can use a single base directory object to access all paths beneath it,
 and this allows following symlinks within that subtree.
 
 A program that operates on the current directory will probably want to use `cwd`,
 whereas a program that accepts a path from the user will probably want to use `fs`,
-perhaps with `open_dir` to constrain all access to be within that directory.
+perhaps with `open_subtree` to constrain all access to be within that directory.
 
 On systems that provide the [cap_enter][] system call, you can ask the OS to reject accesses
 that don't use capabilities.

@@ -80,15 +80,17 @@ let open_out ~sw ?(append=false) ~create t =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "opening %a" pp t
 
-let open_dir ~sw t =
+let open_subtree ~sw t =
   let (Resource.T (dir, ops), path) = t in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
   try
-    let sub = X.open_dir dir ~sw path, "" in
+    let sub = X.open_subtree dir ~sw path, "" in
     (sub : [`Close | `Dir] t :> [< `Close | `Dir] t)
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "opening directory %a" pp t
+
+let open_dir = open_subtree
 
 let mkdir ~perm t =
   let (Resource.T (dir, ops), path) = t in
@@ -144,8 +146,10 @@ let with_open_in path fn =
 let with_open_out ?append ~create path fn =
   Switch.run ~name:"with_open_out" @@ fun sw -> fn (open_out ~sw ?append ~create path)
 
-let with_open_dir path fn =
-  Switch.run ~name:"with_open_dir" @@ fun sw -> fn (open_dir ~sw path)
+let with_subtree path fn =
+  Switch.run ~name:"with_subtree" @@ fun sw -> fn (open_subtree ~sw path)
+
+let with_open_dir = with_subtree
 
 let with_lines path fn =
   with_open_in path @@ fun flow ->
@@ -203,7 +207,7 @@ let rec rmtree ~missing_ok t =
   | `Directory ->
     Switch.run ~name:"rmtree" (fun sw ->
         match
-          let t = open_dir ~sw t in
+          let t = open_subtree ~sw t in
           t, read_dir t
         with
         | t, items -> List.iter (fun x -> rmtree ~missing_ok (t / x)) items

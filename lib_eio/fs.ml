@@ -63,7 +63,7 @@ module Pi = struct
       path -> File.rw_ty r
 
     val mkdir : t -> perm:File.Unix_perm.t -> path -> unit
-    val open_dir : t -> sw:Switch.t -> path -> [`Close | dir_ty] r
+    val open_subtree : t -> sw:Switch.t -> path -> [`Close | dir_ty] r
     val read_dir : t -> path -> string list
     val with_dir_entries : t -> path -> ((File.Stat.kind * string) Seq.t -> 'a) -> 'a
     val stat : t -> follow:bool -> string -> File.Stat.t
