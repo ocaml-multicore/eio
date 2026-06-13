@@ -23,6 +23,7 @@ module Pi : sig
       ?pgid:int ->
       ?uid:int ->
       ?gid:int ->
+      ?login_tty:Fd.t ->
       env:string array ->
       fds:(int * Fd.t * Fork_action.blocking) list ->
       executable:string ->
@@ -48,6 +49,7 @@ module Make_mgr (X : sig
     ?pgid:int ->
     ?uid:int ->
     ?gid:int ->
+    ?login_tty:Fd.t ->
     env:string array ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     executable:string ->
@@ -62,6 +64,7 @@ val spawn_unix :
     ?pgid:int ->
     ?uid:int ->
     ?gid:int ->
+    ?login_tty:Fd.t ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     ?env:string array ->
     ?executable:string ->
@@ -71,7 +74,10 @@ val spawn_unix :
 
     The arguments are as for {!Eio.Process.spawn},
     except that it takes a list of FD mappings for {!Private.Fork_action.inherit_fds}
-    directly, rather than just flows for the standard streams. *)
+    directly, rather than just flows for the standard streams.
+
+    @param login_tty If given, the child starts a new session with this terminal
+                     device as its controlling terminal and stdin/stdout/stderr. *)
 
 val sigchld : Eio.Condition.t
 (** {b If} an Eio backend installs a SIGCHLD handler, the handler will broadcast on this condition.

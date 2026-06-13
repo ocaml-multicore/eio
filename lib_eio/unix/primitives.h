@@ -2,6 +2,10 @@
 #define CAML_NAME_SPACE
 #define _GNU_SOURCE
 #include <caml/mlvalues.h>
+CAMLprim value eio_unix_open_pty(value);
+CAMLprim value eio_unix_get_pty_peer(value);
+CAMLprim value eio_unix_get_winsize(value);
+CAMLprim value eio_unix_set_winsize(value, value);
 CAMLprim value eio_unix_make_string_array(value);
 CAMLprim value eio_unix_fork_execve(value);
 CAMLprim value eio_unix_fork_chdir(value);
@@ -10,6 +14,7 @@ CAMLprim value eio_unix_fork_dups(value);
 CAMLprim value eio_unix_fork_setpgid(value);
 CAMLprim value eio_unix_fork_setuid(value);
 CAMLprim value eio_unix_fork_setgid(value);
+CAMLprim value eio_unix_login_tty(value);
 CAMLprim value eio_unix_error_of_code(value);
 CAMLprim value eio_unix_cap_enter(value);
 CAMLprim value eio_unix_readlinkat(value, value, value);
