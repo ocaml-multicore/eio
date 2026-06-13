@@ -17,7 +17,7 @@ Caml_inline value Val_fork_fn(fork_fn *fn) {
  */
 void eio_unix_run_fork_actions(int errors, value v_actions);
 
-/* Write "$fn: $msg" to fd.
- * fd must be blocking.
+/* Write "$fn:$err" to a blocking fd, where $err is the [errno] int.
+ * Encoding the number lets the parent reconstruct a [Unix.Unix_error].
  * Ignores failure. */
-void eio_unix_fork_error(int fd, char *fn, char *msg);
+void eio_unix_fork_error(int fd, char *fn, int err);

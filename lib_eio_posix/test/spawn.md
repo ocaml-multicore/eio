@@ -87,9 +87,9 @@ Failure starting child:
       ]
     in
     assert false
-  with Failure ex ->
-    String.sub ex 0 7
-- : string = "chdir: "
+  with Unix.Unix_error (Unix.ENOENT, fn, _) ->
+    fn
+- : string = "chdir"
 ```
 
 Signalling a running child:

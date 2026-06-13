@@ -70,3 +70,10 @@ val setuid : int -> t
 
 val setgid : int -> t
 (** [setgid gid] sets the group ID to [gid]. *)
+
+val report_spawn_error : string -> 'a
+(** [report_spawn_error msg] raises an exception describing a failed spawn.
+
+    [msg] is the message read from the errors pipe written by a failed fork
+    action, of the form ["<fn>:<errno>"]. The [errno] is turned back into a
+    {!Unix.Unix_error}. A message that can't be parsed is raised as a {!Failure}. *)

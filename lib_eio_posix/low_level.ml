@@ -624,5 +624,5 @@ module Process = struct
     (* Check for errors starting the process. *)
     match read_response errors_r with
     | "" -> t                       (* Success! Execing the child closed [errors_w] and we got EOF. *)
-    | err -> failwith err
+    | err -> Fork_action.report_spawn_error err
 end

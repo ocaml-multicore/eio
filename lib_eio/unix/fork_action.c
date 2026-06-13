@@ -6,6 +6,7 @@
 
 #include "primitives.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -47,9 +48,10 @@ static void try_write_all(int fd, char *buf) {
   }
 }
 
-void eio_unix_fork_error(int fd, char *fn, char *buf) {
+void eio_unix_fork_error(int fd, char *fn, int err) {
+  char buf[32];
+  snprintf(buf, sizeof buf, ":%d", err);
   try_write_all(fd, fn);
-  try_write_all(fd, ": ");
   try_write_all(fd, buf);
 }
 
@@ -109,7 +111,7 @@ static void action_execve(int errors, value v_config) {
   fill_string_array(envp, Field(v_config, 5));
 
   execve(String_val(v_exe), argv, envp);
-  eio_unix_fork_error(errors, "execve", strerror(errno));
+  eio_unix_fork_error(errors, "execve", errno);
   _exit(1);
 }
 
@@ -117,15 +119,20 @@ CAMLprim value eio_unix_fork_execve(value v_unit) {
   return Val_fork_fn(action_execve);
 }
 
+/* Convert a C [errno] code to an OCaml [Unix.error] value. */
+CAMLprim value eio_unix_error_of_code(value v_code) {
+  return caml_unix_error_of_code(Int_val(v_code));
+}
+
 static void action_fchdir(int errors, value v_config) {
   #ifdef _WIN32
-  eio_unix_fork_error(errors, "action_fchdir", "Unsupported operation on windows");
+  eio_unix_fork_error(errors, "action_fchdir", ENOSYS);
   #else
   value v_fd = Field(v_config, 1);
   int r;
   r = fchdir(Int_val(v_fd));
   if (r != 0) {
-    eio_unix_fork_error(errors, "fchdir", strerror(errno));
+    eio_unix_fork_error(errors, "fchdir", errno);
     _exit(1);
   }
   #endif
@@ -140,7 +147,7 @@ static void action_chdir(int errors, value v_config) {
   int r;
   r = chdir(String_val(v_path));
   if (r != 0) {
-    eio_unix_fork_error(errors, "chdir", strerror(errno));
+    eio_unix_fork_error(errors, "chdir", errno);
     _exit(1);
   }
 }
@@ -151,7 +158,7 @@ CAMLprim value eio_unix_fork_chdir(value v_unit) {
 
 static void set_blocking(int errors, int fd, int blocking) {
   #ifdef _WIN32
-  eio_unix_fork_error(errors, "set_blocking", "Unsupported operation on windows");
+  eio_unix_fork_error(errors, "set_blocking", ENOSYS);
   #else
   int r = fcntl(fd, F_GETFL, 0);
   if (r != -1) {
@@ -163,7 +170,7 @@ static void set_blocking(int errors, int fd, int blocking) {
     }
   }
   if (r == -1) {
-    eio_unix_fork_error(errors, "fcntl", strerror(errno));
+    eio_unix_fork_error(errors, "fcntl", errno);
     _exit(1);
   }
   #endif
@@ -171,7 +178,7 @@ static void set_blocking(int errors, int fd, int blocking) {
 
 static void set_cloexec(int errors, int fd, int cloexec) {
   #ifdef _WIN32
-  eio_unix_fork_error(errors, "set_cloexec", "Unsupported operation on windows");
+  eio_unix_fork_error(errors, "set_cloexec", ENOSYS);
   #else
   int r = fcntl(fd, F_GETFD, 0);
   if (r != -1) {
@@ -183,7 +190,7 @@ static void set_cloexec(int errors, int fd, int cloexec) {
     }
   }
   if (r == -1) {
-    eio_unix_fork_error(errors, "fcntl", strerror(errno));
+    eio_unix_fork_error(errors, "fcntl", errno);
     _exit(1);
   }
   #endif
@@ -203,13 +210,13 @@ static void action_dups(int errors, value v_config) {
       if (tmp == -1) {
 	tmp = dup(src);
 	if (tmp < 0) {
-	  eio_unix_fork_error(errors, "dup-tmp", strerror(errno));
+	  eio_unix_fork_error(errors, "dup-tmp", errno);
 	  _exit(1);
 	}
       } else {
 	int r = dup2(src, tmp);
 	if (r < 0) {
-	  eio_unix_fork_error(errors, "dup2-tmp", strerror(errno));
+	  eio_unix_fork_error(errors, "dup2-tmp", errno);
 	  _exit(1);
 	}
       }
@@ -219,7 +226,7 @@ static void action_dups(int errors, value v_config) {
     } else {
       int r = dup2(src, dst);
       if (r < 0) {
-	eio_unix_fork_error(errors, "dup2", strerror(errno));
+	eio_unix_fork_error(errors, "dup2", errno);
 	_exit(1);
       }
     }
@@ -240,7 +247,7 @@ CAMLprim value eio_unix_fork_dups(value v_unit) {
 
 static void action_setpgid(int errors, value v_config) {
   #ifdef _WIN32
-  eio_unix_fork_error(errors, "setpgid", "Unsupported operation on windows");
+  eio_unix_fork_error(errors, "setpgid", ENOSYS);
   _exit(1);
   #else
   value vpid = Field(v_config, 1);
@@ -249,7 +256,7 @@ static void action_setpgid(int errors, value v_config) {
   int r;
   r = setpgid(Int_val(vpid), Int_val(vpgid));
   if (r != 0) {
-    eio_unix_fork_error(errors, "setpgid", strerror(errno));
+    eio_unix_fork_error(errors, "setpgid", errno);
     _exit(1);
   }
   #endif
@@ -261,14 +268,14 @@ CAMLprim value eio_unix_fork_setpgid(value v_unit) {
 
 static void action_setuid(int errors, value v_config) {
   #ifdef _WIN32
-  eio_unix_fork_error(errors, "action_setuid", "Unsupported operation on windows");
+  eio_unix_fork_error(errors, "action_setuid", ENOSYS);
   _exit(1);
   #else
   value v_uid = Field(v_config, 1);
   int r;
   r = setuid(Int_val(v_uid));
   if (r != 0) {
-    eio_unix_fork_error(errors, "setuid", strerror(errno));
+    eio_unix_fork_error(errors, "setuid", errno);
     _exit(1);
   }
   #endif
@@ -280,14 +287,14 @@ CAMLprim value eio_unix_fork_setuid(value v_unit) {
 
 static void action_setgid(int errors, value v_config) {
   #ifdef _WIN32
-  eio_unix_fork_error(errors, "action_setgid", "Unsupported operation on windows");
+  eio_unix_fork_error(errors, "action_setgid", ENOSYS);
   _exit(1);
   #else
   value v_gid = Field(v_config, 1);
   int r;
   r = setgid(Int_val(v_gid));
   if (r != 0) {
-    eio_unix_fork_error(errors, "setgid", strerror(errno));
+    eio_unix_fork_error(errors, "setgid", errno);
     _exit(1);
   }
   #endif
