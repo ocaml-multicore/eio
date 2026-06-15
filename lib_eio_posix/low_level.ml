@@ -302,7 +302,7 @@ module Resolve = struct
     let rec aux leaf =
       let base = current_dir state in
       let flags = if trailing_slash leaf then Open_flags.(flags + directory) else flags in
-      match eio_openat base leaf Open_flags.(flags + nofollow) mode with
+      match eio_openat base leaf Open_flags.(flags + nofollow + nonblock) mode with
       | fd -> Fd.of_unix fd ~sw ~blocking:false ~close_unix:true
       | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) ->
         (* Note: Linux uses ELOOP or ENOTDIR. FreeBSD uses EMLINK. NetBSD uses EFTYPE. *)
