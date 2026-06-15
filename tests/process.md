@@ -157,7 +157,7 @@ Passing too many arguments reports a dedicated error rather than a generic failu
 # run @@ fun mgr _env ->
   let big = String.make (1024 * 1024) 'x' in
   Process.run mgr ("echo" :: List.init 8 (fun _ -> big));;
-Exception: Eio.Io Process Argument list too long
+Exception: Eio.Io Process Argument_list_too_long
 ```
 
 Failures relating to the executable itself also report dedicated errrors.
@@ -168,7 +168,7 @@ A file that exists but isn't executable:
   let f = Eio.Stdenv.cwd env / "ocamlrocks" in
   Eio.Path.save f "#!/bin/sh\necho hi\n" ~create:(`Exclusive 0o600);
   Fun.protect ~finally:(fun () -> Eio.Path.unlink f) (fun () -> Process.run mgr ["./ocamlrocks"]);;
-Exception: Eio.Io Process Permission denied when executing "./ocamlrocks"
+Exception: Eio.Io Process Permission_denied "./ocamlrocks"
 ```
 
 A file that is executable but not in a runnable format:
@@ -178,7 +178,7 @@ A file that is executable but not in a runnable format:
   let f = Eio.Stdenv.cwd env / "badfmt" in
   Eio.Path.save f "\000\001 not a binary \255" ~create:(`Exclusive 0o700);
   Fun.protect ~finally:(fun () -> Eio.Path.unlink f) (fun () -> Process.run mgr ["./badfmt"]);;
-Exception: Eio.Io Process Executable "./badfmt" has an invalid format
+Exception: Eio.Io Process Executable_format_error "./badfmt"
 ```
 
 A script whose interpreter is missing reports the executable as not found:
@@ -188,7 +188,7 @@ A script whose interpreter is missing reports the executable as not found:
   let f = Eio.Stdenv.cwd env / "badinterp" in
   Eio.Path.save f "#!/nonexistent/interpreter\n" ~create:(`Exclusive 0o700);
   Fun.protect ~finally:(fun () -> Eio.Path.unlink f) (fun () -> Process.run mgr ["./badinterp"]);;
-Exception: Eio.Io Process Executable "./badinterp" not found
+Exception: Eio.Io Process Executable_not_found "./badinterp"
 ```
 
 Exit code success can be determined by is_success (Process.run):

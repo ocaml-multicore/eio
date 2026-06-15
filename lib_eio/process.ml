@@ -28,11 +28,11 @@ let () =
     | E e ->
       Fmt.string f "Process ";
       begin match e with
-        | Executable_not_found e -> Fmt.pf f "Executable %S not found" e;
+        | Executable_not_found e -> Fmt.pf f "Executable_not_found %S" e;
         | Child_error e -> Fmt.pf f "Child_error %a" pp_status e;
-        | Argument_list_too_long -> Fmt.pf f "Argument list too long"
-        | Permission_denied e -> Fmt.pf f "Permission denied when executing %S" e
-        | Executable_format_error e -> Fmt.pf f "Executable %S has an invalid format" e
+        | Argument_list_too_long -> Fmt.pf f "Argument_list_too_long"
+        | Permission_denied e -> Fmt.pf f "Permission_denied %S" e
+        | Executable_format_error e -> Fmt.pf f "Executable_format_error %S" e
       end;
       true
     | _ -> false
