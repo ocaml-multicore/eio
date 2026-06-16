@@ -25,6 +25,9 @@ val pp_status : [< status] Fmt.t
 type error =
   | Executable_not_found of string      (** The requested executable does not exist. *)
   | Child_error of exit_status          (** The process exited with an error status. *)
+  | Argument_list_too_long              (** The arguments passed were too long. *)
+  | Permission_denied of string         (** The executable exists but could not be run. *)
+  | Executable_format_error of string   (** The executable exists but is not in a runnable format. *)
 
 type Exn.err += E of error
 

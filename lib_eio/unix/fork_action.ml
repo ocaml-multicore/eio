@@ -83,3 +83,11 @@ external action_setgid : unit -> fork_fn = "eio_unix_fork_setgid"
 let action_setgid = action_setgid ()
 let setgid gid = {
   run = fun k -> k (Obj.repr (action_setgid, gid)) }
+
+external error_of_code : int -> Unix.error = "eio_unix_error_of_code"
+
+let report_spawn_error msg =
+  (* A failed fork action writes "<fn>:<errno>" to the errors pipe. *)
+  match Scanf.sscanf_opt msg "%[^:]:%d" (fun fn code -> (fn, error_of_code code)) with
+  | Some (fn, err) -> raise (Unix.Unix_error (err, fn, ""))
+  | None -> failwith msg

@@ -77,19 +77,13 @@ Failure starting child:
 ```ocaml
 # Eio_posix.run @@ fun _env ->
   Switch.run @@ fun sw ->
-  try
-    let _child =
-      Process.spawn ~sw Process.Fork_action.[
-        chdir "/idontexist";
-        execve "/usr/bin/env"
-          ~argv:[| "env"; "pwd" |]
-          ~env:(Unix.environment ())
-      ]
-    in
-    assert false
-  with Failure ex ->
-    String.sub ex 0 7
-- : string = "chdir: "
+  Process.spawn ~sw Process.Fork_action.[
+    chdir "/idontexist";
+    execve "/usr/bin/env"
+      ~argv:[| "env"; "pwd" |]
+      ~env:(Unix.environment ())
+  ]
+Exception: Unix.Unix_error(Unix.ENOENT, "chdir", "")
 ```
 
 Signalling a running child:
