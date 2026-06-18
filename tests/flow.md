@@ -174,6 +174,38 @@ Make sure we don't crash on SIGPIPE:
 - : unit = ()
 ```
 
+Opening a FIFO with no writer should not block,
+but reading from it will wait for the writer:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let ( / ) = Eio.Path.( / ) in
+  let path = env#cwd / "fifo" in
+  Eio.Path.unlink ~missing_ok:true path;
+  Unix.mkfifo "fifo" 0o600;
+  Eio.Path.with_open_in path @@ fun r ->
+  traceln "Opened FIFO (even though there's no writer)";
+  Fiber.both
+    (fun () ->
+       traceln "Reading...";
+       let buf = Cstruct.create 2 in
+       Eio.Flow.read_exact r buf;
+       traceln "Read: %S" (Cstruct.to_string buf)
+    )
+    (fun () ->
+       Eio_unix.sleep 0.01;
+       traceln "Attaching writer";
+       Eio.Path.with_open_out path ~create:`Never (fun w ->
+         Eio.Flow.copy_string "hi" w
+       )
+    );;
++Opened FIFO (even though there's no writer)
++Reading...
++Attaching writer
++Read: "hi"
+- : unit = ()
+```
+
 ## IO_MAX
 
 Sending a very long vector over a flow should just send it in chunks, not fail:
