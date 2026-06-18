@@ -53,6 +53,10 @@ val symlink : link_to:string -> fd option -> string -> unit
 (** [symlink ~link_to dir path] will create a new symlink at [dir / path]
     linking to [link_to]. *)
 
+val chmod : mode:int -> fd option -> string -> unit
+(** [chmod ~mode path] is just a non-blocking call to {! Unix.chmod} when
+    [fd = None], otherwise it is unsupported. *)
+
 val readdir : string -> string array
 
 val readv : fd -> Cstruct.t array -> int
