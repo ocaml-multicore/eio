@@ -8,6 +8,7 @@ type connection_failure =
 type error =
   | Connection_reset of Exn.Backend.t
   | Connection_failure of connection_failure
+  | Invalid_option
 
 type Exn.err += E of error
 
@@ -22,6 +23,7 @@ let () =
           | Connection_failure Refused e -> Fmt.pf f "Connection_failure Refused %a" Exn.Backend.pp e
           | Connection_failure Timeout -> Fmt.pf f "Connection_failure Timeout"
           | Connection_failure No_matching_addresses -> Fmt.pf f "Connection_failure No_matching_addresses"
+          | Invalid_option -> Fmt.string f "Invalid_option"
         end;
         true
       | _ -> false
@@ -159,6 +161,40 @@ module Sockaddr = struct
       Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
+module Sockopt = struct
+  type _ t = ..
+
+  type printer_fn = {
+    get : 'a. 'a t -> (string * 'a Fmt.t) option
+  } [@@unboxed]
+
+  let printers = Atomic.make []
+
+  let rec register_printer fn =
+    let prev = Atomic.get printers in
+    let next = fn :: prev in
+    if not (Atomic.compare_and_set printers prev next) then
+      register_printer fn
+
+  let find_printer x =
+    let rec aux = function
+      | [] -> "UNKNOWN", Fmt.any "?"
+      | { get } :: tl ->
+        match get x with
+         | None -> aux tl
+         | Some s -> s
+    in
+    aux (Atomic.get printers)
+
+  let pp f opt =
+    let name, _ = find_printer opt in
+    Fmt.string f name
+
+  let pp_binding f (opt, v) =
+    let name, pp = find_printer opt in
+    Fmt.pf f "%s = %a" name pp v
+end
+
 type socket_ty = [`Socket | `Close]
 type 'a socket = ([> socket_ty] as 'a) r
 
@@ -181,22 +217,34 @@ type 'a t = 'a r
   constraint 'a = [> [> `Generic] ty]
 
 module Pi = struct
+  module type SOCKET = sig
+    type t
+    val setsockopt : t -> 'a Sockopt.t -> 'a -> unit
+    val getsockopt : t -> 'a Sockopt.t -> 'a
+  end
+
+  type (_, _, _) Resource.pi +=
+    | Socket : ('t, (module SOCKET with type t = 't), [> `Socket]) Resource.pi
+
   module type STREAM_SOCKET = sig
     type tag
     include Flow.Pi.SHUTDOWN
     include Flow.Pi.SOURCE with type t := t
     include Flow.Pi.SINK with type t := t
+    include SOCKET with type t := t
     val close : t -> unit
   end
 
   let stream_socket (type t tag) (module X : STREAM_SOCKET with type t = t and type tag = tag) =
     Resource.handler @@
     H (Resource.Close, X.close) ::
+    H (Socket, (module X)) ::
     Resource.bindings (Flow.Pi.two_way (module X))
 
   module type DATAGRAM_SOCKET = sig
     type tag
     include Flow.Pi.SHUTDOWN
+    include SOCKET with type t := t
     val send : t -> ?dst:Sockaddr.datagram -> Cstruct.t list -> unit
     val recv : t -> Cstruct.t -> Sockaddr.datagram * int
     val close : t -> unit
@@ -208,6 +256,7 @@ module Pi = struct
   let datagram_socket (type t tag) (module X : DATAGRAM_SOCKET with type t = t and type tag = tag) =
     Resource.handler @@
     Resource.bindings (Flow.Pi.shutdown (module X)) @ [
+      H (Socket, (module X));
       H (Datagram_socket, (module X));
       H (Resource.Close, X.close)
     ]
@@ -215,7 +264,7 @@ module Pi = struct
   module type LISTENING_SOCKET = sig
     type t
     type tag
-
+    include SOCKET with type t := t
     val accept : t -> sw:Switch.t -> tag stream_socket_ty r * Sockaddr.stream
     val close : t -> unit
     val listening_addr : t -> Sockaddr.stream
@@ -227,6 +276,7 @@ module Pi = struct
   let listening_socket (type t tag) (module X : LISTENING_SOCKET with type t = t and type tag = tag) =
     Resource.handler [
       H (Resource.Close, X.close);
+      H (Socket, (module X));
       H (Listening_socket, (module X))
     ]
 
@@ -277,6 +327,20 @@ let accept_fork ~sw (t : [> 'a listening_socket_ty] r) ~on_error handle =
              on_error (Exn.add_context ex "handling connection from %a" Sockaddr.pp addr)
          )
     )
+
+let setsockopt (Resource.T (t, ops)) opt v =
+  let module X = (val (Resource.get ops Pi.Socket)) in
+  try X.setsockopt t opt v
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "setting socket option %a" Sockopt.pp_binding (opt, v)
+
+let getsockopt (Resource.T (t, ops)) opt =
+  let module X = (val (Resource.get ops Pi.Socket)) in
+  try X.getsockopt t opt
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "getting socket option %a" Sockopt.pp opt
 
 let listening_addr (type tag) (Resource.T (t, ops) : [> tag listening_socket_ty] r) =
   let module X = (val (Resource.get ops Pi.Listening_socket)) in

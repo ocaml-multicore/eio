@@ -232,6 +232,12 @@ val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> fd -> Cstruct.t list -> Ur
 (** [recv_msg_with_fds] is like [recv_msg] but also allows receiving up to [max_fds] file descriptors
     (sent using SCM_RIGHTS over a Unix domain socket). *)
 
+val setsockopt : fd -> 'a Eio.Net.Sockopt.t -> 'a -> unit
+(** [setsockopt fd opt v] sets socket option [opt] to value [v] on file descriptor [fd]. *)
+
+val getsockopt : fd -> 'a Eio.Net.Sockopt.t -> 'a
+(** [getsockopt fd opt] gets the value of socket option [opt] on file descriptor [fd]. *)
+
 (** {1 Randomness} *)
 
 val getrandom : Cstruct.t -> unit

@@ -14,3 +14,8 @@ let wrap_fs code name arg =
   | Unix.ENOENT -> Eio.Fs.err (Not_found e)
   | Unix.EXDEV | EPERM | EACCES -> Eio.Fs.err (Permission_denied e)
   | _ -> wrap code name arg
+
+let run fn x =
+  try fn x
+  with Unix.Unix_error (code, name, arg) ->
+    raise (wrap code name arg)

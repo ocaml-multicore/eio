@@ -108,6 +108,9 @@ module Mock_flow = struct
     done;
     traceln "%s: closed" t.label
 
+  let setsockopt t opt v = Sockopt.setsockopt t.label opt v
+  let getsockopt t opt = Sockopt.getsockopt t.label opt
+
   let make ?(pp=pp_default) label =
     {
       pp;

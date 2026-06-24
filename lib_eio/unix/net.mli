@@ -99,6 +99,20 @@ val socketpair_datagram :
     This creates OS-level resources using [socketpair(2)].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
+(** {2 Socket options} *)
+
+(** Generic wrappers for Unix socket options.
+    This extends {!Eio.Net.Sockopt} with support for any Unix socket option. *)
+type _ Eio.Net.Sockopt.t +=
+  | Sockopt_bool : Unix.socket_bool_option -> bool Eio.Net.Sockopt.t
+      (** Wrap any Unix boolean socket option *)
+  | Sockopt_int : Unix.socket_int_option -> int Eio.Net.Sockopt.t
+      (** Wrap any Unix integer socket option *)
+  | Sockopt_optint : Unix.socket_optint_option -> int option Eio.Net.Sockopt.t
+      (** Wrap any Unix optional integer socket option *)
+  | Sockopt_float : Unix.socket_float_option -> float Eio.Net.Sockopt.t
+      (** Wrap any Unix float socket option *)
+
 (** {2 Private API for backends} *)
 
 val getnameinfo : Eio.Net.Sockaddr.t -> (string * string)
@@ -116,3 +130,17 @@ type _ Effect.t +=
   | Socketpair_datagram : Eio.Switch.t * Unix.socket_domain * int ->
       ([`Unix_fd | datagram_socket_ty] r * [`Unix_fd | datagram_socket_ty] r) Effect.t  (** See {!socketpair_datagram} *)
 [@@alert "-unstable"]
+
+val setsockopt : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a -> unit
+(** [setsockopt fd opt v] sets socket option [opt] to value [v] on file descriptor [fd].
+
+    Note: for an {!Eio.Net.socket}, use {!Eio.Net.setsockopt}.
+
+    @since 1.4 *)
+
+val getsockopt : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a
+(** [getsockopt fd opt] gets the value of socket option [opt] on file descriptor [fd].
+
+    Note: for an {!Eio.Net.socket}, use {!Eio.Net.getsockopt}.
+
+    @since 1.4 *)

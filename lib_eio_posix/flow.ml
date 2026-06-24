@@ -120,6 +120,9 @@ module Impl = struct
   let fd t = t
 
   let close = Eio_unix.Fd.close
+
+  let setsockopt t opt v = Err.run (Eio_unix.Net.setsockopt t opt) v
+  let getsockopt t opt = Err.run (Eio_unix.Net.getsockopt t) opt
 end
 
 let handler = Eio_unix.Pi.flow_handler (module Impl)
