@@ -138,6 +138,24 @@ module Sockopt : sig
 
   type _ t = ..
 
+  type _ t +=
+    | SO_DEBUG : bool t         (** Enable socket debugging *)
+    | SO_BROADCAST : bool t     (** Permit sending of broadcast messages *)
+    | SO_REUSEADDR : bool t     (** Allow reuse of local addresses *)
+    | SO_KEEPALIVE : bool t     (** Keep TCP connection alive *)
+    | SO_DONTROUTE : bool t     (** Bypass routing tables *)
+    | SO_OOBINLINE : bool t     (** Leave out-of-band data in line *)
+    | TCP_NODELAY : bool t      (** Disable Nagle's algorithm *)
+    | IPV6_ONLY : bool t        (** Restrict to IPv6 only *)
+    | SO_REUSEPORT : bool t     (** Allow reuse of local port *)
+    | SO_SNDBUF : int t         (** Send buffer size *)
+    | SO_RCVBUF : int t         (** Receive buffer size *)
+    | SO_RCVLOWAT : int t       (** Receive low water mark *)
+    | SO_SNDLOWAT : int t       (** Send low water mark *)
+    | SO_LINGER : int option t  (** Linger on close if data present *)
+    | SO_RCVTIMEO : float t     (** Receive timeout *)
+    | SO_SNDTIMEO : float t     (** Send timeout *)
+
   val pp : 'a t Fmt.t
   val pp_binding : ('a t * 'a) Fmt.t
 

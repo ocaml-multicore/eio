@@ -573,6 +573,53 @@ let try_getsockopt sock opt =
   | exception ex -> traceln "%a -> %a" Eio.Net.Sockopt.pp opt Fmt.exn ex
 ```
 
+Test portable socket options on a TCP socket:
+
+```ocaml
+# run @@ fun ~net sw ->
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
+  let client = Eio.Net.connect ~sw net (Eio.Net.listening_addr server) in
+  Eio.Net.setsockopt client Eio.Net.Sockopt.TCP_NODELAY true;
+  assert (Eio.Net.getsockopt client Eio.Net.Sockopt.TCP_NODELAY);
+  Eio.Net.setsockopt client Eio.Net.Sockopt.SO_KEEPALIVE true;
+  assert (Eio.Net.getsockopt client Eio.Net.Sockopt.SO_KEEPALIVE);
+  Eio.Net.setsockopt client Eio.Net.Sockopt.SO_SNDBUF 32768;
+  let sndbuf = Eio.Net.getsockopt client Eio.Net.Sockopt.SO_SNDBUF in
+  traceln "SO_SNDBUF: %s" (if sndbuf > 0 then "positive" else "error");
+  assert (sndbuf > 0);
+  Eio.Net.setsockopt client Eio.Net.Sockopt.SO_LINGER (Some 10);
+  try_getsockopt client Eio.Net.Sockopt.SO_LINGER;
+  Eio.Net.setsockopt client Eio.Net.Sockopt.SO_RCVTIMEO 5.0;
+  let timeout = Eio.Net.getsockopt client Eio.Net.Sockopt.SO_RCVTIMEO in
+  traceln "SO_RCVTIMEO: %.1f seconds" timeout;;
++SO_SNDBUF: positive
++SO_LINGER = 10
++SO_RCVTIMEO: 5.0 seconds
+- : unit = ()
+```
+
+Test socket options on listening socket:
+
+```ocaml
+# run @@ fun ~net sw ->
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
+  Eio.Net.setsockopt server Eio.Net.Sockopt.SO_REUSEADDR true;
+  try_getsockopt server Eio.Net.Sockopt.SO_REUSEADDR;;
++SO_REUSEADDR = true
+- : unit = ()
+```
+
+Test socket options on datagram socket:
+
+```ocaml
+# run @@ fun ~net sw ->
+  let udp = Eio.Net.datagram_socket net ~sw `UdpV4 in
+  Eio.Net.setsockopt udp Eio.Net.Sockopt.SO_BROADCAST true;
+  try_getsockopt udp Eio.Net.Sockopt.SO_BROADCAST;;
++SO_BROADCAST = true
+- : unit = ()
+```
+
 Test Unix-specific socket option wrappers:
 
 ```ocaml

@@ -193,6 +193,46 @@ module Sockopt = struct
   let pp_binding f (opt, v) =
     let name, pp = find_printer opt in
     Fmt.pf f "%s = %a" name pp v
+
+  type _ t +=
+    | SO_DEBUG : bool t
+    | SO_BROADCAST : bool t
+    | SO_REUSEADDR : bool t
+    | SO_KEEPALIVE : bool t
+    | SO_DONTROUTE : bool t
+    | SO_OOBINLINE : bool t
+    | TCP_NODELAY : bool t
+    | IPV6_ONLY : bool t
+    | SO_REUSEPORT : bool t
+    | SO_SNDBUF : int t
+    | SO_RCVBUF : int t
+    | SO_RCVLOWAT : int t
+    | SO_SNDLOWAT : int t
+    | SO_LINGER : int option t
+    | SO_RCVTIMEO : float t
+    | SO_SNDTIMEO : float t
+
+  let () =
+    let get : type a. a t -> (string * a Fmt.t) option = function
+      | SO_DEBUG -> Some ("SO_DEBUG", Fmt.bool)
+      | SO_BROADCAST -> Some ("SO_BROADCAST", Fmt.bool)
+      | SO_REUSEADDR -> Some ("SO_REUSEADDR", Fmt.bool)
+      | SO_KEEPALIVE -> Some ("SO_KEEPALIVE", Fmt.bool)
+      | SO_DONTROUTE -> Some ("SO_DONTROUTE", Fmt.bool)
+      | SO_OOBINLINE -> Some ("SO_OOBINLINE", Fmt.bool)
+      | TCP_NODELAY -> Some ("TCP_NODELAY", Fmt.bool)
+      | IPV6_ONLY -> Some ("IPV6_ONLY", Fmt.bool)
+      | SO_REUSEPORT -> Some ("SO_REUSEPORT", Fmt.bool)
+      | SO_SNDBUF -> Some ("SO_SNDBUF", Fmt.int)
+      | SO_RCVBUF -> Some ("SO_RCVBUF", Fmt.int)
+      | SO_RCVLOWAT -> Some ("SO_RCVLOWAT", Fmt.int)
+      | SO_SNDLOWAT -> Some ("SO_SNDLOWAT", Fmt.int)
+      | SO_LINGER -> Some ("SO_LINGER", Fmt.(option ~none:(any "<none>") int))
+      | SO_RCVTIMEO -> Some ("SO_RCVTIMEO", Fmt.float)
+      | SO_SNDTIMEO -> Some ("SO_SNDTIMEO", Fmt.float)
+      | _ -> None
+    in
+    register_printer { get }
 end
 
 type socket_ty = [`Socket | `Close]
