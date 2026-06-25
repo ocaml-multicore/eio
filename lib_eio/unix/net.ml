@@ -124,6 +124,8 @@ let () =
   in
   Eio.Net.Sockopt.register_printer { get }
 
+external so_type : Unix.file_descr -> Eio.Net.socket_type = "caml_eio_unix_so_type"
+
 let setsockopt : type a. Fd.t -> a Eio.Net.Sockopt.t -> a -> unit = fun fd opt v ->
   Fd.use_exn "setsockopt" fd @@ fun fd ->
   match opt with
@@ -143,6 +145,7 @@ let setsockopt : type a. Fd.t -> a Eio.Net.Sockopt.t -> a -> unit = fun fd opt v
   | Eio.Net.Sockopt.SO_LINGER -> Unix.setsockopt_optint fd Unix.SO_LINGER v
   | Eio.Net.Sockopt.SO_RCVTIMEO -> Unix.setsockopt_float fd Unix.SO_RCVTIMEO v
   | Eio.Net.Sockopt.SO_SNDTIMEO -> Unix.setsockopt_float fd Unix.SO_SNDTIMEO v
+  | Eio.Net.Sockopt.SO_TYPE -> invalid_arg "SO_TYPE is a read-only socket option"
   | Sockopt_bool bo -> Unix.setsockopt fd bo v
   | Sockopt_int bo -> Unix.setsockopt_int fd bo v
   | Sockopt_optint bo -> Unix.setsockopt_optint fd bo v
@@ -167,6 +170,7 @@ let getsockopt_descr : type a. Unix.file_descr -> a Eio.Net.Sockopt.t -> a = fun
   | Eio.Net.Sockopt.SO_LINGER -> Unix.getsockopt_optint fd Unix.SO_LINGER
   | Eio.Net.Sockopt.SO_RCVTIMEO -> Unix.getsockopt_float fd Unix.SO_RCVTIMEO
   | Eio.Net.Sockopt.SO_SNDTIMEO -> Unix.getsockopt_float fd Unix.SO_SNDTIMEO
+  | Eio.Net.Sockopt.SO_TYPE -> so_type fd
   | Sockopt_bool bo -> Unix.getsockopt fd bo
   | Sockopt_int bo -> Unix.getsockopt_int fd bo
   | Sockopt_optint bo -> Unix.getsockopt_optint fd bo

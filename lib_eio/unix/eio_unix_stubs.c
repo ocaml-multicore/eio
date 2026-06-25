@@ -6,11 +6,18 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <sys/socket.h>
+#endif
+
 #include <caml/mlvalues.h>
 #include <caml/unixsupport.h>
 #include <caml/memory.h>
 #include <caml/bigarray.h>
 #include <caml/alloc.h>
+#include <caml/fail.h>
 
 static void caml_stat_free_preserving_errno(void *ptr) {
   int saved = errno;
@@ -90,4 +97,31 @@ CAMLprim value eio_unix_fchmodat(value v_fd, value v_path, value v_mode, value v
   if (ret == -1) uerror("fchmodat", v_path);
   CAMLreturn(Val_unit);
   #endif
+}
+
+CAMLprim value caml_eio_unix_so_type(value v_fd) {
+  CAMLparam1(v_fd);
+  int ty;
+  socklen_t optlen = sizeof(ty);
+  #ifdef _WIN32
+  SOCKET sock = Socket_val(v_fd);
+  if (getsockopt(sock, SOL_SOCKET, SO_TYPE, (char *)&ty, &optlen) != 0) {
+    caml_win32_maperr(WSAGetLastError());
+    caml_uerror("getsockopt", Nothing);
+  }
+  #else
+  int sock = Int_val(v_fd);
+  if (getsockopt(sock, SOL_SOCKET, SO_TYPE, &ty, &optlen) != 0)
+    caml_uerror("getsockopt", Nothing);
+  #endif
+  switch (ty) {
+    case SOCK_STREAM:    CAMLreturn(caml_hash_variant("Stream"));
+    case SOCK_DGRAM:     CAMLreturn(caml_hash_variant("Dgram"));
+    case SOCK_RAW:       CAMLreturn(caml_hash_variant("Raw"));
+  #ifdef SOCK_SEQPACKET
+    case SOCK_SEQPACKET: CAMLreturn(caml_hash_variant("Seqpacket"));
+  #endif
+    default:             caml_invalid_argument("Eio_unix: unrecognised SO_TYPE");
+  }
+  CAMLreturn(Val_unit); /* unreachable */
 }
