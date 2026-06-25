@@ -579,6 +579,7 @@ Test portable socket options on a TCP socket:
 # run @@ fun ~net sw ->
   let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
   let client = Eio.Net.connect ~sw net (Eio.Net.listening_addr server) in
+  try_getsockopt client Eio.Net.Sockopt.SO_TYPE;
   Eio.Net.setsockopt client Eio.Net.Sockopt.TCP_NODELAY true;
   assert (Eio.Net.getsockopt client Eio.Net.Sockopt.TCP_NODELAY);
   Eio.Net.setsockopt client Eio.Net.Sockopt.SO_KEEPALIVE true;
@@ -592,6 +593,7 @@ Test portable socket options on a TCP socket:
   Eio.Net.setsockopt client Eio.Net.Sockopt.SO_RCVTIMEO 5.0;
   let timeout = Eio.Net.getsockopt client Eio.Net.Sockopt.SO_RCVTIMEO in
   traceln "SO_RCVTIMEO: %.1f seconds" timeout;;
++SO_TYPE = stream
 +SO_SNDBUF: positive
 +SO_LINGER = 10
 +SO_RCVTIMEO: 5.0 seconds
@@ -614,8 +616,10 @@ Test socket options on datagram socket:
 ```ocaml
 # run @@ fun ~net sw ->
   let udp = Eio.Net.datagram_socket net ~sw `UdpV4 in
+  try_getsockopt udp Eio.Net.Sockopt.SO_TYPE;
   Eio.Net.setsockopt udp Eio.Net.Sockopt.SO_BROADCAST true;
   try_getsockopt udp Eio.Net.Sockopt.SO_BROADCAST;;
++SO_TYPE = dgram
 +SO_BROADCAST = true
 - : unit = ()
 ```

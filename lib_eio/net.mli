@@ -130,6 +130,12 @@ type 'a t = 'a r
 
 (** {2 Socket options} *)
 
+type socket_type = [ `Stream | `Dgram | `Raw | `Seqpacket ]
+(** The communication semantics of a socket. *)
+
+val pp_socket_type : socket_type Fmt.t
+(** [pp_socket_type] formats a {!socket_type} for display. *)
+
 module Sockopt : sig
   (** An extensible type for socket options. Portable options can be defined
       here, while platform-specific options can be added by backends.
@@ -155,6 +161,7 @@ module Sockopt : sig
     | SO_LINGER : int option t  (** Linger on close if data present *)
     | SO_RCVTIMEO : float t     (** Receive timeout *)
     | SO_SNDTIMEO : float t     (** Send timeout *)
+    | SO_TYPE : socket_type t   (** Get the socket type (read-only) *)
 
   val pp : 'a t Fmt.t
   val pp_binding : ('a t * 'a) Fmt.t

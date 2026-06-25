@@ -161,6 +161,14 @@ module Sockaddr = struct
       Format.fprintf f "udp:%a:%d" Ipaddr.pp_for_uri addr port
 end
 
+type socket_type = [ `Stream | `Dgram | `Raw | `Seqpacket ]
+
+let pp_socket_type f = function
+  | `Stream -> Fmt.string f "stream"
+  | `Dgram -> Fmt.string f "dgram"
+  | `Raw -> Fmt.string f "raw"
+  | `Seqpacket -> Fmt.string f "seqpacket"
+
 module Sockopt = struct
   type _ t = ..
 
@@ -211,6 +219,7 @@ module Sockopt = struct
     | SO_LINGER : int option t
     | SO_RCVTIMEO : float t
     | SO_SNDTIMEO : float t
+    | SO_TYPE : socket_type t
 
   let () =
     let get : type a. a t -> (string * a Fmt.t) option = function
@@ -230,6 +239,7 @@ module Sockopt = struct
       | SO_LINGER -> Some ("SO_LINGER", Fmt.(option ~none:(any "<none>") int))
       | SO_RCVTIMEO -> Some ("SO_RCVTIMEO", Fmt.float)
       | SO_SNDTIMEO -> Some ("SO_SNDTIMEO", Fmt.float)
+      | SO_TYPE -> Some ("SO_TYPE", pp_socket_type)
       | _ -> None
     in
     register_printer { get }
