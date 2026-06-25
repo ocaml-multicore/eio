@@ -16,12 +16,16 @@
 #include <signal.h>
 #include <string.h>
 #include <unistd.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <netinet/tcp.h>
 
 // We need caml_convert_signal_number
 #define CAML_INTERNALS
 
 #include "primitives.h"
 
+#include <caml/fail.h>
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/alloc.h>
@@ -244,5 +248,49 @@ CAMLprim value caml_eio_clone3(value v_errors, value v_actions) {
   Store_field(v_result, 0, Val_long(child_pid));
   Store_field(v_result, 1, Val_int(pidfd));
 
+  CAMLreturn(v_result);
+}
+
+/* Socket option stubs for Linux-specific TCP options */
+CAMLprim value caml_eio_sockopt_int_set(value v_fd, value v_level, value v_option, value v_val) {
+  CAMLparam4(v_fd, v_level, v_option, v_val);
+  int ret;
+  int val = Int_val(v_val);
+  ret = setsockopt(Int_val(v_fd), Int_val(v_level), Int_val(v_option), &val, sizeof(val));
+  if (ret == -1) uerror("setsockopt", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_eio_sockopt_int_get(value v_fd, value v_level, value v_option) {
+  CAMLparam3(v_fd, v_level, v_option);
+  int ret;
+  int val;
+  socklen_t len = sizeof(val);
+  ret = getsockopt(Int_val(v_fd), Int_val(v_level), Int_val(v_option), &val, &len);
+  if (ret == -1) uerror("getsockopt", Nothing);
+  CAMLreturn(Val_int(val));
+}
+
+/* Socket option stubs for string options (e.g. TCP_CONGESTION) */
+CAMLprim value caml_eio_sockopt_string_set(value v_fd, value v_level, value v_option, value v_val) {
+  CAMLparam4(v_fd, v_level, v_option, v_val);
+  const char *str = String_val(v_val);
+  int ret = setsockopt(Int_val(v_fd), Int_val(v_level), Int_val(v_option),
+                       str, caml_string_length(v_val));
+  if (ret == -1) uerror("setsockopt", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_eio_sockopt_string_get(value v_fd, value v_level, value v_option) {
+  CAMLparam3(v_fd, v_level, v_option);
+  CAMLlocal1(v_result);
+  char buffer[256];
+  socklen_t len = sizeof(buffer);
+  int ret = getsockopt(Int_val(v_fd), Int_val(v_level), Int_val(v_option),
+                       buffer, &len);
+  if (ret == -1) uerror("getsockopt", Nothing);
+  if (strnlen(buffer, len) == sizeof(buffer))
+    caml_invalid_argument("getsockopt: buffer was too small!");
+  v_result = caml_copy_string(buffer);
   CAMLreturn(v_result);
 }

@@ -212,7 +212,36 @@ module Sockopt = struct
     | SO_RCVTIMEO : float t
     | SO_SNDTIMEO : float t
 
+  type _ t +=
+    | TCP_CORK : bool t
+    | TCP_KEEPIDLE : int t
+    | TCP_KEEPINTVL : int t
+    | TCP_KEEPCNT : int t
+    | TCP_USER_TIMEOUT : int t
+    | TCP_MAXSEG : int t
+    | TCP_LINGER2 : int option t
+    | TCP_DEFER_ACCEPT : int t
+    | TCP_CONGESTION : string t
+    | TCP_SYNCNT : int t
+    | TCP_WINDOW_CLAMP : int t
+    | TCP_QUICKACK : bool t
+    | TCP_FASTOPEN : int t
+    | IP_FREEBIND : bool t
+    | IP_BIND_ADDRESS_NO_PORT : bool t
+    | IP_LOCAL_PORT_RANGE : (int * int) t
+    | IP_TTL : int t
+    | IP_MTU : int t
+    | IP_MTU_DISCOVER : [`Want | `Dont | `Do | `Probe] t
+
   let () =
+    let pp_mtu_discover f v =
+      Fmt.string f @@
+      match v with
+      | `Want -> "Want"
+      | `Dont -> "Dont"
+      | `Do -> "Do"
+      | `Probe -> "Probe"
+    in
     let get : type a. a t -> (string * a Fmt.t) option = function
       | SO_DEBUG -> Some ("SO_DEBUG", Fmt.bool)
       | SO_BROADCAST -> Some ("SO_BROADCAST", Fmt.bool)
@@ -230,6 +259,25 @@ module Sockopt = struct
       | SO_LINGER -> Some ("SO_LINGER", Fmt.(option ~none:(any "<none>") int))
       | SO_RCVTIMEO -> Some ("SO_RCVTIMEO", Fmt.float)
       | SO_SNDTIMEO -> Some ("SO_SNDTIMEO", Fmt.float)
+      | TCP_CORK -> Some ("TCP_CORK", Fmt.bool)
+      | TCP_KEEPIDLE -> Some ("TCP_KEEPIDLE", Fmt.int)
+      | TCP_KEEPINTVL -> Some ("TCP_KEEPINTVL", Fmt.int)
+      | TCP_KEEPCNT -> Some ("TCP_KEEPCNT", Fmt.int)
+      | TCP_USER_TIMEOUT -> Some ("TCP_USER_TIMEOUT", Fmt.int)
+      | TCP_MAXSEG -> Some ("TCP_MAXSEG", Fmt.int)
+      | TCP_LINGER2 -> Some ("TCP_LINGER2", Fmt.(option ~none:(any "<none>") int))
+      | TCP_DEFER_ACCEPT -> Some ("TCP_DEFER_ACCEPT", Fmt.int)
+      | TCP_CONGESTION -> Some ("TCP_CONGESTION", Fmt.string)
+      | TCP_SYNCNT -> Some ("TCP_SYNCNT", Fmt.int)
+      | TCP_WINDOW_CLAMP -> Some ("TCP_WINDOW_CLAMP", Fmt.int)
+      | TCP_QUICKACK -> Some ("TCP_QUICKACK", Fmt.bool)
+      | TCP_FASTOPEN -> Some ("TCP_FASTOPEN", Fmt.int)
+      | IP_FREEBIND -> Some ("IP_FREEBIND", Fmt.bool)
+      | IP_BIND_ADDRESS_NO_PORT -> Some ("IP_BIND_ADDRESS_NO_PORT", Fmt.bool)
+      | IP_LOCAL_PORT_RANGE -> Some ("IP_LOCAL_PORT_RANGE", Fmt.(Dump.pair int int))
+      | IP_TTL -> Some ("IP_TTL", Fmt.int)
+      | IP_MTU -> Some ("IP_MTU", Fmt.int)
+      | IP_MTU_DISCOVER -> Some ("IP_MTU_DISCOVER", pp_mtu_discover)
       | _ -> None
     in
     register_printer { get }
