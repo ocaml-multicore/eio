@@ -405,3 +405,30 @@ CAMLprim value caml_eio_sockopt_string_get(value v_fd, value v_id) {
   v_result = caml_alloc_initialized_string(slen, buffer);
   CAMLreturn(v_result);
 }
+
+CAMLprim value caml_eio_unix_so_type(value v_fd) {
+  CAMLparam1(v_fd);
+  int ty;
+  socklen_t optlen = sizeof(ty);
+  #ifdef _WIN32
+  SOCKET sock = Socket_val(v_fd);
+  if (getsockopt(sock, SOL_SOCKET, SO_TYPE, (char *)&ty, &optlen) != 0) {
+    caml_win32_maperr(WSAGetLastError());
+    caml_uerror("getsockopt", Nothing);
+  }
+  #else
+  int sock = Int_val(v_fd);
+  if (getsockopt(sock, SOL_SOCKET, SO_TYPE, &ty, &optlen) != 0)
+    caml_uerror("getsockopt", Nothing);
+  #endif
+  switch (ty) {
+    case SOCK_STREAM:    CAMLreturn(caml_hash_variant("Stream"));
+    case SOCK_DGRAM:     CAMLreturn(caml_hash_variant("Dgram"));
+    case SOCK_RAW:       CAMLreturn(caml_hash_variant("Raw"));
+  #ifdef SOCK_SEQPACKET
+    case SOCK_SEQPACKET: CAMLreturn(caml_hash_variant("Seqpacket"));
+  #endif
+    default:             caml_invalid_argument("Eio_unix: unrecognised SO_TYPE");
+  }
+  CAMLreturn(Val_unit); /* unreachable */
+}
