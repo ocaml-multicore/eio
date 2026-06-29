@@ -148,7 +148,8 @@ let test_read_exact () =
     assert false
   with End_of_file ->
     let got = Eio_linux.Low_level.Fixed.to_string chunk ~len:(String.length msg) in
-    if got <> msg then Fmt.failwith "%S vs %S" got msg
+    if got <> msg then Fmt.failwith "%S vs %S" got msg;
+    Eio.Path.unlink path
 
 let test_expose_backend () =
   Eio_linux.run @@ fun env ->
@@ -196,7 +197,74 @@ let test_statx () =
       in
       test 7L ~follow:false (FD fd) "test2.data"
     );
-  ()
+  Eio.Path.unlink path
+
+let test_fallocate () =
+  Eio_linux.run @@ fun env ->
+  let ( / ) = Eio.Path.( / ) in
+  let path = env#cwd / "fallocate.data" in
+  Switch.run @@ fun sw ->
+  let fd =
+    Eio_linux.Low_level.openat ~sw
+      ~access:`RW
+      ~flags:Uring.Open_flags.creat
+      ~perm:0o600
+      Cwd "fallocate.data"
+  in
+  match Eio_linux.Low_level.fallocate fd ~off:Optint.Int63.zero ~len:(Optint.Int63.of_int 4096) with
+  | exception Eio.Exn.Io (Eio.Exn.X Eio_unix.Unix_error ((EOPNOTSUPP | EINVAL), _, _), _) ->
+    (* Some filesystems don't support fallocate so don't fail test *)
+    Eio.Path.unlink path;
+    Alcotest.skip ()
+  | () ->
+    (* The default mode extends the file to [off + len]. *)
+    let st = Eio_linux.Low_level.fstat fd in
+    Alcotest.(check int64) "fallocated size" 4096L (Optint.Int63.to_int64 st.size);
+    (* FIXME: any way to verify these have actually worked? *)
+    Eio_linux.Low_level.fdatasync fd;
+    Eio_linux.Low_level.fsync fd;
+    Eio.Path.unlink path
+
+let test_ftruncate () =
+  Eio_linux.run @@ fun env ->
+  let ( / ) = Eio.Path.( / ) in
+  let path = env#cwd / "ftruncate.data" in
+  Switch.run @@ fun sw ->
+  let fd =
+    Eio_linux.Low_level.openat ~sw
+      ~access:`RW
+      ~flags:Uring.Open_flags.creat
+      ~perm:0o600
+      Cwd "ftruncate.data"
+  in
+  Eio_linux.Low_level.ftruncate fd (Optint.Int63.of_int 123);
+  let st = Eio_linux.Low_level.fstat fd in
+  Alcotest.(check int64) "truncated size" 123L (Optint.Int63.to_int64 st.size);
+  Eio.Path.unlink path
+
+let test_tcp_loopback () =
+  Eio_linux.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  Switch.run @@ fun sw ->
+  let server =
+    Eio.Net.listen ~sw ~backlog:1 ~reuse_addr:true net
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
+  in
+  let port =
+    match Eio.Net.listening_addr server with
+    | `Tcp (_, port) -> port
+    | `Unix _ -> assert false
+  in
+  Fiber.both
+    (fun () ->
+       let flow, _addr = Eio.Net.accept ~sw server in
+       let buf = Cstruct.create 5 in
+       Eio.Flow.read_exact flow buf;
+       Alcotest.(check string) "server received" "hello" (Cstruct.to_string buf))
+    (fun () ->
+       let flow = Eio.Net.connect ~sw net (`Tcp (Eio.Net.Ipaddr.V4.loopback, port)) in
+       Eio.Flow.copy_string "hello" flow;
+       Eio.Flow.close flow)
 
 (* Ensure that an OCaml signal handler will run, even if we're sleeping in liburing at the time.
    The problem here is that [__sys_io_uring_enter2] doesn't return EINTR, because it did successfully
@@ -258,6 +326,9 @@ let () =
       test_case "read_exact"           `Quick test_read_exact;
       test_case "expose_backend"       `Quick test_expose_backend;
       test_case "statx"                `Quick test_statx;
+      test_case "fallocate"            `Quick test_fallocate;
+      test_case "ftruncate"            `Quick test_ftruncate;
+      test_case "tcp_loopback"         `Quick test_tcp_loopback;
       test_case "signal_race"          `Quick test_signal_race;
       test_case "alloc-fixed-or-wait"  `Quick test_alloc_fixed_or_wait;
     ];

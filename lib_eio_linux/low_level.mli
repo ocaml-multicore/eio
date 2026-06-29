@@ -203,12 +203,47 @@ val fsync : fd -> unit
 
     Like {!Unix.fsync}. *)
 
+val fdatasync : fd -> unit
+(** Flush file data to disk.
+
+    Like {!fsync}, but does not wait for metadata that is not needed to read the
+    data back.  The aim is to reduce disk activity for callers that do not require all
+    metadata to be synchronized with the disk. *)
+
 val ftruncate : fd -> Optint.Int63.t -> unit
 (** Set the length of a file.
 
     Like {!Unix.ftruncate}. *)
 
+val fallocate : ?mode:Uring.Fallocate_flags.t -> fd -> off:Optint.Int63.t -> len:Optint.Int63.t -> unit
+(** [fallocate fd ~off ~len] manipulates the disk space allocated for the
+    [len] bytes of [fd] starting at [off] (the [fallocate(2)] call).
+
+    With the default [mode] (the empty set of flags) this allocates the region
+    as for [posix_fallocate(3)], extending the file's size if needed.
+    See {!Uring.Fallocate_flags} for other modes, such as punching holes. *)
+
 (** {1 Sockets} *)
+
+val socket : sw:Switch.t -> Unix.socket_domain -> Unix.socket_type -> int -> fd
+(** [socket ~sw domain ty protocol] creates a new socket, like {!Unix.socket}.
+
+    The new socket has the close-on-exec flag set and is attached to [sw].
+    On Linux >= 5.19 this uses io_uring and on older kernels it falls back
+    to a [socket(2)] call. *)
+
+val bind : fd -> Unix.sockaddr -> unit
+(** [bind fd addr] binds socket [fd] to [addr], like {!Unix.bind}.
+
+    On Linux >= 6.11 this uses io_uring and on older kernels falls back to a
+    [bind(2)] call. *)
+
+val listen : fd -> int -> unit
+(** [listen fd backlog] marks socket [fd] as accepting connections, like
+    {!Unix.listen}.
+
+    On Linux >= 6.11 this uses io_uring and on older kernels falls back to a
+    [listen(2)] call. *)
 
 val accept : sw:Switch.t -> fd -> (fd * Unix.sockaddr)
 (** [accept ~sw t] blocks until a new connection is received on listening socket [t].

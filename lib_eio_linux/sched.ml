@@ -10,6 +10,10 @@ module Zzz = Eio_utils.Zzz
 module Lf_queue = Eio_utils.Lf_queue
 
 let statx_works = ref false     (* Before Linux 5.18, statx is unreliable *)
+let ftruncate_works = ref false (* IORING_OP_FTRUNCATE requires Linux >= 6.9 *)
+let socket_works = ref false    (* IORING_OP_SOCKET requires Linux >= 5.19 *)
+let bind_works = ref false      (* IORING_OP_BIND requires Linux >= 6.11 *)
+let listen_works = ref false    (* IORING_OP_LISTEN requires Linux >= 6.11 *)
 
 type exit = [`Exit_scheduler]
 
@@ -460,6 +464,14 @@ let with_sched ?(fallback=no_fallback) config fn =
          the first domain is starting. This is just to avoid a tsan warning. *)
       if not !statx_works && Uring.op_supported probe Uring.Op.msg_ring then
         statx_works := true;
+      if not !ftruncate_works && Uring.op_supported probe Uring.Op.ftruncate then
+        ftruncate_works := true;
+      if not !socket_works && Uring.op_supported probe Uring.Op.socket then
+        socket_works := true;
+      if not !bind_works && Uring.op_supported probe Uring.Op.bind then
+        bind_works := true;
+      if not !listen_works && Uring.op_supported probe Uring.Op.listen then
+        listen_works := true;
       match
         let mem =
           let fixed_buf_len = block_size * n_blocks in
