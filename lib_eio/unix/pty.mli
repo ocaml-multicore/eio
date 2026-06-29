@@ -57,3 +57,38 @@ val set_window_size : Fd.t -> winsize -> unit
     the foreground process group attached to the terminal.
 
     @raise Unix.Unix_error if [fd] is not a terminal. *)
+
+(** Terminal attributes control.
+    These raise [Unix.Unix_error] if [fd] is not a terminal. *)
+module Tc : sig
+  val getattr : Fd.t -> Unix.terminal_io
+  (** [getattr fd] returns the current terminal attributes of [fd].
+      See {!Unix.tcgetattr}. *)
+
+  val setattr : Fd.t -> Unix.setattr_when -> Unix.terminal_io -> unit
+  (** [setattr fd when_ attr] sets the terminal attributes of [fd].
+
+      With [TCSADRAIN] or [TCSAFLUSH] the change waits for pending output to
+      drain in the current fiber.
+      See {!Unix.tcsetattr}. *)
+
+  val sendbreak : Fd.t -> int -> unit
+  (** [sendbreak fd duration] sends a break condition on [fd].
+
+      This blocks the current fiber while the break is transmitted.
+      See {!Unix.tcsendbreak}. *)
+
+  val drain : Fd.t -> unit
+  (** [drain fd] waits until all output written to [fd] has been transmitted.
+
+      This blocks the current fiber until the output drains.
+      See {!Unix.tcdrain}. *)
+
+  val flush : Fd.t -> Unix.flush_queue -> unit
+  (** [flush fd queue] discards pending input and/or output on [fd].
+      See {!Unix.tcflush}. *)
+
+  val flow : Fd.t -> Unix.flow_action -> unit
+  (** [flow fd action] suspends or resumes transmission/reception on [fd].
+      See {!Unix.tcflow}. *)
+end

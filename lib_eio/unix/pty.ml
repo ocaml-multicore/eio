@@ -38,3 +38,27 @@ external set_winsize : Unix.file_descr -> winsize -> unit = "eio_unix_set_winsiz
 
 let get_window_size fd = Fd.use_exn "get_window_size" fd get_winsize
 let set_window_size fd ws = Fd.use_exn "set_window_size" fd (fun fd -> set_winsize fd ws)
+
+module Tc = struct
+  let getattr fd = Fd.use_exn "tcgetattr" fd Unix.tcgetattr
+
+  let setattr fd when_ attr =
+    Fd.use_exn "tcsetattr" fd (fun fd ->
+        match when_ with
+        | Unix.TCSANOW -> Unix.tcsetattr fd when_ attr
+        | TCSADRAIN | TCSAFLUSH ->
+          Thread_pool.run_in_systhread ~label:"tcsetattr"
+            (fun () -> Unix.tcsetattr fd when_ attr))
+
+  let sendbreak fd duration =
+    Fd.use_exn "tcsendbreak" fd (fun fd ->
+        Thread_pool.run_in_systhread ~label:"tcsendbreak"
+          (fun () -> Unix.tcsendbreak fd duration))
+
+  let drain fd =
+    Fd.use_exn "tcdrain" fd (fun fd ->
+        Thread_pool.run_in_systhread ~label:"tcdrain" (fun () -> Unix.tcdrain fd))
+
+  let flush fd queue = Fd.use_exn "tcflush" fd (fun fd -> Unix.tcflush fd queue)
+  let flow fd action = Fd.use_exn "tcflow" fd (fun fd -> Unix.tcflow fd action)
+end

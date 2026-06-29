@@ -41,6 +41,25 @@ The window size can be set on either end and read back:
 - : Pty.winsize = {Pty.rows = 24; cols = 80; xpixel = 0; ypixel = 0}
 ```
 
+## Terminal attributes
+
+Terminal attributes can be manipulted via `Pty.Tc`. Here we change a setting
+through the draining path, drain and flush the queues, resume output, and read
+the new value back. This exercises some of the fiber blocking logic:
+
+```ocaml
+# run @@ fun _env ->
+  Switch.run @@ fun sw ->
+  let tty = Pty.tty (Pty.open_pty ~sw ()) in
+  let attr = Pty.Tc.getattr tty in
+  Pty.Tc.setattr tty Unix.TCSADRAIN { attr with c_echo = false };
+  Pty.Tc.drain tty;
+  Pty.Tc.flush tty Unix.TCIOFLUSH;
+  Pty.Tc.flow tty Unix.TCOON;
+  (Pty.Tc.getattr tty).c_echo;;
+- : bool = false
+```
+
 ## Spawning a child on a pseudoterminal
 
 Passing the terminal-device end as `login_tty` makes it the child's controlling
@@ -88,9 +107,8 @@ Here we turn off the terminal's input echo, send it a line, and read the respons
 # run @@ fun env ->
   Switch.run @@ fun sw ->
   let t = Pty.open_pty ~sw () in
-  Eio_unix.Fd.use_exn "tty" (Pty.tty t) (fun fd ->
-    let attr = Unix.tcgetattr fd in
-    Unix.tcsetattr fd Unix.TCSANOW { attr with c_echo = false });
+  let attr = Pty.Tc.getattr (Pty.tty t) in
+  Pty.Tc.setattr (Pty.tty t) Unix.TCSANOW { attr with c_echo = false };
   let _child =
     Eio_unix.Process.spawn_unix ~sw env#process_mgr
       ~login_tty:(Pty.tty t)
