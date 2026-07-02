@@ -28,6 +28,7 @@ module Ipaddr = Net.Ipaddr
 
 module Process = Process
 module Net = Net
+module Pty = Pty
 module Cap = Cap
 module Pi = Pi
 

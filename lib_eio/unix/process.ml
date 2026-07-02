@@ -97,6 +97,7 @@ module Pi = struct
       ?pgid:int ->
       ?uid:int ->
       ?gid:int ->
+      ?login_tty:Fd.t ->
       env:string array ->
       fds:(int * Fd.t * Fork_action.blocking) list ->
       executable:string ->
@@ -124,6 +125,7 @@ module Make_mgr (X : sig
     ?pgid:int ->
     ?uid:int ->
     ?gid:int ->
+    ?login_tty:Fd.t ->
     env:string array ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     executable:string ->
@@ -156,12 +158,12 @@ end) = struct
   let spawn_unix = X.spawn_unix
 end
 
-let spawn_unix ~sw (Eio.Resource.T (v, ops)) ?cwd ?pgid ?uid ?gid ~fds ?env ?executable args =
+let spawn_unix ~sw (Eio.Resource.T (v, ops)) ?cwd ?pgid ?uid ?gid ?login_tty ~fds ?env ?executable args =
   let module X = (val (Eio.Resource.get ops Pi.Mgr_unix)) in
   let executable = get_executable executable ~args in
   let env = get_env env in
   translate_execve_error ~executable @@ fun () ->
-  X.spawn_unix v ~sw ?cwd ?pgid ?uid ?gid ~fds ~env ~executable args
+  X.spawn_unix v ~sw ?cwd ?pgid ?uid ?gid ?login_tty ~fds ~env ~executable args
 
 let sigchld = Eio.Condition.create ()
 

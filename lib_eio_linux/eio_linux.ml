@@ -225,11 +225,22 @@ module Process_mgr = struct
   module T = struct
     type t = unit 
     
-    let spawn_unix () ~sw ?cwd ?pgid ?uid ?gid ~env ~fds ~executable args =
-      let actions = Low_level.Process.Fork_action.[
-          Eio_unix.Private.Fork_action.inherit_fds fds;
-          execve executable ~argv:(Array.of_list args) ~env
-      ] in
+    let spawn_unix () ~sw ?cwd ?pgid ?uid ?gid ?login_tty ~env ~fds ~executable args =
+      let login_tty_action, fds = match login_tty with
+        | None -> [], fds
+        | Some tty ->
+          let fds = [
+            0, tty, `Blocking;
+            1, tty, `Blocking;
+            2, tty, `Blocking;
+          ] @ fds in
+          [Eio_unix.Private.Fork_action.login_tty tty], fds
+      in
+      let actions = Low_level.Process.Fork_action.(
+          login_tty_action @
+          [ Eio_unix.Private.Fork_action.inherit_fds fds;
+            execve executable ~argv:(Array.of_list args) ~env ]
+      ) in
       let actions = match pgid with
         | None -> actions
         | Some pgid -> Eio_unix.Private.Fork_action.setpgid pgid :: actions

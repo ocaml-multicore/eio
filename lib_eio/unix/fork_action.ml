@@ -84,6 +84,13 @@ let action_setgid = action_setgid ()
 let setgid gid = {
   run = fun k -> k (Obj.repr (action_setgid, gid)) }
 
+external action_login_tty : unit -> fork_fn = "eio_unix_login_tty"
+let action_login_tty = action_login_tty ()
+let login_tty fd = {
+  run = fun k ->
+    Fd.use_exn "login_tty" fd @@ fun fd ->
+    k (Obj.repr (action_login_tty, fd)) }
+
 external error_of_code : int -> Unix.error = "eio_unix_error_of_code"
 
 let report_spawn_error msg =

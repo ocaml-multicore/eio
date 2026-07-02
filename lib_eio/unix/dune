@@ -5,7 +5,7 @@
  (foreign_stubs
   (language c)
   (include_dirs include)
-  (names fork_action eio_unix_stubs cap))
+  (names fork_action eio_unix_stubs cap pty))
  (libraries eio eio.utils unix threads mtime.clock.os))
 
 (rule
@@ -18,7 +18,8 @@
         %{dep:.eio_unix.objs/byte/eio_unix__Fd.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Private.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Cap.cmt}
-        %{dep:.eio_unix.objs/byte/eio_unix__Fork_action.cmt}))))
+        %{dep:.eio_unix.objs/byte/eio_unix__Fork_action.cmt}
+        %{dep:.eio_unix.objs/byte/eio_unix__Pty.cmt}))))
 
 (rule
  (package eio)
