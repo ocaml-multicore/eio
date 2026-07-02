@@ -125,6 +125,9 @@ end = struct
   let chmod t ~follow ~perm path =
     Err.run (Low_level.chmod ~follow ~mode:perm t.fd) path
 
+  let chown ~follow ?uid ?gid t path =
+    Err.run (Low_level.chown ~follow ?uid ?gid t.fd) path
+
   let open_subtree t ~sw path =
     let flags = Low_level.Open_flags.(rdonly + directory +? path) in
     let fd = Err.run (Low_level.openat ~sw ~mode:0 t.fd path) flags in

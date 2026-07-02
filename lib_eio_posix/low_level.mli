@@ -84,6 +84,10 @@ val symlink : link_to:string -> dir_fd -> string -> unit
 
 val chmod : follow:bool -> mode:int -> dir_fd -> string -> unit
 
+val chown : follow:bool -> ?uid:int64 -> ?gid:int64 -> dir_fd -> string -> unit
+(** [chown ~follow ~uid ~gid dir path] will change the ownership of [dir / path]
+    to [uid, gid]. *)
+
 val readdir : dir_fd -> string -> string array
 val with_dir_entries : dir_fd -> string -> ((Eio.File.Stat.kind * string) Seq.t -> 'a) -> 'a
 
