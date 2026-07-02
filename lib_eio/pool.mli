@@ -35,7 +35,7 @@ val create :
                    If it raises, the exception is passed on to the user,
                    but resource is still considered to have been disposed. *)
 
-val use : 'a t -> ?never_block:bool -> ('a -> 'b) -> 'b
+val use : ?never_block:bool -> 'a t -> ('a -> 'b) -> 'b
 (** [use t fn] waits for some resource [x] to be available and then runs [f x].
     Afterwards (on success or error), [x] is returned to the pool.
 
