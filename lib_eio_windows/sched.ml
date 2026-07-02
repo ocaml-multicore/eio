@@ -132,8 +132,12 @@ let update t waiters fd =
       t.poll.to_write <- FdSet.remove fd t.poll.to_write;
       Hashtbl.remove t.fd_map fd
     )
-  | `R -> t.poll.to_read <- FdSet.add fd t.poll.to_read
-  | `W -> t.poll.to_write <- FdSet.add fd t.poll.to_write
+  | `R ->
+    t.poll.to_read <- FdSet.add fd t.poll.to_read;
+    t.poll.to_write <- FdSet.remove fd t.poll.to_write
+  | `W ->
+    t.poll.to_read <- FdSet.remove fd t.poll.to_read;
+    t.poll.to_write <- FdSet.add fd t.poll.to_write
   | `RW ->
     t.poll.to_read <- FdSet.add fd t.poll.to_read;
     t.poll.to_write <- FdSet.add fd t.poll.to_write
