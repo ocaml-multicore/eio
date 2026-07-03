@@ -71,6 +71,13 @@ val setuid : int -> t
 val setgid : int -> t
 (** [setgid gid] sets the group ID to [gid]. *)
 
+val login_tty : Fd.t -> t
+(** [login_tty tty] makes [tty] the controlling terminal of the child.
+
+    It starts a new session and makes [tty] the session's controlling terminal.
+    It does not duplicate it to the child's stdin/stdout/stderr; use {!inherit_fds} for that.
+    [tty] is typically the terminal-device end of a pair returned by {!Eio_unix.Pty.open_pty}. *)
+
 val report_spawn_error : string -> 'a
 (** [report_spawn_error msg] raises an exception describing a failed spawn.
 

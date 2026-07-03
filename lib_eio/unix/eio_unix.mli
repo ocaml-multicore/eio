@@ -66,6 +66,9 @@ val pipe : Switch.t -> [< source_ty] r * [< sink_ty] r
 module Process = Process
 (** Spawning child processes with extra control. *)
 
+module Pty = Pty
+(** Creating and controlling pseudoterminals. *)
+
 module Cap = Cap
 (** Capsicum security. *)
 

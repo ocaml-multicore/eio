@@ -13,6 +13,11 @@
 #include <string.h>
 #include <errno.h>
 
+#ifndef _WIN32
+#include <sys/ioctl.h>      /* TIOCSCTTY, for login_tty */
+#include <termios.h>
+#endif
+
 #include <caml/mlvalues.h>
 #include <caml/unixsupport.h>
 #include <caml/memory.h>
@@ -302,4 +307,25 @@ static void action_setgid(int errors, value v_config) {
 
 CAMLprim value eio_unix_fork_setgid(value v_unit) {
   return Val_fork_fn(action_setgid);
+}
+
+static void action_login_tty(int errors, value v_config) {
+  #ifdef _WIN32
+  eio_unix_fork_error(errors, "login_tty", ENOSYS);
+  _exit(1);
+  #else
+  int fd = Int_val(Field(v_config, 1));
+  if (setsid() == -1) {
+    eio_unix_fork_error(errors, "setsid", errno);
+    _exit(1);
+  }
+  if (ioctl(fd, TIOCSCTTY, 0) == -1) {
+    eio_unix_fork_error(errors, "ioctl(TIOCSCTTY)", errno);
+    _exit(1);
+  }
+  #endif
+}
+
+CAMLprim value eio_unix_login_tty(value v_unit) {
+  return Val_fork_fn(action_login_tty);
 }
