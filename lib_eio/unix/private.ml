@@ -52,3 +52,14 @@ let chown_unix ~flags ~uid ~gid fd path =
 
 let chown ~flags ~uid ~gid fd path =
   Fd.use_exn "chown" fd (fun fd -> chown_unix ~uid ~gid ~flags fd path)
+
+type sockaddr = [ `Tcp of Eio.Net.Ipaddr.v4v6 * int
+                | `Udp of Eio.Net.Ipaddr.v4v6 * int ]
+
+external eio_getaddrinfo : string -> string -> (sockaddr list, Eio.Net.Getaddrinfo_error.t) result
+  = "eio_unix_getaddrinfo"
+
+let getaddrinfo ~service node =
+  match eio_getaddrinfo node service with
+  | Ok x -> List.rev (x :> Eio.Net.Sockaddr.t list)
+  | Error e -> raise @@ Eio.Net.err @@ Eio.Net.Address_lookup_failed e
