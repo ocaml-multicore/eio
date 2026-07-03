@@ -946,47 +946,54 @@ Reading at the end of a file:
 ```ocaml
 # run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  let everyone = try Some (Unix.getgrnam "everyone") with Not_found -> None in
+  let path = cwd / "owner.txt" in
+  let link = cwd / "link.txt" in
+  let symlink = cwd / "symlink.txt" in
+
   let stat_uid_gid path =
     let stat = Eio.Path.stat ~follow:false path in
     stat.uid, stat.gid
   in
-  match everyone with
-    | None -> ()
-    | Some entry ->
-      let everybody = Int64.of_int entry.gr_gid in
+  Path.with_open_out path ~create:(`Or_truncate 0o644) ignore;
+  let uid_before, gid_before = stat_uid_gid path in
+  let othergroup =
+    let othergroups =
+      Unix.getgroups ()
+      |> Array.to_list
+      |> List.map Int64.of_int
+      |> List.filter ((<>) gid_before)
+    in
+    match othergroups with
+    | [] -> gid_before
+    | x :: _ -> x
+  in
 
-      let path = cwd / "owner.txt" in
-      let link = cwd / "link.txt" in
-      let symlink = cwd / "symlink.txt" in
+  (* Normal chown to othergroup *)
+  Eio.Path.chown ~follow:false ~uid:uid_before ~gid:othergroup path;
+  let uid_after, gid_after = stat_uid_gid path in
+  assert (uid_before = uid_after);
+  assert (gid_after = othergroup);
 
-      (* Normal chown to everyone group *)
-      Path.with_open_out path ~create:(`Or_truncate 0o644) ignore;
-      let uid_before, _gid_before = stat_uid_gid path in
-      Eio.Path.chown ~follow:false ~uid:uid_before ~gid:everybody path;
-      let uid_after, gid_after = stat_uid_gid path in
-      assert (uid_before = uid_after);
-      assert (everybody = gid_after);
+  (* Chowning through a symlink *)
+  Path.with_open_out link ~create:(`Or_truncate 0o644) ignore;
+  Eio.Path.symlink ~link_to:"link.txt" symlink;
+  let luid1, lgid1 = stat_uid_gid link in
+  let suid1, sgid1 = stat_uid_gid symlink in
 
-      (* Chowning through a symlink *)
-      Path.with_open_out link ~create:(`Or_truncate 0o644) ignore;
-      Eio.Path.symlink ~link_to:"link.txt" symlink;
-      let luid1, lgid1 = stat_uid_gid link in
-      let suid1, sgid1 = stat_uid_gid symlink in
+  (* Only chown the symlink, not the target *)
+  Eio.Path.chown ~follow:false ~gid:othergroup symlink;
+  let luid2, lgid2 = stat_uid_gid link in
+  let suid2, sgid2 = stat_uid_gid symlink in
+  assert (luid1 = luid2 && lgid1 = lgid2);
+  assert (suid1 = suid2 && sgid2 = othergroup);
 
-      (* Only chown the symlink, not the target *)
-      Eio.Path.chown ~follow:false ~gid:everybody symlink;
-      let luid2, lgid2 = stat_uid_gid link in
-      let suid2, sgid2 = stat_uid_gid symlink in
-      assert (luid1 = luid2 && lgid1 = lgid2 && suid1 = suid2 && Int64.to_int sgid2 = entry.gr_gid);
-
-      (* Now chown the target too *)
-      Eio.Path.chown ~follow:true ~gid:everybody symlink;
-      let luid3, lgid3 = stat_uid_gid link in
-      let suid3, sgid3 = stat_uid_gid symlink in
-      assert (suid3 = luid3);
-      assert (Int64.to_int lgid3 = entry.gr_gid);
-      assert (Int64.to_int sgid3 = entry.gr_gid);;
+  (* Now chown the target too *)
+  Eio.Path.chown ~follow:true ~gid:othergroup symlink;
+  let luid3, lgid3 = stat_uid_gid link in
+  let suid3, sgid3 = stat_uid_gid symlink in
+  assert (suid3 = luid3);
+  assert (lgid3 = othergroup);
+  assert (sgid3 = othergroup);;
 - : unit = ()
 ```
 

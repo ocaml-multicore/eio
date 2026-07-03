@@ -45,10 +45,10 @@ let chmod_unix fd path ~flags ~mode = eio_fchmodat fd path mode flags
 let chmod fd path ~flags ~mode =
   Fd.use_exn "chmod" fd (fun fd -> chmod_unix ~flags ~mode fd path)
 
-external eio_fchownat : Unix.file_descr -> string -> int64 -> int64 -> int -> unit = "eio_unix_fchownat"
+external eio_fchownat : Unix.file_descr -> string -> int64 -> int64 -> bool -> unit = "eio_unix_fchownat"
 
-let chown_unix ~flags ~uid ~gid fd path =
-  eio_fchownat fd path uid gid flags
+let chown_unix ~follow ~uid ~gid fd path =
+  eio_fchownat fd path uid gid follow
 
-let chown ~flags ~uid ~gid fd path =
-  Fd.use_exn "chown" fd (fun fd -> chown_unix ~uid ~gid ~flags fd path)
+let chown ~follow ~uid ~gid fd path =
+  Fd.use_exn "chown" fd (fun fd -> chown_unix ~uid ~gid ~follow fd path)
