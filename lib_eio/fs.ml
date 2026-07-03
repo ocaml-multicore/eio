@@ -73,6 +73,7 @@ module Pi = struct
     val read_link : t -> path -> string
     val symlink : link_to:path -> t -> path -> unit
     val chmod : t -> follow:bool -> perm:File.Unix_perm.t -> path -> unit
+    val chown : follow:bool -> ?uid:int64 -> ?gid:int64 -> t -> path -> unit
     val pp : t Fmt.t
     val native : t -> string -> string option
   end
