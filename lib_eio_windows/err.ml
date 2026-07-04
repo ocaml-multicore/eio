@@ -21,6 +21,7 @@ let wrap code name arg =
   | EXDEV | EACCES | EPERM -> Eio.Fs.err (Permission_denied e)
   | ECONNREFUSED -> Eio.Net.err (Connection_failure (Refused e))
   | ECONNRESET | EPIPE | ECONNABORTED -> Eio.Net.err (Connection_reset e)
+  | ENOPROTOOPT -> Eio.Net.err Invalid_option
   | _ -> unclassified_error e
 
 let run fn x =
