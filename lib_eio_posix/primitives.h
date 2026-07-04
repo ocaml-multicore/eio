@@ -21,6 +21,8 @@ CAMLprim value caml_eio_posix_fstatat(value, value, value, value);
 CAMLprim value caml_eio_posix_fstat(value, value);
 CAMLprim int64_t ocaml_eio_posix_stat_blksize_native(value);
 CAMLprim value ocaml_eio_posix_stat_blksize_bytes(value);
+CAMLprim int64_t ocaml_eio_posix_stat_blocks_native(value);
+CAMLprim value ocaml_eio_posix_stat_blocks_bytes(value);
 CAMLprim int64_t ocaml_eio_posix_stat_nlink_native(value);
 CAMLprim value ocaml_eio_posix_stat_nlink_bytes(value);
 CAMLprim int64_t ocaml_eio_posix_stat_uid_native(value);

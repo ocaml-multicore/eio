@@ -36,6 +36,8 @@ module Stat = struct
     gid : Int64.t;
     rdev : Int64.t;
     size : Optint.Int63.t;
+    blksize : Int64.t;
+    blocks : Int64.t;
     atime : float;
     mtime : float;
     ctime : float;
@@ -52,6 +54,8 @@ module Stat = struct
       Fmt.field "gid" (fun t -> t.gid) Fmt.int64;
       Fmt.field "rdev" (fun t -> t.rdev) Fmt.int64;
       Fmt.field "size" (fun t -> t.size) Optint.Int63.pp;
+      Fmt.field "blksize" (fun t -> t.blksize) Fmt.int64;
+      Fmt.field "blocks" (fun t -> t.blocks) Fmt.int64;
       Fmt.field "atime" (fun t -> t.atime) Fmt.float;
       Fmt.field "mtime" (fun t -> t.mtime) Fmt.float;
       Fmt.field "ctime" (fun t -> t.ctime) Fmt.float;

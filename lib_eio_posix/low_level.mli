@@ -52,6 +52,7 @@ val fstat : buf:stat -> fd -> unit
 val fstatat : buf:stat -> follow:bool -> dir_fd -> string -> unit
 
 external blksize : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_blksize_bytes" "ocaml_eio_posix_stat_blksize_native" [@@noalloc]
+external blocks  : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_blocks_bytes" "ocaml_eio_posix_stat_blocks_native" [@@noalloc]
 external nlink   : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_nlink_bytes" "ocaml_eio_posix_stat_nlink_native" [@@noalloc]
 external uid     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_uid_bytes" "ocaml_eio_posix_stat_uid_native" [@@noalloc]
 external gid     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_gid_bytes" "ocaml_eio_posix_stat_gid_native" [@@noalloc]
