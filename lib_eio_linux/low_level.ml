@@ -742,9 +742,9 @@ let chmod ~follow ~mode dir path =
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
 let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) fd path =
-  let module At = Uring.Linkat_flags in
-  let follow = if follow then At.(empty_path + symlink_follow) else At.empty_path in
-  let flags = (follow :> int) in
+  let module X = Uring.Statx in
+  let flags = if follow then X.Flags.empty_path else X.Flags.(empty_path + symlink_nofollow) in
+  let flags = (flags :> int) in
   try
     with_parent_dir_fd fd path @@ fun parent leaf ->
     Eio_unix.run_in_systhread ~label:"chown" (fun () -> Eio_unix.Private.chown ~flags ~uid ~gid parent leaf)

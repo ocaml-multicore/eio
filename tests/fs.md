@@ -941,52 +941,57 @@ Reading at the end of a file:
 
 # Changing Ownership
 
-<!-- This test is written a little obscurely as we only want to
-     run it on macOS, but MDX only supports os_type (Unix, Win, Cygwin) -->
+Since changing a file's group needs either privilege or membership of the target group,
+we pick a group that differs from the file's current one. This won't always do anything
+useful, so run it occasionally either as root or as a user with multiple groups.
+
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["owner.txt"; "link.txt"; "symlink.txt"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
-  let everyone = try Some (Unix.getgrnam "everyone") with Not_found -> None in
   let stat_uid_gid path =
     let stat = Eio.Path.stat ~follow:false path in
     stat.uid, stat.gid
   in
-  match everyone with
-    | None -> ()
-    | Some entry ->
-      let everybody = Int64.of_int entry.gr_gid in
+  let path = cwd / "owner.txt" in
+  let link = cwd / "link.txt" in
+  let symlink = cwd / "symlink.txt" in
+  Path.with_open_out path ~create:(`Or_truncate 0o644) ignore;
+  let uid0, gid0 = stat_uid_gid path in
+  let target =
+    if Unix.geteuid () = 0 then Some (Int64.add gid0 1L)
+    else
+      Unix.getegid () :: Array.to_list (Unix.getgroups ())
+      |> List.map Int64.of_int
+      |> List.find_opt (fun gid -> gid <> gid0)
+  in
+  match target with
+  | None -> ()
+  | Some gid ->
+      Eio.Path.chown ~follow:false ~uid:uid0 ~gid path;
+      let uid1, gid1 = stat_uid_gid path in
+      assert (uid1 = uid0);
+      assert (gid1 = gid);
 
-      let path = cwd / "owner.txt" in
-      let link = cwd / "link.txt" in
-      let symlink = cwd / "symlink.txt" in
-
-      (* Normal chown to everyone group *)
-      Path.with_open_out path ~create:(`Or_truncate 0o644) ignore;
-      let uid_before, _gid_before = stat_uid_gid path in
-      Eio.Path.chown ~follow:false ~uid:uid_before ~gid:everybody path;
-      let uid_after, gid_after = stat_uid_gid path in
-      assert (uid_before = uid_after);
-      assert (everybody = gid_after);
-
-      (* Chowning through a symlink *)
+      (* [link] is a regular file; [symlink] points at it. Both
+         start out in the group [gid0]. *)
       Path.with_open_out link ~create:(`Or_truncate 0o644) ignore;
       Eio.Path.symlink ~link_to:"link.txt" symlink;
       let luid1, lgid1 = stat_uid_gid link in
-      let suid1, sgid1 = stat_uid_gid symlink in
+      let suid1, _sgid1 = stat_uid_gid symlink in
 
-      (* Only chown the symlink, not the target *)
-      Eio.Path.chown ~follow:false ~gid:everybody symlink;
+      (* [~follow:false] changes the symlink itself, not its target. *)
+      Eio.Path.chown ~follow:false ~gid symlink;
       let luid2, lgid2 = stat_uid_gid link in
       let suid2, sgid2 = stat_uid_gid symlink in
-      assert (luid1 = luid2 && lgid1 = lgid2 && suid1 = suid2 && Int64.to_int sgid2 = entry.gr_gid);
+      assert (luid1 = luid2 && lgid1 = lgid2);
+      assert (suid1 = suid2 && sgid2 = gid);
 
-      (* Now chown the target too *)
-      Eio.Path.chown ~follow:true ~gid:everybody symlink;
+      (* [~follow:true] changes the target instead. *)
+      Eio.Path.chown ~follow:true ~gid symlink;
       let luid3, lgid3 = stat_uid_gid link in
-      let suid3, sgid3 = stat_uid_gid symlink in
-      assert (suid3 = luid3);
-      assert (Int64.to_int lgid3 = entry.gr_gid);
-      assert (Int64.to_int sgid3 = entry.gr_gid);;
+      let _suid3, sgid3 = stat_uid_gid symlink in
+      assert (luid3 = luid2 && lgid3 = gid);
+      assert (sgid3 = gid);;
 - : unit = ()
 ```
 
