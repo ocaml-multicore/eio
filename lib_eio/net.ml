@@ -2,12 +2,65 @@ open Std
 
 type connection_failure =
   | Refused of Exn.Backend.t
-  | No_matching_addresses
   | Timeout
+
+module Getaddrinfo_error = struct
+  (* keep in sync with C stubs *)
+  type t =
+    | UNKNOWN
+    | ADDRFAMILY
+    | AGAIN
+    | BADFLAGS
+    | BADHINTS
+    | FAIL
+    | FAMILY
+    | MEMORY
+    | NODATA
+    | NONAME
+    | OVERFLOW
+    | PROTOCOL
+    | SERVICE
+    | SOCKTYPE
+
+  let to_tag = function
+    | UNKNOWN    -> "UNKNOWN"
+    | ADDRFAMILY -> "ADDRFAMILY"
+    | AGAIN      -> "AGAIN"
+    | BADFLAGS   -> "BADFLAGS"
+    | BADHINTS   -> "BADHINTS"
+    | FAIL       -> "FAIL"
+    | FAMILY     -> "FAMILY"
+    | MEMORY     -> "MEMORY"
+    | NODATA     -> "NODATA"
+    | NONAME     -> "NONAME"
+    | OVERFLOW   -> "OVERFLOW"
+    | PROTOCOL   -> "PROTOCOL"
+    | SERVICE    -> "SERVICE"
+    | SOCKTYPE   -> "SOCKTYPE"
+
+  let to_message = function
+    | ADDRFAMILY -> "address family for name not supported"
+    | AGAIN      -> "temporary failure in name resolution"
+    | BADFLAGS   -> "invalid value for ai_flags"
+    | BADHINTS   -> "invalid value for hints"
+    | FAIL       -> "non-recoverable failure in name resolution"
+    | FAMILY     -> "ai_family not supported"
+    | MEMORY     -> "memory allocation failure"
+    | NODATA     -> "no address associated with name"
+    | NONAME     -> "name or service is not known"
+    | OVERFLOW   -> "argument buffer overflow"
+    | PROTOCOL   -> "resolved protocol is unknown"
+    | SERVICE    -> "service not supported for ai_socktype"
+    | SOCKTYPE   -> "ai_socktype not supported"
+    | UNKNOWN    -> "unknown error"
+
+  let pp f t = Fmt.pf f "%s (%s)" (to_tag t) (to_message t)
+end
 
 type error =
   | Connection_reset of Exn.Backend.t
   | Connection_failure of connection_failure
+  | Address_lookup_failed of Getaddrinfo_error.t
   | Invalid_option
 
 type Exn.err += E of error
@@ -22,8 +75,8 @@ let () =
           | Connection_reset e -> Fmt.pf f "Connection_reset %a" Exn.Backend.pp e
           | Connection_failure Refused e -> Fmt.pf f "Connection_failure Refused %a" Exn.Backend.pp e
           | Connection_failure Timeout -> Fmt.pf f "Connection_failure Timeout"
-          | Connection_failure No_matching_addresses -> Fmt.pf f "Connection_failure No_matching_addresses"
           | Invalid_option -> Fmt.string f "Invalid_option"
+          | Address_lookup_failed e -> Fmt.pf f "Address_lookup_failed %a" Getaddrinfo_error.pp e
         end;
         true
       | _ -> false
@@ -461,24 +514,33 @@ let datagram_socket (type tag) ?(reuse_addr=false) ?(reuse_port=false) ~sw (t:[>
   let addr = (addr :> [Sockaddr.datagram | `UdpV4 | `UdpV6]) in 
   X.datagram_socket t ~reuse_addr ~reuse_port ~sw addr
 
-let getaddrinfo (type tag) ?(service="") (t:[> tag ty] r) hostname =
+let getaddrinfo_full (type tag) ~filter ?(service="") (t:[> tag ty] r) hostname =
   let (Resource.T (t, ops)) = t in
   let module X = (val (Resource.get ops Pi.Network)) in
-  X.getaddrinfo t ~service hostname
+  match
+    X.getaddrinfo t ~service hostname
+    |> List.filter_map filter
+  with
+  | [] -> raise @@ err (Address_lookup_failed NONAME)
+  | xs -> xs
+
+let getaddrinfo ?service t hostname =
+  getaddrinfo_full ?service t hostname
+    ~filter:Option.some 
 
 let getaddrinfo_stream ?service t hostname =
-  getaddrinfo ?service t hostname
-  |> List.filter_map (function
-      | #Sockaddr.stream as x -> Some x
-      | _ -> None
-    )
+  getaddrinfo_full ?service t hostname
+    ~filter:(function
+        | #Sockaddr.stream as x -> Some x
+        | _ -> None
+      )
 
 let getaddrinfo_datagram ?service t hostname =
-  getaddrinfo ?service t hostname
-  |> List.filter_map (function
-      | #Sockaddr.datagram as x -> Some x
-      | _ -> None
-    )
+  getaddrinfo_full ?service t hostname
+    ~filter:(function
+        | #Sockaddr.datagram as x -> Some x
+        | _ -> None
+      )
 
 let getnameinfo (type tag) (t:[> tag ty] r) sockaddr =
   let (Resource.T (t, ops)) = t in
@@ -491,7 +553,7 @@ let with_tcp_connect ?(timeout=Time.Timeout.none) ~host ~service t f =
   Switch.run ~name:"with_tcp_connect" @@ fun sw ->
   match
     let rec aux = function
-      | [] -> raise @@ err (Connection_failure No_matching_addresses)
+      | [] -> assert false      (* getaddrinfo_full never returns an empty list *)
       | addr :: addrs ->
         try Time.Timeout.run_exn timeout (fun () -> connect ~sw t addr) with
         | Time.Timeout | Exn.Io _ when addrs <> [] ->
@@ -499,11 +561,11 @@ let with_tcp_connect ?(timeout=Time.Timeout.none) ~host ~service t f =
         | Time.Timeout ->
           raise @@ err (Connection_failure Timeout)
     in
-    getaddrinfo_stream ~service t host
-    |> List.filter_map (function
-        | `Tcp _ as x -> Some x
-        | `Unix _ -> None
-      )
+    getaddrinfo_full ~service t host
+      ~filter:(function
+          | `Tcp _ as x -> Some x
+          | `Udp _ | `Unix _ -> None
+        )
     |> aux
   with
   | conn -> f conn

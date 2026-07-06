@@ -673,6 +673,9 @@ Exception: Eio.Io Net Invalid_option,
 - : Eio.Net.Sockaddr.datagram list = [`Udp (127.0.0.1, 80)]
 ```
 
+Note: these are "non-deterministic" because on macos, http and ftp
+also return UDP results.
+
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
@@ -690,9 +693,23 @@ Exception: Eio.Io Net Invalid_option,
 <!-- $MDX non-deterministic=output -->
 ```ocaml
 # Eio_main.run @@ fun env ->
-  Eio.Net.getaddrinfo ~service:"https" env#net "ocaml.org";;
+  try
+    Eio.Net.getaddrinfo ~service:"https" env#net "ocaml.org"
+  with Eio.Io _ as ex ->
+    traceln "%a" Fmt.exn ex; [];; (* Ignore errors *)
 - : Eio.Net.Sockaddr.t list =
 [`Tcp (51.159.83.169, 443); `Udp (51.159.83.169, 443)]
+```
+
+`getaddrinfo` raises instead of returning an empty list (the exact error may vary;
+CI shows `AGAIN` rather than `NONAME`):
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  try
+    Eio.Net.getaddrinfo env#net "name.invalid."
+  with Eio.Io (Eio.Net.E Address_lookup_failed _, _) -> failwith "Address_lookup_failed";;
+Exception: Failure "Address_lookup_failed".
 ```
 
 ## getnameinfo
@@ -723,7 +740,7 @@ No usable addresses:
   Eio.Net.with_tcp_connect ~host:"www.example.com" ~service:"http" net (fun _ -> assert false);;
 +mock-net: getaddrinfo ~service:http www.example.com
 Exception:
-Eio.Io Net Connection_failure No_matching_addresses,
+Eio.Io Net Address_lookup_failed NONAME (name or service is not known),
   connecting to "www.example.com":http
 ```
 

@@ -135,6 +135,8 @@ module Private : sig
   val chmod_unix : Unix.file_descr -> string -> flags:int -> mode:int -> unit
   val chown : flags:int -> uid:int64 -> gid:int64 -> Fd.t -> string -> unit
   val chown_unix : flags:int -> uid:int64 -> gid:int64 -> Unix.file_descr -> string -> unit
+
+  val getaddrinfo : service:string -> string -> Eio.Net.Sockaddr.t list
 end
 
 module Pi = Pi

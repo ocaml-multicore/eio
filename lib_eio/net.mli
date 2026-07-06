@@ -15,14 +15,40 @@ open Std
 
 type connection_failure =
   | Refused of Exn.Backend.t
-  | No_matching_addresses
   | Timeout
+
+module Getaddrinfo_error : sig
+  (** Error codes returned by getaddrinfo(3) *)
+
+  type t =
+    | UNKNOWN
+    | ADDRFAMILY
+    | AGAIN
+    | BADFLAGS
+    | BADHINTS
+    | FAIL
+    | FAMILY
+    | MEMORY
+    | NODATA
+    | NONAME
+    | OVERFLOW
+    | PROTOCOL
+    | SERVICE
+    | SOCKTYPE
+
+  val to_tag : t -> string
+  (** [to_tag t] is the constructor name. e.g. [to_tag NONAME = "NONAME"]. *)
+
+  val to_message : t -> string
+  (** [to_message t] returns a string representation of [t], like gai_strerror(3). *)
+end
 
 type error =
   | Connection_reset of Exn.Backend.t
     (** This is a wrapper for epipe, econnreset and similar errors.
         It indicates that the flow has failed, and data may have been lost. *)
   | Connection_failure of connection_failure
+  | Address_lookup_failed of Getaddrinfo_error.t
   | Invalid_option (** Socket option not supported. *)
 
 type Exn.err += E of error
@@ -405,7 +431,11 @@ val recv : _ datagram_socket -> Cstruct.t -> Sockaddr.datagram * int
     returned along with the sender address and port. If the [buf] is too small then excess bytes may be discarded
     depending on the type of the socket the message is received from. *)
 
-(** {2 DNS queries} *)
+(** {2 DNS/getaddrinfo queries}
+
+    Note that unlike {!Unix.getaddrinfo}, Eio's [getaddrinfo] family
+    of functions raise an exception (see {!Address_lookup_failed}) with an error
+    code instead of returning an empty list. *)
 
 val getaddrinfo: ?service:string -> _ t -> string -> Sockaddr.t list
 (** [getaddrinfo ?service t node] returns a list of IP addresses for [node]. [node] is either a domain name or
@@ -414,13 +444,19 @@ val getaddrinfo: ?service:string -> _ t -> string -> Sockaddr.t list
     @param service is a human friendly textual name for internet services assigned by IANA., eg.
     'http', 'https', 'ftp', etc.
 
-    For a more thorough treatment, see {{:https://man7.org/linux/man-pages/man3/getaddrinfo.3.html} getaddrinfo}. *)
+    For a more thorough treatment, see {{:https://man7.org/linux/man-pages/man3/getaddrinfo.3.html} getaddrinfo}.
+
+    Never returns an empty list; it will raise [Eio.Io (Eio.Net.E Address_lookup_failed _, _)] instead. *)
 
 val getaddrinfo_stream: ?service:string -> _ t -> string -> Sockaddr.stream list
-(** [getaddrinfo_stream] is like {!getaddrinfo}, but filters out non-stream protocols. *)
+(** [getaddrinfo_stream] is like {!getaddrinfo}, but filters out non-stream protocols.
+
+    Never returns an empty list; it will raise [Eio.Io (Eio.Net.E Address_lookup_failed _, _)] instead. *)
 
 val getaddrinfo_datagram: ?service:string -> _ t -> string -> Sockaddr.datagram list
-(** [getaddrinfo_datagram] is like {!getaddrinfo}, but filters out non-datagram protocols. *)
+(** [getaddrinfo_datagram] is like {!getaddrinfo}, but filters out non-datagram protocols.
+
+    Never returns an empty list; it will raise [Eio.Io (Eio.Net.E Address_lookup_failed _, _)] instead. *)
 
 val getnameinfo : _ t -> Sockaddr.t -> (string * string)
 (** [getnameinfo t sockaddr] is [(hostname, service)] corresponding to [sockaddr]. [hostname] is the

@@ -750,22 +750,9 @@ let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) fd path =
     Eio_unix.run_in_systhread ~label:"chown" (fun () -> Eio_unix.Private.chown ~flags ~uid ~gid parent leaf)
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
-(* https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml *)
 let getaddrinfo ~service node =
-  let to_eio_sockaddr_t {Unix.ai_family; ai_addr; ai_socktype; ai_protocol; _ } =
-    match ai_family, ai_socktype, ai_addr with
-    | (Unix.PF_INET | PF_INET6),
-      (Unix.SOCK_STREAM | SOCK_DGRAM),
-      Unix.ADDR_INET (inet_addr,port) -> (
-        match ai_protocol with
-        | 6 -> Some (`Tcp (Eio_unix.Net.Ipaddr.of_unix inet_addr, port))
-        | 17 -> Some (`Udp (Eio_unix.Net.Ipaddr.of_unix inet_addr, port))
-        | _ -> None)
-    | _ -> None
-  in
   Eio_unix.run_in_systhread ~label:"getaddrinfo" @@ fun () ->
-  Unix.getaddrinfo node service []
-  |> List.filter_map to_eio_sockaddr_t
+  Err.run (Eio_unix.Private.getaddrinfo ~service) node
 
 let pipe ~sw =
   let unix_r, unix_w = Unix.pipe ~cloexec:true () in
