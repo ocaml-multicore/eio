@@ -187,9 +187,9 @@ let sleep_until time =
     )
 
 let read_upto ?file_offset:off fd buf amount =
+  let off = file_offset fd off in
+  Fd.use_exn "read" fd @@ fun fd ->
   let res = Sched.enter "read" (fun t k ->
-      let off = file_offset fd off in
-      Fd.use_exn "read" fd @@ fun fd ->
       enqueue_read t k (off, fd, buf, amount)
     ) in
   match Uring.Res.int_result res with
@@ -266,9 +266,9 @@ let await_writable fd =
   | Error e -> raise (Err.unclassified (Eio_unix.Unix_error (e, "await_writable", "")))
 
 let write_single ?file_offset:off fd buf len =
+  let off = file_offset fd off in
+  Fd.use_exn "write" fd @@ fun fd ->
   let res = Sched.enter "write" (fun t k ->
-      let off = file_offset fd off in
-      Fd.use_exn "write" fd @@ fun fd ->
       enqueue_write t k (off, fd, buf, len)
     ) in
   match Uring.Res.int_result res with
