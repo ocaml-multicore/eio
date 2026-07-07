@@ -45,6 +45,9 @@ static void try_write_all(int fd, char *buf) {
   while (len > 0) {
     int wrote = write(fd, buf, len);
 
+    if (wrote == -1 && errno == EINTR)
+     continue;
+
     if (wrote <= 0)
       return;
 
