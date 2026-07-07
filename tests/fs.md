@@ -898,6 +898,64 @@ Chmod works.
 - : unit = ()
 ```
 
+`chmod ~follow:true` follows the leaf symlink within the sandbox.
+A leaf symlink pointing out of the sandbox must not be followed:
+
+```ocaml
+# run ~clear:["sandbox"; "outside.txt"] @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  Switch.run @@ fun sw ->
+  Path.save ~create:(`Exclusive 0o644) (cwd / "outside.txt") "outside";
+  try_mkdir (cwd / "sandbox");
+  Path.save ~create:(`Exclusive 0o644) (cwd / "sandbox/inside.txt") "inside";
+  (* Set mode, to avoid effect of umask *)
+  try_chmod ~follow:true ~perm:0o644 (cwd / "outside.txt");
+  try_chmod ~follow:true ~perm:0o644 (cwd / "sandbox/inside.txt");
+  let sandbox = Path.open_subtree ~sw (cwd / "sandbox") in
+  Path.symlink ~link_to:"inside.txt" (sandbox / "ok");
+  Path.symlink ~link_to:"../outside.txt" (sandbox / "escape");
+  (* Following a symlink to a file inside the sandbox works: *)
+  try_chmod ~follow:false ~perm:0o600 (sandbox / "inside.txt");
+  try_stat ~info_type:`Perm (sandbox / "inside.txt");
+  try_chmod ~follow:true ~perm:0o400 (sandbox / "ok");
+  try_stat ~info_type:`Perm (sandbox / "inside.txt");
+  (* Following a symlink out of the sandbox is rejected, and the target is unchanged: *)
+  try_chmod ~follow:true ~perm:0o400 (sandbox / "escape");
+  try_stat ~info_type:`Perm (cwd / "outside.txt");
+  traceln "Try without sandboxing";
+  let unconfined = env#fs / "sandbox" in
+  try_chmod ~follow:true ~perm:0o400 (unconfined / "escape");
+  try_stat ~info_type:`Perm (cwd / "outside.txt");;
++mkdir <cwd:sandbox> -> ok
++chmod <cwd:outside.txt> to 644 -> ok
++chmod <cwd:sandbox/inside.txt> to 644 -> ok
++chmod <sandbox:inside.txt> to 600 -> ok
++<sandbox:inside.txt> -> 600
++chmod <sandbox:ok> to 400 -> ok
++<sandbox:inside.txt> -> 400
++Eio.Io Fs Permission_denied _, chmoding file <sandbox:escape>
++<cwd:outside.txt> -> 644
++Try without sandboxing
++chmod <fs:sandbox/escape> to 400 -> ok
++<cwd:outside.txt> -> 400
+- : unit = ()
+```
+
+Test chmod on a symlink, on platforms that allow it:
+
+```ocaml
+# run ~clear:["symlink"] @@ fun env ->
+  let path = env#cwd / "symlink" in
+  Eio.Path.symlink ~link_to:"/foo" path;
+  try
+    Eio.Path.chmod path ~follow:false ~perm:0o600;
+    assert ((Eio.Path.stat ~follow:false path).perm = 0o600);
+    Eio.Path.chmod path ~follow:false ~perm:0o660;
+    assert ((Eio.Path.stat ~follow:false path).perm = 0o660)
+  with Eio.Io (Eio.Exn.X Eio_unix.Unix_error (EOPNOTSUPP, _, _), _) ->
+    ()  (* Some systems don't support this, e.g. Linux *)
+- : unit = ()
+```
 
 # pread/pwrite
 
