@@ -633,7 +633,6 @@ let with_parent_dir op dir path fn =
   fn parent leaf
 
 let statx_raw ?fd ~mask path buf flags =
-  if not !Sched.statx_works then raise @@ Err.wrap_fs Unix.ENOSYS "statx" path;
   let res =
     match fd with
     | None -> Sched.enter "statx" (enqueue_statx (None, path, buf, flags, mask)) 
