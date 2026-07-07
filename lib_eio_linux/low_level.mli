@@ -147,6 +147,10 @@ val await_writable : fd -> unit
 val fstat : fd -> Eio.File.Stat.t
 (** Like {!Unix.LargeFile.fstat}. *)
 
+val eio_of_statx : Uring.Statx.t -> Eio.File.Stat.t
+(** [eio_of_statx x] converts a statx buffer to a more portable stat record.
+    The buffer should have been filled using at least {!Uring.Statx.Mask.basic_stats}. *)
+
 val statx :
   mask:Uring.Statx.Mask.t ->
   follow:bool ->

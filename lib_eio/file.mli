@@ -41,6 +41,8 @@ module Stat : sig
     gid : Int64.t;              (** Group ID of owner. *)
     rdev : Int64.t;             (** Device's ID (if this is a device). *)
     size : Optint.Int63.t;      (** Total size in bytes. *)
+    blksize : Int64.t;          (** Preferred block size for efficient filesystem I/O. *)
+    blocks : Int64.t;           (** Number of 512-byte blocks allocated (disk usage is [blocks * 512]). *)
     atime : float;              (** Last access time. *)
     mtime : float;              (** Last modification time. *)
     ctime : float;              (** Creation time. *)

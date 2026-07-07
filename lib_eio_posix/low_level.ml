@@ -490,6 +490,7 @@ external eio_fstatat : stat -> Unix.file_descr -> string -> int -> unit = "caml_
 external eio_fstat   : stat -> Unix.file_descr -> unit = "caml_eio_posix_fstat"
 
 external blksize : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_blksize_bytes" "ocaml_eio_posix_stat_blksize_native" [@@noalloc]
+external blocks  : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_blocks_bytes" "ocaml_eio_posix_stat_blocks_native" [@@noalloc]
 external nlink   : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_nlink_bytes" "ocaml_eio_posix_stat_nlink_native" [@@noalloc]
 external uid     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_uid_bytes" "ocaml_eio_posix_stat_uid_native" [@@noalloc]
 external gid     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_gid_bytes" "ocaml_eio_posix_stat_gid_native" [@@noalloc]

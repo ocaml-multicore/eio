@@ -198,6 +198,21 @@ let test_statx () =
     );
   ()
 
+let test_fstat () =
+  Eio_linux.run ~queue_depth:4 @@ fun env ->
+  let ( / ) = Eio.Path.( / ) in
+  let path = env#cwd / "test3.data" in
+  Eio.Path.save path "hello" ~create:(`Or_truncate 0o600);
+  Eio.Path.with_open_in path @@ fun file ->
+  let st : Eio.File.Stat.t = Eio.File.stat file in
+  Alcotest.(check bool) "kind" true (st.kind = `Regular_file);
+  Alcotest.(check int64) "size" 5L (Optint.Int63.to_int64 st.size);
+  (* [statx] always reports [blksize]; the exact value is filesystem-specific. *)
+  Alcotest.(check bool) "blksize is positive" true (st.blksize > 0L);
+  (* [fstat] (via AT_EMPTY_PATH) and path-based stat must agree. *)
+  let st' = Eio.Path.stat ~follow:false path in
+  Alcotest.(check int64) "blksize agrees with Path.stat" st.blksize st'.blksize
+
 (* Ensure that an OCaml signal handler will run, even if we're sleeping in liburing at the time.
    The problem here is that [__sys_io_uring_enter2] doesn't return EINTR, because it did successfully
    submit an item. This causes liburing to retry without giving our OCaml signal handler a chance to run.
@@ -258,6 +273,7 @@ let () =
       test_case "read_exact"           `Quick test_read_exact;
       test_case "expose_backend"       `Quick test_expose_backend;
       test_case "statx"                `Quick test_statx;
+      test_case "fstat"                `Quick test_fstat;
       test_case "signal_race"          `Quick test_signal_race;
       test_case "alloc-fixed-or-wait"  `Quick test_alloc_fixed_or_wait;
     ];

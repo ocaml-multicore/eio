@@ -527,35 +527,33 @@ let openat ~sw ?seekable ~access ~flags ~perm dir path =
   | Cwd -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.beneath path
   | Fs -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.empty path
 
-let fstat t =
-  (* todo: use uring  *)
-  try
-    let ust = Fd.use_exn "fstat" t Unix.LargeFile.fstat in
-    let st_kind : Eio.File.Stat.kind =
-      match ust.st_kind with
-      | Unix.S_REG  -> `Regular_file
-      | Unix.S_DIR  -> `Directory
-      | Unix.S_CHR  -> `Character_special
-      | Unix.S_BLK  -> `Block_device
-      | Unix.S_LNK  -> `Symbolic_link
-      | Unix.S_FIFO -> `Fifo
-      | Unix.S_SOCK -> `Socket
-    in
-    Eio.File.Stat.{
-      dev     = ust.st_dev   |> Int64.of_int;
-      ino     = ust.st_ino   |> Int64.of_int;
-      kind    = st_kind;
-      perm    = ust.st_perm;
-      nlink   = ust.st_nlink |> Int64.of_int;
-      uid     = ust.st_uid   |> Int64.of_int;
-      gid     = ust.st_gid   |> Int64.of_int;
-      rdev    = ust.st_rdev  |> Int64.of_int;
-      size    = ust.st_size  |> Optint.Int63.of_int64;
-      atime   = ust.st_atime;
-      mtime   = ust.st_mtime;
-      ctime   = ust.st_ctime;
-    }
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+let float_of_time s ns =
+  let s = Int64.to_float s in
+  let f = s +. (float ns /. 1e9) in
+  (* It's possible that we might round up to the next second.
+     Since some algorithms only care about the seconds part,
+     make sure the integer part is always [s]: *)
+  if floor f = s then f
+  else Float.pred f
+
+let eio_of_statx x =
+  let module X = Uring.Statx in
+  { Eio.File.Stat.
+    dev     = X.dev x;
+    ino     = X.ino x;
+    kind    = X.kind x;
+    perm    = X.perm x;
+    nlink   = X.nlink x;
+    uid     = X.uid x;
+    gid     = X.gid x;
+    rdev    = X.rdev x;
+    size    = X.size x |> Optint.Int63.of_int64;
+    blksize = X.blksize x;
+    blocks  = X.blocks x;
+    atime   = float_of_time (X.atime_sec x) (X.atime_nsec x);
+    mtime   = float_of_time (X.mtime_sec x) (X.mtime_nsec x);
+    ctime   = float_of_time (X.ctime_sec x) (X.ctime_nsec x);
+  }
 
 external eio_mkdirat : Unix.file_descr -> string -> Unix.file_perm -> unit = "caml_eio_mkdirat"
 
@@ -661,6 +659,12 @@ let statx ~mask ~follow fd path buf =
         ~perm:0
     in
     statx_raw ~fd ~mask "" buf flags
+
+let fstat fd =
+  let module X = Uring.Statx in
+  let x = X.create () in
+  statx_raw ~fd ~mask:X.Mask.basic_stats "" x X.Flags.empty_path;
+  eio_of_statx x
 
 let mkdir ~perm dir path =
   (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)

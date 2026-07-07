@@ -9,8 +9,6 @@ module Suspended = Eio_utils.Suspended
 module Zzz = Eio_utils.Zzz
 module Lf_queue = Eio_utils.Lf_queue
 
-let statx_works = ref false     (* Before Linux 5.18, statx is unreliable *)
-
 type exit = [`Exit_scheduler]
 
 (* Type of user-data attached to jobs. *)
@@ -452,14 +450,10 @@ let with_sched ?(fallback=no_fallback) config fn =
   | exception Unix.Unix_error(ENOMEM, _, _) -> fallback (`Msg "io_uring is not available (ENOMEM)")
   | uring ->
     let probe = Uring.get_probe uring in
-    if not (Uring.op_supported probe Uring.Op.mkdirat) then (
+    if not (Uring.op_supported probe Uring.Op.msg_ring) then (
       Uring.exit uring;
-      fallback (`Msg "Linux >= 5.15 is required for io_uring support")
+      fallback (`Msg "Linux >= 5.18 is required for io_uring support")
     ) else (
-      (* The reason for an if here is to make sure we only set it once, when
-         the first domain is starting. This is just to avoid a tsan warning. *)
-      if not !statx_works && Uring.op_supported probe Uring.Op.msg_ring then
-        statx_works := true;
       match
         let mem =
           let fixed_buf_len = block_size * n_blocks in
