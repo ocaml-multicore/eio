@@ -750,13 +750,15 @@ let chmod ~follow ~mode dir path =
     Eio_unix.run_in_systhread ~label:"chmod" (fun () -> Eio_unix.Private.chmod parent leaf ~mode ~flags)
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
-let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) fd path =
-  let module X = Uring.Statx in
-  let flags = if follow then X.Flags.empty_path else X.Flags.(empty_path + symlink_nofollow) in
-  let flags = (flags :> int) in
+let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) dirfd path =
   try
-    with_parent_dir_fd fd path @@ fun parent leaf ->
-    Eio_unix.run_in_systhread ~label:"chown" (fun () -> Eio_unix.Private.chown ~flags ~uid ~gid parent leaf)
+    Switch.run @@ fun sw ->
+    let flags = Uring.Open_flags.(cloexec + path + if follow then empty else nofollow) in
+    let fd = openat ~sw ~flags ~access:`R ~perm:0 dirfd path in
+    Eio_unix.run_in_systhread ~label:"chown" (fun () ->
+        let flags = (Uring.Statx.Flags.empty_path :> int) in
+        Eio_unix.Private.chown ~flags ~uid ~gid fd ""
+      )
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
 let getaddrinfo ~service node =
