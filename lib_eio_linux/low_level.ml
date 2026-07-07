@@ -5,6 +5,14 @@ open Eio.Std
 module Trace = Eio.Private.Trace
 module Fd = Eio_unix.Fd
 
+module Res = struct
+  let unit_result (t : Uring.Res.t) =
+    let t = (t :> int) in
+    if t = 0 then Ok ()
+    else if t < 0 then Error (Uring.error_of_errno t)
+    else Error ERANGE (* Result too large *)
+end
+
 module Fixed = struct
   include Fixed
 
@@ -166,8 +174,9 @@ let rec enqueue_noop t action =
   )
 
 let noop () =
-  let result = Sched.enter "noop" enqueue_noop in
-  if result <> 0 then raise (Err.unclassified (Eio_unix.Unix_error (Uring.error_of_errno result, "noop", "")))
+  match Res.unit_result @@ Sched.enter "noop" enqueue_noop with
+  | Ok () -> ()
+  | Error e -> raise (Err.unclassified (Eio_unix.Unix_error (e, "noop", "")))
 
 let sleep_until time =
   Sched.enter "sleep" @@ fun t k ->
@@ -183,10 +192,10 @@ let read_upto ?file_offset:off fd buf amount =
       Fd.use_exn "read" fd @@ fun fd ->
       enqueue_read t k (off, fd, buf, amount)
     ) in
-  if res = 0 then raise End_of_file
-  else if res < 0 then (
-    raise @@ Err.wrap (Uring.error_of_errno res) "read" ""
-  ) else res
+  match Uring.Res.int_result res with
+  | Ok 0 -> raise End_of_file
+  | Ok n -> n
+  | Error e -> raise @@ Err.wrap e "read" ""
 
 let rec read_exactly ?file_offset fd buf len =
   let got = read_upto ?file_offset fd buf len in
@@ -211,13 +220,10 @@ let readv ?file_offset fd bufs =
   in
   Fd.use_exn "readv" fd @@ fun fd ->
   let res = Sched.enter "readv" (enqueue_readv (file_offset, fd, bufs)) in
-  if res < 0 then (
-    raise @@ Err.wrap (Uring.error_of_errno res) "readv" ""
-  ) else if res = 0 then (
-    raise End_of_file
-  ) else (
-    res
-  )
+  match Uring.Res.int_result res with
+  | Ok 0 -> raise End_of_file
+  | Ok n -> n
+  | Error e -> raise @@ Err.wrap e "readv" ""
 
 let writev_single ?file_offset fd bufs =
   let file_offset =
@@ -227,11 +233,9 @@ let writev_single ?file_offset fd bufs =
   in
   Fd.use_exn "writev" fd @@ fun fd ->
   let res = Sched.enter "writev" (enqueue_writev (file_offset, fd, bufs)) in
-  if res < 0 then (
-    raise @@ Err.wrap (Uring.error_of_errno res) "writev" ""
-  ) else (
-    res
-  )
+  match Uring.Res.int_result res with
+  | Ok x -> x
+  | Error e -> raise @@ Err.wrap e "writev" ""
 
 let rec writev ?file_offset fd bufs =
   let bytes_written = writev_single ?file_offset fd bufs in
@@ -250,16 +254,16 @@ let rec writev ?file_offset fd bufs =
 let await_readable fd =
   Fd.use_exn "await_readable" fd @@ fun fd ->
   let res = Sched.enter "await_readable" (Sched.enqueue_poll_add fd (Uring.Poll_mask.(pollin + pollerr))) in
-  if res < 0 then (
-    raise (Err.unclassified (Eio_unix.Unix_error (Uring.error_of_errno res, "await_readable", "")))
-  )
+  match Uring.Res.int_result res with
+  | Ok _ -> ()
+  | Error e -> raise (Err.unclassified (Eio_unix.Unix_error (e, "await_readable", "")))
 
 let await_writable fd =
   Fd.use_exn "await_writable" fd @@ fun fd ->
   let res = Sched.enter "await_writable" (Sched.enqueue_poll_add fd (Uring.Poll_mask.(pollout + pollerr))) in
-  if res < 0 then (
-    raise (Err.unclassified (Eio_unix.Unix_error (Uring.error_of_errno res, "await_writable", "")))
-  )
+  match Uring.Res.int_result res with
+  | Ok _ -> ()
+  | Error e -> raise (Err.unclassified (Eio_unix.Unix_error (e, "await_writable", "")))
 
 let write_single ?file_offset:off fd buf len =
   let res = Sched.enter "write" (fun t k ->
@@ -267,9 +271,9 @@ let write_single ?file_offset:off fd buf len =
       Fd.use_exn "write" fd @@ fun fd ->
       enqueue_write t k (off, fd, buf, len)
     ) in
-  if res < 0 then (
-    raise @@ Err.wrap (Uring.error_of_errno res) "write" ""
-  ) else res
+  match Uring.Res.int_result res with
+  | Ok x -> x
+  | Error e -> raise @@ Err.wrap e "write" ""
 
 let rec write ?file_offset fd buf len =
   let wrote = write_single ?file_offset fd buf len in
@@ -282,50 +286,51 @@ let splice src ~dst ~len =
   Fd.use_exn "splice-src" src @@ fun src ->
   Fd.use_exn "splice-dst" dst @@ fun dst ->
   let res = Sched.enter "splice" (enqueue_splice ~src ~dst ~len) in
-  if res > 0 then res
-  else if res = 0 then raise End_of_file
-  else raise @@ Err.wrap (Uring.error_of_errno res) "splice" ""
+  match Uring.Res.int_result res with
+  | Ok 0 -> raise End_of_file
+  | Ok n -> n
+  | Error e -> raise @@ Err.wrap e "splice" ""
 
 let connect fd addr =
   Fd.use_exn "connect" fd @@ fun fd ->
   let res = Sched.enter "connect" (enqueue_connect fd addr) in
-  if res < 0 then (
+  match Res.unit_result res with
+  | Ok () -> ()
+  | Error e ->
     let ex =
       match addr with
-      | ADDR_UNIX _ -> Err.wrap_fs (Uring.error_of_errno res) "connect" ""
-      | ADDR_INET _ -> Err.wrap (Uring.error_of_errno res) "connect" ""
+      | ADDR_UNIX _ -> Err.wrap_fs e "connect" ""
+      | ADDR_INET _ -> Err.wrap e "connect" ""
     in
     raise ex
-  )
 
 let send_msg fd ?(fds=[]) ?dst buf =
   Fd.use_exn "send_msg" fd @@ fun fd ->
   Fd.use_exn_list "send_msg" fds @@ fun fds ->
   let res = Sched.enter "send_msg" (enqueue_send_msg fd ~fds ~dst buf) in
-  if res < 0 then (
-    raise @@ Err.wrap (Uring.error_of_errno res) "send_msg" ""
-  ) else res
+  match Uring.Res.int_result res with
+  | Ok x -> x
+  | Error e -> raise @@ Err.wrap e "send_msg" ""
 
 let recv_msg fd buf =
   Fd.use_exn "recv_msg" fd @@ fun fd ->
   let addr = Uring.Sockaddr.create () in
   let msghdr = Uring.Msghdr.create ~addr buf in
   let res = Sched.enter "recv_msg" (enqueue_recv_msg fd msghdr) in
-  if res < 0 then (
-    raise @@ Err.wrap (Uring.error_of_errno res) "recv_msg" ""
-  );
-  addr, res
+  match Uring.Res.int_result res with
+  | Error e -> raise @@ Err.wrap e "recv_msg" ""
+  | Ok res -> addr, res
 
 let recv_msg_with_fds ~sw ~max_fds fd buf =
   Fd.use_exn "recv_msg_with_fds" fd @@ fun fd ->
   let addr = Uring.Sockaddr.create () in
   let msghdr = Uring.Msghdr.create ~n_fds:max_fds ~addr buf in
   let res = Sched.enter "recv_msg_with_fds" (enqueue_recv_msg fd msghdr) in
-  if res < 0 then (
-    raise @@ Err.wrap (Uring.error_of_errno res) "recv_msg" ""
-  );
-  let fds = Uring.Msghdr.get_fds msghdr |> Fd.of_unix_list ~sw in
-  addr, res, fds
+  match Uring.Res.int_result res with
+  | Error e -> raise @@ Err.wrap e "recv_msg" ""
+  | Ok res ->
+    let fds = Uring.Msghdr.get_fds msghdr |> Fd.of_unix_list ~sw in
+    addr, res, fds
 
 module Sockopt = struct
   let tcp_maxseg = 2         (* TCP_MAXSEG from netinet/tcp.h *)
@@ -392,7 +397,7 @@ let setsockopt : type a. Fd.t -> a Eio.Net.Sockopt.t -> a -> unit = fun fd opt v
     let v = match v with
       | None -> 0
       | Some n when n < 0 ->
-	Fmt.invalid_arg "TCP_LINGER2 must be non-negative, got %d" n
+        Fmt.invalid_arg "TCP_LINGER2 must be non-negative, got %d" n
       | Some n -> n
     in
     setsockopt_int fd ipproto_tcp tcp_linger2 v
@@ -504,18 +509,16 @@ let getsockopt : type a. Fd.t -> a Eio.Net.Sockopt.t -> a = fun fd opt ->
 let rec openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
   let use dir_opt =
     let res = Sched.enter "openat2" (enqueue_openat2 (access, flags, perm, resolve, dir_opt, path)) in
-    if res < 0 then (
+    match Uring.Res.fd_result res with
+    | Ok fd -> Fd.of_unix ~sw ?seekable ~close_unix:true fd
+    | Error e ->
       Switch.check sw;    (* If cancelled, report that instead. *)
-      match Uring.error_of_errno res with
+      match e with
       | EAGAIN ->
         (* Linux can return this due to a concurrent update.
            It also seems to happen sometimes with no concurrent updates. *)
         openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path
       | e -> raise @@ Err.wrap_fs e "openat2" ""
-    ) else (
-      let fd : Unix.file_descr = Obj.magic res in
-      Fd.of_unix ~sw ?seekable ~close_unix:true fd
-    )
   in
   match dir with
   | None -> use None
@@ -640,7 +643,9 @@ let statx_raw ?fd ~mask path buf flags =
       Fd.use_exn "statx" fd @@ fun fd ->
       Sched.enter "statx" (enqueue_statx (Some fd, path, buf, flags, mask))
   in
-  if res <> 0 then raise @@ Err.wrap_fs (Uring.error_of_errno res) "statx" path
+  match Res.unit_result res with
+  | Error e -> raise @@ Err.wrap_fs e "statx" path
+  | Ok () -> ()
 
 let statx ~mask ~follow fd path buf =
   let module X = Uring.Statx in
@@ -676,7 +681,9 @@ let unlink ~rmdir dir path =
   (* [unlink] is really an operation on [path]'s parent. Get a reference to that first: *)
   with_parent_dir "unlink" dir path @@ fun parent leaf ->
   let res = Sched.enter "unlink" (enqueue_unlink (rmdir, parent, leaf)) in
-  if res <> 0 then raise @@ Err.wrap_fs (Uring.error_of_errno res) "unlinkat" ""
+  match Res.unit_result res with
+  | Error e -> raise @@ Err.wrap_fs e "unlinkat" ""
+  | Ok () -> ()
 
 let rename old_dir old_path new_dir new_path =
   with_parent_dir "renameat-old" old_dir old_path @@ fun old_parent old_leaf ->
@@ -705,14 +712,12 @@ let accept ~sw fd =
   Fd.use_exn "accept" fd @@ fun fd ->
   let client_addr = Uring.Sockaddr.create () in
   let res = Sched.enter "accept" (enqueue_accept fd client_addr) in
-  if res < 0 then (
-    raise @@ Err.wrap (Uring.error_of_errno res) "accept" ""
-  ) else (
-    let unix : Unix.file_descr = Obj.magic res in
+  match Uring.Res.fd_result res with
+  | Error e -> raise @@ Err.wrap e "accept" ""
+  | Ok unix ->
     let client = Fd.of_unix ~sw ~seekable:false ~close_unix:true unix in
     let client_addr = Uring.Sockaddr.get client_addr in
     client, client_addr
-  )
 
 let read_dir fd =
   Fd.use_exn "read_dir" fd @@ fun fd ->

@@ -13,10 +13,10 @@ type exit = [`Exit_scheduler]
 
 (* Type of user-data attached to jobs. *)
 type io_job =
-  | Job_no_cancel : int Suspended.t -> io_job
+  | Job_no_cancel : Uring.Res.t Suspended.t -> io_job
   | Cancel_job : io_job
-  | Job : int Suspended.t -> io_job     (* A negative result indicates error, and may report cancellation *)
-  | Job_fn : 'a Suspended.t * (int -> [`Exit_scheduler]) -> io_job
+  | Job : Uring.Res.t Suspended.t -> io_job     (* A negative result indicates error, and may report cancellation *)
+  | Job_fn : 'a Suspended.t * (Uring.Res.t -> [`Exit_scheduler]) -> io_job
   (* When done, remove the cancel_fn from [Suspended.t] and call the callback (unless cancelled). *)
 
 type runnable =
@@ -181,7 +181,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
       match Uring.get_cqe_nonblocking uring with
       | Some { data = runnable; result } ->
         Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
-        handle_complete st ~runnable (result :> int)
+        handle_complete st ~runnable result
       | None ->
         let timeout =
           match next_due with
@@ -225,7 +225,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
               (* Woken by a timeout, which is now due, or by a signal. *)
               schedule st
             | Some { data = runnable; result } ->
-              handle_complete st ~runnable (result :> int)
+              handle_complete st ~runnable result
           ) else (
             (* Someone added a new job while we were setting [need_wakeup] to [true].
                They might or might not have seen that, so we can't be sure they'll send an event. *)
@@ -235,12 +235,12 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
             schedule st
           )
         )
-and handle_complete st ~runnable result =
+and handle_complete st ~runnable (result : Uring.Res.t) =
   submit_pending_io st;                       (* If something was waiting for a slot, submit it now. *)
   match runnable with
   | Job k ->
     Fiber_context.clear_cancel_fn k.fiber;
-    if result >= 0 then Suspended.continue k result
+    if (result :> int) >= 0 then Suspended.continue k result
     else (
       match Fiber_context.get_error k.fiber with
         | None -> Suspended.continue k result
@@ -293,9 +293,8 @@ let rec enqueue_readv args st action =
 
 let read_eventfd fd buf =
   let res = enter "read_eventfd" (enqueue_readv (Optint.Int63.zero, fd, [buf])) in
-  if res < 0 then (
-    raise @@ Unix.Unix_error (Uring.error_of_errno res, "readv", "")
-  ) else if res = 0 then (
+  let res = Uring.Res.int_exn res "readv" "" in
+  if res = 0 then (
     raise End_of_file
   ) else (
     res
@@ -357,8 +356,9 @@ let run ~extra_effects st main arg =
               | None ->
                 let k = { Suspended.k; fiber } in
                 enqueue_poll_add_unix fd Uring.Poll_mask.(pollin + pollerr) st k (fun res ->
-                    if res >= 0 then Suspended.continue k ()
-                    else Suspended.discontinue k (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
+                    match Uring.Res.int_result res with
+                    | Ok _ -> Suspended.continue k ()
+                    | Error e -> Suspended.discontinue k (Unix.Unix_error (e, "await_readable", ""))
                   );
                 schedule st
             )
@@ -368,8 +368,9 @@ let run ~extra_effects st main arg =
               | None ->
                 let k = { Suspended.k; fiber } in
                 enqueue_poll_add_unix fd Uring.Poll_mask.(pollout + pollerr) st k (fun res ->
-                    if res >= 0 then Suspended.continue k ()
-                    else Suspended.discontinue k (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
+                    match Uring.Res.int_result res with
+                    | Ok _ -> Suspended.continue k ()
+                    | Error e -> Suspended.discontinue k (Unix.Unix_error (e, "await_writable", ""))
                   );
                 schedule st
             )
