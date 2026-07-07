@@ -289,8 +289,9 @@ CAMLprim value caml_eio_sockopt_string_get(value v_fd, value v_level, value v_op
   int ret = getsockopt(Int_val(v_fd), Int_val(v_level), Int_val(v_option),
                        buffer, &len);
   if (ret == -1) uerror("getsockopt", Nothing);
-  if (strnlen(buffer, len) == sizeof(buffer))
-    caml_invalid_argument("getsockopt: buffer was too small!");
-  v_result = caml_copy_string(buffer);
+  size_t slen = strnlen(buffer, len);
+  if (slen == len)
+     caml_invalid_argument("getsockopt: buffer was too small!");
+  v_result = caml_alloc_initialized_string(slen, buffer);
   CAMLreturn(v_result);
 }
