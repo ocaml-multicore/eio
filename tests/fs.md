@@ -995,6 +995,58 @@ useful, so run it occasionally either as root or as a user with multiple groups.
 - : unit = ()
 ```
 
+Check that chown sandboxing works:
+
+```ocaml
+# run ~clear:["sandbox"; "outside.txt"] @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  Switch.run @@ fun sw ->
+  Path.save ~create:(`Exclusive 0o644) (cwd / "outside.txt") "outside";
+  try_mkdir (cwd / "sandbox");
+  Path.save ~create:(`Exclusive 0o644) (cwd / "sandbox/inside.txt") "inside";
+  let sandbox = Path.open_subtree ~sw (cwd / "sandbox") in
+  Path.symlink ~link_to:"inside.txt" (sandbox / "ok");
+  Path.symlink ~link_to:"../outside.txt" (sandbox / "escape");
+  let gid0 = (Eio.Path.stat ~follow:false sandbox).gid in
+  let other_gid =
+    (* Find another group we have access to.
+       If there isn't one, just use the file's initial group. *)
+    Unix.getegid () :: Array.to_list (Unix.getgroups ())
+    |> List.map Int64.of_int
+    |> List.find_opt (fun gid -> gid <> gid0)
+    |> Option.value ~default:gid0
+  in
+  let try_chown ~follow path =
+    match Eio.Path.chown ~gid:other_gid ~follow path with
+    | exception ex -> traceln "chown %a (follow=%b) -> @[<h>%a@]" Path.pp path follow Eio.Exn.pp ex
+    | () ->
+      traceln "chown %a (follow=%b) -> ok" Path.pp path follow;
+      if (Eio.Path.stat ~follow path).gid = other_gid then (
+        Eio.Path.chown ~follow ~gid:gid0 path;
+      ) else (
+        failwith "chown didn't set correct group!"
+      )
+  in
+  (* Following a symlink out of the sandbox is rejected, and the target is unchanged: *)
+  try_chown ~follow:true (sandbox / "ok");
+  try_chown ~follow:true (sandbox / "escape");
+  try_chown ~follow:false (sandbox / "ok");
+  try_chown ~follow:false (sandbox / "escape");
+  traceln "Try without sandboxing";
+  let unconfined = env#fs / "sandbox" in
+  try_chown ~follow:false (unconfined / "escape");
+  try_chown ~follow:true (unconfined / "escape");;
++mkdir <cwd:sandbox> -> ok
++chown <sandbox:ok> (follow=true) -> ok
++chown <sandbox:escape> (follow=true) -> Eio.Io Fs Permission_denied _, changing ownership of <sandbox:escape>
++chown <sandbox:ok> (follow=false) -> ok
++chown <sandbox:escape> (follow=false) -> ok
++Try without sandboxing
++chown <fs:sandbox/escape> (follow=false) -> ok
++chown <fs:sandbox/escape> (follow=true) -> ok
+- : unit = ()
+```
+
 # Cancelling while readable
 
 Ensure reads can be cancelled promptly, even if there is no need to wait:

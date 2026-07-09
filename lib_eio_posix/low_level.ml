@@ -477,13 +477,6 @@ let read_link dirfd path =
   Resolve.with_parent "read_link" dirfd path @@ fun dirfd path ->
   Eio_unix.Private.read_link_unix dirfd path
 
-let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) dirfd path =
-  let flags = if follow then 0 else Config.at_symlink_nofollow in
-  in_worker_thread "chown" @@ fun () ->
-  Resolve.with_parent "chown" dirfd path @@ fun dirfd path ->
-  let dirfd = Option.value dirfd ~default:at_fdcwd in
-  Eio_unix.Private.chown_unix ~flags ~uid ~gid dirfd path
-
 type stat
 external create_stat : unit -> stat = "caml_eio_posix_make_stat"
 external eio_fstatat : stat -> Unix.file_descr -> string -> int -> unit = "caml_eio_posix_fstatat"
@@ -530,6 +523,32 @@ let fstatat ~buf ~follow dirfd path =
   | Fd dirfd ->
     Fd.use_exn "fstat" dirfd @@ fun dirfd ->
     fstatat_confined ~buf ~follow (Some dirfd) path
+
+let is_symlink dirfd path =
+  let buf = create_stat () in
+  eio_fstatat buf dirfd path Config.at_symlink_nofollow;
+  kind buf = `Symbolic_link
+
+let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) dirfd path =
+  Err.run (in_worker_thread "chown") @@ fun () ->
+  let use_confined dirfd =
+    Resolve.with_parent_loop ?dirfd path @@ fun dirfd path ->
+    let dirfd = Option.value dirfd ~default:at_fdcwd in
+    if follow && is_symlink dirfd path then Error (`Symlink None)
+    else (
+      (* Note: if [follow=true] and [path] wasn't a symlink when we checked
+         above but is now, we'll chown the new symlink instead of its target.
+         However, this doesn't allow escaping the sandbox. *)
+      Eio_unix.Private.chown_unix ~flags:Config.at_symlink_nofollow ~uid ~gid dirfd path;
+      Ok ()
+    )
+  in
+  match dirfd with
+  | Fs ->
+    let flags = if follow then 0 else Config.at_symlink_nofollow in
+    Eio_unix.Private.chown_unix ~flags ~uid ~gid at_fdcwd path 
+  | Cwd -> use_confined None
+  | Fd dirfd -> Fd.use_exn "chown" dirfd @@ fun dirfd -> use_confined (Some dirfd)
 
 let lseek fd off cmd =
   Fd.use_exn "lseek" fd @@ fun fd ->
