@@ -156,23 +156,21 @@ let with_lines path fn =
   let buf = Buf_read.of_flow flow ~max_size:max_int in
   fn (Buf_read.lines buf)
 
-let load (t, path) =
-  with_open_in (t, path) @@ fun flow ->
+let load t =
+  with_open_in t @@ fun flow ->
   try
     let size = File.size flow in
     if Optint.Int63.(compare size (of_int Sys.max_string_length)) = 1 then
       raise @@ Fs.err File_too_large;
-    let buf = Cstruct.create (Optint.Int63.to_int size) in
-    let rec loop buf got =
-      match Flow.single_read flow buf with
-      | n -> loop (Cstruct.shift buf n) (n + got)
-      | exception End_of_file -> got
+    let buf =
+      Buf_read.of_flow flow
+        ~initial_size:(Optint.Int63.to_int size + 1)
+        ~max_size:(Sys.max_string_length + 1)
     in
-    let got = loop buf 0 in
-    Cstruct.to_string ~len:got buf
+    Buf_read.take_all buf
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "loading %a" pp (t, path)
+    Exn.reraise_with_context ex bt "loading %a" pp t
 
 let save ?append ~create path data =
   with_open_out ?append ~create path @@ fun flow ->
