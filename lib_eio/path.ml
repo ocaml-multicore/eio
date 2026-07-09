@@ -164,7 +164,7 @@ let load t =
       raise @@ Fs.err File_too_large;
     let buf =
       Buf_read.of_flow flow
-        ~initial_size:(Optint.Int63.to_int size + 1)
+        ~initial_size:(max 4096 (Optint.Int63.to_int size + 1))
         ~max_size:(Sys.max_string_length + 1)
     in
     Buf_read.take_all buf
