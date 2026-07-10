@@ -1,5 +1,3 @@
-let show_backend_exceptions = ref true
-
 type with_bt = exn * Printexc.raw_backtrace
 
 type err = ..
