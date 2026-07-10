@@ -465,13 +465,6 @@ let symlink ~link_to new_dir new_path =
   let new_dir = Option.value new_dir ~default:at_fdcwd in
   eio_symlinkat link_to new_dir new_path
 
-let chmod ~follow ~mode dir path =
-  in_worker_thread "chmod" @@ fun () ->
-  let flags = if follow then 0 else Config.at_symlink_nofollow in
-  Resolve.with_parent "chmod" dir path @@ fun dir path ->
-  let new_dir = Option.value dir ~default:at_fdcwd in
-  Eio_unix.Private.chmod_unix new_dir path ~mode ~flags
-
 let read_link dirfd path =
   in_worker_thread "read_link" @@ fun () ->
   Resolve.with_parent "read_link" dirfd path @@ fun dirfd path ->
@@ -549,6 +542,28 @@ let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) dirfd path =
     Eio_unix.Private.chown_unix ~flags ~uid ~gid at_fdcwd path 
   | Cwd -> use_confined None
   | Fd dirfd -> Fd.use_exn "chown" dirfd @@ fun dirfd -> use_confined (Some dirfd)
+
+let chmod ~follow ~mode dirfd path =
+  Err.run (in_worker_thread "chmod") @@ fun () ->
+  let use_confined dirfd =
+    Resolve.with_parent_loop ?dirfd path @@ fun dirfd path ->
+    let dirfd = Option.value dirfd ~default:at_fdcwd in
+    if follow && is_symlink dirfd path then Error (`Symlink None)       (* For BSD systems *)
+    else (
+      (* Note: Same race as in [chown] here. Except on Linux, where we get
+         EOPNOTSUPP because it can't chmod symlinks! *)
+      match Eio_unix.Private.chmod_unix dirfd path ~mode ~flags:Config.at_symlink_nofollow with
+      | () -> Ok ()
+      | exception (Unix.Unix_error (EOPNOTSUPP, _, _) as e) when follow ->
+        Error (`Symlink (Some e))       (* Linux *)
+    )
+  in
+  match dirfd with
+  | Fs ->
+    let flags = if follow then 0 else Config.at_symlink_nofollow in
+    Eio_unix.Private.chmod_unix at_fdcwd path ~mode ~flags
+  | Cwd -> use_confined None
+  | Fd dirfd -> Fd.use_exn "chmod" dirfd @@ fun dirfd -> use_confined (Some dirfd)
 
 let lseek fd off cmd =
   Fd.use_exn "lseek" fd @@ fun fd ->

@@ -741,13 +741,24 @@ let read_link fd path =
     Eio_unix.run_in_systhread ~label:"read_link" (fun () -> Eio_unix.Private.read_link (Some parent) leaf)
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
-let chmod ~follow ~mode dir path =
-  let module X = Uring.Statx in
-  let flags = if follow then X.Flags.empty else X.Flags.symlink_nofollow in
-  let flags = (flags :> int) in
+let chmod ~follow ~mode dirfd path =
   try
-    with_parent_dir_fd dir path @@ fun parent leaf ->
-    Eio_unix.run_in_systhread ~label:"chmod" (fun () -> Eio_unix.Private.chmod parent leaf ~mode ~flags)
+    Switch.run @@ fun sw ->
+    let fd =
+      openat ~sw ~access:`R ~perm:0 dirfd path
+        ~flags:Uring.Open_flags.(cloexec + path + if follow then empty else nofollow)
+    in
+    Eio_unix.run_in_systhread ~label:"chmod" (fun () ->
+        try
+          Eio_unix.Private.chmod ~mode fd ""
+            ~flags:(Uring.Statx.Flags.empty_path :> int)
+        with
+        | Unix.Unix_error ((ENOSYS | EOPNOTSUPP | EINVAL), _, _) ->
+          (* For Linux before 6.6 *)
+          Eio_unix.Fd.use_exn "chmod" fd @@ fun fd ->
+          let fd : int = Obj.magic fd in
+          Unix.chmod (Printf.sprintf "/proc/self/fd/%d" fd) mode
+      )
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
 
 let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) dirfd path =
