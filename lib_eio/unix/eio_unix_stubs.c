@@ -12,11 +12,21 @@
 #endif
 
 #include <caml/mlvalues.h>
-#include <caml/unixsupport.h>
 #include <caml/memory.h>
 #include <caml/bigarray.h>
 #include <caml/alloc.h>
-#include <caml/socketaddr.h>
+
+#ifndef _WIN32
+# include <caml/socketaddr.h>
+#endif
+
+#ifdef _WIN32
+CAMLnoret CAMLextern
+void caml_unix_error (int errcode, const char * cmdname, value arg);
+#define Nothing ((value) 0)
+#else
+#include <caml/unixsupport.h>
+#endif
 
 static void caml_stat_free_preserving_errno(void *ptr) {
   int saved = errno;
@@ -120,6 +130,7 @@ CAMLprim value eio_unix_fchownat(value v_fd, value v_path, value v_uid, value v_
 #endif
 }
 
+#ifndef _WIN32
 static int caml_eai_of_unix(int eai) {
   switch (eai) {
     // These numbers must match the order of constructors in Eio.Net.Getaddrinfo_error.t
@@ -149,6 +160,7 @@ static int caml_eai_of_unix(int eai) {
     default: return 0;
   }
 }
+#endif /* !_WIN32 */
 
 CAMLprim value eio_unix_getaddrinfo(value v_node, value v_service) {
 #ifdef _WIN32

@@ -26,6 +26,10 @@
 
 #include "fork_action.h"
 
+#ifdef _WIN32
+CAMLextern value caml_unix_error_of_code(int errcode);
+#endif
+
 #ifndef _WIN32
 void eio_unix_run_fork_actions(int errors, value v_actions) {
   int old_flags = fcntl(errors, F_GETFL, 0);

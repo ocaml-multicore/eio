@@ -19,6 +19,11 @@
 #include <caml/fail.h>
 #include <caml/unixsupport.h>
 
+#ifdef _WIN32
+CAMLnoret CAMLextern
+void caml_unix_error (int errcode, const char * cmdname, value arg);
+#endif
+
 /* Returns [pty_fd], opened close-on-exec. */
 CAMLprim value eio_unix_open_pty(value v_unit) {
 #ifdef _WIN32
