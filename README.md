@@ -7,8 +7,8 @@ For example, you can use Eio to read and write files, make network connections,
 or perform CPU-intensive calculations, running multiple operations at the same time.
 It aims to be easy to use, secure, well documented, and fast.
 A generic cross-platform API is implemented by optimised backends for different platforms.
-Eio replaces existing concurrency libraries such as Lwt
-(Eio and Lwt libraries can also be used together).
+Eio implements similar functionality to Lwt or Async, but using effects rather than monadic concurrency
+(though it is possible to [use Eio and Lwt libraries together][Lwt_eio]).
 
 ## Contents
 
