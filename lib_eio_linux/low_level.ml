@@ -579,15 +579,77 @@ let lseek fd off cmd =
   Unix.LargeFile.lseek fd (Optint.Int63.to_int64 off) cmd
   |> Optint.Int63.of_int64
 
+let rec enqueue_fsync fd st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.fsync st.uring fd (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_fsync fd st action) st.io_q
+
 let fsync fd =
-  (* todo: https://github.com/ocaml-multicore/ocaml-uring/pull/103 *)
-  Eio_unix.run_in_systhread ~label:"fsync" @@ fun () ->
-  Fd.use_exn "fsync" fd Unix.fsync
+  Fd.use_exn "fsync" fd @@ fun fd ->
+  let res = Sched.enter "fsync" (enqueue_fsync fd) in
+  match Res.unit_result res with
+  | Ok () -> ()
+  | Error e -> raise @@ Err.wrap e "fsync" ""
+
+let rec enqueue_fdatasync fd st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.fdatasync st.uring fd (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_fdatasync fd st action) st.io_q
+
+let fdatasync fd =
+  Fd.use_exn "fdatasync" fd @@ fun fd ->
+  let res = Sched.enter "fdatasync" (enqueue_fdatasync fd) in
+  match Res.unit_result res with
+  | Ok () -> ()
+  | Error e -> raise @@ Err.wrap e "fdatasync" ""
+
+let rec enqueue_ftruncate fd len st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.ftruncate st.uring fd ~len (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_ftruncate fd len st action) st.io_q
 
 let ftruncate fd len =
-  Eio_unix.run_in_systhread ~label:"ftruncate" @@ fun () ->
-  Fd.use_exn "ftruncate" fd @@ fun fd ->
-  Unix.LargeFile.ftruncate fd (Optint.Int63.to_int64 len)
+  let len = Optint.Int63.to_int64 len in
+  match Sched.op_supported Uring.Op.ftruncate with
+  | true ->
+    Fd.use_exn "ftruncate" fd @@ fun fd ->
+    let res = Sched.enter "ftruncate" (enqueue_ftruncate fd len) in
+    (match Res.unit_result res with
+     | Ok () -> ()
+     | Error e -> raise @@ Err.wrap e "ftruncate" "")
+  | false -> begin
+    try
+      Eio_unix.run_in_systhread ~label:"ftruncate" @@ fun () ->
+      Fd.use_exn "ftruncate" fd @@ fun fd ->
+      Unix.LargeFile.ftruncate fd len
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+  end
+
+let rec enqueue_fallocate fd ~mode ~off ~len st action =
+  let retry = Sched.with_cancel_hook ~action st (fun () ->
+      Uring.fallocate st.uring ~mode fd ~off ~len (Job action)
+    )
+  in
+  if retry then (* wait until an sqe is available *)
+    Queue.push (fun st -> enqueue_fallocate fd ~mode ~off ~len st action) st.io_q
+
+let fallocate ?(mode=Uring.Fallocate_flags.empty) fd ~off ~len =
+  let off = Optint.Int63.to_int64 off in
+  let len = Optint.Int63.to_int64 len in
+  Fd.use_exn "fallocate" fd @@ fun fd ->
+  let res = Sched.enter "fallocate" (enqueue_fallocate fd ~mode ~off ~len) in
+  match Res.unit_result res with
+  | Ok () -> ()
+  | Error e -> raise @@ Err.wrap e "fallocate" ""
 
 let getrandom { Cstruct.buffer; off; len } =
   let rec loop n =
