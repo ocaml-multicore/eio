@@ -201,16 +201,18 @@ CAMLprim value eio_unix_getaddrinfo(value v_node, value v_service) {
         }
 
         switch (item->ai_family) {
-          case AF_INET:
+          case AF_INET: {
             struct sockaddr_in *ip = (struct sockaddr_in *) item->ai_addr;
             v_host = caml_unix_alloc_inet_addr(&ip->sin_addr);
             port = ip->sin_port;
             break;
-          case AF_INET6:
+          }
+          case AF_INET6: {
             struct sockaddr_in6 *ip6 = (struct sockaddr_in6 *) item->ai_addr;
             v_host = caml_unix_alloc_inet6_addr(&ip6->sin6_addr);
             port = ip6->sin6_port;
             break;
+          }
           default:
             continue;
         }
