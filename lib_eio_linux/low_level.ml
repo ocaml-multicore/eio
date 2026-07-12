@@ -727,7 +727,7 @@ let rec enqueue_socket domain ty protocol st action =
 
 let socket ~sw domain ty protocol =
   let fd =
-    if !Sched.socket_works then (
+    if Sched.op_supported Uring.Op.socket then (
       let res = Sched.enter "socket" (enqueue_socket domain ty protocol) in
       match Uring.Res.fd_result res with
       | Ok fd -> fd
@@ -750,7 +750,7 @@ let rec enqueue_bind fd addr st action =
 
 let bind fd addr =
   Fd.use_exn "bind" fd @@ fun fd ->
-  if !Sched.bind_works then (
+  if Sched.op_supported Uring.Op.bind then (
     let res = Sched.enter "bind" (enqueue_bind fd addr) in
     match Res.unit_result res with
     | Ok () -> ()
@@ -771,7 +771,7 @@ let rec enqueue_listen fd backlog st action =
 
 let listen fd backlog =
   Fd.use_exn "listen" fd @@ fun fd ->
-  if !Sched.listen_works then (
+  if Sched.op_supported Uring.Op.listen then (
     let res = Sched.enter "listen" (enqueue_listen fd backlog) in
     match Res.unit_result res with
     | Ok () -> ()
