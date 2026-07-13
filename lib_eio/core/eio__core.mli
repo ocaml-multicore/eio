@@ -499,6 +499,9 @@ module Exn : sig
 
       You should avoid matching on these (in portable code). Instead, request a proper Eio code for them. *)
 
+  type err += Not_available of Backend.t
+  (** The requested operation is not available. *)
+
   exception Multiple of with_bt list
   (** Raised if multiple fibers fail, to report all the exceptions.
 

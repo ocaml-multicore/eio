@@ -212,7 +212,7 @@ let test_fallocate () =
       Cwd "fallocate.data"
   in
   match Eio_linux.Low_level.fallocate fd ~off:Optint.Int63.zero ~len:(Optint.Int63.of_int 4096) with
-  | exception Eio.Exn.Io (Eio.Exn.X Eio_unix.Unix_error ((EOPNOTSUPP | EINVAL), _, _), _) ->
+  | exception Eio.Exn.Io (Eio.Exn.Not_available _, _) ->
     (* Some filesystems don't support fallocate so don't fail test *)
     Eio.Path.unlink path;
     Alcotest.skip ()
