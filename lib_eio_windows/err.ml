@@ -22,6 +22,7 @@ let wrap code name arg =
   | ECONNREFUSED -> Eio.Net.err (Connection_failure (Refused e))
   | ECONNRESET | EPIPE | ECONNABORTED -> Eio.Net.err (Connection_reset e)
   | ENOPROTOOPT -> Eio.Net.err Invalid_option
+  | ENOSYS | EOPNOTSUPP -> Eio.Exn.create (Eio.Exn.Not_available e)
   | _ -> unclassified_error e
 
 let run fn x =

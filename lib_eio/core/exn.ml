@@ -120,11 +120,14 @@ module Backend = struct
     ) else Fmt.string f "_"
 end
 
-type err += X of Backend.t
+type err +=
+  | Not_available of Backend.t
+  | X of Backend.t
 
 let () =
   register_pp (fun f -> function
       | Multiple_io errs -> Fmt.pf f "Multiple_io@\n%a" (Fmt.(list ~sep:cut) pp_with_bt) errs; true
+      | Not_available ex -> Fmt.pf f "Not_available %a" Backend.pp ex; true
       | X ex -> Backend.pp f ex; true
       | _ -> false
     )

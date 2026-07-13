@@ -213,10 +213,25 @@ val fsync : fd -> unit
 
     Like {!Unix.fsync}. *)
 
+val fdatasync : fd -> unit
+(** Flush file data to disk.
+
+    Like {!fsync}, but does not wait for metadata that is not needed to read the
+    data back.  The aim is to reduce disk activity for callers that do not require all
+    metadata to be synchronized with the disk. *)
+
 val ftruncate : fd -> Optint.Int63.t -> unit
 (** Set the length of a file.
 
     Like {!Unix.ftruncate}. *)
+
+val fallocate : ?mode:Uring.Fallocate_flags.t -> fd -> off:Optint.Int63.t -> len:Optint.Int63.t -> unit
+(** [fallocate fd ~off ~len] manipulates the disk space allocated for the
+    [len] bytes of [fd] starting at [off] (the [fallocate(2)] call).
+
+    With the default [mode] (the empty set of flags) this allocates the region
+    as for [posix_fallocate(3)], extending the file's size if needed.
+    See {!Uring.Fallocate_flags} for other modes, such as punching holes. *)
 
 (** {1 Sockets} *)
 

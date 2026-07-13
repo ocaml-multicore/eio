@@ -199,6 +199,49 @@ let test_statx () =
     );
   Eio.Path.unlink path
 
+let test_fallocate () =
+  Eio_linux.run @@ fun env ->
+  let ( / ) = Eio.Path.( / ) in
+  let path = env#cwd / "fallocate.data" in
+  Switch.run @@ fun sw ->
+  let fd =
+    Eio_linux.Low_level.openat ~sw
+      ~access:`RW
+      ~flags:Uring.Open_flags.creat
+      ~perm:0o600
+      Cwd "fallocate.data"
+  in
+  match Eio_linux.Low_level.fallocate fd ~off:Optint.Int63.zero ~len:(Optint.Int63.of_int 4096) with
+  | exception Eio.Exn.Io (Eio.Exn.Not_available _, _) ->
+    (* Some filesystems don't support fallocate so don't fail test *)
+    Eio.Path.unlink path;
+    Alcotest.skip ()
+  | () ->
+    (* The default mode extends the file to [off + len]. *)
+    let st = Eio_linux.Low_level.fstat fd in
+    Alcotest.(check int64) "fallocated size" 4096L (Optint.Int63.to_int64 st.size);
+    (* FIXME: any way to verify these have actually worked? *)
+    Eio_linux.Low_level.fdatasync fd;
+    Eio_linux.Low_level.fsync fd;
+    Eio.Path.unlink path
+
+let test_ftruncate () =
+  Eio_linux.run @@ fun env ->
+  let ( / ) = Eio.Path.( / ) in
+  let path = env#cwd / "ftruncate.data" in
+  Switch.run @@ fun sw ->
+  let fd =
+    Eio_linux.Low_level.openat ~sw
+      ~access:`RW
+      ~flags:Uring.Open_flags.creat
+      ~perm:0o600
+      Cwd "ftruncate.data"
+  in
+  Eio_linux.Low_level.ftruncate fd (Optint.Int63.of_int 123);
+  let st = Eio_linux.Low_level.fstat fd in
+  Alcotest.(check int64) "truncated size" 123L (Optint.Int63.to_int64 st.size);
+  Eio.Path.unlink path
+
 let test_fstat () =
   Eio_linux.run ~queue_depth:4 @@ fun env ->
   let ( / ) = Eio.Path.( / ) in
@@ -275,6 +318,8 @@ let () =
       test_case "expose_backend"       `Quick test_expose_backend;
       test_case "statx"                `Quick test_statx;
       test_case "fstat"                `Quick test_fstat;
+      test_case "fallocate"            `Quick test_fallocate;
+      test_case "ftruncate"            `Quick test_ftruncate;
       test_case "signal_race"          `Quick test_signal_race;
       test_case "alloc-fixed-or-wait"  `Quick test_alloc_fixed_or_wait;
     ];
