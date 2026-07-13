@@ -220,6 +220,26 @@ val ftruncate : fd -> Optint.Int63.t -> unit
 
 (** {1 Sockets} *)
 
+val socket : sw:Switch.t -> Unix.socket_domain -> Unix.socket_type -> int -> fd
+(** [socket ~sw domain ty protocol] creates a new socket, like {!Unix.socket}.
+
+    The new socket has the close-on-exec flag set and is attached to [sw].
+    On Linux >= 5.19 this uses io_uring and on older kernels it falls back
+    to a [socket(2)] call. *)
+
+val bind : fd -> Unix.sockaddr -> unit
+(** [bind fd addr] binds socket [fd] to [addr], like {!Unix.bind}.
+
+    On Linux >= 6.11 this uses io_uring and on older kernels falls back to a
+    [bind(2)] call. *)
+
+val listen : fd -> int -> unit
+(** [listen fd backlog] marks socket [fd] as accepting connections, like
+    {!Unix.listen}.
+
+    On Linux >= 6.11 this uses io_uring and on older kernels falls back to a
+    [listen(2)] call. *)
+
 val accept : sw:Switch.t -> fd -> (fd * Unix.sockaddr)
 (** [accept ~sw t] blocks until a new connection is received on listening socket [t].
 

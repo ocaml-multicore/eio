@@ -116,8 +116,7 @@ let socket_domain_of = function
 
 let connect ~sw connect_addr =
   let addr = Eio_unix.Net.sockaddr_to_unix connect_addr in
-  let sock_unix = Unix.socket ~cloexec:true (socket_domain_of connect_addr) Unix.SOCK_STREAM 0 in
-  let sock = Fd.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
+  let sock = Low_level.socket ~sw (socket_domain_of connect_addr) Unix.SOCK_STREAM 0 in
   Low_level.connect sock addr;
   (Flow.of_fd sock :> _ Eio_unix.Net.stream_socket)
 
@@ -137,8 +136,7 @@ module Impl = struct
         | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
     );
     let addr = Eio_unix.Net.sockaddr_to_unix listen_addr in
-    let sock_unix = Unix.socket ~cloexec:true (socket_domain_of listen_addr) Unix.SOCK_STREAM 0 in
-    let sock = Fd.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
+    let sock = Low_level.socket ~sw (socket_domain_of listen_addr) Unix.SOCK_STREAM 0 in
     (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
     begin match listen_addr with
       | `Unix path ->
@@ -146,12 +144,13 @@ module Impl = struct
           Switch.on_release sw (fun () -> Unix.unlink path)
       | `Tcp _ -> ()
     end;
-    if reuse_addr then
-      Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
-    if reuse_port then
-      Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
-    Unix.bind sock_unix addr;
-    Unix.listen sock_unix backlog;
+    if reuse_addr || reuse_port then (
+      Fd.use_exn "setsockopt" sock (fun sock_unix ->
+          if reuse_addr then Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+          if reuse_port then Unix.setsockopt sock_unix Unix.SO_REUSEPORT true);
+    );
+    Low_level.bind sock addr;
+    Low_level.listen sock backlog;
     (listening_socket sock :> _ Eio.Net.listening_socket_ty r)
 
   let connect () ~sw addr = (connect ~sw addr :> [`Generic | `Unix] Eio.Net.stream_socket_ty r)
@@ -167,16 +166,16 @@ module Impl = struct
         | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
         | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
     );
-    let sock_unix = Unix.socket ~cloexec:true (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
-    let sock = Fd.of_unix ~sw ~seekable:false ~close_unix:true sock_unix in
+    let sock = Low_level.socket ~sw (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
     begin match saddr with
     | `Udp _ | `Unix _ as saddr ->
       let addr = Eio_unix.Net.sockaddr_to_unix saddr in
-      if reuse_addr then
-        Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
-      if reuse_port then
-        Unix.setsockopt sock_unix Unix.SO_REUSEPORT true;
-      Unix.bind sock_unix addr
+      if reuse_addr || reuse_port then (
+        Fd.use_exn "setsockopt" sock (fun sock_unix ->
+            if reuse_addr then Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
+            if reuse_port then Unix.setsockopt sock_unix Unix.SO_REUSEPORT true);
+      );
+      Low_level.bind sock addr
     | `UdpV4 | `UdpV6 -> ()
     end;
     (datagram_socket sock :> [`Generic | `Unix] Eio.Net.datagram_socket_ty r)

@@ -9,6 +9,11 @@ module Suspended = Eio_utils.Suspended
 module Zzz = Eio_utils.Zzz
 module Lf_queue = Eio_utils.Lf_queue
 
+let probe = ref None
+
+let op_supported op =
+  Uring.op_supported (Option.get !probe) op
+
 type exit = [`Exit_scheduler]
 
 (* Type of user-data attached to jobs. *)
@@ -450,7 +455,14 @@ let with_sched ?(fallback=no_fallback) config fn =
   | exception Unix.Unix_error(EPERM, _, _) -> fallback (`Msg "io_uring is not available (permission denied)")
   | exception Unix.Unix_error(ENOMEM, _, _) -> fallback (`Msg "io_uring is not available (ENOMEM)")
   | uring ->
-    let probe = Uring.get_probe uring in
+    let probe =
+      match !probe with
+      | Some p -> p
+      | None ->
+        let p = Uring.get_probe uring in
+        probe := Some p;
+        p
+    in
     if not (Uring.op_supported probe Uring.Op.msg_ring) then (
       Uring.exit uring;
       fallback (`Msg "Linux >= 5.18 is required for io_uring support")
