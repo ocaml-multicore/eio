@@ -16,8 +16,6 @@
 
 open Eio.Std
 
-[@@@alert "-unstable"]
-
 module Fd = Eio_unix.Fd
 module Trace = Eio.Private.Trace
 

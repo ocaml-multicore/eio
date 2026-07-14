@@ -129,7 +129,6 @@ type _ Effect.t +=
       ([`Unix_fd | stream_socket_ty] r * [`Unix_fd | stream_socket_ty] r) Effect.t      (** See {!socketpair_stream} *)
   | Socketpair_datagram : Eio.Switch.t * Unix.socket_domain * int ->
       ([`Unix_fd | datagram_socket_ty] r * [`Unix_fd | datagram_socket_ty] r) Effect.t  (** See {!socketpair_datagram} *)
-[@@alert "-unstable"]
 
 val setsockopt : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a -> unit
 (** [setsockopt fd opt v] sets socket option [opt] to value [v] on file descriptor [fd].

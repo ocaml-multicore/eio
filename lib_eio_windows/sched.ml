@@ -325,8 +325,6 @@ let with_op t fn x =
     t.active_ops <- t.active_ops - 1;
     raise ex
 
-[@@@alert "-unstable"]
-
 type _ Effect.t += Enter : (t -> 'a Eio_utils.Suspended.t -> [`Exit_scheduler]) -> 'a Effect.t
 let enter fn = Effect.perform (Enter fn)
 

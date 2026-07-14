@@ -1,5 +1,3 @@
-[@@@alert "-unstable"]
-
 open Eio.Std
 
 module Fiber_context = Eio.Private.Fiber_context
