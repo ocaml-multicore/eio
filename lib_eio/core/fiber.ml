@@ -1,5 +1,3 @@
-[@@@alert "-unstable"]
-
 type _ Effect.t += Fork : Cancel.fiber_context * (unit -> unit) -> unit Effect.t
 
 let yield () =

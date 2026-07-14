@@ -57,8 +57,6 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
 
 type t = [`Generic | `Unix] Eio.Net.ty r
 
-[@@@alert "-unstable"]
-
 type _ Effect.t +=
   | Import_socket_stream : Switch.t * bool * Unix.file_descr -> [`Unix_fd | stream_socket_ty] r Effect.t
   | Import_socket_listening : Switch.t * bool * Unix.file_descr -> [`Unix_fd | listening_socket_ty] r Effect.t

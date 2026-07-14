@@ -4,8 +4,6 @@
     For example, it is possible to leak file descriptors this way, or to use them after they've been closed,
     allowing one module to corrupt a file belonging to an unrelated module. *)
 
-[@@@alert "-unstable"]
-
 open Eio.Std
 
 type Eio.Exn.Backend.t += Unix_error of Unix.error * string * string

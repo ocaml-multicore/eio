@@ -1,5 +1,3 @@
-[@@@alert "-unstable"]
-
 open Eio.Std
 
 module Fd = Fd

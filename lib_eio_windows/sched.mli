@@ -17,7 +17,7 @@ val with_sched : (t -> 'a) -> 'a
 
 val run :
   extra_effects:exit Effect.Deep.effect_handler ->
-  t -> ('a -> 'b) -> 'a -> 'b [@@alert "-unstable"]
+  t -> ('a -> 'b) -> 'a -> 'b
 (** [run ~extra_effects t f x] starts an event loop using [t] and runs [f x] as the root fiber within it.
 
     Unknown effects are passed to [extra_effects]. *)

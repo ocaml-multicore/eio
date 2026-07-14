@@ -16,8 +16,6 @@
 
 open Eio.Std
 
-[@@@alert "-unstable"]
-
 module Fd = Eio_unix.Fd
 
 let socketpair k ~sw ~domain ~ty ~protocol wrap_a wrap_b =
