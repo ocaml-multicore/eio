@@ -167,6 +167,14 @@ module Sockopt : sig
   val pp : 'a t Fmt.t
   val pp_binding : ('a t * 'a) Fmt.t
 
+  type settings =
+    | [] : settings
+    | (::) : ('a t * 'a) * settings -> settings
+  (** A heterogeneous list of socket options, each paired with the value to
+      set it to. For example:
+
+      {[ Eio.Net.Sockopt.[ (SO_REUSEADDR, true); (SO_SNDBUF, 4096) ] ]} *)
+
   (** {2 Common options} *)
 
   type _ t +=
@@ -286,10 +294,32 @@ val getsockopt : [> `Socket] r -> 'a Sockopt.t -> 'a
 
 (** {2 Out-bound Connections} *)
 
-val connect : sw:Switch.t -> [> 'tag ty] t -> Sockaddr.stream -> 'tag stream_socket_ty r
+val connect :
+  ?bind_to:Sockaddr.stream ->
+  ?options:Sockopt.settings ->
+  sw:Switch.t -> [> 'tag ty] t -> Sockaddr.stream -> 'tag stream_socket_ty r
 (** [connect ~sw t addr] is a new socket connected to remote address [addr].
 
-    The new socket will be closed when [sw] finishes, unless closed manually first. *)
+    The new socket will be closed when [sw] finishes, unless closed manually first.
+
+    Before connecting, each option in [options] is applied in list order and
+    then the socket is bound to [bind_to] (if given).
+
+    For example, to make an outbound connection from a fixed local address:
+
+    {[
+      Eio.Net.connect ~sw net addr
+        ~bind_to:(`Tcp (local_ip, 0))
+        ~options:Eio.Net.Sockopt.[
+            (SO_REUSEADDR, true);
+            (SO_KEEPALIVE, true);
+          ]
+    ]}
+
+    @param options Socket options to set before binding and connecting.
+    @param bind_to Local address to bind to before connecting. This is how
+      a multi-homed host chooses the local address that an outbound
+      connection uses. *)
 
 val with_tcp_connect :
   ?timeout:Time.Timeout.t ->
@@ -524,7 +554,9 @@ module Pi : sig
       t -> reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t ->
       Sockaddr.stream -> tag listening_socket_ty r
 
-    val connect : t -> sw:Switch.t -> Sockaddr.stream -> tag stream_socket_ty r
+    val connect :
+      t -> bind_to:Sockaddr.stream option -> options:Sockopt.settings ->
+      sw:Switch.t -> Sockaddr.stream -> tag stream_socket_ty r
 
     val datagram_socket :
       t

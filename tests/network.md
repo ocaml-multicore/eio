@@ -647,6 +647,64 @@ Exception: Eio.Io Net Invalid_option,
   getting socket option Unix.SO_LINGER
 ```
 
+## Bind before connect
+
+Binding a source address and setting options before connecting.
+
+```ocaml
+# run @@ fun ~net sw ->
+  let server = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
+  let client =
+    Eio.Net.connect ~sw net (Eio.Net.listening_addr server)
+      ~bind_to:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
+      ~options:Eio.Net.Sockopt.[
+          (SO_REUSEADDR, true);
+          (SO_KEEPALIVE, true);
+        ]
+  in
+  let _ = Eio.Net.accept ~sw server in
+  traceln "keepalive=%b" (Eio.Net.getsockopt client Eio.Net.Sockopt.SO_KEEPALIVE);;
++keepalive=true
+- : unit = ()
+```
+
+The mock backend also traces the options in the order they are applied:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run @@ fun sw ->
+  let net = Eio_mock.Net.make "mock-net" in
+  Eio_mock.Net.on_connect net [`Return (Eio_mock.Flow.make "flow")];
+  let _ =
+    Eio.Net.connect ~sw net addr
+      ~bind_to:(`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
+      ~options:Eio.Net.Sockopt.[
+          (SO_REUSEADDR, true);
+          (SO_KEEPALIVE, true);
+        ]
+  in ();;
++mock-net: connect to tcp:127.0.0.1:8081
++mock-net: setsockopt SO_REUSEADDR = true
++mock-net: setsockopt SO_KEEPALIVE = true
++mock-net: bind tcp:127.0.0.1:0
++flow: closed
+- : unit = ()
+```
+
+A failing bind (here, a non-local source address) should be reported as `Eio.Io`.
+
+```ocaml
+# run @@ fun ~net sw ->
+  match
+    Eio.Net.connect ~sw net addr
+      ~bind_to:(`Tcp (Eio.Net.Ipaddr.of_raw "\001\002\003\004", 0))
+  with
+  | (_ : _ Eio.Net.stream_socket) -> traceln "unexpectedly connected"
+  | exception (Eio.Io _) -> traceln "got Eio.Io";;
++got Eio.Io
+- : unit = ()
+```
+
 ## Getaddrinfo
 
 ```ocaml
