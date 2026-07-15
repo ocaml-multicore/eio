@@ -76,7 +76,7 @@ let connect fd addr =
     await_writable fd;
     match Fd.use_exn "connect" fd Unix.getsockopt_error with
     | None -> ()
-    | Some code -> raise (Err.wrap code "connect-in-progress" "")
+    | Some code -> raise (Err.v code "connect-in-progress" "")
 
 let accept ~sw sock =
   Fd.use_exn "accept" sock @@ fun sock ->

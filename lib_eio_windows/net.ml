@@ -78,7 +78,7 @@ module Datagram_socket = struct
       | `All -> Unix.SHUTDOWN_ALL
     with
     | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
-    | Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
+    | Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
 
   let setsockopt t opt v = Err.run (Eio_unix.Net.setsockopt t opt) v
   let getsockopt t opt = Err.run (Eio_unix.Net.getsockopt t) opt
@@ -119,7 +119,7 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
         | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
         | _ -> ()
         | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
-        | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+        | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
       );
       Unix.SOCK_STREAM, Unix.ADDR_UNIX path, true
     | `Tcp (host, port)  ->
@@ -159,7 +159,7 @@ let connect ~sw connect_addr =
   try
     Low_level.connect sock addr;
     (Flow.of_fd sock :> _ Eio_unix.Net.stream_socket)
-  with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
+  with Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
 
 let create_datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
   let sock = Low_level.socket ~sw (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in

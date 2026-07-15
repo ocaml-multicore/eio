@@ -1,23 +1,8 @@
+include Eio_unix.Err
+
 let unclassified e = Eio.Exn.create (Eio.Exn.X e)
-
-let wrap code name arg =
-  let ex = Eio_unix.Unix_error (code, name, arg) in
-  match code with
-  | ECONNREFUSED -> Eio.Net.err (Connection_failure (Refused ex))
-  | ECONNRESET | EPIPE -> Eio.Net.err (Connection_reset ex)
-  | ENOPROTOOPT -> Eio.Net.err Invalid_option
-  | ENOSYS | EOPNOTSUPP -> Eio.Exn.create (Eio.Exn.Not_available ex)
-  | _ -> unclassified ex
-
-let wrap_fs code name arg =
-  let e = Eio_unix.Unix_error (code, name, arg) in
-  match code with
-  | Unix.EEXIST -> Eio.Fs.err (Already_exists e)
-  | Unix.ENOENT -> Eio.Fs.err (Not_found e)
-  | Unix.EXDEV | EPERM | EACCES -> Eio.Fs.err (Permission_denied e)
-  | _ -> wrap code name arg
 
 let run fn x =
   try fn x
   with Unix.Unix_error (code, name, arg) ->
-    raise (wrap code name arg)
+    raise (v code name arg)

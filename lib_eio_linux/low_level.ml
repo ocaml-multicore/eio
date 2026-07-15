@@ -193,7 +193,7 @@ let read_upto ?file_offset:off fd buf amount =
   match Uring.Res.int_result res with
   | Ok 0 -> raise End_of_file
   | Ok n -> n
-  | Error e -> raise @@ Err.wrap e "read" ""
+  | Error e -> raise @@ Err.v e "read" ""
 
 let rec read_exactly ?file_offset fd buf len =
   let got = read_upto ?file_offset fd buf len in
@@ -221,7 +221,7 @@ let readv ?file_offset fd bufs =
   match Uring.Res.int_result res with
   | Ok 0 -> raise End_of_file
   | Ok n -> n
-  | Error e -> raise @@ Err.wrap e "readv" ""
+  | Error e -> raise @@ Err.v e "readv" ""
 
 let writev_single ?file_offset fd bufs =
   let file_offset =
@@ -233,7 +233,7 @@ let writev_single ?file_offset fd bufs =
   let res = Sched.enter "writev" (enqueue_writev (file_offset, fd, bufs)) in
   match Uring.Res.int_result res with
   | Ok x -> x
-  | Error e -> raise @@ Err.wrap e "writev" ""
+  | Error e -> raise @@ Err.v e "writev" ""
 
 let rec writev ?file_offset fd bufs =
   let bytes_written = writev_single ?file_offset fd bufs in
@@ -271,7 +271,7 @@ let write_single ?file_offset:off fd buf len =
     ) in
   match Uring.Res.int_result res with
   | Ok x -> x
-  | Error e -> raise @@ Err.wrap e "write" ""
+  | Error e -> raise @@ Err.v e "write" ""
 
 let rec write ?file_offset fd buf len =
   let wrote = write_single ?file_offset fd buf len in
@@ -287,20 +287,14 @@ let splice src ~dst ~len =
   match Uring.Res.int_result res with
   | Ok 0 -> raise End_of_file
   | Ok n -> n
-  | Error e -> raise @@ Err.wrap e "splice" ""
+  | Error e -> raise @@ Err.v e "splice" ""
 
 let connect fd addr =
   Fd.use_exn "connect" fd @@ fun fd ->
   let res = Sched.enter "connect" (enqueue_connect fd addr) in
   match Res.unit_result res with
   | Ok () -> ()
-  | Error e ->
-    let ex =
-      match addr with
-      | ADDR_UNIX _ -> Err.wrap_fs e "connect" ""
-      | ADDR_INET _ -> Err.wrap e "connect" ""
-    in
-    raise ex
+  | Error e -> raise (Err.v e "connect" "")
 
 let send_msg fd ?(fds=[]) ?dst buf =
   Fd.use_exn "send_msg" fd @@ fun fd ->
@@ -308,7 +302,7 @@ let send_msg fd ?(fds=[]) ?dst buf =
   let res = Sched.enter "send_msg" (enqueue_send_msg fd ~fds ~dst buf) in
   match Uring.Res.int_result res with
   | Ok x -> x
-  | Error e -> raise @@ Err.wrap e "send_msg" ""
+  | Error e -> raise @@ Err.v e "send_msg" ""
 
 let recv_msg fd buf =
   Fd.use_exn "recv_msg" fd @@ fun fd ->
@@ -316,7 +310,7 @@ let recv_msg fd buf =
   let msghdr = Uring.Msghdr.create ~addr buf in
   let res = Sched.enter "recv_msg" (enqueue_recv_msg fd msghdr) in
   match Uring.Res.int_result res with
-  | Error e -> raise @@ Err.wrap e "recv_msg" ""
+  | Error e -> raise @@ Err.v e "recv_msg" ""
   | Ok res -> addr, res
 
 let recv_msg_with_fds ~sw ~max_fds fd buf =
@@ -325,7 +319,7 @@ let recv_msg_with_fds ~sw ~max_fds fd buf =
   let msghdr = Uring.Msghdr.create ~n_fds:max_fds ~addr buf in
   let res = Sched.enter "recv_msg_with_fds" (enqueue_recv_msg fd msghdr) in
   match Uring.Res.int_result res with
-  | Error e -> raise @@ Err.wrap e "recv_msg" ""
+  | Error e -> raise @@ Err.v e "recv_msg" ""
   | Ok res ->
     let fds = Uring.Msghdr.get_fds msghdr |> Fd.of_unix_list ~sw in
     addr, res, fds
@@ -516,7 +510,7 @@ let rec openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
         (* Linux can return this due to a concurrent update.
            It also seems to happen sometimes with no concurrent updates. *)
         openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path
-      | e -> raise @@ Err.wrap_fs e "openat2" ""
+      | e -> raise @@ Err.v e "openat2" ""
   in
   match dir with
   | None -> use None
@@ -590,7 +584,7 @@ let fsync fd =
   let res = Sched.enter "fsync" (enqueue_fsync fd) in
   match Res.unit_result res with
   | Ok () -> ()
-  | Error e -> raise @@ Err.wrap e "fsync" ""
+  | Error e -> raise @@ Err.v e "fsync" ""
 
 let rec enqueue_fdatasync fd st action =
   let retry = Sched.with_cancel_hook ~action st (fun () ->
@@ -605,7 +599,7 @@ let fdatasync fd =
   let res = Sched.enter "fdatasync" (enqueue_fdatasync fd) in
   match Res.unit_result res with
   | Ok () -> ()
-  | Error e -> raise @@ Err.wrap e "fdatasync" ""
+  | Error e -> raise @@ Err.v e "fdatasync" ""
 
 let rec enqueue_ftruncate fd len st action =
   let retry = Sched.with_cancel_hook ~action st (fun () ->
@@ -623,13 +617,13 @@ let ftruncate fd len =
     let res = Sched.enter "ftruncate" (enqueue_ftruncate fd len) in
     (match Res.unit_result res with
      | Ok () -> ()
-     | Error e -> raise @@ Err.wrap e "ftruncate" "")
+     | Error e -> raise @@ Err.v e "ftruncate" "")
   | false -> begin
     try
       Eio_unix.run_in_systhread ~label:"ftruncate" @@ fun () ->
       Fd.use_exn "ftruncate" fd @@ fun fd ->
       Unix.LargeFile.ftruncate fd len
-    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
   end
 
 let rec enqueue_fallocate fd ~mode ~off ~len st action =
@@ -647,7 +641,7 @@ let fallocate ?(mode=Uring.Fallocate_flags.empty) fd ~off ~len =
   let res = Sched.enter "fallocate" (enqueue_fallocate fd ~mode ~off ~len) in
   match Res.unit_result res with
   | Ok () -> ()
-  | Error e -> raise @@ Err.wrap e "fallocate" ""
+  | Error e -> raise @@ Err.v e "fallocate" ""
 
 let getrandom { Cstruct.buffer; off; len } =
   let rec loop n =
@@ -704,7 +698,7 @@ let statx_raw ?fd ~mask path buf flags =
       Sched.enter "statx" (enqueue_statx (Some fd, path, buf, flags, mask))
   in
   match Res.unit_result res with
-  | Error e -> raise @@ Err.wrap_fs e "statx" path
+  | Error e -> raise @@ Err.v e "statx" path
   | Ok () -> ()
 
 let statx ~mask ~follow fd path buf =
@@ -735,14 +729,14 @@ let mkdir ~perm dir path =
   (* [mkdir] is really an operation on [path]'s parent. Get a reference to that first: *)
   with_parent_dir "mkdir" dir path @@ fun parent leaf ->
   try eio_mkdirat parent leaf perm
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
 let unlink ~rmdir dir path =
   (* [unlink] is really an operation on [path]'s parent. Get a reference to that first: *)
   with_parent_dir "unlink" dir path @@ fun parent leaf ->
   let res = Sched.enter "unlink" (enqueue_unlink (rmdir, parent, leaf)) in
   match Res.unit_result res with
-  | Error e -> raise @@ Err.wrap_fs e "unlinkat" ""
+  | Error e -> raise @@ Err.v e "unlinkat" ""
   | Ok () -> ()
 
 let rename old_dir old_path new_dir new_path =
@@ -752,13 +746,13 @@ let rename old_dir old_path new_dir new_path =
     eio_renameat
       old_parent old_leaf
       new_parent new_leaf
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
 let symlink ~link_to dir path =
   with_parent_dir "symlinkat-new" dir path @@ fun parent leaf ->
   try
     eio_symlinkat link_to parent leaf
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
 let rec enqueue_shutdown fd command st action =
   let retry = Sched.with_cancel_hook ~action st (fun () ->
@@ -774,7 +768,7 @@ let shutdown socket command =
   match Res.unit_result res with
   | Ok () -> ()
   | Error Unix.ENOTCONN -> ()
-  | Error e -> raise @@ Err.wrap e "shutdown" ""
+  | Error e -> raise @@ Err.v e "shutdown" ""
 
 let rec enqueue_socket domain ty protocol st action =
   let retry = Sched.with_cancel_hook ~action st (fun () ->
@@ -791,11 +785,11 @@ let socket ~sw domain ty protocol =
       let res = Sched.enter "socket" (enqueue_socket domain ty protocol) in
       match Uring.Res.fd_result res with
       | Ok fd -> fd
-      | Error e -> raise @@ Err.wrap e "socket" ""
+      | Error e -> raise @@ Err.v e "socket" ""
     ) else (
       (* IORING_OP_SOCKET requires Linux >= 5.19; fall back to a blocking call. *)
       try Unix.socket ~cloexec:true domain ty protocol
-      with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+      with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
     )
   in
   Fd.of_unix ~sw ~seekable:false ~close_unix:true fd
@@ -814,11 +808,11 @@ let bind fd addr =
     let res = Sched.enter "bind" (enqueue_bind fd addr) in
     match Res.unit_result res with
     | Ok () -> ()
-    | Error e -> raise @@ Err.wrap e "bind" ""
+    | Error e -> raise @@ Err.v e "bind" ""
   ) else (
     (* IORING_OP_BIND requires Linux >= 6.11; fall back to a blocking call. *)
     try Unix.bind fd addr
-    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
   )
 
 let rec enqueue_listen fd backlog st action =
@@ -835,11 +829,11 @@ let listen fd backlog =
     let res = Sched.enter "listen" (enqueue_listen fd backlog) in
     match Res.unit_result res with
     | Ok () -> ()
-    | Error e -> raise @@ Err.wrap e "listen" ""
+    | Error e -> raise @@ Err.v e "listen" ""
   ) else (
     (* IORING_OP_LISTEN requires Linux >= 6.11; fall back to a blocking call. *)
     try Unix.listen fd backlog
-    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
   )
 
 let accept ~sw fd =
@@ -847,7 +841,7 @@ let accept ~sw fd =
   let client_addr = Uring.Sockaddr.create () in
   let res = Sched.enter "accept" (enqueue_accept fd client_addr) in
   match Uring.Res.fd_result res with
-  | Error e -> raise @@ Err.wrap e "accept" ""
+  | Error e -> raise @@ Err.v e "accept" ""
   | Ok unix ->
     let client = Fd.of_unix ~sw ~seekable:false ~close_unix:true unix in
     let client_addr = Uring.Sockaddr.get client_addr in
@@ -873,7 +867,7 @@ let read_link fd path =
   try
     with_parent_dir_fd fd path @@ fun parent leaf ->
     Eio_unix.run_in_systhread ~label:"read_link" (fun () -> Eio_unix.Private.read_link (Some parent) leaf)
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
 let chmod ~follow ~mode dirfd path =
   try
@@ -893,7 +887,7 @@ let chmod ~follow ~mode dirfd path =
           let fd : int = Obj.magic fd in
           Unix.chmod (Printf.sprintf "/proc/self/fd/%d" fd) mode
       )
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
 let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) dirfd path =
   try
@@ -904,7 +898,7 @@ let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) dirfd path =
         let flags = (Uring.Statx.Flags.empty_path :> int) in
         Eio_unix.Private.chown ~flags ~uid ~gid fd ""
       )
-  with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap_fs code name arg
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
 let getaddrinfo ~service node =
   Eio_unix.run_in_systhread ~label:"getaddrinfo" @@ fun () ->

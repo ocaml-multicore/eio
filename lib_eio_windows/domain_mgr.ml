@@ -30,7 +30,7 @@ let socketpair k ~sw ~domain ~ty ~protocol wrap_a wrap_b =
   with
   | r -> continue k r
   | exception Unix.Unix_error (code, name, arg) ->
-    discontinue k (Err.wrap code name arg)
+    discontinue k (Err.v code name arg)
 
 (* Run an event loop in the current domain, using [fn x] as the root fiber. *)
 let run_event_loop fn x =
@@ -73,7 +73,7 @@ let run_event_loop fn x =
           with
           | r -> continue k r
           | exception Unix.Unix_error (code, name, arg) ->
-            discontinue k (Err.wrap code name arg)
+            discontinue k (Err.v code name arg)
         )
       | _ -> None
   }

@@ -9,6 +9,20 @@ open Eio.Std
 type Eio.Exn.Backend.t += Unix_error of Unix.error * string * string
 (** Wrapper for embedding {!Unix.Unix_error} errors. *)
 
+(** Wrap Unix errors as {!Eio.Io} ones. *)
+module Err : sig
+  val v : Unix.error -> string -> string -> exn
+  (** [v e fn arg] returns an {!Eio.Io} error corresponding to a [Unix.Unix_error (e, fn arg)] exception.
+
+      Example:
+      {[
+        try
+          Unix.rmdir "/tmp/foo"
+        with Unix.Unix_error (e, fn, arg) ->
+          raise (Eio_unix.Err.v e fn arg)
+      ]} *)
+end
+
 module Fd = Fd
 (** A safe wrapper for {!Unix.file_descr}. *)
 

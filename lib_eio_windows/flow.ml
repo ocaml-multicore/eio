@@ -36,11 +36,11 @@ module Impl = struct
         mtime   = ust.st_mtime;
         ctime   = ust.st_ctime;
       }
-    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
   let write_all t bufs =
     try Low_level.writev t bufs
-    with Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
+    with Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
 
   (* todo: provide a way to do a single write *)
   let single_write t bufs =
@@ -53,7 +53,7 @@ module Impl = struct
     match Low_level.read_cstruct t buf with
     | 0 -> raise End_of_file
     | got -> got
-    | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.wrap code name arg)
+    | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.v code name arg)
 
   let shutdown t cmd =
     try
@@ -63,7 +63,7 @@ module Impl = struct
       | `All -> Unix.SHUTDOWN_ALL
     with
     | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
-    | Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
+    | Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
 
   let read_methods = []
 
