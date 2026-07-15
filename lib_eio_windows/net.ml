@@ -147,7 +147,7 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
     );
   (listening_socket ~hook sock :> _ Eio.Net.listening_socket_ty r)
 
-let connect ~sw connect_addr =
+let connect ~bind_to ~options ~sw connect_addr =
   let socket_type, addr =
     match connect_addr with
     | `Unix path         -> Unix.SOCK_STREAM, Unix.ADDR_UNIX path
@@ -156,10 +156,16 @@ let connect ~sw connect_addr =
       Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
   in
   let sock = Low_level.socket ~sw (socket_domain_of connect_addr) socket_type 0 in
-  try
-    Low_level.connect sock addr;
-    (Flow.of_fd sock :> _ Eio_unix.Net.stream_socket)
-  with Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
+  let rec set_options : Eio.Net.Sockopt.settings -> unit = function
+    | [] -> ()
+    | (o, v) :: tl -> Eio_unix.Private.setsockopt sock o v; set_options tl
+  in
+  Err.run (fun () ->
+     set_options options;
+     Option.iter (fun a -> Fd.use_exn "bind" sock (fun fd -> Unix.bind fd (Eio_unix.Net.sockaddr_to_unix a))) bind_to;
+     Low_level.connect sock addr;
+  ) ();
+  (Flow.of_fd sock :> _ Eio_unix.Net.stream_socket)
 
 let create_datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
   let sock = Low_level.socket ~sw (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
@@ -183,8 +189,8 @@ module Impl = struct
 
   let listen () = listen
 
-  let connect () ~sw addr =
-    let socket = connect ~sw addr in
+  let connect () ~bind_to ~options ~sw addr =
+    let socket = connect ~bind_to ~options ~sw addr in
     (socket :> [`Generic | `Unix] Eio.Net.stream_socket_ty r)
 
   let datagram_socket () ~reuse_addr ~reuse_port ~sw saddr =
