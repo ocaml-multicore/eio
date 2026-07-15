@@ -129,17 +129,3 @@ type _ Effect.t +=
       ([`Unix_fd | stream_socket_ty] r * [`Unix_fd | stream_socket_ty] r) Effect.t      (** See {!socketpair_stream} *)
   | Socketpair_datagram : Eio.Switch.t * Unix.socket_domain * int ->
       ([`Unix_fd | datagram_socket_ty] r * [`Unix_fd | datagram_socket_ty] r) Effect.t  (** See {!socketpair_datagram} *)
-
-val setsockopt : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a -> unit
-(** [setsockopt fd opt v] sets socket option [opt] to value [v] on file descriptor [fd].
-
-    Note: for an {!Eio.Net.socket}, use {!Eio.Net.setsockopt}.
-
-    @since 1.4 *)
-
-val getsockopt : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a
-(** [getsockopt fd opt] gets the value of socket option [opt] on file descriptor [fd].
-
-    Note: for an {!Eio.Net.socket}, use {!Eio.Net.getsockopt}.
-
-    @since 1.4 *)

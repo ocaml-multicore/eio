@@ -41,8 +41,8 @@ module Listening_socket = struct
     Eio_unix.Fd.use_exn "listening_addr" fd
       (fun fd -> Eio_unix.Net.sockaddr_of_unix_stream (Unix.getsockname fd))
 
-  let setsockopt t opt v = Err.run (Eio_unix.Net.setsockopt t.fd opt) v
-  let getsockopt t opt = Err.run (Eio_unix.Net.getsockopt t.fd) opt
+  let setsockopt t opt v = Eio_unix.Private.setsockopt t.fd opt v
+  let getsockopt t opt = Eio_unix.Private.getsockopt t.fd opt
 end
 
 let listening_handler = Eio_unix.Pi.listening_socket_handler (module Listening_socket)
@@ -78,8 +78,8 @@ module Datagram_socket = struct
     | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
     | Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
 
-  let setsockopt t opt v = Err.run (Eio_unix.Net.setsockopt t opt) v
-  let getsockopt t opt = Err.run (Eio_unix.Net.getsockopt t) opt
+  let setsockopt t opt v = Eio_unix.Private.setsockopt t opt v
+  let getsockopt t opt = Eio_unix.Private.getsockopt t opt
 end
 
 let datagram_handler = Eio_unix.Pi.datagram_handler (module Datagram_socket)

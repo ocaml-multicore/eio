@@ -6,15 +6,22 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#ifndef _WIN32
+#include <string.h>
+#ifdef _WIN32
+# include <winsock2.h>
+# include <ws2tcpip.h>
+#else
 # include <sys/socket.h>
 # include <netdb.h>
+# include <netinet/tcp.h>
 #endif
 
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/bigarray.h>
 #include <caml/alloc.h>
+#include <caml/fail.h>
+#include <caml/unixsupport.h>
 
 #ifndef _WIN32
 # include <caml/socketaddr.h>
@@ -23,9 +30,8 @@
 #ifdef _WIN32
 CAMLnoret CAMLextern
 void caml_unix_error (int errcode, const char * cmdname, value arg);
-#define Nothing ((value) 0)
-#else
-#include <caml/unixsupport.h>
+CAMLnoret CAMLextern
+void caml_uerror (const char * cmdname, value arg);
 #endif
 
 static void caml_stat_free_preserving_errno(void *ptr) {
@@ -103,7 +109,7 @@ CAMLprim value eio_unix_fchmodat(value v_fd, value v_path, value v_mode, value v
   ret = fchmodat(Int_val(v_fd), path, Int_val(v_mode), Int_val(v_flags));
   caml_leave_blocking_section();
   caml_stat_free_preserving_errno(path);
-  if (ret == -1) uerror("fchmodat", v_path);
+  if (ret == -1) caml_uerror("fchmodat", v_path);
   CAMLreturn(Val_unit);
   #endif
 }
@@ -253,11 +259,149 @@ CAMLprim value eio_unix_getaddrinfo(value v_node, value v_service) {
     CAMLreturn(v_result);
   } else if (r == EAI_SYSTEM) {
     errno = saved_errno;
-    uerror("getaddrinfo", v_node);
+    caml_uerror("getaddrinfo", v_node);
   } else {
     v_result = caml_alloc(1, 1);        // Error r
     Store_field(v_result, 0, Val_int(caml_eai_of_unix(r)));
     CAMLreturn(v_result);
   }
 #endif
+}
+
+typedef struct _sockopt {
+  int level;
+  int optname;
+} sockopt;
+
+// Keep in sync with Sockopt.t
+static sockopt find_sockopt(value v_id) {
+  switch (Int_val(v_id)) {
+#ifdef TCP_CORK
+    case 0: return (sockopt){ IPPROTO_TCP, TCP_CORK };
+#endif
+#ifdef TCP_QUICKACK
+    case 1: return (sockopt){ IPPROTO_TCP, TCP_QUICKACK };
+#endif
+#ifdef IP_FREEBIND
+    case 2: return (sockopt){ IPPROTO_IP, IP_FREEBIND };
+#endif
+#ifdef IP_BIND_ADDRESS_NO_PORT
+    case 3: return (sockopt){ IPPROTO_IP, IP_BIND_ADDRESS_NO_PORT };
+#endif
+#ifdef TCP_KEEPIDLE
+    case 4: return (sockopt){ IPPROTO_TCP, TCP_KEEPIDLE };
+#endif
+#ifdef TCP_KEEPINTVL
+    case 5: return (sockopt){ IPPROTO_TCP, TCP_KEEPINTVL };
+#endif
+#ifdef TCP_KEEPCNT
+    case 6: return (sockopt){ IPPROTO_TCP, TCP_KEEPCNT };
+#endif
+#ifdef TCP_USER_TIMEOUT
+    case 7: return (sockopt){ IPPROTO_TCP, TCP_USER_TIMEOUT };
+#endif
+#ifdef TCP_MAXSEG
+    case 8: return (sockopt){ IPPROTO_TCP, TCP_MAXSEG };
+#endif
+#ifdef TCP_DEFER_ACCEPT
+    case 9: return (sockopt){ IPPROTO_TCP, TCP_DEFER_ACCEPT };
+#endif
+#ifdef TCP_SYNCNT
+    case 10: return (sockopt){ IPPROTO_TCP, TCP_SYNCNT };
+#endif
+#ifdef TCP_WINDOW_CLAMP
+    case 11: return (sockopt){ IPPROTO_TCP, TCP_WINDOW_CLAMP };
+#endif
+#ifdef TCP_FASTOPEN
+    case 12: return (sockopt){ IPPROTO_TCP, TCP_FASTOPEN };
+#endif
+#ifdef IP_LOCAL_PORT_RANGE
+    case 13: return (sockopt){ IPPROTO_IP, IP_LOCAL_PORT_RANGE };
+#endif
+#ifdef IP_MTU_DISCOVER
+    case 14: return (sockopt){ IPPROTO_IP, IP_MTU_DISCOVER };
+#endif
+#ifdef IP_TTL
+    case 15: return (sockopt){ IPPROTO_IP, IP_TTL };
+#endif
+#ifdef IP_MTU
+    case 16: return (sockopt){ IPPROTO_IP, IP_MTU };
+#endif
+#ifdef TCP_LINGER2
+    case 17: return (sockopt){ IPPROTO_TCP, TCP_LINGER2 };
+#endif
+#ifdef TCP_CONGESTION
+    case 18: return (sockopt){ IPPROTO_TCP, TCP_CONGESTION };
+#endif
+  }
+  caml_raise_not_found();
+}
+
+CAMLprim value caml_eio_sockopt_int_set(value v_fd, value v_id, value v_val) {
+  CAMLparam3(v_fd, v_id, v_val);
+  sockopt opt = find_sockopt(v_id);
+  int ret;
+  int val = Int_val(v_val);
+#ifdef _WIN32
+  SOCKET fd = Socket_val(v_fd);
+#else
+  int fd = Int_val(v_fd);
+#endif
+  ret = setsockopt(fd, opt.level, opt.optname, (void *) &val, sizeof(val));
+  if (ret == -1) caml_uerror("setsockopt", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_eio_sockopt_int_get(value v_fd, value v_id) {
+  CAMLparam2(v_fd, v_id);
+  sockopt opt = find_sockopt(v_id);
+  int ret;
+  int val;
+#ifdef _WIN32
+  SOCKET fd = Socket_val(v_fd);
+#else
+  int fd = Int_val(v_fd);
+#endif
+  socklen_t len = sizeof(val);
+  ret = getsockopt(fd, opt.level, opt.optname, (void *) &val, &len);
+  if (ret == -1) caml_uerror("getsockopt", Nothing);
+  CAMLreturn(Val_int(val));
+}
+
+CAMLprim value caml_eio_sockopt_string_set(value v_fd, value v_id, value v_val) {
+  CAMLparam3(v_fd, v_id, v_val);
+  sockopt opt = find_sockopt(v_id);
+#ifdef _WIN32
+  SOCKET fd = Socket_val(v_fd);
+#else
+  int fd = Int_val(v_fd);
+#endif
+  const char *str = String_val(v_val);
+  int ret = setsockopt(fd, opt.level, opt.optname, (void *) str, caml_string_length(v_val));
+  if (ret == -1) caml_uerror("setsockopt", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value caml_eio_sockopt_string_get(value v_fd, value v_id) {
+  CAMLparam2(v_fd, v_id);
+  CAMLlocal1(v_result);
+  sockopt opt = find_sockopt(v_id);
+#ifdef _WIN32
+  SOCKET fd = Socket_val(v_fd);
+#else
+  int fd = Int_val(v_fd);
+#endif
+  char buffer[256];
+  socklen_t len = sizeof(buffer);
+  int ret = getsockopt(fd, opt.level, opt.optname, (void *) buffer, &len);
+  if (ret == -1) caml_uerror("getsockopt", Nothing);
+  // At least for TCP_CONGESTION, Linux sets the returned length to min(sizeof(buffer), TCP_CA_NAME_MAX))
+  // (16 bytes), even if the actual string is shorter. Therefore, we need to calculate the actual length.
+  // Probably any possible result will fit in 16 bytes including the '\0' terminator, but to be safe
+  // we avoid reading out-of-bounds even if we don't get a terminator.
+  size_t slen = strnlen(buffer, len);
+  if (slen == sizeof(buffer))
+    caml_invalid_argument("getsockopt: buffer was too small!");
+  v_result = caml_alloc_initialized_string(slen, buffer);
+  CAMLreturn(v_result);
 }
