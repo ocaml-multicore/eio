@@ -3,10 +3,6 @@
 #define _GNU_SOURCE
 #include <caml/mlvalues.h>
 CAMLprim value caml_eio_eventfd(value);
-CAMLprim value caml_eio_sockopt_int_set(value, value, value, value);
-CAMLprim value caml_eio_sockopt_int_get(value, value, value);
-CAMLprim value caml_eio_sockopt_string_set(value, value, value, value);
-CAMLprim value caml_eio_sockopt_string_get(value, value, value);
 CAMLprim value caml_eio_mkdirat(value, value, value);
 CAMLprim value caml_eio_renameat(value, value, value, value);
 CAMLprim value caml_eio_symlinkat(value, value, value);

@@ -149,6 +149,9 @@ module Private : sig
   val chown_unix : flags:int -> uid:int64 -> gid:int64 -> Unix.file_descr -> string -> unit
 
   val getaddrinfo : service:string -> string -> Eio.Net.Sockaddr.t list
+
+  val setsockopt : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a -> unit
+  val getsockopt : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a
 end
 
 module Pi = Pi

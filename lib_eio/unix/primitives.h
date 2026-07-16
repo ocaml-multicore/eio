@@ -21,4 +21,8 @@ CAMLprim value eio_unix_readlinkat(value, value, value);
 CAMLprim value eio_unix_fchmodat(value, value, value, value);
 CAMLprim value eio_unix_fchownat(value, value, value, value, value);
 CAMLprim value eio_unix_getaddrinfo(value, value);
+CAMLprim value caml_eio_sockopt_int_set(value, value, value);
+CAMLprim value caml_eio_sockopt_int_get(value, value);
+CAMLprim value caml_eio_sockopt_string_set(value, value, value);
+CAMLprim value caml_eio_sockopt_string_get(value, value);
 CAMLprim value eio_unix_is_blocking(value);
