@@ -187,18 +187,29 @@ module Sockopt : sig
     | SO_RCVTIMEO : float t     (** Receive timeout *)
     | SO_SNDTIMEO : float t     (** Send timeout *)
 
+    | TCP_KEEPIDLE : int t
+    (** Time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes.
+        Available on FreeBSD, Linux, macOS, Windows. *)
+
+    | TCP_KEEPINTVL : int t
+    (** Interval (in seconds) between individual keepalive probes.
+        Available on FreeBSD, Linux, macOS, Windows. *)
+
+    | TCP_KEEPCNT : int t
+    (** Maximum number of keepalive probes TCP should send before dropping the connection.
+        Available on FreeBSD, Linux, macOS, Windows. *)
+
+    | TCP_CONGESTION : string t
+    (** Set the TCP congestion control algorithm to be used (e.g., "cubic", "reno").
+        Unprivileged processes are restricted to algorithms in tcp_allowed_congestion_control.
+        Available on FreeBSD, Linux. *)
+
   (** {2 Linux-specific options} *)
 
   type _ t +=
     | TCP_CORK : bool t
     (** When enabled, partial frames are not sent out.
         Data is only sent when the option is disabled or the buffer becomes full. *)
-    | TCP_KEEPIDLE : int t
-    (** Time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes. *)
-    | TCP_KEEPINTVL : int t
-    (** Interval (in seconds) between individual keepalive probes. *)
-    | TCP_KEEPCNT : int t
-    (** Maximum number of keepalive probes TCP should send before dropping the connection. *)
     | TCP_USER_TIMEOUT : int t
     (** Maximum time (in milliseconds) that transmitted data may remain unacknowledged
         before TCP will forcibly close the connection. *)
@@ -217,9 +228,6 @@ module Sockopt : sig
     | TCP_DEFER_ACCEPT : int t
     (** Allow a listener to be awakened only when data arrives on the socket.
         Value is the maximum time in seconds to wait for data. *)
-    | TCP_CONGESTION : string t
-    (** Set the TCP congestion control algorithm to be used (e.g., "cubic", "reno").
-        Unprivileged processes are restricted to algorithms in tcp_allowed_congestion_control. *)
     | TCP_SYNCNT : int t
     (** Set the number of SYN retransmits that TCP should send before aborting
         the attempt to connect. Cannot exceed 255. *)

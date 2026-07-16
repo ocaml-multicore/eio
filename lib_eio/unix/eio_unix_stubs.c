@@ -290,6 +290,9 @@ static sockopt find_sockopt(value v_id) {
 #endif
 #ifdef TCP_KEEPIDLE
     case 4: return (sockopt){ IPPROTO_TCP, TCP_KEEPIDLE };
+#elif defined(TCP_KEEPALIVE)
+    /* macOS uses TCP_KEEPALIVE instead of TCP_KEEPIDLE */
+    case 4: return (sockopt){ IPPROTO_TCP, TCP_KEEPALIVE };
 #endif
 #ifdef TCP_KEEPINTVL
     case 5: return (sockopt){ IPPROTO_TCP, TCP_KEEPINTVL };
@@ -312,8 +315,10 @@ static sockopt find_sockopt(value v_id) {
 #ifdef TCP_WINDOW_CLAMP
     case 11: return (sockopt){ IPPROTO_TCP, TCP_WINDOW_CLAMP };
 #endif
-#ifdef TCP_FASTOPEN
+#ifdef __linux__
+# ifdef TCP_FASTOPEN
     case 12: return (sockopt){ IPPROTO_TCP, TCP_FASTOPEN };
+# endif
 #endif
 #ifdef IP_LOCAL_PORT_RANGE
     case 13: return (sockopt){ IPPROTO_IP, IP_LOCAL_PORT_RANGE };
