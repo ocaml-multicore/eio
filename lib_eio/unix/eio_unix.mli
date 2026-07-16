@@ -12,7 +12,7 @@ type Eio.Exn.Backend.t += Unix_error of Unix.error * string * string
 (** Wrap Unix errors as {!Eio.Io} ones. *)
 module Err : sig
   val v : Unix.error -> string -> string -> exn
-  (** [v e fn arg] returns an {!Eio.Io} error corresponding to a [Unix.Unix_error (e, fn arg)] exception.
+  (** [v e fn arg] returns an {!Eio.Io} error corresponding to a [Unix.Unix_error (e, fn, arg)] exception.
 
       Example:
       {[
