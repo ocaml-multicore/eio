@@ -124,7 +124,7 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
           with
           | r -> continue k r
           | exception Unix.Unix_error (code, name, arg) ->
-              discontinue k (Err.wrap code name arg)
+              discontinue k (Err.v code name arg)
         )
       | Eio_unix.Net.Socketpair_datagram (sw, domain, protocol) -> Some (fun k ->
           match
@@ -135,7 +135,7 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
           with
           | r -> continue k r
           | exception Unix.Unix_error (code, name, arg) ->
-              discontinue k (Err.wrap code name arg)
+              discontinue k (Err.v code name arg)
         )
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
           match
@@ -146,7 +146,7 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
           with
           | r -> continue k r
           | exception Unix.Unix_error (code, name, arg) ->
-            discontinue k (Err.wrap code name arg)
+            discontinue k (Err.v code name arg)
         )
       | _ -> None
   } in

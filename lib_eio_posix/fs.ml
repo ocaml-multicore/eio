@@ -88,7 +88,7 @@ end = struct
     match Low_level.openat ~sw ~mode t.fd path flags with
     | fd -> (Flow.of_fd fd :> Eio.File.rw_ty r)
     | exception Unix.Unix_error (code, name, arg) ->
-      raise (Err.wrap code name arg)
+      raise (Err.v code name arg)
 
   let mkdir t ~perm path =
     Err.run (Low_level.mkdir ~mode:perm t.fd) path

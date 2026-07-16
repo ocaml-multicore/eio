@@ -131,7 +131,7 @@ end = struct
       in
       open_out t ~sw ~append ~create full_target
     | exception Unix.Unix_error (code, name, arg) ->
-      raise (Err.wrap code name arg)
+      raise (Err.v code name arg)
 
   let mkdir t ~perm path =
     with_parent_dir t path @@ fun dirfd path ->

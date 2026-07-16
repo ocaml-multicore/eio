@@ -1,3 +1,5 @@
+include Eio_unix.Err
+
 type Eio.Exn.Backend.t +=
   | Outside_sandbox of string * string
   | Absolute_path
@@ -13,19 +15,7 @@ let () =
       | _ -> false
     )
 
-let wrap code name arg =
-  let e = Eio_unix.Unix_error (code, name, arg) in
-  match code with
-  | EEXIST -> Eio.Fs.err (Already_exists e)
-  | ENOENT -> Eio.Fs.err (Not_found e)
-  | EXDEV | EACCES | EPERM -> Eio.Fs.err (Permission_denied e)
-  | ECONNREFUSED -> Eio.Net.err (Connection_failure (Refused e))
-  | ECONNRESET | EPIPE | ECONNABORTED -> Eio.Net.err (Connection_reset e)
-  | ENOPROTOOPT -> Eio.Net.err Invalid_option
-  | ENOSYS | EOPNOTSUPP -> Eio.Exn.create (Eio.Exn.Not_available e)
-  | _ -> unclassified_error e
-
 let run fn x =
   try fn x
   with Unix.Unix_error (code, name, arg) ->
-    raise (wrap code name arg)
+    raise (v code name arg)

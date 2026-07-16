@@ -58,13 +58,13 @@ module Impl = struct
       let x = Low_level.create_stat () in
       Low_level.fstat ~buf:x t;
       eio_of_stat x
-    with Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+    with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
   let single_write t bufs =
     try
       Low_level.writev t (truncate_to_iomax bufs)
     with Unix.Unix_error (code, name, arg) ->
-      raise (Err.wrap code name arg)
+      raise (Err.v code name arg)
 
   (* Copy using the [Read_source_buffer] optimisation.
      Avoids a copy if the source already has the data. *)
@@ -87,7 +87,7 @@ module Impl = struct
     match Low_level.readv t [| buf |] with
     | 0 -> raise End_of_file
     | got -> got
-    | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.wrap code name arg)
+    | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.v code name arg)
 
   let shutdown t cmd =
     try
@@ -97,7 +97,7 @@ module Impl = struct
       | `All -> Unix.SHUTDOWN_ALL
     with
     | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
-    | Unix.Unix_error (code, name, arg) -> raise (Err.wrap code name arg)
+    | Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
 
   let read_methods = []
 

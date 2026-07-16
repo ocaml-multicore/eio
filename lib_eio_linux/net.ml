@@ -112,7 +112,7 @@ module Impl = struct
         | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
         | _ -> ()
         | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
-        | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+        | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
     );
     let addr = Eio_unix.Net.sockaddr_to_unix listen_addr in
     let sock = Low_level.socket ~sw (socket_domain_of listen_addr) Unix.SOCK_STREAM 0 in
@@ -143,7 +143,7 @@ module Impl = struct
         | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
         | _ -> ()
         | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ()
-        | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.wrap code name arg
+        | exception Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
     );
     let sock = Low_level.socket ~sw (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
     begin match saddr with

@@ -27,3 +27,12 @@
  (alias runtest)
  (action
   (diff primitives.h primitives.h.new)))
+
+(rule
+ (targets config.ml)
+ (enabled_if (= %{os_type} "Unix"))
+ (action (run ./include/discover.exe)))
+
+(rule
+ (enabled_if (<> %{os_type} "Unix"))
+ (action (copy config.ml.windows config.ml)))
