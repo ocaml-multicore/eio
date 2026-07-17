@@ -143,7 +143,7 @@ val write_gen
   -> 'a -> unit
 (** [write_gen t ~blit ~off ~len x] copies [x] into the serializer's
     internal buffer using the provided [blit] operation.
-    See {!Bigstring.blit} for documentation of the arguments. *)
+    See {!Bigstringaf.blit} for documentation of the arguments. *)
 
 val char : t -> char -> unit
 (** [char t c] copies [c] into the serializer's internal buffer. *)

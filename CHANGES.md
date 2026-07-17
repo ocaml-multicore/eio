@@ -1,3 +1,149 @@
+## v1.4
+
+Breaking changes:
+
+- Report errors from `Net.getaddrinfo` (@talex5 @haesbaert @avsm #866).  
+  Before, `Net.getaddrinfo` returned `[]` on error. It now raises an exception with the actual error.
+
+New features:
+
+- Add `Eio.Net.Sockopt` for setting/getting socket options (@avsm @talex5 @anmonteiro #858 #575 #859 #874 #876 #889 #891).  
+  This includes all the options from OCaml's `Unix` module, plus many more (e.g. `TCP_KEEPINTVL`).
+
+- Support `TCP_KEEPIDLE` socket option on macOS (@avsm @talex5 #890).
+
+- Add `Path.chmod` (@patricoferris @webbunivAdmin @avsm @talex5 #785 #872).
+
+- Add `Path.chown` (@patricoferris @avsm @talex5 #781 #864 #877).
+
+- Add `Path.with_dir_entries` for incremental directory reading (@patricoferris @talex5 @avsm #821).  
+  This also provides the type of each entry, saving one `stat` per entry in most cases.
+
+- Add `Eio_unix.Pty` for pseudoterminal support (@avsm @talex5 @patricoferris @RyanGibb #531).  
+  The `Pty` module can be used to create and configure pseudoterminals,
+  `Eio_unix.Process.spawn_unix ?login_tty ...` allows connecting them up when spawning a child process.
+
+- Add `missing_ok` to `Eio.Path.unlink` (#828) (@vog @patricoferris #833).
+
+- Add `Eio_unix.Process.spawn_unix ?uid ?gid ?pgid` options (@patricoferris @talex5 #802 #803).  
+  Allows setting the user ID, group ID and process group of the child.
+
+- Add `Eio_unix.Stdenv.override` for updating environments (@patricoferris @talex5 #823).
+
+- Add `Eio_unix.Err` module (@talex5 #887).  
+  This is convenient whenever wrapping a function that raises `Unix_error`.
+
+Linux backend:
+
+- eio_linux now requires Linux 5.18 or later. On older kernels, `Eio_main.run` will use eio_posix instead.
+
+- Add `Low_level.{socket,bind,listen}` with uring support (@avsm @talex5 #884).
+
+- Add `ftruncate`/`fdatasync` and use uring for `fsync`/`shutdown` (@avsm @talex5 #850).
+
+- Switch `fstat` to `statx` on linux and fetch `blksize` (@avsm @talex5 #865).
+
+- uring: update min to 2.15.0+ so we can use new functionality (@avsm #867).
+
+- Add `Eio_linux.Low_level.Fixed` (@talex5 #848).  
+  This replaces the `Uring.Region` API.
+
+- eio_linux: use `IORING_SETUP_SINGLE_ISSUER` (@talex5 #841).  
+  This hints to uring to do some locking optimisations assuming that each ring is only written by one thread.
+
+- eio_linux: use `IORING_SETUP_DEFER_TASKRUN` for performance (@talex5 #842).
+
+Bug fixes:
+
+- Allow `Eio.Path.load` to handle files with zero size (@patricoferris @talex5 #869 #878, reported by @copy and @vog).  
+  This is useful for loading files in `/proc/` on Linux.
+
+- `Eio.Process`: match Unix search behaviour (@talex5 #820).  
+  Don't search `$PATH` if the name contains a `/`.
+
+- eio_posix: wait for a writer when first reading from a FIFO (@talex5 #857).  
+  Before, it would return end-of-file if there was no waiter.
+
+- eio_posix: open confined paths in non-blocking mode too (@talex5 #855).  
+  Previously, paths opened using `fs` were opened in non-blocking mode, but paths opened with `cwd` were not.
+  This probably only affects FIFOs.
+
+- eio_posix: use `MSG_CMSG_CLOEXEC` when receiving file descriptors (@talex5 @avsm #843).
+
+- eio_linux: `read_upto` and `write_single` didn't hold the FD open (@avsm #871).  
+  This could be a problem if another fiber closed the FD before the operation was submitted.
+
+- eio_linux: handle ENOMEM from `io_uring_queue_init` (@talex5 #852).  
+  We would already fall back to eio_posix if there wasn't enough lockable memory to add a fixed buffer,
+  but didn't cope with not having enough memory for the ring itself.
+
+- fork_action: retry on `EINTR` when writing to pipe (@avsm #870).
+
+- eio_windows: fix removing of FDs from read/write sets (@z-rui @talex5 #861).  
+  Could cause high CPU use in some cases.
+
+- eio_windows: remove unused `unix_cstruct.ml` file (@talex5 #817, reported by @dijkstracula).  
+  Caused an error if linking with `-linkall`.
+
+Minor changes:
+
+- Propagate `errno` back from `fork_actions` into `Eio.Process` (@Innf107 @avsm @talex5 #854).  
+  Report Unix `fork_action` failures as Eio exceptions instead of `Failure`.
+  This allows matching on specific errors (e.g. `Argument_list_too_long`).
+
+- Alias `Path.open_dir` to `open_subtree` (@talex5 @avsm #853).  
+  This more accurately describes what it's for.
+
+- Prioritize returning `Fiber.any` value over cancelling quickly (@adamchol @talex5 #806).  
+  This works better with the new `combine` option.
+
+- Relax return types of `Eio.Process.Pipe` (@Arogbonlo @patricoferris @talex5 #775, requested by @rizo).
+
+- `Eio.Pool.use`: move `never_block` argument (@talex5 #747).
+
+Documentation:
+
+- eio_unix: minor typo in `Unix_error` docstring (@avsm #888).
+
+- Simplify custom "env" type in example (@vog #832).
+
+- Fix docs for `without_binding` (@patricoferris #822).
+
+- Clarify Eio as a possible concurrency library (@patricoferris #879).
+
+Code cleanups:
+
+- Add braces around switch case block (@olafhering #882).
+
+- eio_linux: use `Uring.Res` module for safer error handling (@talex5 @avsm #868).
+
+- eio_linux: move read/write retries out of scheduler (@talex5 @avsm #849).
+
+- eio_linux: split out `net.ml`, `process.ml`, `fs.ml` and `time.ml` (@talex5 #886).  
+  This more closely matches the layout in eio_posix.
+
+- eio_linux: remove unused code (@talex5 #851).  
+  uring should never ask us to retry a job.
+
+- Remove all use of `[@@@alert "-unstable"]` (@talex5 #885).  
+  This was needed a long time ago to work around a bug in Merlin.
+
+- Remove some test files after running the tests (@avsm #883).
+
+- win32: declare unixsupport functions as `CAMLextern` (@avsm @dra27 #881).  
+  This is necessary under Windows to prevent flexdll errors.
+
+- Remove unused `show_backend_exceptions` flag (@talex5 #880).
+
+- Improve formatting of IP addresses in tests (@talex5 #847).
+
+- Add lintcstubs-arity as a test dependency (@talex5 #846).
+
+- Update Dockerfiles to recent versions (@talex5 #844).
+
+- Skip `test_alloc_fixed_or_wait` if no fixed buffers are available (@talex5 #815).  
+  Prevents spurious CI failures.
+
 ## v1.3
 
 Bug fixes:

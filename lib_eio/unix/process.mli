@@ -77,7 +77,11 @@ val spawn_unix :
     directly, rather than just flows for the standard streams.
 
     @param login_tty If given, the child starts a new session with this terminal
-                     device as its controlling terminal and stdin/stdout/stderr. *)
+                     device as its controlling terminal and stdin/stdout/stderr.
+
+    @before 1.4
+
+    The [uid], [gid] and [pgid] parameters weren't available. *)
 
 val sigchld : Eio.Condition.t
 (** {b If} an Eio backend installs a SIGCHLD handler, the handler will broadcast on this condition.

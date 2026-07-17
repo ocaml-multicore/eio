@@ -175,7 +175,9 @@ val with_dir_entries : _ t -> ((File.Stat.kind * string) Seq.t -> 'a) -> 'a
 
     This is like {!read_dir_entries}, but loads the entries incrementally,
     which may be more efficient. Unlike {!read_dir_entries}, it does not sort
-    the results, which may be returned in any order. *)
+    the results, which may be returned in any order.
+
+    @since 1.4 *)
 
 (** {1 Metadata} *)
 
@@ -212,7 +214,9 @@ val unlink : ?missing_ok:bool -> _ t -> unit
                       If [true], do nothing if [t] is missing.
 
     Note: this cannot be used to unlink directories.
-    Use {!rmdir} for directories. *)
+    Use {!rmdir} for directories.
+
+    @before 1.4 There was no [missing_ok] parameter. *)
 
 val rmdir : _ t -> unit
 (** [rmdir t] removes directory entry [t].
@@ -246,11 +250,15 @@ val symlink : link_to:string -> _ t -> unit
 val chmod : follow:bool -> perm:File.Unix_perm.t -> _ t -> unit
 (** [chmod ~follow ~perm t] allows you to change the file mode bits.
 
-    @param follow If [true] and [t] is a symlink then change the target's mode bits. *)
+    @param follow If [true] and [t] is a symlink then change the target's mode bits.
+    
+    @since 1.4 *)
 
 val chown : follow:bool -> ?uid:int64 -> ?gid:int64 -> _ t -> unit
 (** [chown ~follow ~uid ~gid t] changes the ownership of [t] to be [uid, gid].
 
     [uid] or [gid] can be omitted to leave the current value unchanged.
 
-    @param follow If [t] is a symbolic link, change the ownership of its target. *)
+    @param follow If [t] is a symbolic link, change the ownership of its target.
+
+    @since 1.4 *)

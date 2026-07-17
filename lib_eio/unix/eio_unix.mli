@@ -9,7 +9,9 @@ open Eio.Std
 type Eio.Exn.Backend.t += Unix_error of Unix.error * string * string
 (** Wrapper for embedding {!Unix.Unix_error} errors. *)
 
-(** Wrap Unix errors as {!Eio.Io} ones. *)
+(** Wrap Unix errors as {!Eio.Io} ones.
+
+    @since 1.4 *)
 module Err : sig
   val v : Unix.error -> string -> string -> exn
   (** [v e fn arg] returns an {!Eio.Io} error corresponding to a [Unix.Unix_error (e, fn, arg)] exception.
@@ -39,7 +41,7 @@ module Resource : sig
   val fd_opt : _ Eio.Resource.t -> Fd.t option
   (** [fd_opt t] returns the FD being wrapped by a generic resource, if any.
 
-      This just probes [t] using {!extension-FD}. *)
+      This just probes [t] using {!extension-T}. *)
 end
 
 module Net = Net
@@ -123,7 +125,9 @@ module Stdenv : sig
     base
   (** [override env] allows you to replace parts of [env] with new resources.
       
-      By default it will select the resource from [env]. *)
+      By default it will select the resource from [env].
+
+      @since 1.4 *)
 end
 
 (** API for Eio backends only. *)

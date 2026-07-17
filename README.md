@@ -93,7 +93,7 @@ See [Awesome Multicore OCaml][] for links to other projects using Eio.
 
 ## Getting OCaml
 
-You'll need OCaml 5.1.0 or later.
+You'll need OCaml 5.2.0 or later.
 You can either install it yourself or build the included [Dockerfile](./Dockerfile).
 
 To install it yourself:
@@ -103,7 +103,7 @@ To install it yourself:
 2. Use opam to install OCaml:
 
    ```
-   opam switch create 5.2.0
+   opam switch create 5.5.0
    ```
 
 ## Getting Eio
