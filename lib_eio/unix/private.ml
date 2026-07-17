@@ -190,28 +190,30 @@ let setsockopt : type a. Fd.t -> a Eio.Net.Sockopt.t -> a -> unit = fun fd opt v
     setsockopt_int fd IP_MTU_DISCOVER i
   | _ ->
     Fd.use_exn "setsockopt" fd @@ fun fd ->
-    match opt with
-    | Eio.Net.Sockopt.SO_DEBUG -> Unix.setsockopt fd Unix.SO_DEBUG v
-    | Eio.Net.Sockopt.SO_BROADCAST -> Unix.setsockopt fd Unix.SO_BROADCAST v
-    | Eio.Net.Sockopt.SO_REUSEADDR -> Unix.setsockopt fd Unix.SO_REUSEADDR v
-    | Eio.Net.Sockopt.SO_KEEPALIVE -> Unix.setsockopt fd Unix.SO_KEEPALIVE v
-    | Eio.Net.Sockopt.SO_DONTROUTE -> Unix.setsockopt fd Unix.SO_DONTROUTE v
-    | Eio.Net.Sockopt.SO_OOBINLINE -> Unix.setsockopt fd Unix.SO_OOBINLINE v
-    | Eio.Net.Sockopt.TCP_NODELAY -> Unix.setsockopt fd Unix.TCP_NODELAY v
-    | Eio.Net.Sockopt.IPV6_ONLY -> Unix.setsockopt fd Unix.IPV6_ONLY v
-    | Eio.Net.Sockopt.SO_REUSEPORT -> Unix.setsockopt fd Unix.SO_REUSEPORT v
-    | Eio.Net.Sockopt.SO_SNDBUF -> Unix.setsockopt_int fd Unix.SO_SNDBUF v
-    | Eio.Net.Sockopt.SO_RCVBUF -> Unix.setsockopt_int fd Unix.SO_RCVBUF v
-    | Eio.Net.Sockopt.SO_RCVLOWAT -> Unix.setsockopt_int fd Unix.SO_RCVLOWAT v
-    | Eio.Net.Sockopt.SO_SNDLOWAT -> Unix.setsockopt_int fd Unix.SO_SNDLOWAT v
-    | Eio.Net.Sockopt.SO_LINGER -> Unix.setsockopt_optint fd Unix.SO_LINGER v
-    | Eio.Net.Sockopt.SO_RCVTIMEO -> Unix.setsockopt_float fd Unix.SO_RCVTIMEO v
-    | Eio.Net.Sockopt.SO_SNDTIMEO -> Unix.setsockopt_float fd Unix.SO_SNDTIMEO v
-    | Net.Sockopt_bool bo -> Unix.setsockopt fd bo v
-    | Net.Sockopt_int bo -> Unix.setsockopt_int fd bo v
-    | Net.Sockopt_optint bo -> Unix.setsockopt_optint fd bo v
-    | Net.Sockopt_float bo -> Unix.setsockopt_float fd bo v
-    | _ -> raise (Eio.Net.err Invalid_option)
+    try
+      match opt with
+      | Eio.Net.Sockopt.SO_DEBUG -> Unix.setsockopt fd Unix.SO_DEBUG v
+      | Eio.Net.Sockopt.SO_BROADCAST -> Unix.setsockopt fd Unix.SO_BROADCAST v
+      | Eio.Net.Sockopt.SO_REUSEADDR -> Unix.setsockopt fd Unix.SO_REUSEADDR v
+      | Eio.Net.Sockopt.SO_KEEPALIVE -> Unix.setsockopt fd Unix.SO_KEEPALIVE v
+      | Eio.Net.Sockopt.SO_DONTROUTE -> Unix.setsockopt fd Unix.SO_DONTROUTE v
+      | Eio.Net.Sockopt.SO_OOBINLINE -> Unix.setsockopt fd Unix.SO_OOBINLINE v
+      | Eio.Net.Sockopt.TCP_NODELAY -> Unix.setsockopt fd Unix.TCP_NODELAY v
+      | Eio.Net.Sockopt.IPV6_ONLY -> Unix.setsockopt fd Unix.IPV6_ONLY v
+      | Eio.Net.Sockopt.SO_REUSEPORT -> Unix.setsockopt fd Unix.SO_REUSEPORT v
+      | Eio.Net.Sockopt.SO_SNDBUF -> Unix.setsockopt_int fd Unix.SO_SNDBUF v
+      | Eio.Net.Sockopt.SO_RCVBUF -> Unix.setsockopt_int fd Unix.SO_RCVBUF v
+      | Eio.Net.Sockopt.SO_RCVLOWAT -> Unix.setsockopt_int fd Unix.SO_RCVLOWAT v
+      | Eio.Net.Sockopt.SO_SNDLOWAT -> Unix.setsockopt_int fd Unix.SO_SNDLOWAT v
+      | Eio.Net.Sockopt.SO_LINGER -> Unix.setsockopt_optint fd Unix.SO_LINGER v
+      | Eio.Net.Sockopt.SO_RCVTIMEO -> Unix.setsockopt_float fd Unix.SO_RCVTIMEO v
+      | Eio.Net.Sockopt.SO_SNDTIMEO -> Unix.setsockopt_float fd Unix.SO_SNDTIMEO v
+      | Net.Sockopt_bool bo -> Unix.setsockopt fd bo v
+      | Net.Sockopt_int bo -> Unix.setsockopt_int fd bo v
+      | Net.Sockopt_optint bo -> Unix.setsockopt_optint fd bo v
+      | Net.Sockopt_float bo -> Unix.setsockopt_float fd bo v
+      | _ -> raise (Eio.Net.err Invalid_option)
+    with Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
 
 let getsockopt : type a. Fd.t -> a Eio.Net.Sockopt.t -> a = fun fd opt ->
   let open Sockopt in
@@ -269,25 +271,27 @@ let getsockopt : type a. Fd.t -> a Eio.Net.Sockopt.t -> a = fun fd opt ->
     end
   | _ ->
     Fd.use_exn "getsockopt" fd @@ fun fd : a ->
-    match opt with
-    | Eio.Net.Sockopt.SO_DEBUG -> Unix.getsockopt fd Unix.SO_DEBUG
-    | Eio.Net.Sockopt.SO_BROADCAST -> Unix.getsockopt fd Unix.SO_BROADCAST
-    | Eio.Net.Sockopt.SO_REUSEADDR -> Unix.getsockopt fd Unix.SO_REUSEADDR
-    | Eio.Net.Sockopt.SO_KEEPALIVE -> Unix.getsockopt fd Unix.SO_KEEPALIVE
-    | Eio.Net.Sockopt.SO_DONTROUTE -> Unix.getsockopt fd Unix.SO_DONTROUTE
-    | Eio.Net.Sockopt.SO_OOBINLINE -> Unix.getsockopt fd Unix.SO_OOBINLINE
-    | Eio.Net.Sockopt.TCP_NODELAY -> Unix.getsockopt fd Unix.TCP_NODELAY
-    | Eio.Net.Sockopt.IPV6_ONLY -> Unix.getsockopt fd Unix.IPV6_ONLY
-    | Eio.Net.Sockopt.SO_REUSEPORT -> Unix.getsockopt fd Unix.SO_REUSEPORT
-    | Eio.Net.Sockopt.SO_SNDBUF -> Unix.getsockopt_int fd Unix.SO_SNDBUF
-    | Eio.Net.Sockopt.SO_RCVBUF -> Unix.getsockopt_int fd Unix.SO_RCVBUF
-    | Eio.Net.Sockopt.SO_RCVLOWAT -> Unix.getsockopt_int fd Unix.SO_RCVLOWAT
-    | Eio.Net.Sockopt.SO_SNDLOWAT -> Unix.getsockopt_int fd Unix.SO_SNDLOWAT
-    | Eio.Net.Sockopt.SO_LINGER -> Unix.getsockopt_optint fd Unix.SO_LINGER
-    | Eio.Net.Sockopt.SO_RCVTIMEO -> Unix.getsockopt_float fd Unix.SO_RCVTIMEO
-    | Eio.Net.Sockopt.SO_SNDTIMEO -> Unix.getsockopt_float fd Unix.SO_SNDTIMEO
-    | Net.Sockopt_bool bo -> Unix.getsockopt fd bo
-    | Net.Sockopt_int bo -> Unix.getsockopt_int fd bo
-    | Net.Sockopt_optint bo -> Unix.getsockopt_optint fd bo
-    | Net.Sockopt_float bo -> Unix.getsockopt_float fd bo
-    | _ -> raise (Eio.Net.err Invalid_option)
+    try
+      match opt with
+      | Eio.Net.Sockopt.SO_DEBUG -> Unix.getsockopt fd Unix.SO_DEBUG
+      | Eio.Net.Sockopt.SO_BROADCAST -> Unix.getsockopt fd Unix.SO_BROADCAST
+      | Eio.Net.Sockopt.SO_REUSEADDR -> Unix.getsockopt fd Unix.SO_REUSEADDR
+      | Eio.Net.Sockopt.SO_KEEPALIVE -> Unix.getsockopt fd Unix.SO_KEEPALIVE
+      | Eio.Net.Sockopt.SO_DONTROUTE -> Unix.getsockopt fd Unix.SO_DONTROUTE
+      | Eio.Net.Sockopt.SO_OOBINLINE -> Unix.getsockopt fd Unix.SO_OOBINLINE
+      | Eio.Net.Sockopt.TCP_NODELAY -> Unix.getsockopt fd Unix.TCP_NODELAY
+      | Eio.Net.Sockopt.IPV6_ONLY -> Unix.getsockopt fd Unix.IPV6_ONLY
+      | Eio.Net.Sockopt.SO_REUSEPORT -> Unix.getsockopt fd Unix.SO_REUSEPORT
+      | Eio.Net.Sockopt.SO_SNDBUF -> Unix.getsockopt_int fd Unix.SO_SNDBUF
+      | Eio.Net.Sockopt.SO_RCVBUF -> Unix.getsockopt_int fd Unix.SO_RCVBUF
+      | Eio.Net.Sockopt.SO_RCVLOWAT -> Unix.getsockopt_int fd Unix.SO_RCVLOWAT
+      | Eio.Net.Sockopt.SO_SNDLOWAT -> Unix.getsockopt_int fd Unix.SO_SNDLOWAT
+      | Eio.Net.Sockopt.SO_LINGER -> Unix.getsockopt_optint fd Unix.SO_LINGER
+      | Eio.Net.Sockopt.SO_RCVTIMEO -> Unix.getsockopt_float fd Unix.SO_RCVTIMEO
+      | Eio.Net.Sockopt.SO_SNDTIMEO -> Unix.getsockopt_float fd Unix.SO_SNDTIMEO
+      | Net.Sockopt_bool bo -> Unix.getsockopt fd bo
+      | Net.Sockopt_int bo -> Unix.getsockopt_int fd bo
+      | Net.Sockopt_optint bo -> Unix.getsockopt_optint fd bo
+      | Net.Sockopt_float bo -> Unix.getsockopt_float fd bo
+      | _ -> raise (Eio.Net.err Invalid_option)
+    with Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
