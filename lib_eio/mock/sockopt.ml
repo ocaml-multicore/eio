@@ -21,6 +21,7 @@ let default (type a) (opt : a Eio.Net.Sockopt.t) : a =
   | SO_LINGER -> None
   | SO_RCVTIMEO -> 0.0
   | SO_SNDTIMEO -> 0.0
+  | SO_TYPE -> `Stream
   | _ -> raise (Eio.Net.err Invalid_option)
 
 let getsockopt : type a. string -> a Eio.Net.Sockopt.t -> a = fun label opt ->
