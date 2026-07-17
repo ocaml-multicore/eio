@@ -25,4 +25,5 @@ CAMLprim value caml_eio_sockopt_int_set(value, value, value);
 CAMLprim value caml_eio_sockopt_int_get(value, value);
 CAMLprim value caml_eio_sockopt_string_set(value, value, value);
 CAMLprim value caml_eio_sockopt_string_get(value, value);
+CAMLprim value caml_eio_unix_so_type(value);
 CAMLprim value eio_unix_is_blocking(value);
