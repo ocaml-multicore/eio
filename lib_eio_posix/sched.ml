@@ -30,6 +30,8 @@ type runnable =
   | Thread : 'a Suspended.t * 'a -> runnable            (* Resume a fiber with a result value *)
   | Failed_thread : 'a Suspended.t * exn -> runnable    (* Resume a fiber with an exception *)
 
+exception Unpollable
+
 (* For each FD we track which fibers are waiting for it to become readable/writeable. *)
 type fd_event_waiters = {
   read : unit Suspended.t Lwt_dllist.t;
@@ -150,12 +152,24 @@ let resume t node =
   Fiber_context.clear_cancel_fn k.fiber;
   enqueue_thread t k ()
 
+let resume_failed t ex node =
+  t.active_ops <- t.active_ops - 1;
+  let k : unit Suspended.t = Lwt_dllist.get node in
+  Fiber_context.clear_cancel_fn k.fiber;
+  enqueue_failed_thread t k ex
+
 (* Called when poll indicates that an event we requested for [fd] is ready. *)
 let ready t _index fd revents =
-  assert (not Poll.Flags.(mem revents pollnval));
   if fd == t.eventfd_r then (
     clear_event_fd t
     (* The scheduler will now look at the run queue again and notice any new items. *)
+  ) else if Poll.Flags.(mem revents pollnval) then (
+    let waiters = Hashtbl.find t.fd_map fd in
+    let pending = Lwt_dllist.create () in
+    Lwt_dllist.transfer_l waiters.write pending;
+    Lwt_dllist.transfer_l waiters.read pending;
+    update t waiters fd;
+    Lwt_dllist.iter_node_r (resume_failed t Unpollable) pending
   ) else (
     let waiters = Hashtbl.find t.fd_map fd in
     let pending = Lwt_dllist.create () in

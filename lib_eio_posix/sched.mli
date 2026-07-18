@@ -10,6 +10,12 @@ type exit
     and so does not return until the whole event loop is finished. Such functions should normally
     be called in tail position. *)
 
+exception Unpollable
+(** Raised from an {!await_readable} or {!await_writable} wait if poll(2)
+    reports [POLLNVAL] for the FD, as it does for some macOS character
+    devices such as [/dev/tty] and [/dev/null]. The caller should wait
+    using select(2) instead. *)
+
 val with_sched : (t -> 'a) -> 'a
 (** [with_sched fn] sets up a scheduler and calls [fn t].
     Typically [fn] will call {!run}.
