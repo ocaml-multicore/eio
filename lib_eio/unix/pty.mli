@@ -3,7 +3,9 @@
     A pseudoterminal is a pair of connected file descriptors emulating a
     terminal. The {e pseudoterminal device} is used by a controlling program
     such as a terminal emulator, while the {e terminal device} is used by
-    a child process as its controlling terminal. *)
+    a child process as its controlling terminal.
+
+    @since 1.4 *)
 
 open Eio.Std
 

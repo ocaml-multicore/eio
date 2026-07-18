@@ -24,6 +24,9 @@ val sleep_until : Mtime.t -> unit
     The size of the fixed buffer is set when calling {!Eio_linux.run}, which attempts to allocate a fixed buffer.
     However, that may fail due to resource limits. *)
 
+(** Fixed-buffer support.
+
+    @since 1.4 *)
 module Fixed : sig
   type chunk
 
@@ -63,7 +66,6 @@ module Fixed : sig
   (** [use ~fallback fn] runs [fn chunk] with a freshly allocated chunk and then frees it.
 
       If no chunks are available, it runs [fallback ()] instead. *)
-
 end
 
 (** {1 File manipulation functions} *)
@@ -223,7 +225,9 @@ val fdatasync : fd -> unit
 val ftruncate : fd -> Optint.Int63.t -> unit
 (** Set the length of a file.
 
-    Like {!Unix.ftruncate}. *)
+    Like {!Unix.ftruncate}.
+
+    @since 1.4 *)
 
 val fallocate : ?mode:Uring.Fallocate_flags.t -> fd -> off:Optint.Int63.t -> len:Optint.Int63.t -> unit
 (** [fallocate fd ~off ~len] manipulates the disk space allocated for the
@@ -231,7 +235,9 @@ val fallocate : ?mode:Uring.Fallocate_flags.t -> fd -> off:Optint.Int63.t -> len
 
     With the default [mode] (the empty set of flags) this allocates the region
     as for [posix_fallocate(3)], extending the file's size if needed.
-    See {!Uring.Fallocate_flags} for other modes, such as punching holes. *)
+    See {!Uring.Fallocate_flags} for other modes, such as punching holes.
+
+    @since 1.4 *)
 
 (** {1 Sockets} *)
 
@@ -240,20 +246,26 @@ val socket : sw:Switch.t -> Unix.socket_domain -> Unix.socket_type -> int -> fd
 
     The new socket has the close-on-exec flag set and is attached to [sw].
     On Linux >= 5.19 this uses io_uring and on older kernels it falls back
-    to a [socket(2)] call. *)
+    to a [socket(2)] call.
+
+    @since 1.4 *)
 
 val bind : fd -> Unix.sockaddr -> unit
 (** [bind fd addr] binds socket [fd] to [addr], like {!Unix.bind}.
 
     On Linux >= 6.11 this uses io_uring and on older kernels falls back to a
-    [bind(2)] call. *)
+    [bind(2)] call.
+
+    @since 1.4 *)
 
 val listen : fd -> int -> unit
 (** [listen fd backlog] marks socket [fd] as accepting connections, like
     {!Unix.listen}.
 
     On Linux >= 6.11 this uses io_uring and on older kernels falls back to a
-    [listen(2)] call. *)
+    [listen(2)] call.
+
+    @since 1.4 *)
 
 val accept : sw:Switch.t -> fd -> (fd * Unix.sockaddr)
 (** [accept ~sw t] blocks until a new connection is received on listening socket [t].
