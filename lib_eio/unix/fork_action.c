@@ -65,6 +65,7 @@ void eio_unix_fork_error(int fd, char *fn, int err) {
   snprintf(buf, sizeof buf, ":%d", err);
   try_write_all(fd, fn);
   try_write_all(fd, buf);
+  _exit(1);
 }
 
 #define String_array_val(v) *((char ***)Data_custom_val(v))
@@ -124,7 +125,6 @@ static void action_execve(int errors, value v_config) {
 
   execve(String_val(v_exe), argv, envp);
   eio_unix_fork_error(errors, "execve", errno);
-  _exit(1);
 }
 
 CAMLprim value eio_unix_fork_execve(value v_unit) {
@@ -145,7 +145,6 @@ static void action_fchdir(int errors, value v_config) {
   r = fchdir(Int_val(v_fd));
   if (r != 0) {
     eio_unix_fork_error(errors, "fchdir", errno);
-    _exit(1);
   }
   #endif
 }
@@ -160,7 +159,6 @@ static void action_chdir(int errors, value v_config) {
   r = chdir(String_val(v_path));
   if (r != 0) {
     eio_unix_fork_error(errors, "chdir", errno);
-    _exit(1);
   }
 }
 
@@ -183,7 +181,6 @@ static void set_blocking(int errors, int fd, int blocking) {
   }
   if (r == -1) {
     eio_unix_fork_error(errors, "fcntl", errno);
-    _exit(1);
   }
   #endif
 }
@@ -203,7 +200,6 @@ static void set_cloexec(int errors, int fd, int cloexec) {
   }
   if (r == -1) {
     eio_unix_fork_error(errors, "fcntl", errno);
-    _exit(1);
   }
   #endif
 }
@@ -223,13 +219,11 @@ static void action_dups(int errors, value v_config) {
 	tmp = dup(src);
 	if (tmp < 0) {
 	  eio_unix_fork_error(errors, "dup-tmp", errno);
-	  _exit(1);
 	}
       } else {
 	int r = dup2(src, tmp);
 	if (r < 0) {
 	  eio_unix_fork_error(errors, "dup2-tmp", errno);
-	  _exit(1);
 	}
       }
       set_cloexec(errors, tmp, 1);
@@ -239,7 +233,6 @@ static void action_dups(int errors, value v_config) {
       int r = dup2(src, dst);
       if (r < 0) {
 	eio_unix_fork_error(errors, "dup2", errno);
-	_exit(1);
       }
     }
     v_plan = Field(v_plan, 1);
@@ -260,7 +253,6 @@ CAMLprim value eio_unix_fork_dups(value v_unit) {
 static void action_setpgid(int errors, value v_config) {
   #ifdef _WIN32
   eio_unix_fork_error(errors, "setpgid", ENOSYS);
-  _exit(1);
   #else
   value vpid = Field(v_config, 1);
   value vpgid = Field(v_config, 2);
@@ -269,7 +261,6 @@ static void action_setpgid(int errors, value v_config) {
   r = setpgid(Int_val(vpid), Int_val(vpgid));
   if (r != 0) {
     eio_unix_fork_error(errors, "setpgid", errno);
-    _exit(1);
   }
   #endif
 }
@@ -281,14 +272,12 @@ CAMLprim value eio_unix_fork_setpgid(value v_unit) {
 static void action_setuid(int errors, value v_config) {
   #ifdef _WIN32
   eio_unix_fork_error(errors, "action_setuid", ENOSYS);
-  _exit(1);
   #else
   value v_uid = Field(v_config, 1);
   int r;
   r = setuid(Int_val(v_uid));
   if (r != 0) {
     eio_unix_fork_error(errors, "setuid", errno);
-    _exit(1);
   }
   #endif
 }
@@ -300,14 +289,12 @@ CAMLprim value eio_unix_fork_setuid(value v_unit) {
 static void action_setgid(int errors, value v_config) {
   #ifdef _WIN32
   eio_unix_fork_error(errors, "action_setgid", ENOSYS);
-  _exit(1);
   #else
   value v_gid = Field(v_config, 1);
   int r;
   r = setgid(Int_val(v_gid));
   if (r != 0) {
     eio_unix_fork_error(errors, "setgid", errno);
-    _exit(1);
   }
   #endif
 }
@@ -319,16 +306,13 @@ CAMLprim value eio_unix_fork_setgid(value v_unit) {
 static void action_login_tty(int errors, value v_config) {
   #ifdef _WIN32
   eio_unix_fork_error(errors, "login_tty", ENOSYS);
-  _exit(1);
   #else
   int fd = Int_val(Field(v_config, 1));
   if (setsid() == -1) {
     eio_unix_fork_error(errors, "setsid", errno);
-    _exit(1);
   }
   if (ioctl(fd, TIOCSCTTY, 0) == -1) {
     eio_unix_fork_error(errors, "ioctl(TIOCSCTTY)", errno);
-    _exit(1);
   }
   #endif
 }
