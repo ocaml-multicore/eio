@@ -180,6 +180,17 @@ let buffer_sink =
   let ops = Pi.sink (module Buffer_sink) in
   fun b -> Resource.T (b, ops)
 
+module Null_sink = struct
+  type t = unit
+
+  let single_write () bufs = Cstruct.lenv bufs
+
+  let copy t ~src = Pi.simple_copy ~single_write t ~src
+end
+
+let null_sink : sink_ty r =
+  Resource.T ((), Pi.sink (module Null_sink))
+
 type two_way_ty = [source_ty | sink_ty | shutdown_ty]
 type 'a two_way = ([> two_way_ty] as 'a) r
 
