@@ -2,6 +2,7 @@
 #define CAML_NAME_SPACE
 #define _GNU_SOURCE
 #include <caml/mlvalues.h>
+CAMLprim value caml_eio_posix_select_one(value, value, value);
 CAMLprim value caml_eio_posix_send_msg(value, value, value, value, value);
 CAMLprim value caml_eio_posix_recv_msg(value, value, value, value);
 CAMLprim value caml_eio_posix_getrandom(value, value, value);

@@ -23,22 +23,16 @@ type dir_fd =
 let in_worker_thread label = Eio_unix.run_in_systhread ~label
 
 (* macOS poll rejects some character devices like /dev/[tty,null]
-   with POLLNVAL. The scheduler reports these by raising [Sched.Unpollable].
-   select does support such devices, so we wait with short select()s in a
-   systhread instead. TODO avsm: is 0.1 too low here? *)
-let unpollable_select_timeout = 0.1
+   with POLLNVAL. The scheduler reports these by raising [Sched.Unpollable]
+   and falling back to select(2) with a short timeout. *)
+let unpollable_select_timeout = 0.2
+
+external eio_select_one : Unix.file_descr -> bool -> float -> bool = "caml_eio_posix_select_one"
 
 let rec await_unpollable ty fd =
   let ready =
     in_worker_thread "select" @@ fun () ->
-    try
-      match (ty : ty) with
-      | Read ->
-        let readable, _, _ = Unix.select [fd] [] [] unpollable_select_timeout in
-        readable <> []
-      | Write ->
-        let _, writable, _ = Unix.select [] [fd] [] unpollable_select_timeout in
-        writable <> []
+    try eio_select_one fd (ty = Write) unpollable_select_timeout
     with Unix.Unix_error (EINTR, _, _) -> false     (* Retry, rechecking cancellation. *)
   in
   if not ready then await_unpollable ty fd
