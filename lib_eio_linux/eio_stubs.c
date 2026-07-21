@@ -142,29 +142,32 @@ CAMLprim value caml_eio_getdents(value v_fd) {
   char buf[DIRENT_BUF_SIZE];
   struct dirent64 *d;
   int nread, pos;
-  caml_enter_blocking_section();
-  nread = syscall(SYS_getdents64, Int_val(v_fd), buf, DIRENT_BUF_SIZE);
-  caml_leave_blocking_section();
-  if (nread == -1) uerror("getdents", Nothing);
 
   result = Val_emptylist;
 
-  for (pos = 0; pos < nread;) {
-    d = (struct dirent64 *) (buf + pos);
-    pos += d->d_reclen;
+  do {
+    caml_enter_blocking_section();
+    nread = syscall(SYS_getdents64, Int_val(v_fd), buf, DIRENT_BUF_SIZE);
+    caml_leave_blocking_section();
+    if (nread == -1) uerror("getdents", Nothing);
 
-    if (strcmp(d->d_name, ".") == 0 || strcmp(d->d_name, "..") == 0)
-      continue;
+    for (pos = 0; pos < nread;) {
+      d = (struct dirent64 *) (buf + pos);
+      pos += d->d_reclen;
 
-    ventry = caml_alloc(2, 0);
-    Store_field(ventry, 0, eio_unix_file_type_of_dtype(d->d_type));
-    Store_field(ventry, 1, caml_copy_string_of_os(d->d_name));
+      if (strcmp(d->d_name, ".") == 0 || strcmp(d->d_name, "..") == 0)
+        continue;
 
-    cons = caml_alloc(2, 0);
-    Store_field(cons, 0, ventry);  // Head
-    Store_field(cons, 1, result);  // Tail
-    result = cons;
-  }
+      ventry = caml_alloc(2, 0);
+      Store_field(ventry, 0, eio_unix_file_type_of_dtype(d->d_type));
+      Store_field(ventry, 1, caml_copy_string_of_os(d->d_name));
+
+      cons = caml_alloc(2, 0);
+      Store_field(cons, 0, ventry);  // Head
+      Store_field(cons, 1, result);  // Tail
+      result = cons;
+    }
+  } while (nread > 0 && result == Val_emptylist);
 
   CAMLreturn(result);
 }
