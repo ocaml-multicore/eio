@@ -104,7 +104,7 @@ module Mock_flow = struct
 
   let close t =
     while not (Queue.is_empty t.on_close) do
-      Queue.take t.on_close ()
+      (Queue.take t.on_close) ()
     done;
     traceln "%s: closed" t.label
 

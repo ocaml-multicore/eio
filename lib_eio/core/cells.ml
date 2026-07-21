@@ -19,7 +19,7 @@ module Int63 = struct
 
   let fetch_and_add : t Atomic.t -> int -> t =
     match is_immediate with
-    | True -> Atomic.fetch_and_add
+    | True -> fun t delta -> Atomic.fetch_and_add t delta
     | False -> fetch_and_add_fallback
 end
 
