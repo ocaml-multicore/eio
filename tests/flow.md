@@ -252,3 +252,13 @@ Even if a fiber is already ready to run, we still perform IO from time to time:
 +Got "msg"
 - : unit = ()
 ```
+
+## Null flow
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  traceln "Read Flow.null: %S" Eio.Flow.(read_all null);
+  Eio.Flow.(copy_string "hello" null);;
++Read Flow.null: ""
+- : unit = ()
+```

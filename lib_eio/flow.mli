@@ -90,6 +90,11 @@ val buffer_sink : Buffer.t -> sink_ty r
 
     To collect data as a cstruct, use {!Buf_read} instead. *)
 
+val null : [< sink_ty | source_ty] r
+(** [null] is a sink that consumes and discards all data written to it
+    until end-of-file, and a source that immediately returns end-of-file
+    (similar to the "/dev/null" device on Unix). *)
+
 (** {2 Bidirectional streams} *)
 
 type two_way_ty = [source_ty | sink_ty | shutdown_ty]
