@@ -250,6 +250,12 @@ CAMLprim value eio_unix_fork_dups(value v_unit) {
   return Val_fork_fn(action_dups);
 }
 
+/* Reject IDs that don't fit the C type rather than silently truncating */
+#define check_id_range(t, v, name) \
+  if ((long)(t)Long_val(v) != Long_val(v)) { \
+    eio_unix_fork_error(errors, name, EINVAL); \
+  }
+
 static void action_setpgid(int errors, value v_config) {
   #ifdef _WIN32
   eio_unix_fork_error(errors, "setpgid", ENOSYS);
@@ -258,7 +264,9 @@ static void action_setpgid(int errors, value v_config) {
   value vpgid = Field(v_config, 2);
 
   int r;
-  r = setpgid(Int_val(vpid), Int_val(vpgid));
+  check_id_range(pid_t, vpid, "setpgid");
+  check_id_range(pid_t, vpgid, "setpgid");
+  r = setpgid(Long_val(vpid), Long_val(vpgid));
   if (r != 0) {
     eio_unix_fork_error(errors, "setpgid", errno);
   }
@@ -275,7 +283,8 @@ static void action_setuid(int errors, value v_config) {
   #else
   value v_uid = Field(v_config, 1);
   int r;
-  r = setuid(Int_val(v_uid));
+  check_id_range(uid_t, v_uid, "setuid");
+  r = setuid(Long_val(v_uid));
   if (r != 0) {
     eio_unix_fork_error(errors, "setuid", errno);
   }
@@ -292,7 +301,8 @@ static void action_setgid(int errors, value v_config) {
   #else
   value v_gid = Field(v_config, 1);
   int r;
-  r = setgid(Int_val(v_gid));
+  check_id_range(gid_t, v_gid, "setgid");
+  r = setgid(Long_val(v_gid));
   if (r != 0) {
     eio_unix_fork_error(errors, "setgid", errno);
   }
