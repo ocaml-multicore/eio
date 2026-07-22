@@ -3,6 +3,8 @@ open Eio.Std
 type ty = [`Generic | `Mock] Eio.Net.ty
 type t = ty r
 
+let pp_maybe_quote f s = Eio.Process.pp_args f [s]
+
 module Impl = struct
   type tag = [`Generic]
 
@@ -53,7 +55,7 @@ module Impl = struct
     socket
 
   let getaddrinfo t ~service node =
-    traceln "%s: getaddrinfo ~service:%s %s" t.label service node;
+    traceln "%s: getaddrinfo ~service:%a %a" t.label pp_maybe_quote service pp_maybe_quote node;
     Handler.run t.on_getaddrinfo
 
   let getnameinfo t sockaddr =

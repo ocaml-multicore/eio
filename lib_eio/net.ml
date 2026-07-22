@@ -524,19 +524,28 @@ let getaddrinfo_full (type tag) ~filter ?(service="") (t:[> tag ty] r) hostname 
   | [] -> raise @@ err (Address_lookup_failed NONAME)
   | xs -> xs
 
+
+let getaddrinfo_full_ctx ~filter ?service t hostname =
+  try getaddrinfo_full ~filter ?service t hostname
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    match service with
+    | None -> Exn.reraise_with_context ex bt "looking up %S" hostname
+    | Some service -> Exn.reraise_with_context ex bt "looking up %S (service %S)" hostname service
+
 let getaddrinfo ?service t hostname =
-  getaddrinfo_full ?service t hostname
+  getaddrinfo_full_ctx ?service t hostname
     ~filter:Option.some 
 
 let getaddrinfo_stream ?service t hostname =
-  getaddrinfo_full ?service t hostname
+  getaddrinfo_full_ctx ?service t hostname
     ~filter:(function
         | #Sockaddr.stream as x -> Some x
         | _ -> None
       )
 
 let getaddrinfo_datagram ?service t hostname =
-  getaddrinfo_full ?service t hostname
+  getaddrinfo_full_ctx ?service t hostname
     ~filter:(function
         | #Sockaddr.datagram as x -> Some x
         | _ -> None

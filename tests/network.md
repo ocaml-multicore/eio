@@ -712,6 +712,19 @@ CI shows `AGAIN` rather than `NONAME`):
 Exception: Failure "Address_lookup_failed".
 ```
 
+We still get an error if the backend tried to return an empty list:
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  let net = Eio_mock.Net.make "mocknet" in
+  Eio_mock.Net.on_getaddrinfo net [`Return []];
+  Eio.Net.getaddrinfo net "example.org";;
++mocknet: getaddrinfo ~service:"" example.org
+Exception:
+Eio.Io Net Address_lookup_failed NONAME (name or service is not known),
+  looking up "example.org"
+```
+
 ## getnameinfo
 
 ```ocaml
