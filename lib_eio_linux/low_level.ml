@@ -707,11 +707,13 @@ let chmod ~follow ~mode dirfd path =
           Eio_unix.Private.chmod ~mode fd ""
             ~flags:(Uring.Statx.Flags.empty_path :> int)
         with
-        | Unix.Unix_error ((ENOSYS | EOPNOTSUPP | EINVAL), _, _) ->
+        | Unix.Unix_error ((ENOSYS | EOPNOTSUPP | EINVAL), _, _) as ex ->
           (* For Linux before 6.6 *)
-          Eio_unix.Fd.use_exn "chmod" fd @@ fun fd ->
-          let fd : int = Obj.magic fd in
-          Unix.chmod (Printf.sprintf "/proc/self/fd/%d" fd) mode
+          try
+            Eio_unix.Fd.use_exn "chmod" fd @@ fun fd ->
+            let fd : int = Obj.magic fd in
+            Unix.chmod (Printf.sprintf "/proc/self/fd/%d" fd) mode
+          with Unix.Unix_error _ -> raise ex (* The original error is less confusing *)
       )
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
