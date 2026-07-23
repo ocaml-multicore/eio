@@ -2,7 +2,7 @@
 
 Breaking changes:
 
-- Report errors from `Net.getaddrinfo` (@talex5 @haesbaert @avsm #866).  
+- Report errors from `Net.getaddrinfo` (@talex5 @haesbaert @avsm #866 #900).  
   Before, `Net.getaddrinfo` returned `[]` on error. It now raises an exception with the actual error.
 
 New features:
@@ -16,7 +16,7 @@ New features:
 
 - Add `Path.chown` (@patricoferris @avsm @talex5 #781 #864 #877).
 
-- Add `Path.with_dir_entries` for incremental directory reading (@patricoferris @talex5 @avsm #821).  
+- Add `Path.with_dir_entries` for incremental directory reading (@patricoferris @talex5 @avsm #821 #897).  
   This also provides the type of each entry, saving one `stat` per entry in most cases.
 
 - Add `Eio_unix.Pty` for pseudoterminal support (@avsm @talex5 @patricoferris @RyanGibb #531).  
@@ -24,6 +24,10 @@ New features:
   `Eio_unix.Process.spawn_unix ?login_tty ...` allows connecting them up when spawning a child process.
 
 - Add `missing_ok` to `Eio.Path.unlink` (#828) (@vog @patricoferris #833).
+
+- Add `Flow.null` sink/source (@avsm @talex5 #894, suggested by @jonsterling).  
+  This can be used as sink that consumes and discards all data written to it until end-of-file,
+  and as a source that immediately returns end-of-file.
 
 - Add `Eio_unix.Process.spawn_unix ?uid ?gid ?pgid` options (@patricoferris @talex5 #802 #803).  
   Allows setting the user ID, group ID and process group of the child.
@@ -60,6 +64,9 @@ Bug fixes:
 
 - `Eio.Process`: match Unix search behaviour (@talex5 #820).  
   Don't search `$PATH` if the name contains a `/`.
+
+- eio_posix: on macOS, fall back to `select()` for FDs where `poll()` fails (@avsm @talex5 #893, reported by @aaronjeline).  
+  macOS `poll()` returns `POLLNVAL` for some device FDs such as `/dev/tty` or `/dev/null`.
 
 - eio_posix: wait for a writer when first reading from a FIFO (@talex5 #857).  
   Before, it would return end-of-file if there was no waiter.
@@ -100,6 +107,11 @@ Minor changes:
 - Relax return types of `Eio.Process.Pipe` (@Arogbonlo @patricoferris @talex5 #775, requested by @rizo).
 
 - `Eio.Pool.use`: move `never_block` argument (@talex5 #747).
+
+- eta expand some function applications to support OxCaml (@avsm #898).
+
+- fork_action: reject ids that don't fit uid_t/gid_t/pid_t (@avsm #895).
+
 
 Documentation:
 
@@ -143,6 +155,8 @@ Code cleanups:
 
 - Skip `test_alloc_fixed_or_wait` if no fixed buffers are available (@talex5 #815).  
   Prevents spurious CI failures.
+
+- Make `eio_unix_fork_error` call `_exit` automatically (@talex5 #896).
 
 ## v1.3
 
