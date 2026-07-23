@@ -93,10 +93,17 @@ let socket_domain_of = function
       ~v4:(fun _ -> Unix.PF_INET)
       ~v6:(fun _ -> Unix.PF_INET6)
 
-let connect ~sw connect_addr =
+let connect ~bind_to ~options ~sw connect_addr =
   let addr = Eio_unix.Net.sockaddr_to_unix connect_addr in
   let sock = Low_level.socket ~sw (socket_domain_of connect_addr) Unix.SOCK_STREAM 0 in
-  Low_level.connect sock addr;
+  let rec set_options : Eio.Net.Sockopt.settings -> unit = function
+    | [] -> ()
+    | (o, v) :: tl -> Low_level.setsockopt sock o v; set_options tl
+  in
+  Err.run (fun () ->
+    set_options options;
+    Option.iter (fun a -> Low_level.bind sock (Eio_unix.Net.sockaddr_to_unix a)) bind_to;
+    Low_level.connect sock addr) ();
   (Flow.of_fd sock :> _ Eio_unix.Net.stream_socket)
 
 module Impl = struct
@@ -132,7 +139,8 @@ module Impl = struct
     Low_level.listen sock backlog;
     (listening_socket sock :> _ Eio.Net.listening_socket_ty r)
 
-  let connect () ~sw addr = (connect ~sw addr :> [`Generic | `Unix] Eio.Net.stream_socket_ty r)
+  let connect () ~bind_to ~options ~sw addr =
+    (connect ~bind_to ~options ~sw addr :> [`Generic | `Unix] Eio.Net.stream_socket_ty r)
 
   let datagram_socket () ~reuse_addr ~reuse_port ~sw saddr =
     if reuse_addr then (

@@ -38,8 +38,16 @@ module Impl = struct
     Switch.on_release sw (fun () -> Eio.Resource.close socket);
     socket
 
-  let connect t ~sw addr =
+  let connect t ~bind_to ~options ~sw addr =
     traceln "%s: connect to %a" t.label Eio.Net.Sockaddr.pp addr;
+    let rec trace_options : Eio.Net.Sockopt.settings -> unit = function
+      | [] -> ()
+      | (o, v) :: tl ->
+        traceln "%s: setsockopt %a" t.label Eio.Net.Sockopt.pp_binding (o, v);
+        trace_options tl
+    in
+    trace_options options;
+    Option.iter (fun a -> traceln "%s: bind %a" t.label Eio.Net.Sockaddr.pp a) bind_to;
     let socket = Handler.run t.on_connect in
     Switch.on_release sw (fun () -> Eio.Flow.close socket);
     socket
