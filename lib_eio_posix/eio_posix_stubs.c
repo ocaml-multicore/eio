@@ -1,8 +1,14 @@
+#ifdef __APPLE__
+/* Must be defined before including any system headers */
+#define _DARWIN_UNLIMITED_SELECT
+#endif
+
 #include "primitives.h"
 
 #define _FILE_OFFSET_BITS 64
 
 #include <sys/types.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #ifdef __linux__
 #if __GLIBC__ > 2 || __GLIBC_MINOR__ > 24
@@ -21,6 +27,7 @@
 
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
+#include <caml/fail.h>
 #include <caml/alloc.h>
 #include <caml/unixsupport.h>
 #include <caml/bigarray.h>
@@ -43,6 +50,34 @@ static void caml_stat_free_preserving_errno(void *ptr) {
   int saved = errno;
   caml_stat_free(ptr);
   errno = saved;
+}
+
+/* Wait for a single FD to become readable or writable, with a timeout. */
+CAMLprim value caml_eio_posix_select_one(value v_fd, value v_write, value v_timeout) {
+#ifndef __APPLE__
+  caml_unix_error(EOPNOTSUPP, "This work-around is only for macOS", Nothing);
+#else
+  CAMLparam1(v_timeout);
+  int fd = Int_val(v_fd);
+  double timeout = Double_val(v_timeout);
+  struct timeval tv;
+  int ret;
+
+  fd_set *fds = caml_stat_calloc_noexc((size_t)fd / NFDBITS + 1, sizeof(fd_mask));
+  if (fds == NULL) caml_raise_out_of_memory();
+  FD_SET(fd, fds);
+  tv.tv_sec = (time_t)timeout;
+  tv.tv_usec = (suseconds_t)((timeout - (double)tv.tv_sec) * 1e6);
+  caml_enter_blocking_section();
+  ret = select(fd + 1,
+               Bool_val(v_write) ? NULL : fds,
+               Bool_val(v_write) ? fds : NULL,
+               NULL, &tv);
+  caml_leave_blocking_section();
+  caml_stat_free_preserving_errno(fds);
+  if (ret == -1) uerror("select", Nothing);
+  CAMLreturn(Val_bool(ret > 0));
+#endif
 }
 
 CAMLprim value caml_eio_posix_getrandom(value v_ba, value v_off, value v_len) {

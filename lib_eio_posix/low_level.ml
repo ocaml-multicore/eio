@@ -22,25 +22,42 @@ type dir_fd =
 
 let in_worker_thread label = Eio_unix.run_in_systhread ~label
 
+(* macOS poll rejects some character devices like /dev/[tty,null]
+   with POLLNVAL. The scheduler reports these by raising [Sched.Unpollable]
+   and falling back to select(2) with a short timeout. *)
+let unpollable_select_timeout = 0.2
+
+external eio_select_one : Unix.file_descr -> bool -> float -> bool = "caml_eio_posix_select_one"
+
+let rec await_unpollable ty fd =
+  let ready =
+    in_worker_thread "select" @@ fun () ->
+    try eio_select_one fd (ty = Write) unpollable_select_timeout
+    with Unix.Unix_error (EINTR, _, _) -> false     (* Retry, rechecking cancellation. *)
+  in
+  if not ready then await_unpollable ty fd
+
 let await_readable op fd =
   Fd.use_exn "await_readable" fd @@ fun fd ->
-  Sched.enter op @@ fun t k ->
-  Sched.await_readable t k fd
+  try Sched.enter op @@ fun t k -> Sched.await_readable t k fd
+  with Sched.Unpollable -> await_unpollable Read fd
 
 let await_writable op fd =
   Fd.use_exn "await_writable" fd @@ fun fd ->
-  Sched.enter op @@ fun t k ->
-  Sched.await_writable t k fd
+  try Sched.enter op @@ fun t k -> Sched.await_writable t k fd
+  with Sched.Unpollable -> await_unpollable Write fd
 
 let rec do_nonblocking ty op fn fd =
   try fn fd with
   | Unix.Unix_error (EINTR, _, _) -> do_nonblocking ty op fn fd    (* Just in case *)
   | Unix.Unix_error((EAGAIN | EWOULDBLOCK), _, _) ->
-    Sched.enter op (fun t k ->
-        match ty with
-        | Read -> Sched.await_readable t k fd
-        | Write -> Sched.await_writable t k fd
-      );
+    (try
+       Sched.enter op (fun t k ->
+           match ty with
+           | Read -> Sched.await_readable t k fd
+           | Write -> Sched.await_writable t k fd
+         )
+     with Sched.Unpollable -> await_unpollable ty fd);
     do_nonblocking ty op fn fd
 
 let do_nonblocking ty op fn fd =
