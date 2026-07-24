@@ -289,8 +289,6 @@ let ftruncate fd len =
 
 let pipe ~sw =
   let unix_r, unix_w = Unix.pipe ~cloexec:true () in
-  let r = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_r in
-  let w = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_w in
-  Unix.set_nonblock unix_r;
-  Unix.set_nonblock unix_w;
+  let r = Fd.of_unix ~sw ~blocking:true ~close_unix:true unix_r in
+  let w = Fd.of_unix ~sw ~blocking:true ~close_unix:true unix_w in
   r, w
