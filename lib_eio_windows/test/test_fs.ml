@@ -66,6 +66,52 @@ let test_create_and_read env () =
   Path.save ~create:(`Exclusive 0o666) path data;
   Alcotest.(check string) "same data" data (Path.load path)
 
+(* An absolute Windows path replaces the directory part, as "/" does. *)
+let test_absolute_join env () =
+  let fs = Eio.Stdenv.fs env in
+  let check p expected =
+    let (_, got) = fs / "sub" / p in
+    Alcotest.(check string) p expected got
+  in
+  check "C:\\foo" "C:\\foo";
+  check "C:/foo" "C:/foo";
+  check "C:foo" "C:foo";   (* drive-relative also replaces *)
+  check "\\foo" "\\foo";
+  check "\\\\server\\share" "\\\\server\\share";
+  check "/foo" "/foo";
+  check "rel" "sub\\rel"
+
+(* Splitting a path and re-joining with (/) refers to the same location. *)
+let test_split_join env () =
+  let fs = Eio.Stdenv.fs env in
+  let check p expected =
+    match Path.split (fs / p) with
+    | None -> Alcotest.failf "%s: no split" p
+    | Some (dir, base) -> Alcotest.(check string) p expected (snd (dir / base))
+  in
+  check "C:\\a\\b" "C:\\a\\b";
+  check "C:\\b" "C:\\b";
+  check "C:x" "C:x";              (* drive-relative: no separator added *)
+  check "\\\\srv\\share\\x" "\\\\srv\\share\\x";
+  check "\\\\?\\C:\\a\\b" "\\\\?\\C:\\a\\b"   (* verbatim: keeps "\\" *)
+
+let test_native env () =
+  let cwd = Eio.Stdenv.cwd env in
+  (* Lexical, so nothing needs to exist. *)
+  Alcotest.(check string) "relative" ".\\foo" (Path.native_exn (cwd / "foo"));
+  Alcotest.(check string) "parent" ".\\.." (Path.native_exn (cwd / ".."));
+  Alcotest.(check string) "empty" "." (Path.native_exn cwd);
+  Alcotest.(check string) "fs relative" ".\\foo" (Path.native_exn (Eio.Stdenv.fs env / "foo"));
+  Alcotest.(check string) "absolute" "C:\\foo" (Path.native_exn (Eio.Stdenv.fs env / "C:\\foo"));
+  (* A subtree records its directory in NT form; native must yield the Win32 form. *)
+  Path.mkdir (cwd / "native-sub") ~perm:0o700;
+  Fun.protect ~finally:(fun () -> Path.rmdir (cwd / "native-sub")) @@ fun () ->
+  Path.with_open_dir (cwd / "native-sub") @@ fun sub ->
+  let p = Path.native_exn (sub / "foo.txt") in
+  Alcotest.(check bool) "sub absolute" false (Filename.is_relative p);
+  Alcotest.(check bool) "no NT prefix" false (String.starts_with ~prefix:"\\??\\" p);
+  Alcotest.(check string) "sub basename" "foo.txt" (Filename.basename p)
+
 let test_cwd_no_access_abs env () =
   let cwd = Eio.Stdenv.cwd env in
   let temp = Filename.temp_file "eio" "win" in
@@ -269,6 +315,9 @@ let test_remove_dir env () =
 
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
+  "absolute-join", `Quick, test_absolute_join env;
+  "split-join", `Quick, test_split_join env;
+  "native", `Quick, test_native env;
   "cwd-abs-path", `Quick, test_cwd_no_access_abs env;
   "create-exclusive", `Quick, test_exclusive env;
   "create-if_missing", `Quick, test_if_missing env;

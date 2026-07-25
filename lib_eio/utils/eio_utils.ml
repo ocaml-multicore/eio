@@ -7,3 +7,4 @@ module Suspended = Suspended
 module Zzz = Zzz
 module Dla = Dla
 module Posix_path = Posix_path
+module Nt_path = Nt_path
