@@ -270,10 +270,16 @@ Creating directories with nesting, symlinks, etc:
 - : unit = ()
 ```
 
-# Split
+# Split and join
 
 ```ocaml
+let join = Eio_utils.Posix_path.join
 let split = Eio_utils.Posix_path.split
+let split_join s =
+  let a, b = Option.get (split s) in
+  let s2 = join a b in
+  assert (s = s2);
+  s2
 ```
 
 ```ocaml
@@ -309,6 +315,34 @@ let split = Eio_utils.Posix_path.split
 
 # split "///";
 - : (string * string) option = None
+
+# split "/a//b/";
+- : (string * string) option = Some ("/a", "b")
+
+# split "";
+- : (string * string) option = None
+```
+
+```ocaml
+# join "a" "b";
+- : string = "a/b"
+# join "/" "a";
+- : string = "/a"
+# join "" "b";
+- : string = "b"
+# join "a/" "b";
+- : string = "a/b"
+```
+
+```ocaml
+# split_join "/a/b";
+- : string = "/a/b"
+# split_join "/a";
+- : string = "/a"
+# split_join "a/b";
+- : string = "a/b"
+# split_join "bar";
+- : string = "bar"
 ```
 
 # Mkdirs
