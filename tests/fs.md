@@ -107,6 +107,11 @@ let try_chmod path ~follow ~perm =
   match Eio.Path.chmod ~follow path ~perm with
   | () -> traceln "chmod %a to %o -> ok" Path.pp path perm
   | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+
+let try_chown ?uid ?gid path ~follow =
+  match Eio.Path.chown ?uid ?gid ~follow path with
+  | () -> traceln "chown %a -> ok" Path.pp path
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
 ```
 
 # Basic test cases
@@ -602,6 +607,35 @@ Create a sandbox, write a file with it, then read it from outside:
   Path.mkdirs path ~perm:0o700;
   Eio.Path.is_directory path
 - : bool = true
+```
+
+Check other operations give sensible results when applied directly to `fs`:
+
+```ocaml
+# run ~clear:["foo"] @@ fun env ->
+  let fs = env#fs in
+  let tmpdir = fs / "foo" in
+  Path.mkdir tmpdir ~perm:0o700;
+  Unix.chdir "foo";
+  Fun.protect ~finally:(fun () -> Unix.chdir "..") @@ fun () ->
+  try_mkdir fs;
+  try_symlink fs ~link_to:"should-fail";
+  try_read_link fs;
+  try_stat fs;
+  try_read_dir fs;
+  try_chmod fs ~perm:0o750 ~follow:false;
+  try_chown fs ~follow:false;
+  Path.with_subtree fs @@ fun confined ->
+  try_stat confined
++Eio.Io Fs Already_exists _, creating directory <fs>
++Eio.Io Fs Already_exists _, creating symlink <fs> -> should-fail
++Eio.Io _, reading target of symlink <fs>
++<fs> -> directory
++read_dir <fs> -> []
++chmod <fs> to 750 -> ok
++chown <fs> -> ok
++<.> -> directory
+- : unit = ()
 ```
 
 We create a directory and chdir into it.

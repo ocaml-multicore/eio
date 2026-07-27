@@ -343,6 +343,7 @@ let rec openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
   | Some dir -> Fd.use_exn "openat2" dir (fun x -> use (Some x))
 
 let openat ~sw ?seekable ~access ~flags ~perm dir path =
+  let path = if path = "" then "." else path in
   match dir with
   | FD dir -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.beneath ~dir path
   | Cwd -> openat2 ~sw ?seekable ~access ~flags ~perm ~resolve:Uring.Resolve.beneath path
@@ -538,7 +539,7 @@ let statx ~mask ~follow fd path buf =
     statx_raw ~mask ~fd:parent leaf buf flags
   | Cwd | FD _ ->
     Switch.run ~name:"statx" @@ fun sw ->
-    let fd = openat ~sw ~seekable:false fd (if path = "" then "." else path)
+    let fd = openat ~sw ~seekable:false fd path
         ~access:`R
         ~flags:Uring.Open_flags.(cloexec + path)
         ~perm:0
@@ -562,7 +563,7 @@ let unlink ~rmdir dir path =
   with_parent_dir "unlink" dir path @@ fun parent leaf ->
   let res = Sched.enter "unlink" (enqueue_unlink (rmdir, parent, leaf)) in
   match Res.unit_result res with
-  | Error e -> raise @@ Err.v e "unlinkat" ""
+  | Error e -> raise @@ Err.v e "unlinkat" leaf
   | Ok () -> ()
 
 let rename old_dir old_path new_dir new_path =
