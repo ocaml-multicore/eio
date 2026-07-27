@@ -528,6 +528,7 @@ let fstatat ~buf ~follow dirfd path =
   match dirfd with
   | Fs ->
     let flags = if follow then 0 else Config.at_symlink_nofollow in
+    let path = if path = "" then "." else path in
     eio_fstatat buf at_fdcwd path flags
   | Cwd -> fstatat_confined ~buf ~follow None path
   | Fd dirfd ->

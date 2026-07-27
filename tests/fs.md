@@ -593,6 +593,17 @@ Create a sandbox, write a file with it, then read it from outside:
 
 # Unconfined FS access
 
+`mkdirs` works with FS too (checks `stat` copes with empty path):
+
+```ocaml
+# run ~clear:["foo"] @@ fun env ->
+  let fs = env#fs in
+  let path = (fs / "foo/bar") in
+  Path.mkdirs path ~perm:0o700;
+  Eio.Path.is_directory path
+- : bool = true
+```
+
 We create a directory and chdir into it.
 Using `cwd` we can't access the parent, but using `fs` we can:
 
