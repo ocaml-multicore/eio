@@ -35,7 +35,7 @@ let with_dir dir_fd path fn =
     ~access:`R
     ~perm:0
     ~flags:Uring.Open_flags.(cloexec + path + directory)
-    dir_fd (if path = "" then "." else path)
+    dir_fd path
   |> fn
 
 module rec Dir : sig
@@ -89,7 +89,7 @@ end = struct
     ) else path
 
   let open_subtree t ~sw path =
-    let fd = Low_level.openat ~sw ~seekable:false t.fd (if path = "" then "." else path)
+    let fd = Low_level.openat ~sw ~seekable:false t.fd path
         ~access:`R
         ~flags:Uring.Open_flags.(cloexec + path + directory)
         ~perm:0
@@ -102,7 +102,6 @@ end = struct
 
   let read_dir t path =
     Switch.run ~name:"read_dir" @@ fun sw ->
-    let path = if path = "" then "." else path in
     let fd =
       Low_level.openat ~sw t.fd path
         ~seekable:false
@@ -114,7 +113,6 @@ end = struct
 
   let with_dir_entries t path fn =
     Switch.run ~name:"with_dir_entries" @@ fun sw ->
-    let path = if path = "" then "." else path in
     let fd =
       Low_level.openat ~sw t.fd path
         ~seekable:false

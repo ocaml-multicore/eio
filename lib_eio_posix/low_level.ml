@@ -355,7 +355,9 @@ module Resolve = struct
      use [with_parent_loop] instead. *)
   let with_parent op fd path fn = (* todo: use o_resolve_beneath if available *)
     match fd with
-    | Fs -> fn None path
+    | Fs ->
+      let path = if path = "" then "." else path in
+      fn None path
     | Cwd -> with_parent_loop path (fun x y -> Ok (fn x y))
     | Fd dirfd ->
       Fd.use_exn op dirfd @@ fun dirfd ->
@@ -395,7 +397,9 @@ let open_dir_handle label dirfd path =
     | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) -> Error (`Symlink (Some e))
   in
   match dirfd with
-  | Fs -> Unix.opendir path
+  | Fs ->
+    let path = if path = "" then "." else path in
+    Unix.opendir path
   | Cwd -> use_confined None
   | Fd dirfd ->
     Fd.use_exn label dirfd @@ fun dirfd ->
@@ -528,6 +532,7 @@ let fstatat ~buf ~follow dirfd path =
   match dirfd with
   | Fs ->
     let flags = if follow then 0 else Config.at_symlink_nofollow in
+    let path = if path = "" then "." else path in
     eio_fstatat buf at_fdcwd path flags
   | Cwd -> fstatat_confined ~buf ~follow None path
   | Fd dirfd ->
@@ -556,6 +561,7 @@ let chown ~follow ?(uid=(-1L)) ?(gid=(-1L)) dirfd path =
   match dirfd with
   | Fs ->
     let flags = if follow then 0 else Config.at_symlink_nofollow in
+    let path = if path = "" then "." else path in
     Eio_unix.Private.chown_unix ~flags ~uid ~gid at_fdcwd path 
   | Cwd -> use_confined None
   | Fd dirfd -> Fd.use_exn "chown" dirfd @@ fun dirfd -> use_confined (Some dirfd)
@@ -578,6 +584,7 @@ let chmod ~follow ~mode dirfd path =
   match dirfd with
   | Fs ->
     let flags = if follow then 0 else Config.at_symlink_nofollow in
+    let path = if path = "" then "." else path in
     Eio_unix.Private.chmod_unix at_fdcwd path ~mode ~flags
   | Cwd -> use_confined None
   | Fd dirfd -> Fd.use_exn "chmod" dirfd @@ fun dirfd -> use_confined (Some dirfd)
