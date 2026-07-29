@@ -145,6 +145,37 @@ module Net : sig
   (** [on_accept socket actions] configures how to respond when the server calls "accept". *)
 end
 
+(** Mock {!Eio.Fs} directories. *)
+module Dir : sig
+  type ty = [`Dir | `Close | `Mock]
+  type t = ty r
+
+  val make : ?syntax:[`Posix | `Windows] -> string -> t
+  (** [make label] is a new mock directory.
+
+      @param syntax The path syntax to use when joining and splitting paths
+                    (default [`Posix]). *)
+
+  val on_open_in : t -> _ Eio.File.ro Handler.actions -> unit
+  (** [on_open_in t actions] configures what to return when opening a file for reading. *)
+
+  val on_open_out : t -> _ Eio.File.rw Handler.actions -> unit
+  (** [on_open_out t actions] configures what to return when opening a file for writing. *)
+
+  val on_open_subtree : t -> [> `Close | Eio.Fs.dir_ty] r Handler.actions -> unit
+  (** [on_open_subtree t actions] configures what to return when opening a sub-directory.
+      Typically the actions return further mock directories. *)
+
+  val on_read_dir : t -> string list Handler.actions -> unit
+  (** [on_read_dir t actions] configures the entries to report when listing a directory. *)
+
+  val on_stat : t -> Eio.File.Stat.t Handler.actions -> unit
+  (** [on_stat t actions] configures the results of {!Eio.Path.stat}. *)
+
+  val on_read_link : t -> string Handler.actions -> unit
+  (** [on_read_link t actions] configures the results of {!Eio.Path.read_link}. *)
+end
+
 (** A mock {!Eio.Time} clock for testing timeouts. *)
 module Clock = Clock
 
