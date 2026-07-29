@@ -56,8 +56,8 @@ struct caml_eio_clone_args {
   uint64_t tls;
 };
 
-// Make sure we have enough space for at least one entry.
-#define DIRENT_BUF_SIZE (PATH_MAX + sizeof(struct dirent64))
+// Large enough that even big directories need few getdents64 calls.
+#define DIRENT_BUF_SIZE 65536
 
 CAMLprim value caml_eio_eventfd(value v_initval) {
   int ret;
