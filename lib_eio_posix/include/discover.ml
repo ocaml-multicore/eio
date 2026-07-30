@@ -41,12 +41,6 @@ let () =
             "AT_FDCWD", Int;
             "AT_SYMLINK_NOFOLLOW", Int;
 
-            "S_IFIFO", Int;
-            "S_IFCHR", Int;
-            "S_IFBLK", Int;
-            "S_IFREG", Int;
-            "S_IFSOCK", Int;
-
             "IOV_MAX", Int;
           ])
         |> List.map (function

@@ -21,14 +21,14 @@ module Impl = struct
         | Unix.S_SOCK -> `Socket
       in
       Eio.File.Stat.{
-        dev     = ust.st_dev   |> Int64.of_int;
+        dev     = ust.st_dev   |> Int64.of_int |> Eio.File.Dev.of_int64;
         ino     = ust.st_ino   |> Int64.of_int;
         kind    = st_kind;
         perm    = ust.st_perm;
         nlink   = ust.st_nlink |> Int64.of_int;
         uid     = ust.st_uid   |> Int64.of_int;
         gid     = ust.st_gid   |> Int64.of_int;
-        rdev    = ust.st_rdev  |> Int64.of_int;
+        rdev    = None; (* [Unix.stat] copies [st_dev] into [st_rdev] on Windows, so nothing to report here. *)
         size    = ust.st_size  |> Optint.Int63.of_int64;
         blksize = 0L;   (* Not available on Windows *)
         blocks  = 0L;   (* Not available on Windows *)

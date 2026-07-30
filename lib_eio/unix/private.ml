@@ -51,6 +51,37 @@ let chown_unix ~flags ~uid ~gid fd path =
 let chown ~flags ~uid ~gid fd path =
   Fd.use_exn "chown" fd (fun fd -> chown_unix ~uid ~gid ~flags fd path)
 
+(* [st_rdev] is only meaningful for device nodes *)
+let rdev_of_int64 ~kind x =
+  match kind with
+  | `Character_special | `Block_device -> Some (Eio.File.Dev.of_int64 x)
+  | _ -> None
+
+type node_kind = [
+  | `Fifo
+  | `Socket
+  | `Regular_file
+  | `Character_special of Dev.t
+  | `Block_device of Dev.t
+]
+
+external eio_mknodat : Unix.file_descr -> string -> int -> int -> int64 -> unit = "eio_unix_mknodat"
+
+let mknod_unix fd path ~kind ~perm =
+  (* Keep the tags in sync with [eio_unix_node_type] in eio_unix_stubs.c. *)
+  let tag, dev =
+    match kind with
+    | `Fifo -> 0, 0L
+    | `Socket -> 1, 0L
+    | `Regular_file -> 2, 0L
+    | `Character_special dev -> 3, Eio.File.Dev.to_int64 dev
+    | `Block_device dev -> 4, Eio.File.Dev.to_int64 dev
+  in
+  eio_mknodat fd path tag perm dev
+
+let mknod fd path ~kind ~perm =
+  Fd.use_exn "mknod" fd (fun fd -> mknod_unix fd path ~kind ~perm)
+
 type sockaddr = [ `Tcp of Eio.Net.Ipaddr.v4v6 * int
                 | `Udp of Eio.Net.Ipaddr.v4v6 * int ]
 
