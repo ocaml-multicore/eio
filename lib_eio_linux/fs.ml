@@ -169,6 +169,8 @@ end = struct
 
   let native t path =
     Some (native_internal t path)
+
+  include Eio_utils.Posix_path
 end
 and Dir_handler : sig
   val v : (Dir.t, [`Dir | `Close]) Eio.Resource.handler

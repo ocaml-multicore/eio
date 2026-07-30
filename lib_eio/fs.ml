@@ -50,6 +50,15 @@ type 'a dir = ([> dir_ty] as 'a) r
 (** {2 Provider Interface} *)
 
 module Pi = struct
+
+  module type PATH = sig
+    val split : path -> (path * string) option
+    (** The implementation of {!Path.split}. *)
+
+    val join : path -> path -> path
+    (** The implementation of {!Path.(/)}. *)
+  end
+
   module type DIR = sig
     type t
 
@@ -76,6 +85,8 @@ module Pi = struct
     val chown : follow:bool -> ?uid:int64 -> ?gid:int64 -> t -> path -> unit
     val pp : t Fmt.t
     val native : t -> string -> string option
+
+    include PATH
   end
 
   type (_, _, _) Resource.pi +=

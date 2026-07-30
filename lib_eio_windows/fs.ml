@@ -208,6 +208,8 @@ end = struct
 
   let native _t _path =
     failwith "TODO: Windows native"
+
+  include Eio_utils.Posix_path    (* todo: replace with Windows syntax *)
 end
 and Handler : sig
   val v : (Dir.t, [`Dir | `Close]) Eio.Resource.handler

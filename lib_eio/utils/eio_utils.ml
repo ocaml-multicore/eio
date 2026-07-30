@@ -6,3 +6,4 @@ module Lf_queue = Lf_queue
 module Suspended = Suspended
 module Zzz = Zzz
 module Dla = Dla
+module Posix_path = Posix_path
