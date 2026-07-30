@@ -485,6 +485,47 @@ let symlink ~link_to new_dir new_path =
   let new_dir = Option.value new_dir ~default:at_fdcwd in
   eio_symlinkat link_to new_dir new_path
 
+module Dev = struct
+  type t = int64
+
+  external make_raw : int -> int -> t = "caml_eio_posix_makedev"
+  external major : t -> int = "caml_eio_posix_dev_major" [@@noalloc]
+  external minor : t -> int = "caml_eio_posix_dev_minor" [@@noalloc]
+
+  let zero = 0L
+  let to_int64 x = x
+
+  let pp f t = Fmt.pf f "%d:%d" (major t) (minor t)
+
+  let make ~major:maj ~minor:mnr =
+    if maj < 0 || mnr < 0 then
+      Fmt.invalid_arg "Dev.make: negative major or minor number (%d:%d)" maj mnr;
+    let t = make_raw maj mnr in
+    if major t <> maj || minor t <> mnr then
+      Fmt.invalid_arg
+        "Dev.make: %d:%d is out of range for this platform (it became %a)"
+        maj mnr pp t;
+    t
+end
+
+external eio_mknodat : Unix.file_descr -> string -> int -> Dev.t -> unit = "caml_eio_posix_mknodat"
+
+type node_kind = [ `Fifo | `Sock | `Reg | `Chr of Dev.t | `Blk of Dev.t ]
+
+let mknod kind ~perm dirfd path =
+  let type_bits, dev =
+    match kind with
+    | `Fifo    -> Config.s_ififo,  Dev.zero
+    | `Sock    -> Config.s_ifsock, Dev.zero
+    | `Reg     -> Config.s_ifreg,  Dev.zero
+    | `Chr dev -> Config.s_ifchr,  dev
+    | `Blk dev -> Config.s_ifblk,  dev
+  in
+  in_worker_thread "mknod" @@ fun () ->
+  Resolve.with_parent "mknod" dirfd path @@ fun dirfd path ->
+  let dirfd = Option.value dirfd ~default:at_fdcwd in
+  eio_mknodat dirfd path (type_bits lor perm) dev
+
 let read_link dirfd path =
   in_worker_thread "read_link" @@ fun () ->
   Resolve.with_parent "read_link" dirfd path @@ fun dirfd path ->

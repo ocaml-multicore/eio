@@ -44,6 +44,31 @@ val lseek : fd -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
 val fsync : fd -> unit
 val ftruncate : fd -> Optint.Int63.t -> unit
 
+(** Device numbers *)
+module Dev : sig
+  type t
+  (** A device number, combining a major and a minor number.
+      These are not portable across operating systems. *)
+
+  val make : major:int -> minor:int -> t
+  (** [make ~major ~minor] combines the two numbers (see [makedev(3)]).
+
+      @raise Invalid_argument if either number is negative, or is too large
+        to be represented on this platform. *)
+
+  val major : t -> int
+  (** [major t] is the major number of [t]. *)
+
+  val minor : t -> int
+  (** [minor t] is the minor number of [t]. *)
+
+  val to_int64 : t -> int64
+  (** [to_int64 t] is the raw [dev_t] value of [t], as the OS represents it. *)
+
+  val pp : t Fmt.t
+  (** [pp] formats a device number as [major:minor]. *)
+end
+
 type stat
 
 val create_stat : unit -> stat
@@ -58,8 +83,13 @@ external uid     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_uid_bytes"
 external gid     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_gid_bytes" "ocaml_eio_posix_stat_gid_native" [@@noalloc]
 external ino     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_ino_bytes" "ocaml_eio_posix_stat_ino_native" [@@noalloc]
 external size    : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_size_bytes" "ocaml_eio_posix_stat_size_native" [@@noalloc]
-external rdev    : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_rdev_bytes" "ocaml_eio_posix_stat_rdev_native" [@@noalloc]
-external dev     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_dev_bytes" "ocaml_eio_posix_stat_dev_native" [@@noalloc]
+
+val rdev : stat -> Dev.t
+(** [rdev t] is the device number this node refers to, if it is a device. *)
+
+val dev : stat -> Dev.t
+(** [dev t] is the device containing the filesystem the file resides on. *)
+
 external perm    : stat -> (int [@untagged]) = "ocaml_eio_posix_stat_perm_bytes" "ocaml_eio_posix_stat_perm_native" [@@noalloc]
 external mode    : stat -> (int [@untagged]) = "ocaml_eio_posix_stat_mode_bytes" "ocaml_eio_posix_stat_mode_native" [@@noalloc]
 external kind    : stat -> Eio.File.Stat.kind = "ocaml_eio_posix_stat_kind"
@@ -82,6 +112,18 @@ val rename : dir_fd -> string -> dir_fd -> string -> unit
 val symlink : link_to:string -> dir_fd -> string -> unit
 (** [symlink ~link_to dir path] will create a new symlink at [dir / path]
     linking to [link_to]. *)
+
+type node_kind = [
+  | `Fifo                   (** FIFO (named pipe). *)
+  | `Sock                   (** Unix-domain socket. *)
+  | `Reg                    (** Regular file. *)
+  | `Chr of Dev.t           (** Character device with the given device number. *)
+  | `Blk of Dev.t           (** Block device with the given device number. *)
+]
+(** The kind of node {!mknod} should create. *)
+
+val mknod : node_kind -> perm:int -> dir_fd -> string -> unit
+(** [mknod kind ~perm dir path] creates a fs node of type [kind] at [dir / path]. *)
 
 val chmod : follow:bool -> mode:int -> dir_fd -> string -> unit
 

@@ -13,14 +13,14 @@ let float_of_time s ns =
 
 let eio_of_stat x =
   { Eio.File.Stat.
-    dev    = Low_level.dev x;
+    dev    = Low_level.Dev.to_int64 (Low_level.dev x);
     ino    = Low_level.ino x;
     kind   = Low_level.kind x;
     perm   = Low_level.perm x;
     nlink  = Low_level.nlink x;
     uid    = Low_level.uid x;
     gid    = Low_level.gid x;
-    rdev   = Low_level.rdev x;
+    rdev   = Low_level.Dev.to_int64 (Low_level.rdev x);
     size   = Low_level.size x |> Optint.Int63.of_int64;
     blksize = Low_level.blksize x;
     blocks  = Low_level.blocks x;

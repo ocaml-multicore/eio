@@ -441,6 +441,33 @@ CAMLprim value caml_eio_posix_symlinkat(value v_old_path, value v_new_fd, value 
   CAMLreturn(Val_unit);
 }
 
+CAMLprim value caml_eio_posix_makedev(value v_major, value v_minor) {
+  return caml_copy_int64((int64_t) makedev(Int_val(v_major), Int_val(v_minor)));
+}
+
+CAMLprim value caml_eio_posix_dev_major(value v_dev) {
+  return Val_int(major((dev_t) Int64_val(v_dev)));
+}
+
+CAMLprim value caml_eio_posix_dev_minor(value v_dev) {
+  return Val_int(minor((dev_t) Int64_val(v_dev)));
+}
+
+CAMLprim value caml_eio_posix_mknodat(value v_fd, value v_path, value v_mode, value v_dev) {
+  CAMLparam2(v_path, v_dev);
+  char *path;
+  int ret;
+  dev_t dev = (dev_t) Int64_val(v_dev);
+  caml_unix_check_path(v_path, "mknodat");
+  path = caml_stat_strdup(String_val(v_path));
+  caml_enter_blocking_section();
+  ret = mknodat(Int_val(v_fd), path, Int_val(v_mode), dev);
+  caml_leave_blocking_section();
+  caml_stat_free_preserving_errno(path);
+  if (ret == -1) uerror("mknodat", v_path);
+  CAMLreturn(Val_unit);
+}
+
 CAMLprim value caml_eio_posix_spawn(value v_errors, value v_actions) {
   CAMLparam1(v_actions);
   pid_t child_pid;

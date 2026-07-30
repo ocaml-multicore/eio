@@ -4,7 +4,7 @@
   (deps (package eio_posix)))
 
 (tests
-  (names open_beneath test_await test_devices)
+  (names open_beneath test_await test_devices test_mknod)
   (package eio_posix)
   (build_if (= %{os_type} "Unix"))
   (libraries eio_posix))
