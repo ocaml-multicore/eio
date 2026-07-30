@@ -1,6 +1,6 @@
 open Eio.Std
 
-type ty = [`Dir | `Close | `Mock]
+type ty = [ Eio.Fs.dir_ty | `Close | `Mock ]
 type t = ty r
 
 type state = {
@@ -9,19 +9,43 @@ type state = {
   on_open_out : Eio.File.rw_ty r Handler.t;
   on_open_subtree : [`Close | Eio.Fs.dir_ty] r Handler.t;
   on_read_dir : string list Handler.t;
+  on_dir_entries : (Eio.File.Stat.kind * string) list Handler.t;
   on_stat : Eio.File.Stat.t Handler.t;
   on_read_link : string Handler.t;
+  on_mkdir : unit Handler.t;
+  on_unlink : unit Handler.t;
+  on_rmdir : unit Handler.t;
+  on_rename : unit Handler.t;
+  on_symlink : unit Handler.t;
+  on_chmod : unit Handler.t;
+  on_chown : unit Handler.t;
 }
 
-let make_state label = {
-  label;
-  on_open_in = Handler.make (`Raise (Failure "Mock open_in handler not configured"));
-  on_open_out = Handler.make (`Raise (Failure "Mock open_out handler not configured"));
-  on_open_subtree = Handler.make (`Raise (Failure "Mock open_subtree handler not configured"));
-  on_read_dir = Handler.make (`Raise (Failure "Mock read_dir handler not configured"));
-  on_stat = Handler.make (`Raise (Failure "Mock stat handler not configured"));
-  on_read_link = Handler.make (`Raise (Failure "Mock read_link handler not configured"));
-}
+let make_state label =
+  let on_read_dir = Handler.make (`Raise (Failure "Mock read_dir handler not configured")) in
+  (* By default, report the [on_read_dir] entries with an unknown kind. *)
+  let on_dir_entries =
+    Handler.make (`Run (fun () ->
+        Handler.run on_read_dir |> List.map (fun name -> (`Unknown, name))
+      ))
+  in
+  {
+    label;
+    on_open_in = Handler.make (`Raise (Failure "Mock open_in handler not configured"));
+    on_open_out = Handler.make (`Raise (Failure "Mock open_out handler not configured"));
+    on_open_subtree = Handler.make (`Raise (Failure "Mock open_subtree handler not configured"));
+    on_read_dir;
+    on_dir_entries;
+    on_stat = Handler.make (`Raise (Failure "Mock stat handler not configured"));
+    on_read_link = Handler.make (`Raise (Failure "Mock read_link handler not configured"));
+    on_mkdir = Handler.make (`Return ());
+    on_unlink = Handler.make (`Return ());
+    on_rmdir = Handler.make (`Return ());
+    on_rename = Handler.make (`Return ());
+    on_symlink = Handler.make (`Return ());
+    on_chmod = Handler.make (`Return ());
+    on_chown = Handler.make (`Return ());
+  }
 
 let pp_create f = function
   | `Never -> Fmt.string f "`Never"
@@ -55,7 +79,8 @@ module Impl (Path_syntax : Eio.Fs.Pi.PATH) = struct
     d
 
   let mkdir t ~perm path =
-    traceln "%s: mkdir ~perm:0o%o %S" t.label perm path
+    traceln "%s: mkdir ~perm:0o%o %S" t.label perm path;
+    Handler.run t.on_mkdir
 
   let read_dir t path =
     traceln "%s: read_dir %S" t.label path;
@@ -63,9 +88,8 @@ module Impl (Path_syntax : Eio.Fs.Pi.PATH) = struct
 
   let with_dir_entries t path fn =
     traceln "%s: with_dir_entries %S" t.label path;
-    Handler.run t.on_read_dir
+    Handler.run t.on_dir_entries
     |> List.to_seq
-    |> Seq.map (fun name -> (`Unknown, name))
     |> fn
 
   let stat t ~follow path =
@@ -73,26 +97,32 @@ module Impl (Path_syntax : Eio.Fs.Pi.PATH) = struct
     Handler.run t.on_stat
 
   let unlink t path =
-    traceln "%s: unlink %S" t.label path
+    traceln "%s: unlink %S" t.label path;
+    Handler.run t.on_unlink
 
   let rmdir t path =
-    traceln "%s: rmdir %S" t.label path
+    traceln "%s: rmdir %S" t.label path;
+    Handler.run t.on_rmdir
 
   let rename t old_path new_dir new_path =
-    traceln "%s: rename %S to %a" t.label old_path Eio.Path.pp (new_dir, new_path)
+    traceln "%s: rename %S to %a" t.label old_path Eio.Path.pp (new_dir, new_path);
+    Handler.run t.on_rename
 
   let read_link t path =
     traceln "%s: read_link %S" t.label path;
     Handler.run t.on_read_link
 
   let symlink ~link_to t path =
-    traceln "%s: symlink ~link_to:%S %S" t.label link_to path
+    traceln "%s: symlink ~link_to:%S %S" t.label link_to path;
+    Handler.run t.on_symlink
 
   let chmod t ~follow ~perm path =
-    traceln "%s: chmod ~follow:%b ~perm:0o%o %S" t.label follow perm path
+    traceln "%s: chmod ~follow:%b ~perm:0o%o %S" t.label follow perm path;
+    Handler.run t.on_chmod
 
   let chown ~follow ?uid ?gid t path =
-    traceln "%s: chown ~follow:%b ~uid:%a ~gid:%a %S" t.label follow pp_id uid pp_id gid path
+    traceln "%s: chown ~follow:%b ~uid:%a ~gid:%a %S" t.label follow pp_id uid pp_id gid path;
+    Handler.run t.on_chown
 
   let pp f t = Fmt.string f (String.escaped t.label)
 
@@ -141,5 +171,13 @@ let on_open_subtree (t:t) actions =
   Handler.seq t.on_open_subtree (List.map (Action.map as_dir) actions)
 
 let on_read_dir (t:t) actions = Handler.seq (raw t).on_read_dir actions
+let on_dir_entries (t:t) actions = Handler.seq (raw t).on_dir_entries actions
 let on_stat (t:t) actions = Handler.seq (raw t).on_stat actions
 let on_read_link (t:t) actions = Handler.seq (raw t).on_read_link actions
+let on_mkdir (t:t) actions = Handler.seq (raw t).on_mkdir actions
+let on_unlink (t:t) actions = Handler.seq (raw t).on_unlink actions
+let on_rmdir (t:t) actions = Handler.seq (raw t).on_rmdir actions
+let on_rename (t:t) actions = Handler.seq (raw t).on_rename actions
+let on_symlink (t:t) actions = Handler.seq (raw t).on_symlink actions
+let on_chmod (t:t) actions = Handler.seq (raw t).on_chmod actions
+let on_chown (t:t) actions = Handler.seq (raw t).on_chown actions
