@@ -19,6 +19,9 @@
 #endif
 #include <sys/uio.h>
 #include <sys/stat.h>
+#ifdef __linux__
+#include <sys/sysmacros.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
