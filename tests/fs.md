@@ -273,8 +273,7 @@ Creating directories with nesting, symlinks, etc:
 # Split
 
 ```ocaml
-let fake_dir : Eio.Fs.dir_ty r = Eio.Resource.T ((), Eio.Resource.handler [])
-let split path = Eio.Path.split (fake_dir, path) |> Option.map (fun ((_, dirname), basename) -> dirname, basename)
+let split = Eio_utils.Posix_path.split
 ```
 
 ```ocaml

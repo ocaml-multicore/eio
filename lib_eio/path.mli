@@ -36,7 +36,10 @@ type 'a t = 'a Fs.dir * path
 
 val ( / ) : 'a t -> string -> 'a t
 (** [t / step] is [t] with [step] appended to [t]'s path,
-    or replacing [t]'s path if [step] is absolute:
+    or replacing [t]'s path if [step] stands alone
+    (for example, if it is absolute).
+
+    For POSIX systems (e.g. Linux and macOS), it will behave like this:
 
     - [(fd, "foo") / "bar" = (fd, "foo/bar")]
     - [(fd, "foo") / "/bar" = (fd, "/bar")] *)
@@ -69,7 +72,7 @@ val split : 'a t -> ('a t * string) option
 
     [split t = None] if there is nothing to split.
 
-    For example:
+    For POSIX systems (e.g. Linux and macOS), it will behave like this:
 
     - [split (root, "foo/bar") = Some ((root, "foo"), "bar")]
     - [split (root, "/foo/bar") = Some ((root, "/foo"), "bar")]

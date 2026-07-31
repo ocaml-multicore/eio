@@ -1,22 +1,9 @@
 type 'a t = 'a Fs.dir * Fs.path
 
-(* Like [Filename.is_relative] but always using "/" as the separator. *)
-let is_relative = function
-  | "" -> true
-  | x -> x.[0] <> '/'
-
-(* Like [Filename.concat] but always using "/" as the separator. *)
-let concat a b =
-  let l = String.length a in
-  if l = 0 || a.[l - 1] = '/' then a ^ b
-  else a ^ "/" ^ b
-
-let ( / ) (dir, p1) p2 =
-  match p1, p2 with
-  | p1, "" -> (dir, concat p1 p2)
-  | _, p2 when not (is_relative p2) -> (dir, p2)
-  | ".", p2 -> (dir, p2)
-  | p1, p2 -> (dir, concat p1 p2)
+let ( / ) (d, p1) p2 =
+  let (Resource.T (_, ops)) = d in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  (d, X.join p1 p2)
 
 let pp f (Resource.T (t, ops), p) =
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
@@ -32,37 +19,10 @@ let native_exn t =
   | Some p -> p
   | None -> raise (Fs.err (Not_native (Fmt.str "%a" pp t)))
 
-(* Drop the first [n] characters from [s]. *)
-let string_drop s n =
-  String.sub s n (String.length s - n)
-
-(* "/foo/bar//" -> "/foo/bar"
-   "///" -> "/"
-   "foo/bar" -> "foo/bar"
- *)
-let remove_trailing_slashes s =
-  let rec aux i =
-    if i <= 1 || s.[i - 1] <> '/' then (
-      if i = String.length s then s
-      else String.sub s 0 i
-    ) else aux (i - 1)
-  in
-  aux (String.length s)
-
-let split (dir, p) =
-  match remove_trailing_slashes p with
-  | "" -> None
-  | "/" -> None
-  | p ->
-    match String.rindex_opt p '/' with
-    | None -> Some ((dir, ""), p)
-    | Some idx ->
-      let basename = string_drop p (idx + 1) in
-      let dirname =
-        if idx = 0 then "/"
-        else remove_trailing_slashes (String.sub p 0 idx)
-      in
-      Some ((dir, dirname), basename)
+let split (d, p) =
+  let (Resource.T (_, ops)) = d in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  X.split p |> Option.map (fun (dirname, basename) -> ((d, dirname), basename))
 
 let open_in ~sw t =
   let (Resource.T (dir, ops), path) = t in
