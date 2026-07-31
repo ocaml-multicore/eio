@@ -16,34 +16,19 @@ let join p1 p2 =
   | ".", p2 -> p2
   | p1, p2 -> concat p1 p2
 
-(* Drop the first [n] characters from [s]. *)
-let string_drop s n =
-  String.sub s n (String.length s - n)
-
-(* "/foo/bar//" -> "/foo/bar"
-   "///" -> "/"
-   "foo/bar" -> "foo/bar"
- *)
-let remove_trailing_slashes s =
-  let rec aux i =
-    if i <= 1 || s.[i - 1] <> '/' then (
-      if i = String.length s then s
-      else String.sub s 0 i
-    ) else aux (i - 1)
-  in
-  aux (String.length s)
-
 let split p =
-  match remove_trailing_slashes p with
-  | "" -> None
-  | "/" -> None
-  | p ->
-    match String.rindex_opt p '/' with
-    | None -> Some ("", p)
-    | Some idx ->
-      let basename = string_drop p (idx + 1) in
-      let dirname =
-        if idx = 0 then "/"
-        else remove_trailing_slashes (String.sub p 0 idx)
-      in
-      Some (dirname, basename)
+  let rec skip_slashes i = if i > 0 && p.[i - 1] = '/' then skip_slashes (i - 1) else i in
+  let rec skip_step i = if i > 0 && p.[i - 1] <> '/' then skip_step (i - 1) else i in
+  let base_end = skip_slashes (String.length p) in
+  if base_end = 0 then None
+  else (
+    let base_start = skip_step base_end in
+    let base =
+      if base_start = 0 && base_end = String.length p then p
+      else String.sub p base_start (base_end - base_start)
+    in
+    if base_start = 0 then Some ("", base)
+    else match skip_slashes base_start with
+      | 0 -> Some ("/", base)
+      | dir_end -> Some (String.sub p 0 dir_end, base)
+  )
