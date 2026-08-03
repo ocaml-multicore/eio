@@ -521,11 +521,14 @@ static value get_msghdr_fds(struct msghdr *msg) {
       int n_fds = (cm->cmsg_len - CMSG_LEN(0)) / sizeof(int);
       int i;
       for (i = n_fds - 1; i >= 0; i--) {
-	value fd = Val_int(fds[i]);
-	v_cons = caml_alloc_tuple(2);
-	Store_field(v_cons, 0, fd);
-	Store_field(v_cons, 1, v_list);
-	v_list = v_cons;
+        int fd = fds[i];
+#ifndef MSG_CMSG_CLOEXEC
+        fcntl(fd, F_SETFD, FD_CLOEXEC);         // For macOS
+#endif
+        v_cons = caml_alloc_tuple(2);
+        Store_field(v_cons, 0, Val_int(fd));
+        Store_field(v_cons, 1, v_list);
+        v_list = v_cons;
       }
     }
   }
@@ -564,6 +567,10 @@ CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs
     .msg_controllen = controllen,
   };
   ssize_t r;
+  int flags = Int_val(v_flags);
+#ifdef MSG_CMSG_CLOEXEC
+  flags |= MSG_CMSG_CLOEXEC;
+#endif
 
   memset(cmsg, 0, controllen);
 
@@ -571,7 +578,7 @@ CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs
   msg.msg_iov = iov;
 
   caml_enter_blocking_section();
-  r = recvmsg(Int_val(v_fd), &msg, Int_val(v_flags));
+  r = recvmsg(Int_val(v_fd), &msg, flags);
   caml_leave_blocking_section();
   caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("recv_msg", Nothing);

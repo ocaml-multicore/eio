@@ -4,7 +4,6 @@ let optional_flags = [
   "O_DSYNC";
   "O_RESOLVE_BENEATH";
   "O_PATH";
-  "MSG_CMSG_CLOEXEC";
 ]
 
 let () =

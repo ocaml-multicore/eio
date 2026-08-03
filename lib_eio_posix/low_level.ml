@@ -124,10 +124,9 @@ let recv_msg fd buf =
 let recv_msg_with_fds ~sw ~max_fds fd buf =
   let addr, got, fds =
     Fd.use_exn "recv_msg" fd @@ fun fd ->
-    let flags = Option.value Config.msg_cmsg_cloexec ~default:0 in
+    let flags = 0 in
     do_nonblocking Read "recv_msg" (fun fd -> eio_recv_msg fd max_fds buf flags) fd
   in
-  if Config.msg_cmsg_cloexec = None then List.iter Unix.set_close_on_exec fds; (* For macos *)
   (addr, got, Eio_unix.Fd.of_unix_list ~sw fds)
 
 external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_posix_getrandom"
