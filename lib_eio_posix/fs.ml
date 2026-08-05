@@ -67,7 +67,10 @@ end = struct
 
   let fd t = t.fd
 
-  let v ~label ~path:dir_path fd = { fd; dir_path; label }
+  let v ~label ~path:dir_path fd =
+    (* Avoid having "" and "." meaning the same thing, so there are fewer cases to test *)
+    let dir_path = if dir_path = "." then "" else dir_path in
+    { fd; dir_path; label }
 
   let open_in t ~sw path =
     let fd = Err.run (Low_level.openat ~mode:0 ~sw t.fd path) Low_level.Open_flags.rdonly in
@@ -140,10 +143,7 @@ end = struct
 
   let native_internal t path =
     if Filename.is_relative path then (
-      let p =
-        if t.dir_path = "." then path
-        else Filename.concat t.dir_path path
-      in
+      let p = Filename.concat t.dir_path path in
       if p = "" then "."
       else if p = "." then p
       else if Filename.is_implicit p then "./" ^ p
