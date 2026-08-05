@@ -345,6 +345,193 @@ let split_join s =
 - : string = "bar"
 ```
 
+# Split and join on Windows
+
+```ocaml
+let split = Eio_utils.Nt_path.split
+let join = Eio_utils.Nt_path.join
+```
+
+`join` puts a "\" between the two parts, unless the first already ends with a
+separator:
+
+```ocaml
+# join "a" "b";;
+- : string = "a\\b"
+
+# join "a\\" "b";;
+- : string = "a\\b"
+
+# join "a/" "b";;
+- : string = "a/b"
+
+# join "a" "";;
+- : string = "a\\"
+
+# join "" "b";;
+- : string = "b"
+
+# join "." "b";;
+- : string = "b"
+```
+
+A directory that is a root already ends in a separator.
+A bare drive is the exception. `C:x` names a file in the cwd
+of drive C, whereas `C:\x` is at the drive's root.
+
+```ocaml
+# join "C:\\" "b";;
+- : string = "C:\\b"
+
+# join "C:" "x";;
+- : string = "C:x"
+
+# join "\\" "x";;
+- : string = "\\x"
+
+# join "\\\\srv\\share\\" "x";;
+- : string = "\\\\srv\\share\\x"
+
+# join "\\\\?\\C:\\" "b";;
+- : string = "\\\\?\\C:\\b"
+
+# join "\\??\\C:\\a" "b";;
+- : string = "\\??\\C:\\a\\b"
+```
+
+A path that names its own root replaces the directory rather than extending it.
+This also covers drive-relative (`C:x`) and rooted (`\x`) paths.  Such a path
+may be rejected when opened, unless it is being used with an unrestricted `fs`:
+
+```ocaml
+# join "a" "C:\\b";;
+- : string = "C:\\b"
+
+# join "a" "C:/b";;
+- : string = "C:/b"
+
+# join "a" "C:b";;
+- : string = "C:b"
+
+# join "a" "C:";;
+- : string = "C:"
+
+# join "a" "\\b";;
+- : string = "\\b"
+
+# join "a" "/b";;
+- : string = "/b"
+
+# join "a" "\\\\srv\\share";;
+- : string = "\\\\srv\\share"
+
+# join "a" "\\\\?\\C:\\b";;
+- : string = "\\\\?\\C:\\b"
+
+# join "a" "\\??\\C:\\b";;
+- : string = "\\??\\C:\\b"
+
+# join "a" "\\\\.\\NUL";;
+- : string = "\\\\.\\NUL"
+```
+
+Either / or \ separator ends a component. Trailing separators are ignored:
+
+```ocaml
+# split "a\\b";;
+- : (string * string) option = Some ("a", "b")
+
+# split "a/b\\c";;
+- : (string * string) option = Some ("a/b", "c")
+
+# split "a\\b\\\\";;
+- : (string * string) option = Some ("a", "b")
+
+# split "a";;
+- : (string * string) option = Some ("", "a")
+
+# split "";;
+- : (string * string) option = None
+```
+
+The volume prefix is never split, nor is a separator that follows it
+since removing it would change an absolute path into a drive-relative on:
+
+```ocaml
+# split "\\x";;
+- : (string * string) option = Some ("\\", "x")
+
+# split "\\";;
+- : (string * string) option = None
+
+# split "C:\\a\\b";;
+- : (string * string) option = Some ("C:\\a", "b")
+
+# split "C:\\b";;
+- : (string * string) option = Some ("C:\\", "b")
+
+# split "C:\\";;
+- : (string * string) option = None
+
+# split "C:x";;
+- : (string * string) option = Some ("C:", "x")
+
+# split "C:";;
+- : (string * string) option = None
+
+# split "\\\\srv\\share\\x";;
+- : (string * string) option = Some ("\\\\srv\\share\\", "x")
+
+# split "\\\\srv\\share";;
+- : (string * string) option = None
+
+# split "\\\\.\\NUL";;
+- : (string * string) option = None
+```
+
+Win32 passes verbatim (`\\?\`) and NT (`\??\`) paths through without any
+normalisation. This is only the case with "\" so using "/" is an ordinary
+character rather than a separator. The NT form needs backslashes for the same reason:
+
+```ocaml
+# split "\\\\?\\C:\\a/b";;
+- : (string * string) option = Some ("\\\\?\\C:\\", "a/b")
+
+# split "\\\\?\\UNC\\srv\\share\\x";;
+- : (string * string) option = Some ("\\\\?\\UNC\\srv\\share\\", "x")
+
+# split "\\??\\C:\\a\\b";;
+- : (string * string) option = Some ("\\??\\C:\\a", "b")
+
+# split "/??/C:/x";;
+- : (string * string) option = Some ("/??/C:", "x")
+```
+
+Joining the two parts of a split should give back the original path:
+
+```ocaml
+# List.filter (fun p -> Option.map (fun (d, b) -> join d b) (split p) <> Some p) [
+    "a\\b";
+    "C:\\a\\b";
+    "C:\\b";
+    "C:x";
+    "\\x";
+    "\\\\srv\\share\\x";
+    "\\\\?\\C:\\a\\b";
+    "\\\\?\\C:\\a/b";
+    "\\\\?\\UNC\\srv\\share\\x";
+    "\\??\\C:\\a\\b";
+  ];;
+- : string list = []
+```
+
+Components separated by "/" can come back separated by "\".
+
+```ocaml
+# split "a/b" |> Option.map (fun (d, b) -> join d b);;
+- : string option = Some "a\\b"
+```
+
 # Mkdirs
 
 Recursively creating directories with `mkdirs`.

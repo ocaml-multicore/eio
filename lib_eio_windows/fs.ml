@@ -26,6 +26,9 @@ open Eio.Std
 
 module Fd = Eio_unix.Fd
 
+(* NT object-manager namespace prefix, required by NtCreateFile. *)
+let nt_prefix = "\\??\\"
+
 module rec Dir : sig
   include Eio.Fs.Pi.DIR
 
@@ -57,17 +60,22 @@ end = struct
         let dir_path = Err.run Low_level.realpath t.dir_path in
         let full = Err.run Low_level.realpath (Filename.concat dir_path path) in
         let prefix_len = String.length dir_path + 1 in
-        (* \\??\\ Is necessary with NtCreateFile. *)
         if String.length full >= prefix_len && String.sub full 0 prefix_len = dir_path ^ Filename.dir_sep then begin
-          "\\??\\" ^ full
+          nt_prefix ^ full
         end else if full = dir_path then
-          "\\??\\" ^ full
+          nt_prefix ^ full
         else
           raise @@ Eio.Fs.err (Permission_denied (Err.Outside_sandbox (full, dir_path)))
       ) else (
         raise @@ Eio.Fs.err (Permission_denied Err.Absolute_path)
       )
     ) else path
+
+  let strip_nt_prefix p =
+    let n = String.length nt_prefix in
+    if String.starts_with ~prefix:nt_prefix p
+    then String.sub p n (String.length p - n)
+    else p
 
   let with_parent_dir t path fn =
     if t.sandbox then (
@@ -206,10 +214,22 @@ end = struct
 
   let pp f t = Fmt.string f (String.escaped t.label)
 
-  let native _t _path =
-    failwith "TODO: Windows native"
+  let native_internal t path =
+    if Filename.is_relative path then (
+      let p =
+        if t.dir_path = "." then path
+        else Filename.concat (strip_nt_prefix t.dir_path) path
+      in
+      if p = "" then "."
+      else if p = "." then p
+      else if Filename.is_implicit p then ".\\" ^ p
+      else p
+    ) else path
 
-  include Eio_utils.Posix_path    (* todo: replace with Windows syntax *)
+  let native t path =
+    Some (native_internal t path)
+
+  include Eio_utils.Nt_path
 end
 and Handler : sig
   val v : (Dir.t, [`Dir | `Close]) Eio.Resource.handler
