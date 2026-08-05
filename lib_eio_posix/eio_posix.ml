@@ -35,8 +35,8 @@ let run main =
     method net = Net.v
     method process_mgr = Process.mgr
     method domain_mgr = Domain_mgr.v
-    method cwd = ((Fs.cwd, "") :> Eio.Fs.dir_ty Eio.Path.t)
-    method fs = ((Fs.fs, "") :> Eio.Fs.dir_ty Eio.Path.t)
+    method cwd = (Fs.cwd :> Eio.Fs.dir_ty Eio.Path.t)
+    method fs = (Fs.fs :> Eio.Fs.dir_ty Eio.Path.t)
     method secure_random = Flow.secure_random
     method backend_id = "posix"
   end

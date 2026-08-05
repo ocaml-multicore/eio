@@ -164,6 +164,7 @@ end = struct
     ]
 end
 
-(* Full access to the filesystem. *)
-let fs = Eio.Resource.T (Dir.v ~label:"fs" ~path:"." Fs, Handler.v)
-let cwd = Eio.Resource.T (Dir.v ~label:"cwd" ~path:"." Cwd, Handler.v)
+let dir ~label ~path fd = Eio.Resource.T (Dir.v ~label ~path fd, Handler.v)
+
+let fs = Eio.Path.of_dir (dir ~label:"fs" ~path:"." Fs)
+let cwd = Eio.Path.of_dir (dir ~label:"cwd" ~path:"." Cwd)

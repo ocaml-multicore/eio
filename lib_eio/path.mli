@@ -31,8 +31,11 @@
 open Std
 open Fs
 
-type 'a t = 'a Fs.dir * path
+type -'a t = 'a Fs.dir * path
 (** An OS directory FD and a path relative to it, for use with e.g. [openat(2)]. *)
+
+val of_dir : 'a Fs.dir -> 'a t
+(** [of_dir d] is an empty path relative to [d]. *)
 
 val ( / ) : 'a t -> string -> 'a t
 (** [t / step] is [t] with [step] appended to [t]'s path,

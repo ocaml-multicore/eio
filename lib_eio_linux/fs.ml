@@ -183,3 +183,6 @@ end = struct
 end
 
 let dir ~label ~path fd = Eio.Resource.T (Dir.v ~label ~path fd, Dir_handler.v)
+
+let fs = Eio.Path.of_dir (dir ~label:"fs" ~path:"" Fs)
+let cwd = Eio.Path.of_dir (dir ~label:"cwd" ~path:"" Cwd)
