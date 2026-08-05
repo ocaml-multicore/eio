@@ -78,8 +78,6 @@ let domain_mgr ~run_event_loop =
   Eio.Resource.T (Domain_mgr.make ~run_event_loop, handler)
 
 let stdenv ~run_event_loop =
-  let fs = (Fs.dir ~label:"fs" ~path:"" Fs, "") in
-  let cwd = (Fs.dir ~label:"cwd" ~path:"" Cwd, "") in
   object (_ : stdenv)
     method stdin  = Flow.stdin
     method stdout = Flow.stdout
@@ -89,8 +87,8 @@ let stdenv ~run_event_loop =
     method domain_mgr = domain_mgr ~run_event_loop
     method clock = Time.clock
     method mono_clock = Time.mono_clock
-    method fs = (fs :> Eio.Fs.dir_ty Eio.Path.t)
-    method cwd = (cwd :> Eio.Fs.dir_ty Eio.Path.t)
+    method cwd = (Fs.cwd :> Eio.Fs.dir_ty Eio.Path.t)
+    method fs = (Fs.fs :> Eio.Fs.dir_ty Eio.Path.t)
     method secure_random = Flow.secure_random
     method debug = Eio.Private.Debug.v
     method backend_id = "linux"

@@ -1,4 +1,6 @@
-type 'a t = 'a Fs.dir * Fs.path
+type -'a t = 'a Fs.dir * Fs.path
+
+let of_dir d = (d, "")
 
 let ( / ) (d, p1) p2 =
   let (Resource.T (_, ops)) = d in

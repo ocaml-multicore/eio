@@ -44,7 +44,7 @@ type create = [
 (** If a new file is created, the given permissions are used for it. *)
 
 type dir_ty = [`Dir]
-type 'a dir = ([> dir_ty] as 'a) r
+type -'a dir = ([> dir_ty] as 'a) r
 (** Note: use the functions in {!Path} to access directories. *)
 
 (** {2 Provider Interface} *)
