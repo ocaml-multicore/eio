@@ -49,11 +49,14 @@ module rec Dir : sig
 end = struct
   type t = {
     fd : Low_level.dir_fd;
+    dir_path : string;
     label : string;
-    path : string;
   }
 
-  let v ~label ~path fd = { fd; label; path }
+  let v ~label ~path:dir_path fd =
+    (* Avoid having "" and "." meaning the same thing, so there are fewer cases to test *)
+    let dir_path = if dir_path = "." then "" else dir_path in
+    { fd; dir_path; label }
 
   let open_in t ~sw path =
     let fd = Low_level.openat ~sw t.fd path
@@ -81,7 +84,7 @@ end = struct
 
   let native_internal t path =
     if Filename.is_relative path then (
-      let p = Filename.concat t.path path in
+      let p = Filename.concat t.dir_path path in
       if p = "" then "."
       else if p = "." then p
       else if Filename.is_implicit p then "./" ^ p

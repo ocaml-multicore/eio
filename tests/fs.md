@@ -1408,6 +1408,12 @@ Exception: Failure "Simulated error".
   test (env#fs / "foo/bar");
   test env#cwd;
   test (env#cwd / "..");
+  let test_subtree base sub =
+    Eio.Path.with_subtree (base / sub) (fun x ->
+       traceln "subtree (%a / %S) -> %a" Eio.Path.pp base sub Fmt.(Dump.option string) (Eio.Path.native x)
+    )
+  in
+  test_subtree env#fs ".";
   let sub = env#cwd / "native-sub" in
   Eio.Path.mkdir sub ~perm:0o700;
   Eio.Path.with_subtree sub @@ fun sub ->
@@ -1423,6 +1429,7 @@ Exception: Failure "Simulated error".
 +<fs:foo/bar> -> Some ./foo/bar
 +<cwd> -> Some .
 +<cwd:..> -> Some ./..
++subtree (<fs> / ".") -> Some .
 +<native-sub> -> Some ./native-sub/
 +<native-sub:foo.txt> -> Some ./native-sub/foo.txt
 +<native-sub:.> -> Some ./native-sub/.
