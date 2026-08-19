@@ -324,8 +324,8 @@ val connect :
           ]
     ]}
 
-    @param options Socket options to set before binding and connecting.
-    @param bind_to Local address to bind to before connecting. This is how
+    @param options (since 1.5) Socket options to set before binding and connecting.
+    @param bind_to (since 1.5) Local address to bind to before connecting. This is how
       a multi-homed host chooses the local address that an outbound
       connection uses. *)
 
