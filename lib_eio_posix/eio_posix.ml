@@ -18,6 +18,10 @@ module Low_level = Low_level
 
 type stdenv = Eio_unix.Stdenv.base
 
+let vars =
+  let handler = Eio.Vars.Pi.vars (module Eio_unix.Vars) in
+  Eio.Resource.T ((), handler)
+
 let run main =
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
@@ -38,5 +42,6 @@ let run main =
     method cwd = (Fs.cwd :> Eio.Fs.dir_ty Eio.Path.t)
     method fs = (Fs.fs :> Eio.Fs.dir_ty Eio.Path.t)
     method secure_random = Flow.secure_random
+    method vars = vars
     method backend_id = "posix"
   end

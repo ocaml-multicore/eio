@@ -77,6 +77,10 @@ let domain_mgr ~run_event_loop =
   let handler = Eio.Domain_manager.Pi.mgr (module Domain_mgr) in
   Eio.Resource.T (Domain_mgr.make ~run_event_loop, handler)
 
+let vars =
+  let handler = Eio.Vars.Pi.vars (module Eio_unix.Vars) in
+  Eio.Resource.T ((), handler)
+
 let stdenv ~run_event_loop =
   object (_ : stdenv)
     method stdin  = Flow.stdin
@@ -90,6 +94,7 @@ let stdenv ~run_event_loop =
     method cwd = (Fs.cwd :> Eio.Fs.dir_ty Eio.Path.t)
     method fs = (Fs.fs :> Eio.Fs.dir_ty Eio.Path.t)
     method secure_random = Flow.secure_random
+    method vars = vars
     method debug = Eio.Private.Debug.v
     method backend_id = "linux"
   end
