@@ -247,6 +247,10 @@ module Sockopt = struct
     let name, pp = find_printer opt in
     Fmt.pf f "%s = %a" name pp v
 
+  type settings =
+    | [] : settings
+    | (::) : ('a t * 'a) * settings -> settings
+
   type _ t +=
     | SO_DEBUG : bool t
     | SO_BROADCAST : bool t
@@ -426,7 +430,9 @@ module Pi = struct
     type tag
 
     val listen : t -> reuse_addr:bool -> reuse_port:bool -> backlog:int -> sw:Switch.t -> Sockaddr.stream -> tag listening_socket_ty r
-    val connect : t -> sw:Switch.t -> Sockaddr.stream -> tag stream_socket_ty r
+    val connect :
+      t -> bind_to:Sockaddr.stream option -> options:Sockopt.settings ->
+      sw:Switch.t -> Sockaddr.stream -> tag stream_socket_ty r
     val datagram_socket :
       t
       -> reuse_addr:bool
@@ -500,10 +506,10 @@ let listen (type tag) ?(reuse_addr=false) ?(reuse_port=false) ~backlog ~sw (t:[>
   let module X = (val (Resource.get ops Pi.Network)) in
   X.listen t ~reuse_addr ~reuse_port ~backlog ~sw
 
-let connect (type tag) ~sw (t:[> tag ty] r) addr =
+let connect (type tag) ?bind_to ?(options=Sockopt.[]) ~sw (t:[> tag ty] r) addr =
   let (Resource.T (t, ops)) = t in
   let module X = (val (Resource.get ops Pi.Network)) in
-  try X.connect t ~sw addr
+  try X.connect t ~bind_to ~options ~sw addr
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "connecting to %a" Sockaddr.pp addr
