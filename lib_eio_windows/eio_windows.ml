@@ -18,6 +18,10 @@ module Low_level = Low_level
 
 type stdenv = Eio_unix.Stdenv.base
 
+let vars =
+  let handler = Eio.Vars.Pi.vars (module Eio_unix.Vars) in
+  Eio.Resource.T ((), handler)
+
 let run main =
   let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> _ Eio_unix.source) in
   let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> _ Eio_unix.sink) in
@@ -35,5 +39,6 @@ let run main =
     method fs = (Fs.fs :> Eio.Fs.dir_ty Eio.Path.t)
     method process_mgr = failwith "process operations not supported on Windows yet"
     method secure_random = Flow.secure_random
+    method vars = vars
     method backend_id = "windows"
   end
