@@ -1,3 +1,39 @@
+## v1.5
+
+New features:
+
+- Windows paths support (@avsm @kentookura @talex5 @dra27 #913 #916).  
+  Previously, an `Eio.Path.t` always used POSIX-style paths, using `/` as the separator,
+  but this didn't work well on Windows, especially with absolute paths.
+
+- Pre-connect socket options (@avsm @art-w @talex5 #875).  
+  `Eio.Net.connect` now has `?bind_to` and `?options` arguments for pre-connect configuration.
+  Allows an outbound socket to be configured before connect or listen.
+
+- Add `Eio.Path.of_dir` (@talex5 #919).  
+  Just a convenience function.
+
+Bug fixes:
+
+- Fix handling of empty paths when using `fs` unconfined (@talex5 #907, reported by @samoht, reviewed by @avsm).  
+
+  Some path operations could end up using a path of "" which resulted in an error.
+  This was breaking `Path.mkdirs` if only the base directory already existed.
+
+Code cleanups and performance:
+
+- eio_posix: fix build on 32-bit platforms (@talex5 #917, reported by @glondu).
+
+- unix: optimise the POSIX path split to allocate much less by scanning (@avsm #915, reviewed by @talex5).
+
+- eio_linux: use a bigger stack buffer for `getdents` to speed up bigger dirs (@avsm #910).
+
+- Add some more tests for POSIX paths (@avsm @talex5 #918).
+
+- Add "available" to opam files (@talex5 #921).
+
+- Clean up `dir_path` handling (@talex5 @avsm #920).
+
 ## v1.4
 
 Breaking changes:
