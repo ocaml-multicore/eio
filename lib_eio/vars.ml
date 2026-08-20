@@ -27,10 +27,7 @@ let get_all t =
 let get t name =
   let (Resource.T (t, ops)) = t in
   let module X = (val (Resource.get ops Pi.Vars)) in
-  try X.get t name
-  with Not_found as ex ->
-    let bt = Printexc.get_raw_backtrace () in
-    Exn.reraise_with_context ex bt "getting environment variable %s" name
+  X.get t name
 
 let put t ~name ~value =
   let (Resource.T (t, ops)) = t in
