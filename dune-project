@@ -50,6 +50,7 @@
  (depends
   (eio (= :version))
   (iomux (>= 0.2))
+  (alcotest (and (>= 1.7.0) :with-test))
   (mdx (and (>= 2.4.1) :with-test))
   (lintcstubs-arity :with-test)
   (conf-bash :with-test)
