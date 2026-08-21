@@ -77,8 +77,16 @@ let domain_mgr ~run_event_loop =
   let handler = Eio.Domain_manager.Pi.mgr (module Domain_mgr) in
   Eio.Resource.T (Domain_mgr.make ~run_event_loop, handler)
 
+module Vars = struct
+  include Eio_unix.Vars
+
+  let get_path t = get_path ~sep:':' t
+
+  let put_path t paths = put_path ~sep:":" t paths
+end
+
 let vars =
-  let handler = Eio.Vars.Pi.vars (module Eio_unix.Vars) in
+  let handler = Eio.Vars.Pi.vars (module Vars) in
   Eio.Resource.T ((), handler)
 
 let stdenv ~run_event_loop =
