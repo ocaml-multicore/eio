@@ -1,0 +1,40 @@
+{0 Eio}
+
+Eio provides support for concurrency (juggling many tasks) and
+parallelism (using multiple CPU cores for performance).
+
+See the {{:https://github.com/ocaml-multicore/eio/blob/main/README.md} Tutorial} for an introduction.
+
+The main {!Eio} module provides:
+
+- {{!Eio.Fiber} Fiber}, {{!Eio.Switch} Switch}, {{!Eio.Cancel} Cancel} (managing fibers)
+- {{!Eio.Stdenv} Stdenv} (getting access to host resources)
+- {{!Eio.Path} Path}, {{!Eio.File} File} (managing files and directories)
+- {{!Eio.Flow} Flow}, {{!Eio.Buf_read} Buf_read}, {{!Eio.Buf_write} Buf_write} (text streams)
+- {{!Eio.Net} Net} (networking)
+- {{!Eio.Process} Process} (running other programs)
+- {{!Eio.Time} Time} (clocks and timeouts)
+- {{!Eio.Promise} Promise}, {{!Eio.Semaphore} Semaphore}, {{!Eio.Mutex} Mutex}, {{!Eio.Condition} Condition}, {{!Eio.Lazy} Lazy} (concurrency primitives)
+- {{!Eio.Stream} Stream}, {{!Eio.Pool} Pool} (collections)
+- {{!Eio.Domain_manager} Domain_manager}, {{!Eio.Executor_pool} Executor_pool} (using multiple domains)
+- {{!Eio.Std} Std} ([open Eio.Std] to get access to some common modules)
+- Less commonly-used: {{!Eio.Fs} Fs}, {{!Eio.Exn} Exn}, {{!Eio.Debug} Debug}, {{!Eio.Resource} Resource}
+
+{2 Extended Unix APIs}
+
+{!Eio_unix} provides low-level access to file-descriptors, system threads, etc.
+
+{2 Mocks}
+
+{!Eio_mock} is dummy backend for testing.
+
+{2 Tracing}
+
+{!Eio_runtime_events} read and write event traces.
+
+{2 Private}
+
+These are for backend implementors only:
+
+- {!Eio.Private}
+- {!Eio_utils}
