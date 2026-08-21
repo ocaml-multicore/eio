@@ -255,7 +255,7 @@ module Stdenv : sig
   *)
 
   val vars : <vars : _ Vars.t as 'a; ..> -> 'a
-  (** [vars t] allows you to access environment variables. *)
+  (** [vars t] allows you to access and modify environment variables. *)
 
   (** {1 Environment variables}
 

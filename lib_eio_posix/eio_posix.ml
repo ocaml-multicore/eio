@@ -18,8 +18,16 @@ module Low_level = Low_level
 
 type stdenv = Eio_unix.Stdenv.base
 
+module Vars = struct
+  include Eio_unix.Vars
+
+  let get_path t = get_path ~sep:':' t
+
+  let put_path t paths = put_path ~sep:":" t paths
+end
+
 let vars =
-  let handler = Eio.Vars.Pi.vars (module Eio_unix.Vars) in
+  let handler = Eio.Vars.Pi.vars (module Vars) in
   Eio.Resource.T ((), handler)
 
 let run main =

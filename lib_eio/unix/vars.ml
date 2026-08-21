@@ -17,3 +17,11 @@ let get () name =
 let put () ~name ~value =
   Unix.putenv name value
 
+let get_path ~sep t =
+  match get t "PATH" with
+  | "" -> []
+  | paths -> String.split_on_char sep paths
+
+let put_path ~sep t paths =
+  let paths = String.concat sep paths in
+  put t ~name:"PATH" ~value:paths

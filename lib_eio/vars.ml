@@ -9,7 +9,9 @@ module Pi = struct
 
     val get_all : t -> (string * string) list
     val get : t -> string -> string
+    val get_path : t -> string list
     val put : t -> name:string -> value:string -> unit
+    val put_path : t -> string list -> unit
   end
 
   type (_, _, _) Resource.pi +=
@@ -29,8 +31,18 @@ let get t name =
   let module X = (val (Resource.get ops Pi.Vars)) in
   X.get t name
 
+let get_path t =
+  let (Resource.T (t, ops)) = t in
+  let module X = (val (Resource.get ops Pi.Vars)) in
+  X.get_path t
+
 let put t ~name ~value =
   let (Resource.T (t, ops)) = t in
   let module X = (val (Resource.get ops Pi.Vars)) in
   X.put t ~name ~value
+
+let put_path t paths =
+  let (Resource.T (t, ops)) = t in
+  let module X = (val (Resource.get ops Pi.Vars)) in
+  X.put_path t paths
 
