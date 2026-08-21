@@ -22,6 +22,7 @@ module Flow = struct
 end
 module Buf_write = Buf_write
 module Net = Net
+module Vars = Vars
 module Process = Process
 module Domain_manager = Domain_manager
 module Time = Time
@@ -41,6 +42,7 @@ module Stdenv = struct
   let secure_random (t: <secure_random : _ Flow.source; ..>) = t#secure_random
   let fs (t : <fs : _ Path.t; ..>) = t#fs
   let cwd (t : <cwd : _ Path.t; ..>) = t#cwd
+  let vars (t : <vars : _ Vars.t; ..>) = t#vars
   let debug (t : <debug : 'a; ..>) = t#debug
   let backend_id (t: <backend_id : string; ..>) = t#backend_id
 end

@@ -181,6 +181,11 @@ module Fs = Fs
 (** Managing child processes. *)
 module Process = Process
 
+(** {2 Environment Variables} *)
+
+(** Accessing environment variables. *)
+module Vars = Vars
+
 (** {2 Time} *)
 
 (** Clocks, time, sleeping and timeouts. *)
@@ -247,6 +252,14 @@ module Stdenv : sig
   (** {1 Domains (using multiple CPU cores)}
 
       To use this, see {!Domain_manager}.
+  *)
+
+  val vars : <vars : _ Vars.t as 'a; ..> -> 'a
+  (** [vars t] allows you to access and modify environment variables. *)
+
+  (** {1 Environment variables}
+
+      To use this, see {!Vars}.
   *)
 
   val domain_mgr : <domain_mgr : _ Domain_manager.t as 'a; ..> -> 'a

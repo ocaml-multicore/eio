@@ -47,6 +47,9 @@ end
 module Net = Net
 (** Extended network API with support for file descriptors. *)
 
+module Vars = Vars
+(** An {! Eio.System} interface using standard {! Unix} functions. *)
+
 type source_ty = [`Unix_fd | Eio.Resource.close_ty | Eio.Flow.source_ty]
 type sink_ty   = [`Unix_fd | Eio.Resource.close_ty | Eio.Flow.sink_ty]
 type 'a source = ([> source_ty] as 'a) r
@@ -100,6 +103,7 @@ module Stdenv : sig
     fs : Eio.Fs.dir_ty Eio.Path.t;
     cwd : Eio.Fs.dir_ty Eio.Path.t;
     secure_random : Eio.Flow.source_ty r;
+    vars : Eio.Vars.ty r;
     debug : Eio.Debug.t;
     backend_id : string;
   >
@@ -119,6 +123,7 @@ module Stdenv : sig
     ?fs:Eio.Fs.dir_ty Eio.Path.t ->
     ?cwd:Eio.Fs.dir_ty Eio.Path.t ->
     ?secure_random:Eio.Flow.source_ty r ->
+    ?vars:Eio.Vars.ty r ->
     ?debug:Eio.Debug.t ->
     ?backend_id:string ->
     <base; ..> ->
