@@ -452,6 +452,10 @@ let string_even x =
 let crash_on_three x =
   if x = 3 then failwith "Simulated error"
   else string_even x
+
+let even_or_odd x =
+  if is_even x then Either.Right (string_of_int x)
+  else Either.Left (string_of_int x)
 ```
 
 ```ocaml
@@ -499,6 +503,22 @@ let crash_on_three x =
 +Finished 3
 +Finished 4
 +["2"; "4"]
+- : unit = ()
+```
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Fiber.List.partition_map (process even_or_odd) [1; 2; 3; 4]
+  |> traceln "%a" Fmt.Dump.(pair (list string) (list string));;
++Start 1
++Finished 1
++Start 2
++Finished 2
++Start 3
++Finished 3
++Start 4
++Finished 4
++(["1"; "3"], ["2"; "4"])
 - : unit = ()
 ```
 
