@@ -259,6 +259,29 @@ module List = struct
       in
       aux items
 
+  let partition_map ?(max_fibers=max_int) fn items =
+    match items with
+    | [] -> ([], [])  (* Avoid creating a switch in the simple case *)
+    | items ->
+      Switch.run ~name:"partition_map" @@ fun sw ->
+      let limiter = Limiter.create ~sw max_fibers in
+      let rec aux left right = function
+        | [] -> (List.rev left, List.rev right)
+        | [x] ->
+          (match Limiter.use limiter fn x with
+           | Either.Left v -> (List.rev (v :: left), List.rev right)
+           | Either.Right v -> (List.rev left, List.rev (v :: right)))
+        | x :: xs ->
+          let x = Limiter.fork_promise_exn limiter fn x in
+          let left, right =
+            match Promise.await x with
+            | Either.Left v -> (v :: left, right)
+            | Either.Right v -> (left, v :: right)
+          in
+          aux left right xs
+      in
+      aux [] [] items
+
   let map ?max_fibers fn = filter_map ?max_fibers (fun x -> Some (fn x))
   let filter ?max_fibers fn = filter_map ?max_fibers (fun x -> if fn x then Some x else None)
 
