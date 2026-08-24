@@ -11,7 +11,7 @@
     provided by an Eio {e backend}.
     Applications can use {!Eio_main.run} to run a suitable loop.
 
-    See {{:https://github.com/ocaml-multicore/eio}} for a tutorial. *)
+    See the {{:https://github.com/ocaml-multicore/eio/blob/main/README.md} Tutorial} for an introduction. *)
 
 (** Commonly used standard features. This module is intended to be [open]ed. *)
 module Std = Std
