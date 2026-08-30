@@ -320,6 +320,21 @@ Cancelling writing to a stream:
 - : unit = ()
 ```
 
+Selecting from multiple channels:
+
+```ocaml
+# run @@ fun () -> Switch.run (fun sw ->
+    let t1, t2 = (S.create 2, S.create 2) in
+    let selector = [(t1, fun s -> traceln "Stream 1: %s" s); (t2, fun s -> traceln "Stream 2: %s" s)] in
+    Fiber.fork ~sw (fun () -> S.add t2 "Hello");
+    Fiber.fork ~sw (fun () -> S.select selector);
+    Fiber.fork ~sw (fun () -> S.add t1 "Goodbye");
+    Fiber.fork ~sw (fun () -> S.select selector));;
++Stream 2: Hello
++Stream 1: Goodbye
+- : unit = ()
+```
+
 Non-blocking take:
 
 ```ocaml
