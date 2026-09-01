@@ -34,7 +34,7 @@ let run main =
   let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> _ Eio_unix.source) in
   let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> _ Eio_unix.sink) in
   let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> _ Eio_unix.sink) in
-  let m = Eio.Mutex.create () in
+  let vars = vars (Eio.Mutex.create ()) in
   Domain_mgr.run_event_loop main @@ object (_ : stdenv)
     method stdin = stdin
     method stdout = stdout
@@ -48,6 +48,6 @@ let run main =
     method fs = (Fs.fs :> Eio.Fs.dir_ty Eio.Path.t)
     method process_mgr = failwith "process operations not supported on Windows yet"
     method secure_random = Flow.secure_random
-    method vars = vars m
+    method vars = vars
     method backend_id = "windows"
   end

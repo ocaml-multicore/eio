@@ -90,7 +90,7 @@ let vars m =
   Eio.Resource.T (m, handler)
 
 let stdenv ~run_event_loop =
-  let m = Eio.Mutex.create () in
+  let vars = vars (Eio.Mutex.create ()) in
   object (_ : stdenv)
     method stdin  = Flow.stdin
     method stdout = Flow.stdout
@@ -103,7 +103,7 @@ let stdenv ~run_event_loop =
     method cwd = (Fs.cwd :> Eio.Fs.dir_ty Eio.Path.t)
     method fs = (Fs.fs :> Eio.Fs.dir_ty Eio.Path.t)
     method secure_random = Flow.secure_random
-    method vars = vars m
+    method vars = vars
     method debug = Eio.Private.Debug.v
     method backend_id = "linux"
   end
