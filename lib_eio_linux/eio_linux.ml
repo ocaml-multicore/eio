@@ -85,11 +85,12 @@ module Vars = struct
   let put_path t paths = put_path ~sep:":" t paths
 end
 
-let vars =
+let vars m =
   let handler = Eio.Vars.Pi.vars (module Vars) in
-  Eio.Resource.T ((), handler)
+  Eio.Resource.T (m, handler)
 
 let stdenv ~run_event_loop =
+  let m = Eio.Mutex.create () in
   object (_ : stdenv)
     method stdin  = Flow.stdin
     method stdout = Flow.stdout
@@ -102,7 +103,7 @@ let stdenv ~run_event_loop =
     method cwd = (Fs.cwd :> Eio.Fs.dir_ty Eio.Path.t)
     method fs = (Fs.fs :> Eio.Fs.dir_ty Eio.Path.t)
     method secure_random = Flow.secure_random
-    method vars = vars
+    method vars = vars m
     method debug = Eio.Private.Debug.v
     method backend_id = "linux"
   end

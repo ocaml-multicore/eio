@@ -1,4 +1,4 @@
-include Eio.Vars.Pi.VARS with type t = unit
+include Eio.Vars.Pi.VARS with type t = Eio.Mutex.t
 
 val get_path : sep:char -> t -> string list
 (** [get_path ~sep t] gets the paths stored at ["PATH"] using [sep] to separate

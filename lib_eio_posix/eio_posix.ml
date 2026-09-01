@@ -26,9 +26,9 @@ module Vars = struct
   let put_path t paths = put_path ~sep:":" t paths
 end
 
-let vars =
+let vars m =
   let handler = Eio.Vars.Pi.vars (module Vars) in
-  Eio.Resource.T ((), handler)
+  Eio.Resource.T (m, handler)
 
 let run main =
   (* SIGPIPE makes no sense in a modern application. *)
@@ -37,6 +37,7 @@ let run main =
   let stdin = (Flow.of_fd Eio_unix.Fd.stdin :> _ Eio_unix.source) in
   let stdout = (Flow.of_fd Eio_unix.Fd.stdout :> _ Eio_unix.sink) in
   let stderr = (Flow.of_fd Eio_unix.Fd.stderr :> _ Eio_unix.sink) in
+  let m = Eio.Mutex.create () in
   Domain_mgr.run_event_loop main @@ object (_ : stdenv)
     method stdin = stdin
     method stdout = stdout
@@ -50,6 +51,6 @@ let run main =
     method cwd = (Fs.cwd :> Eio.Fs.dir_ty Eio.Path.t)
     method fs = (Fs.fs :> Eio.Fs.dir_ty Eio.Path.t)
     method secure_random = Flow.secure_random
-    method vars = vars
+    method vars = vars m
     method backend_id = "posix"
   end

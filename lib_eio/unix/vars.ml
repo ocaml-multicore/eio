@@ -1,4 +1,4 @@
-type t = unit
+type t = Eio.Mutex.t
 
 let split_in_two c s =
   try
@@ -8,13 +8,16 @@ let split_in_two c s =
     Some (first, second)
   with Not_found -> None
 
-let get_all () =
+let get_all m =
+  Eio.Mutex.use_ro m @@ fun () ->
   Unix.environment () |> Array.to_list |> List.filter_map (split_in_two '=')
 
-let get () name =
+let get m name =
+  Eio.Mutex.use_ro m @@ fun () ->
   Unix.getenv name
 
-let put () ~name ~value =
+let put m ~name ~value =
+  Eio.Mutex.use_rw ~protect:false m @@ fun () ->
   Unix.putenv name value
 
 let get_path ~sep t =
