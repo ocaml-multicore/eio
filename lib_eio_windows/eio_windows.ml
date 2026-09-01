@@ -23,7 +23,7 @@ module Vars = struct
 
   let get_path t = get_path ~sep:';' t
 
-  let put_path t paths = put_path ~sep:";" t paths
+  let put_path t paths = put_path ~sep:';' t paths
 end
 
 let vars m =

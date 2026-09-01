@@ -26,5 +26,5 @@ let get_path ~sep t =
   | paths -> String.split_on_char sep paths
 
 let put_path ~sep t paths =
-  let paths = String.concat sep paths in
+  let paths = String.concat (String.make 1 sep) paths in
   put t ~name:"PATH" ~value:paths
