@@ -52,6 +52,63 @@ type 'a mgr = 'a r
  constraint 'a = [> [> `Generic] mgr_ty]
 (** A process manager capable of spawning new processes. *)
 
+module Env : sig
+  (** A list of environment variable entries.
+
+      By convention, the entries are strings of the form "name=value",
+      each name is unique, order doesn't matter, and "" is not a valid name.
+
+      Also, due to the representation:
+      - Names cannot contain the '=' character.
+      - Neither names nor values can contain '\000'.
+
+      On Windows, name comparison is (ASCII) case-insensitive.
+      The convention of always using uppercase ASCII names for environment
+      variables will avoid different behaviour across platforms. *)
+
+  type t = string array
+  (** Note: this type is currently exposed for backwards compatibility and will
+      likely be made abstract in the future. The array is intended to be immutable. *)
+
+  val empty : t
+  (** An environment with no bindings. *)
+
+  val of_bindings : (string * string) list -> t
+  (** [of_bindings xs] is a new environment containing only the bindings in [xs].
+
+      This just adds [xs] to {!empty} using {!override}. *)
+
+  val get_opt : string -> t -> string option
+  (** [get_opt name t] is the value of [name] in [t], or [None] if there is no such binding.
+
+      @raise Invalid_argument if [name] is not a valid name. *)
+
+  val override : (string * string option) list -> t -> t
+  (** [override bindings t] is a new environment which is like [t]
+      except that the updates in [bindings] have been applied.
+
+      Each entry in [bindings] is a [(name, new_value)] pair.
+      [new_value] can be [None] to remove [name] (ignored if [name] is not present).
+
+      If there are several bindings for the same name in [bindings] then the last one is used.
+      If there are several bindings for an updated name in [t] then all are removed first.
+
+      @raise Invalid_argument if any binding is invalid. *)
+
+  val of_array : string array -> t
+  (** Create a [t] from e.g. the results of {!Unix.environment}.
+
+      The bindings are used as-is and need not conform to the conventions (e.g.
+      they may contain duplicate names).
+
+      Note: the array is assumed to be immutable. *)
+
+  val to_array : t -> string array
+  (** [to_array t] gets [t] as an array. The array should be treated as immutable. *)
+
+  val pp : t Fmt.t
+end
+
 (** {2 Processes} *)
 
 val pid : _ t -> int
@@ -82,7 +139,7 @@ val spawn :
   ?stdin:_ Flow.source ->
   ?stdout:_ Flow.sink ->
   ?stderr:_ Flow.sink ->
-  ?env:string array ->
+  ?env:Env.t ->
   ?executable:string ->
   string list -> 'tag ty r
 (** [spawn ~sw mgr args] creates a new child process that is connected to the switch [sw].
@@ -109,7 +166,7 @@ val run :
   ?stdout:_ Flow.sink ->
   ?stderr:_ Flow.sink ->
   ?is_success:(int -> bool) ->
-  ?env:string array ->
+  ?env:Env.t ->
   ?executable:string ->
   string list -> unit
 (** [run] does {!spawn} followed by {!await_exn}, with the advantage that if the process fails then
@@ -127,7 +184,7 @@ val parse_out :
   ?stdin:_ Flow.source ->
   ?stderr:_ Flow.sink ->
   ?is_success:(int -> bool) ->
-  ?env:string array ->
+  ?env:Env.t ->
   ?executable:string ->
   string list -> 'a
 (** [parse_out mgr parser args] runs [args] and parses the child's stdout with [parser].
@@ -183,7 +240,7 @@ module Pi : sig
       ?stdin:Flow.source_ty r ->
       ?stdout:Flow.sink_ty r ->
       ?stderr:Flow.sink_ty r ->
-      ?env:string array ->
+      ?env:Env.t ->
       ?executable:string ->
       string list ->
       tag ty r

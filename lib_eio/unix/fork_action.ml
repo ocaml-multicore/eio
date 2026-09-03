@@ -22,6 +22,7 @@ external make_string_array : int -> c_array = "eio_unix_make_string_array"
 external action_execve : unit -> fork_fn = "eio_unix_fork_execve"
 let action_execve = action_execve ()
 let execve path ~argv ~env =
+  let env = Eio.Process.Env.to_array env in
   let argv_c_array = make_string_array (Array.length argv) in
   let env_c_array = make_string_array (Array.length env) in
   { run = fun k -> k (Obj.repr (action_execve, path, argv_c_array, argv, env_c_array, env)) }

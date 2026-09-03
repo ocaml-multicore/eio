@@ -24,7 +24,7 @@ module Pi : sig
       ?uid:int ->
       ?gid:int ->
       ?login_tty:Fd.t ->
-      env:string array ->
+      env:Eio.Process.Env.t ->
       fds:(int * Fd.t * Fork_action.blocking) list ->
       executable:string ->
       string list ->
@@ -50,7 +50,7 @@ module Make_mgr (X : sig
     ?uid:int ->
     ?gid:int ->
     ?login_tty:Fd.t ->
-    env:string array ->
+    env:Eio.Process.Env.t ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     executable:string ->
     string list ->
@@ -66,7 +66,7 @@ val spawn_unix :
     ?gid:int ->
     ?login_tty:Fd.t ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
-    ?env:string array ->
+    ?env:Eio.Process.Env.t ->
     ?executable:string ->
     string list ->
     ty r

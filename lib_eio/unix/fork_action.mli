@@ -32,7 +32,7 @@ val with_actions : t list -> (c_action list -> 'a) -> 'a
 
 (** {2 Actions} *)
 
-val execve : string -> argv:string array -> env:string array -> t
+val execve : string -> argv:string array -> env:Eio.Process.Env.t -> t
 (** See [execve(2)].
 
     This replaces the current executable,

@@ -47,6 +47,100 @@ type 'tag mgr_ty = [ `Process_mgr | `Platform of 'tag ]
 type 'a mgr = 'a r
  constraint 'a = [> [> `Generic] mgr_ty]
 
+module Env = struct
+  let on_windows = (Sys.os_type = "Win32")
+
+  module Name = struct
+    type t = string
+
+    let normalise =
+      if on_windows then String.uppercase_ascii
+      else Fun.id
+
+    let compare x y =
+      String.compare (normalise x) (normalise y)
+
+    let starts_with ~prefix =
+      let prefix = normalise prefix in
+      fun x -> String.starts_with ~prefix (normalise x)
+
+    let validate t =
+      let bad_char = function
+        | '\000' | '=' -> true
+        | _ -> false
+      in
+      if t = "" || String.exists bad_char t then
+        Fmt.invalid_arg "Invalid environment variable name %S" t
+  end
+
+  module M = Map.Make(Name)
+
+  type t = string array
+
+  let of_array = Fun.id
+  let to_array = Fun.id
+  let empty = [| |]
+
+  let validate_value value =
+    if String.contains value '\000' then
+      Fmt.invalid_arg "Invalid environment variable value %S" value
+
+  let validate_binding (name, value) =
+    Name.validate name;
+    Option.iter validate_value value
+
+  let entry name value =
+    Printf.sprintf "%s=%s" name value
+
+  let get_opt name t =
+    Name.validate name;
+    let prefix = name ^ "=" in
+    Array.find_opt (Name.starts_with ~prefix) t
+    |> Option.map (fun e ->
+        let i = String.length prefix in
+        String.sub e i (String.length e - i)
+      )
+
+  let override bindings t =
+    List.iter validate_binding bindings;
+    let all_bindings = M.of_list bindings in
+    let bindings = ref all_bindings in
+    let updated =
+      Array.to_list t
+      |> List.filter_map (fun e ->
+          match String.index e '=' with
+          | exception Not_found -> Some e       (* Not a normal k=v entry *)
+          | i ->
+            let name = String.sub e 0 i in
+            match M.find_opt name all_bindings with
+            | None -> Some e                    (* We're not changing this *)
+            | Some x -> 
+              if M.mem name !bindings then (
+                bindings := M.remove name !bindings;
+                match x with
+                | None -> None                    (* Remove existing entry *)
+                | Some v -> Some (entry name v)   (* Update existing entry *)
+              ) else None                         (* Remove duplicate entry *)
+        )
+    in
+    let extra =
+      M.to_list !bindings
+      |> List.filter_map (function
+          | _, None -> None                     (* Remove entry that wasn't there anyway *)
+          | k, Some v ->
+            Some (entry k v)                    (* Add new entry *)
+        )
+    in
+    Array.of_list (updated @ extra)
+
+  let of_bindings xs =
+    override (List.map (fun (k, v) -> (k, Some v)) xs) empty
+
+  let pp f t =
+    Fmt.pf f "[@[<v>%a@]]"
+      (Fmt.array ~sep:Fmt.cut (Fmt.fmt "%S")) t
+end
+
 module Pi = struct
   module type PROCESS = sig
     type t
