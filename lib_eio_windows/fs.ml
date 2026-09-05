@@ -116,12 +116,11 @@ end = struct
     with
     | fd -> (Flow.of_fd fd :> Eio.File.rw_ty r)
     (* This is the result of raising [caml_unix_error(ELOOP,...)] *)
-    | exception Unix.Unix_error (EUNKNOWNERR 114, _, _) ->
-      print_endline "UNKNOWN";
+    | exception Unix.Unix_error ((ELOOP | EUNKNOWNERR 114), _, _) ->
       (* The leaf was a symlink (or we're unconfined and the main path changed, but ignore that).
          A leaf symlink might be OK, but we need to check it's still in the sandbox.
          todo: possibly we should limit the number of redirections here, like the kernel does. *)
-      let target = Unix.readlink path in
+      let target = Unix.readlink (Nt_path.join t.dir_path path) in
       let full_target = Nt_path.join (Nt_path.dirname path) target in
       open_out t ~sw ~append ~create full_target
     | exception Unix.Unix_error (code, name, arg) ->
