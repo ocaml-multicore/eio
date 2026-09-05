@@ -145,10 +145,11 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_nofollow, value v_
     FILE_ATTRIBUTE_NORMAL, // TODO: Could check flags to see if we can do READONLY here a la OCaml
     (FILE_SHARE_READ | FILE_SHARE_WRITE),
     Int_val(v_create_disposition),
-    ( 
+    (
        FILE_SYNCHRONOUS_IO_NONALERT
       | FILE_OPEN_FOR_BACKUP_INTENT
-      | (Bool_val(v_nofollow) ? FILE_FLAG_OPEN_REPARSE_POINT : Int_val(v_create_options))),
+      | Int_val(v_create_options)
+      | (Bool_val(v_nofollow) ? FILE_OPEN_REPARSE_POINT : 0)),
     NULL, // Extended attribute buffer
     0     // Extended attribute buffer length
   );
