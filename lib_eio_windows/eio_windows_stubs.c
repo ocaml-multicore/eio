@@ -88,7 +88,9 @@ void no_follow(HANDLE h) {
   BY_HANDLE_FILE_INFORMATION b;
 
   if (!GetFileInformationByHandle(h, &b)) {
-    caml_win32_maperr(GetLastError());
+    DWORD err = GetLastError();
+    CloseHandle(h);
+    caml_win32_maperr(err);
     uerror("nofollow", Nothing);
   }
 
@@ -154,14 +156,9 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_nofollow, value v_
   // Free the allocated pathname
   caml_stat_free(pathname);
 
-  if (h == INVALID_HANDLE_VALUE) {
+  if (!NT_SUCCESS(r)) {
     caml_win32_maperr(RtlNtStatusToDosError(r));
-    uerror("openat handle", v_pathname);
-  }
-
-   if (!NT_SUCCESS(r)) {
-    caml_win32_maperr(RtlNtStatusToDosError(r));
-    uerror("openat", Nothing);
+    uerror("openat", v_pathname);
   }
 
   // No follow check -- Windows doesn't actually have that ability
@@ -192,7 +189,7 @@ CAMLprim value caml_eio_windows_unlinkat(value v_dirfd, value v_pathname, value 
   // over file creation. In particular, we can specify the HANDLE to the parent directory
   // of a relative path a la openat.
   pNtCreateFile NtCreatefile = (pNtCreateFile)GetProcAddress(GetModuleHandle("ntdll.dll"), "NtCreateFile");
-  caml_unix_check_path(v_pathname, "openat");
+  caml_unix_check_path(v_pathname, "unlinkat");
   pathname = caml_stat_strdup_to_utf16(String_val(v_pathname));
   RtlInitUnicodeString(&relative, pathname);
 
@@ -230,20 +227,14 @@ CAMLprim value caml_eio_windows_unlinkat(value v_dirfd, value v_pathname, value 
   // Free the allocated pathname
   caml_stat_free(pathname);
 
-  if (h == INVALID_HANDLE_VALUE) {
-    caml_win32_maperr(RtlNtStatusToDosError(r));
-    uerror("openat", v_pathname);
-  }
-
   if (!NT_SUCCESS(r)) {
     caml_win32_maperr(RtlNtStatusToDosError(r));
-    uerror("openat", v_pathname);
+    uerror("unlinkat", v_pathname);
   }
 
   // Now close the file to delete it
-  BOOL closed;
-  closed = CloseHandle(h);
-  
+  CloseHandle(h);
+
   CAMLreturn(Val_unit);
 }
 
