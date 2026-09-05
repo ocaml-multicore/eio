@@ -94,7 +94,7 @@ end = struct
 
   let open_in t ~sw path =
     let open Low_level in
-    let fd = Err.run (Low_level.openat ~sw ~nofollow:(opt_nofollow t) (resolve t path)) Low_level.Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_) Flags.Create.(non_directory) in
+    let fd = Err.run (Low_level.openat ~sw ~nofollow:(opt_nofollow t) (resolve t path) Low_level.Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_)) Flags.Create.(non_directory) in
     (Flow.of_fd fd :> Eio.File.ro_ty Eio.Resource.t)
 
   let rec open_out t ~sw ~append ~create path =
