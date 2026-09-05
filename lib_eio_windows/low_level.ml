@@ -208,6 +208,7 @@ module Flags = struct
 
   module Create = struct
     type t = int
+    let empty = 0
     let directory = Config.file_directory_file
     let non_directory = Config.file_non_directory_file
     let no_intermediate_buffering = Config.file_no_intermediate_buffering

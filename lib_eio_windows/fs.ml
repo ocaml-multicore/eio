@@ -143,7 +143,7 @@ end = struct
     let open Low_level in
     let flags = Low_level.Flags.Open.(generic_read + synchronise) in
     let dis = Flags.Disposition.open_ in
-    let create = Flags.Create.non_directory in
+    let create = Flags.Create.empty in
     let fd = Err.run (openat ~sw ~nofollow:(not follow) (resolve t path) flags dis) create in
     Flow.Impl.stat fd
 

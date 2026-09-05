@@ -115,6 +115,9 @@ module Flags : sig
   module Create : sig
     type t
 
+    val empty : t
+    (** No create options: allow both directories and non-directories. *)
+
     val directory : t
     (** Create a directory. *)
     
