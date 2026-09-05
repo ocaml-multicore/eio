@@ -28,6 +28,9 @@ end
 module Fd = Fd
 (** A safe wrapper for {!Unix.file_descr}. *)
 
+module Dev = Dev
+(** Splitting {!Eio.File.Dev.t} into major and minor numbers. *)
+
 (** Eio resources backed by an OS file descriptor. *)
 module Resource : sig
   type 'a t = ([> `Unix_fd] as 'a) Eio.Resource.t
@@ -151,6 +154,21 @@ module Private : sig
   val chmod_unix : Unix.file_descr -> string -> flags:int -> mode:int -> unit
   val chown : flags:int -> uid:int64 -> gid:int64 -> Fd.t -> string -> unit
   val chown_unix : flags:int -> uid:int64 -> gid:int64 -> Unix.file_descr -> string -> unit
+
+  val rdev_of_int64 : kind:Eio.File.Stat.kind -> int64 -> Dev.t option
+  (** [rdev_of_int64 ~kind x] is [Some x] if [kind] is a device, or [None] otherwise. *)
+
+  type node_kind = [
+    | `Fifo                           (** FIFO (named pipe). *)
+    | `Socket                         (** Unix-domain socket. *)
+    | `Regular_file                   (** Regular file. *)
+    | `Character_special of Dev.t     (** Character device with the given device number. *)
+    | `Block_device of Dev.t          (** Block device with the given device number. *)
+  ]
+  (** The kind of node {!mknod} should create. *)
+
+  val mknod : Fd.t -> string -> kind:node_kind -> perm:int -> unit
+  val mknod_unix : Unix.file_descr -> string -> kind:node_kind -> perm:int -> unit
 
   val getaddrinfo : service:string -> string -> Eio.Net.Sockaddr.t list
 

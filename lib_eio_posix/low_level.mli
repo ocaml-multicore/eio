@@ -58,6 +58,7 @@ external uid     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_uid_bytes"
 external gid     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_gid_bytes" "ocaml_eio_posix_stat_gid_native" [@@noalloc]
 external ino     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_ino_bytes" "ocaml_eio_posix_stat_ino_native" [@@noalloc]
 external size    : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_size_bytes" "ocaml_eio_posix_stat_size_native" [@@noalloc]
+
 external rdev    : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_rdev_bytes" "ocaml_eio_posix_stat_rdev_native" [@@noalloc]
 external dev     : stat -> (int64 [@unboxed]) = "ocaml_eio_posix_stat_dev_bytes" "ocaml_eio_posix_stat_dev_native" [@@noalloc]
 external perm    : stat -> (int [@untagged]) = "ocaml_eio_posix_stat_perm_bytes" "ocaml_eio_posix_stat_perm_native" [@@noalloc]
@@ -82,6 +83,11 @@ val rename : dir_fd -> string -> dir_fd -> string -> unit
 val symlink : link_to:string -> dir_fd -> string -> unit
 (** [symlink ~link_to dir path] will create a new symlink at [dir / path]
     linking to [link_to]. *)
+
+val mknod : Eio_unix.Private.node_kind -> perm:int -> dir_fd -> string -> unit
+(** [mknod kind ~perm dir path] creates a fs node of type [kind] at [dir / path].
+
+    Creating a device node normally requires privileges. *)
 
 val chmod : follow:bool -> mode:int -> dir_fd -> string -> unit
 
