@@ -5,7 +5,10 @@
 ```ocaml
 open Eio.Std
 
+module Env = Eio.Process.Env
 module Process = Eio_linux.Low_level.Process
+
+let default_env = Unix.environment () |> Env.of_array
 ```
 
 ## Spawning processes
@@ -18,7 +21,7 @@ Setting environment variables:
   let child = Process.spawn ~sw Process.Fork_action.[
     execve "/usr/bin/env"
       ~argv:[| "env" |]
-      ~env:[| "FOO=bar" |];
+      ~env:(Env.of_bindings ["FOO", "bar"]);
   ] in
   Promise.await (Process.exit_status child);;
 FOO=bar
@@ -34,7 +37,7 @@ Changing directory:
     chdir "/";
     execve "/usr/bin/env"
       ~argv:[| "env"; "pwd" |]
-      ~env:(Unix.environment ())
+      ~env:default_env
   ] in
   Promise.await (Process.exit_status child);;
 /
@@ -58,7 +61,7 @@ Changing directory using a file descriptor:
     fchdir root;
     execve "/usr/bin/env"
       ~argv:[| "env"; "pwd" |]
-      ~env:(Unix.environment ())
+      ~env:default_env
   ] in
   Promise.await (Process.exit_status child);;
 /
@@ -73,7 +76,7 @@ Exit status:
   let child = Process.spawn ~sw Process.Fork_action.[
     execve "/usr/bin/env"
       ~argv:[| "env"; "false" |]
-      ~env:(Unix.environment ())
+      ~env:default_env
   ] in
   Promise.await (Process.exit_status child);;
 - : Unix.process_status = Unix.WEXITED 1
@@ -88,7 +91,7 @@ Failure starting child:
     chdir "/idontexist";
     execve "/usr/bin/env"
       ~argv:[| "env"; "pwd" |]
-      ~env:(Unix.environment ())
+      ~env:default_env
   ]
 Exception: Unix.Unix_error(Unix.ENOENT, "chdir", "")
 ```
@@ -102,7 +105,7 @@ Signalling a running child:
     Process.spawn ~sw Process.Fork_action.[
       execve "/usr/bin/env"
         ~argv:[| "env"; "sleep"; "1000" |]
-        ~env:(Unix.environment ())
+        ~env:default_env
     ]
   in
   Process.signal child Sys.sigkill;
@@ -122,7 +125,7 @@ Signalling an exited child does nothing:
     Process.spawn ~sw Process.Fork_action.[
       execve "/usr/bin/env"
         ~argv:[| "env" |]
-        ~env:[| "FOO=bar" |];
+        ~env:(Env.of_bindings ["FOO", "bar"]);
     ]
   in
   ignore (Promise.await (Process.exit_status child) : Unix.process_status);

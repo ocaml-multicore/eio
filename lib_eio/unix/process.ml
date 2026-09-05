@@ -67,7 +67,7 @@ let get_executable ~args = function
 
 let get_env = function
   | Some e -> e
-  | None -> Unix.environment ()
+  | None -> Unix.environment () |> Eio.Process.Env.of_array
 
 let translate_execve_error ~executable f =
   try f () with
@@ -98,7 +98,7 @@ module Pi = struct
       ?uid:int ->
       ?gid:int ->
       ?login_tty:Fd.t ->
-      env:string array ->
+      env:Eio.Process.Env.t ->
       fds:(int * Fd.t * Fork_action.blocking) list ->
       executable:string ->
       string list ->
@@ -126,7 +126,7 @@ module Make_mgr (X : sig
     ?uid:int ->
     ?gid:int ->
     ?login_tty:Fd.t ->
-    env:string array ->
+    env:Eio.Process.Env.t ->
     fds:(int * Fd.t * Fork_action.blocking) list ->
     executable:string ->
     string list ->

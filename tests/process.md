@@ -2,6 +2,7 @@
 
 ```ocaml
 # #require "eio_main";;
+# #install_printer Eio.Process.Env.pp;;
 ```
 
 Creating some useful helper functions
@@ -11,6 +12,7 @@ open Eio.Std
 
 module Flow = Eio.Flow
 module Process = Eio.Process
+module Env = Process.Env
 
 let () = Eio.Exn.Backend.show := false
 
@@ -226,7 +228,7 @@ A custom environment:
 
 ```ocaml
 # run @@ fun mgr env ->
-  let env = [| "DISPLAY=:2" |] in
+  let env = Env.of_bindings ["DISPLAY", ":2"] in
   Process.parse_out mgr Eio.Buf_read.line ["sh"; "-c"; "echo $DISPLAY"] ~env;;
 - : string = ":2"
 ```
@@ -246,4 +248,75 @@ let rec waitpid_with_retry flags pid =
   waitpid_with_retry [] p |> snd;;
 hi
 - : Unix.process_status = Unix.WEXITED 0
+```
+
+Manipulating environments:
+
+```ocaml
+# Env.empty;;
+- : Env.t = []
+
+# let e = Env.of_array [| "HOME=/home/user"; "malformed"; "DISPLAY=:0"; "EMPTY=" |];;
+val e : Env.t = ["HOME=/home/user"
+                 "malformed"
+                 "DISPLAY=:0"
+                 "EMPTY="]
+
+# e |> Env.get_opt "DISPLAY";;
+- : string option = Some ":0"
+# e |> Env.get_opt "missing";;
+- : string option = None
+# e |> Env.get_opt "EMPTY";;
+- : string option = Some ""
+# e |> Env.get_opt "malformed";;
+- : string option = None
+
+# e |> Env.override [
+    "HOME", Some "/home/bob";
+    "DISPLAY", None;
+    "MISSING", None;
+    "EXTRA", Some "a";
+    "EXTRA", Some "b";
+    "X", Some "x";
+    "X", None;
+  ];;
+- : Env.t = ["HOME=/home/bob"
+             "malformed"
+             "EMPTY="
+             "EXTRA=b"]
+
+# try Env.of_bindings ["k=", "v"] |> ignore
+  with Invalid_argument x -> print_endline x;;
+Invalid environment variable name "k="
+- : unit = ()
+
+# e |> Env.override ["k", Some "v=1"] |> Env.get_opt "k";;
+- : string option = Some "v=1"
+
+# try Env.(get_opt "" empty) |> ignore
+  with Invalid_argument x -> print_endline x;;
+Invalid environment variable name ""
+- : unit = ()
+
+# try e |> Env.override ["", None] |> ignore
+  with Invalid_argument x -> print_endline x;;
+Invalid environment variable name ""
+- : unit = ()
+
+# let e = Env.of_array [| ""; "a=1"; "a=2"; "b=3"; "b=4"; "c=5"; "c=6" |];;
+val e : Env.t = [""
+                 "a=1"
+                 "a=2"
+                 "b=3"
+                 "b=4"
+                 "c=5"
+                 "c=6"]
+# e |> Env.override [
+    "a", Some "7";
+    "b", None;
+  ];;
+- : Env.t = [""
+             "a=7"
+             "c=5"
+             "c=6"]
 ```
