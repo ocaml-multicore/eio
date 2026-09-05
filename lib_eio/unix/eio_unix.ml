@@ -22,6 +22,7 @@ module Ipaddr = Net.Ipaddr
 
 module Process = Process
 module Net = Net
+module Vars = Vars
 module Pty = Pty
 module Cap = Cap
 module Pi = Pi
@@ -39,6 +40,7 @@ module Stdenv = struct
     fs : Eio.Fs.dir_ty Eio.Path.t;
     cwd : Eio.Fs.dir_ty Eio.Path.t;
     secure_random : Eio.Flow.source_ty r;
+    vars : Eio.Vars.ty r;
     debug : Eio.Debug.t;
     backend_id: string;
   >
@@ -46,7 +48,7 @@ module Stdenv = struct
   let override
     ?stdin ?stdout ?stderr ?net ?domain_mgr
     ?process_mgr ?clock ?mono_clock ?fs ?cwd
-    ?secure_random ?debug ?backend_id (env : <base; ..>) : base
+    ?secure_random ?vars ?debug ?backend_id (env : <base; ..>) : base
   =
     object
       method stdin = Option.value ~default:env#stdin stdin
@@ -60,6 +62,7 @@ module Stdenv = struct
       method fs = Option.value ~default:env#fs fs
       method cwd = Option.value ~default:env#cwd cwd
       method secure_random = Option.value ~default:env#secure_random secure_random 
+      method vars = Option.value ~default:env#vars vars
       method debug = Option.value ~default:env#debug debug
       method backend_id = Option.value ~default:env#backend_id backend_id
     end

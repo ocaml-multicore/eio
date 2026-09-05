@@ -77,7 +77,20 @@ let domain_mgr ~run_event_loop =
   let handler = Eio.Domain_manager.Pi.mgr (module Domain_mgr) in
   Eio.Resource.T (Domain_mgr.make ~run_event_loop, handler)
 
+module Vars = struct
+  include Eio_unix.Vars
+
+  let get_path t = get_path ~sep:':' t
+
+  let put_path t paths = put_path ~sep:':' t paths
+end
+
+let vars m =
+  let handler = Eio.Vars.Pi.vars (module Vars) in
+  Eio.Resource.T (m, handler)
+
 let stdenv ~run_event_loop =
+  let vars = vars (Eio.Mutex.create ()) in
   object (_ : stdenv)
     method stdin  = Flow.stdin
     method stdout = Flow.stdout
@@ -90,6 +103,7 @@ let stdenv ~run_event_loop =
     method cwd = (Fs.cwd :> Eio.Fs.dir_ty Eio.Path.t)
     method fs = (Fs.fs :> Eio.Fs.dir_ty Eio.Path.t)
     method secure_random = Flow.secure_random
+    method vars = vars
     method debug = Eio.Private.Debug.v
     method backend_id = "linux"
   end
