@@ -223,11 +223,17 @@ let rec with_dirfd op dirfd fn =
   | Some dirfd -> Fd.use_exn op dirfd (fun fd -> fn (Some fd))
   | exception Unix.Unix_error(Unix.EINTR, _, "") -> with_dirfd op dirfd fn
 
+let nt_path dirfd path =
+  match dirfd with
+  | Some _ -> path
+  | None -> Eio_utils.Nt_path.to_nt ~cwd:(Sys.getcwd ()) path
+
 external eio_openat : Unix.file_descr option -> bool -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> Unix.file_descr = "caml_eio_windows_openat_bytes" "caml_eio_windows_openat"
 
 let openat ?dirfd ?(nofollow=false) ~sw path flags dis create =
   with_dirfd "openat" dirfd @@ fun dirfd ->
   Switch.check sw;
+  let path = nt_path dirfd path in
   in_worker_thread ~label:"openat" (fun () -> eio_openat dirfd nofollow path Flags.Open.(flags + cloexec (* + nonblock *)) dis create)
   |> Fd.of_unix ~sw ~blocking:false ~close_unix:true
 
@@ -240,6 +246,7 @@ external eio_unlinkat : Unix.file_descr option -> string -> bool -> unit = "caml
 
 let unlink ?dirfd ~dir path =
   with_dirfd "unlink" dirfd @@ fun dirfd ->
+  let path = nt_path dirfd path in
   in_worker_thread ~label:"unlink" @@ fun () ->
   eio_unlinkat dirfd path dir
 

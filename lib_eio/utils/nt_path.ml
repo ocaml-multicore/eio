@@ -53,20 +53,28 @@ let volume_prefix =
   <|> (sep *> sep *> component *> next)                  (* \\server\share, \\?\C: or \\.\device *)
   <|> (bslash *> qmark *> qmark *> component *> next)    (* \??\C: - the NT object-manager form (backslash only) *)
 
-let volume_end s = Option.value (volume_prefix s 0) ~default:0
-let volume s = String.sub s 0 (volume_end s)
-
 (* Win32 does no normalization in the verbatim and NT namespaces. *)
 let verbatim_prefix = bslash *> (bslash <|> qmark) *> qmark
 let verbatim s = Option.is_some (verbatim_prefix s 0)
 
+(* [\??\], [\\?\] and [\\.\] all name the NT object-manager namespace. *)
+let nt_prefix = (verbatim_prefix <|> (bslash *> bslash *> chr '.')) *> bslash
+
 (* [is_relative p] is [true] unless [p] begins with a volume or a separator. *)
 let is_relative s = Option.is_none ((volume_prefix <|> sep) s 0)
 
+let volume_end s = Option.value (volume_prefix s 0) ~default:0
+let drop n s = String.sub s n (String.length s - n)
+
+(* A path's volume prefix, and the rest of the path. *)
+let split_volume p =
+  let n = volume_end p in
+  String.sub p 0 n, drop n p
+
 let split p =
   let vend = volume_end p in
-  let sep_at = if verbatim p then Char.equal '\\' else is_sep in
-  let sep_at i = sep_at p.[i] in
+  let sep_char = if verbatim p then Char.equal '\\' else is_sep in
+  let sep_at i = sep_char p.[i] in
   (* Trailing separators are ignored; one is kept for a bare root. *)
   let rec trim i = if i > vend + 1 && sep_at (i - 1) then trim (i - 1) else i in
   let stop = trim (String.length p) in
@@ -74,7 +82,7 @@ let split p =
   else
     let rec rsep i = if i < vend then None else if sep_at i then Some i else rsep (i - 1) in
     match rsep (stop - 1) with
-    | None -> Some (volume p, String.sub p vend (stop - vend))
+    | None -> Some (String.sub p 0 vend, String.sub p vend (stop - vend))
     | Some idx ->
       let basename = String.sub p (idx + 1) (stop - idx - 1) in
       let dirname =
@@ -97,3 +105,38 @@ let join p1 p2 =
   | _, p2 when not (is_relative p2) -> p2
   | ".", p2 -> p2
   | p1, p2 -> concat p1 p2
+
+let normalise rest =
+  let rec go acc = function
+    | [] -> List.rev acc
+    | ("" | ".") :: xs -> go acc xs
+    | ".." :: xs -> go (match acc with [] -> [] | _ :: acc -> acc) xs
+    | x :: xs -> go (x :: acc) xs
+  in
+  "\\" ^ String.concat "\\" (go [] (String.split_on_char '\\' rest))
+
+(* [qualify p] is the absolute Win32 path [p] named in the NT namespace. *)
+let qualify p =
+  let after r = Option.map (fun i -> drop i p) (r p 0) in
+  "\\??\\" ^
+  match after nt_prefix, after (bslash *> bslash) with
+  | Some rest, _ -> rest                     (* \??\, \\?\ or \\.\ *)
+  | None, Some share -> "UNC\\" ^ share      (* \\server\share *)
+  | None, None -> p                          (* C:\... *)
+
+let to_nt ~cwd p =
+  if verbatim p then qualify p
+  else (
+    let backslashes = String.map (fun c -> if c = '/' then '\\' else c) in
+    let vol, rest = split_volume (backslashes p) in
+    let cwd_vol, cwd_rest = split_volume (backslashes cwd) in
+    let rooted = rest <> "" && rest.[0] = '\\' in
+    let vol, base =
+      match vol with
+      | "" -> cwd_vol, (if rooted then "" else cwd_rest)
+      | v when rooted || v.[0] = '\\' -> v, ""
+      | v when String.uppercase_ascii v = String.uppercase_ascii cwd_vol -> cwd_vol, cwd_rest
+      | v -> v, ""    (* Win32 keeps a current directory per drive; but we sadly can't see it *)
+    in
+    qualify (vol ^ normalise (base ^ "\\" ^ rest))
+  )

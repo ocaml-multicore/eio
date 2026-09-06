@@ -26,9 +26,6 @@ open Eio.Std
 
 module Fd = Eio_unix.Fd
 
-(* NT object-manager namespace prefix, required by NtCreateFile. *)
-let nt_prefix = "\\??\\"
-
 module rec Dir : sig
   include Eio.Fs.Pi.DIR
 
@@ -61,21 +58,15 @@ end = struct
         let full = Err.run Low_level.realpath (Filename.concat dir_path path) in
         let prefix_len = String.length dir_path + 1 in
         if String.length full >= prefix_len && String.sub full 0 prefix_len = dir_path ^ Filename.dir_sep then begin
-          nt_prefix ^ full
+          full
         end else if full = dir_path then
-          nt_prefix ^ full
+          full
         else
           raise @@ Eio.Fs.err (Permission_denied (Err.Outside_sandbox (full, dir_path)))
       ) else (
         raise @@ Eio.Fs.err (Permission_denied Err.Absolute_path)
       )
     ) else path
-
-  let strip_nt_prefix p =
-    let n = String.length nt_prefix in
-    if String.starts_with ~prefix:nt_prefix p
-    then String.sub p n (String.length p - n)
-    else p
 
   let with_parent_dir t path fn =
     if t.sandbox then (
@@ -218,7 +209,7 @@ end = struct
     if Filename.is_relative path then (
       let p =
         if t.dir_path = "." then path
-        else Filename.concat (strip_nt_prefix t.dir_path) path
+        else Filename.concat t.dir_path path
       in
       if p = "" then "."
       else if p = "." then p

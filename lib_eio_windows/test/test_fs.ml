@@ -125,7 +125,7 @@ let test_native env () =
   Alcotest.(check string) "empty" "." (Path.native_exn cwd);
   Alcotest.(check string) "fs relative" ".\\foo" (Path.native_exn (Eio.Stdenv.fs env / "foo"));
   Alcotest.(check string) "absolute" "C:\\foo" (Path.native_exn (Eio.Stdenv.fs env / "C:\\foo"));
-  (* A subtree records its directory in NT form; native must yield the Win32 form. *)
+  (* A subtree records its directory as an absolute Win32 path. *)
   Path.mkdir (cwd / "native-sub") ~perm:0o700;
   Fun.protect ~finally:(fun () -> Path.rmdir (cwd / "native-sub")) @@ fun () ->
   Path.with_open_dir (cwd / "native-sub") @@ fun sub ->

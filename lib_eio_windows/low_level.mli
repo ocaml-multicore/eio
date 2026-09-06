@@ -48,6 +48,7 @@ val chown : ?dirfd:fd -> follow:bool -> ?uid:int64 -> ?gid:int64 -> string -> un
 
 val mkdir : ?dirfd:fd -> ?nofollow:bool -> mode:int -> string -> unit
 val unlink : ?dirfd:fd -> dir:bool -> string -> unit
+
 val rename : ?old_dir:fd -> string -> ?new_dir:fd -> string -> unit
 
 val symlink : link_to:string -> fd option -> string -> unit
@@ -131,4 +132,7 @@ module Flags : sig
 end
 
 val openat : ?dirfd:fd -> ?nofollow:bool-> sw:Switch.t -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> fd
-(** Note: the returned FD is always non-blocking and close-on-exec. *)
+(** [openat ?dirfd ~sw path ...] opens [path], relative to [dirfd] if given
+    and otherwise a Win32 path, relative to the current directory.
+
+    Note: the returned FD is always non-blocking and close-on-exec. *)
