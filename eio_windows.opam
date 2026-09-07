@@ -10,6 +10,7 @@ doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
   "dune" {>= "3.9"}
+  "ocaml" {>= "5.4.0"}
   "eio" {= version}
   "fmt" {>= "0.8.9"}
   "kcas" {>= "0.3.0" & with-test}

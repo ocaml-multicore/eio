@@ -22,6 +22,10 @@ val basename : string -> string
 (** [basename p] is the final component of [p]. It is [p] itself when [p] has
     no directory part, and ["."] when [p] is empty. *)
 
+val to_win32 : string -> string
+(** [to_win32 p] is [p] with any verbatim ([\\?\]) or NT ([\??\]) prefix
+    removed, undoing {!to_nt} for Win32 APIs such as [CreateProcess]. *)
+
 val to_nt : cwd:string -> string -> string
 (** [to_nt ~cwd path] is the NT object-manager form of the Win32 path [path].
 
