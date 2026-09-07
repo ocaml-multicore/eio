@@ -144,7 +144,15 @@ end = struct
     let flags = Low_level.Flags.Open.(generic_read + synchronise) in
     let dis = Flags.Disposition.open_ in
     let create = Flags.Create.empty in
-    let fd = Err.run (openat ~sw ~follow:(if follow then Follow else Nofollow) (resolve t path) flags dis) create in
+    let leaf = Nt_path.basename path in
+    let fd =
+      (* "." and ".." are never symlinks, and [with_parent_dir] rejects ".." *)
+      if follow || leaf = "." || leaf = ".." then
+        Err.run (openat ~sw (resolve t path) flags dis) create
+      else
+        with_parent_dir t path @@ fun dirfd path ->
+        Err.run (openat ?dirfd ~follow:Open_link ~sw path flags dis) create
+    in
     Flow.Impl.stat fd
 
   let read_dir t path =
