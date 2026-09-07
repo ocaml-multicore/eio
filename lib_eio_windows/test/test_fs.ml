@@ -73,6 +73,12 @@ let with_symlinks fn =
 let write_file path data = Out_channel.with_open_bin path (fun oc -> Out_channel.output_string oc data)
 let read_file path = In_channel.with_open_bin path In_channel.input_all
 
+let stat_kind = Alcotest.testable Eio.File.Stat.pp_kind ( = )
+
+let check_kind ~follow path expected =
+  Alcotest.check stat_kind (Fmt.str "%a ~follow:%b" Path.pp path follow) expected
+    (Eio.Path.stat ~follow path).kind
+
 (* Check that [fn] reports a missing path as [Not_found] without creating it.
    [fn] describes what it got instead, for the failure message. *)
 let check_missing name fn =
@@ -457,6 +463,46 @@ let test_fs_missing_stat_no_create env () =
   check_missing "eio-missing-stat" @@ fun path ->
   Fmt.str "kind %a" Eio.File.Stat.pp_kind (Eio.Path.stat ~follow:true (fs / path)).kind
 
+let test_stat_directory env () =
+  let cwd = Eio.Stdenv.cwd env in
+  with_cleanup ["stat-dir"] @@ fun () ->
+  try_mkdir (cwd / "stat-dir");
+  check_kind ~follow:true (cwd / "stat-dir") `Directory;
+  check_kind ~follow:false (cwd / "stat-dir") `Directory
+
+let test_stat_regular_file env () =
+  let cwd = Eio.Stdenv.cwd env in
+  let fs = Eio.Stdenv.fs env in
+  with_cleanup ["stat-file"] @@ fun () ->
+  Path.save ~create:(`Exclusive 0o600) (cwd / "stat-file") "data";
+  let abs = Filename.concat (Sys.getcwd ()) "stat-file" in
+  check_kind ~follow:true (cwd / "stat-file") `Regular_file;
+  check_kind ~follow:false (cwd / "stat-file") `Regular_file;
+  check_kind ~follow:true (fs / abs) `Regular_file;
+  check_kind ~follow:false (fs / abs) `Regular_file
+
+let test_stat_symlink env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let fs = Eio.Stdenv.fs env in
+  let target = "statl-target" and link = "statl-link" and dangling = "statl-dangling" in
+  with_cleanup [link; dangling; target] @@ fun () ->
+  write_file target "data";
+  Unix.symlink target link;
+  Unix.symlink "statl-missing" dangling;
+  let abs_link = Filename.concat (Sys.getcwd ()) link in
+  check_kind ~follow:false (cwd / link) `Symbolic_link;
+  check_kind ~follow:true (cwd / link) `Regular_file;
+  check_kind ~follow:false (fs / abs_link) `Symbolic_link;
+  check_kind ~follow:true (fs / abs_link) `Regular_file;
+  check_kind ~follow:false (cwd / dangling) `Symbolic_link;
+  (match Eio.Path.stat ~follow:true (cwd / dangling) with
+   | st -> Alcotest.failf "Expected Not_found, got %a" Eio.File.Stat.pp_kind st.kind
+   | exception Eio.Io (Eio.Fs.E (Not_found _), _) -> ());
+  let size = (Eio.Path.stat ~follow:false (cwd / link)).size in
+  (* Windows stores the target path in UTF-16 *)
+  Alcotest.(check int) "size is that of the target path" (2 * String.length target) (Optint.Int63.to_int size)
+
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
   "absolute-join", `Quick, test_absolute_join env;
@@ -486,4 +532,7 @@ let tests env = [
   "sandbox-symlink-escape-write", `Quick, test_sandbox_symlink_escape_write env;
   "fs-missing-read-no-create", `Quick, test_fs_missing_read_no_create env;
   "fs-missing-stat-no-create", `Quick, test_fs_missing_stat_no_create env;
+  "stat-directory", `Quick, test_stat_directory env;
+  "stat-regular-file", `Quick, test_stat_regular_file env;
+  "stat-symlink", `Quick, test_stat_symlink env;
 ]
