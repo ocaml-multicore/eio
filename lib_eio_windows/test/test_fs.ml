@@ -503,6 +503,46 @@ let test_stat_symlink env () =
   (* Windows stores the target path in UTF-16 *)
   Alcotest.(check int) "size is that of the target path" (2 * String.length target) (Optint.Int63.to_int size)
 
+let test_rename env () =
+  let cwd = Eio.Stdenv.cwd env in
+  let fs = Eio.Stdenv.fs env in
+  with_cleanup ["rn-a"; "rn-b"; "rn-c"; "rn-dir\\moved"; "rn-dir2\\moved"; "rn-dir"; "rn-dir2"; "..\\rn-escaped"] @@ fun () ->
+  Path.save ~create:(`Exclusive 0o600) (cwd / "rn-a") "a";
+  Path.rename (cwd / "rn-a") (cwd / "rn-b");
+  Alcotest.(check string) "renamed" "a" (read_file "rn-b");
+  Alcotest.(check bool) "old name gone" false (Sys.file_exists "rn-a");
+  write_file "rn-c" "c";
+  Path.rename (cwd / "rn-b") (cwd / "rn-c");
+  Alcotest.(check string) "existing target replaced" "a" (read_file "rn-c");
+  try_mkdir (cwd / "rn-dir");
+  Path.rename (cwd / "rn-c") (cwd / "rn-dir" / "moved");
+  Alcotest.(check string) "moved into a directory" "a" (read_file "rn-dir\\moved");
+  Path.rename (cwd / "rn-dir") (cwd / "rn-dir2");
+  Alcotest.(check bool) "directory renamed" true (Sys.is_directory "rn-dir2");
+  let abs = Filename.concat (Sys.getcwd ()) in
+  Path.rename (fs / abs "rn-dir2\\moved") (fs / abs "rn-a");
+  Alcotest.(check string) "renamed through fs" "a" (read_file "rn-a");
+  match Path.rename (cwd / "rn-a") (cwd / "..\\rn-escaped") with
+  | () -> Alcotest.fail "Expected permission denied"
+  | exception Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ()
+
+let test_rename_over_dir env () =
+  let cwd = Eio.Stdenv.cwd env in
+  with_cleanup ["rn-src\\inside"; "rn-src"; "rn-empty\\inside"; "rn-empty"; "rn-full\\inside"; "rn-full"] @@ fun () ->
+  try_mkdir (cwd / "rn-src");
+  write_file "rn-src\\inside" "x";
+  try_mkdir (cwd / "rn-empty");
+  Path.rename (cwd / "rn-src") (cwd / "rn-empty");
+  Alcotest.(check string) "empty directory replaced" "x" (read_file "rn-empty\\inside");
+  Alcotest.(check bool) "old name gone" false (Sys.file_exists "rn-src");
+  try_mkdir (cwd / "rn-full");
+  write_file "rn-full\\inside" "y";
+  match Path.rename (cwd / "rn-empty") (cwd / "rn-full") with
+  | () -> Alcotest.fail "Expected ENOTEMPTY"
+  | exception Eio.Io (Eio.Exn.X (Eio_unix.Unix_error (Unix.ENOTEMPTY, _, _)), _) ->
+    Alcotest.(check string) "non-empty directory kept" "y" (read_file "rn-full\\inside");
+    Alcotest.(check string) "source kept" "x" (read_file "rn-empty\\inside")
+
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
   "absolute-join", `Quick, test_absolute_join env;
@@ -535,4 +575,6 @@ let tests env = [
   "stat-directory", `Quick, test_stat_directory env;
   "stat-regular-file", `Quick, test_stat_regular_file env;
   "stat-symlink", `Quick, test_stat_symlink env;
+  "rename", `Quick, test_rename env;
+  "rename-over-directory", `Quick, test_rename_over_dir env;
 ]

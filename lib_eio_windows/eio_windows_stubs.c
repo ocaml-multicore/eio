@@ -267,9 +267,78 @@ CAMLprim value caml_eio_windows_unlinkat(value v_dirfd, value v_pathname, value 
   CAMLreturn(Val_unit);
 }
 
+/* Missing from mingw's winternl.h but fixed by Windows kernel ABI */
+#define FileRenameInformationEx ((FILE_INFORMATION_CLASS)65)
+
 CAMLprim value caml_eio_windows_renameat(value v_old_fd, value v_old_path, value v_new_fd, value v_new_path)
 {
-  uerror("renameat is not supported on windows yet", Nothing);
+  CAMLparam4(v_old_fd, v_old_path, v_new_fd, v_new_path);
+  HANDLE h, old_dir, new_dir;
+  OBJECT_ATTRIBUTES obj_attr;
+  IO_STATUS_BLOCK io_status;
+  UNICODE_STRING relative;
+  wchar_t *old_path, *new_path;
+  FILE_RENAME_INFO *info;
+  size_t name_len, info_size;
+  NTSTATUS r;
+
+  pNtCreateFile NtCreatefile = (pNtCreateFile)GetProcAddress(GetModuleHandle("ntdll.dll"), "NtCreateFile");
+  caml_unix_check_path(v_old_path, "renameat");
+  caml_unix_check_path(v_new_path, "renameat");
+  old_dir = Is_some(v_old_fd) ? Handle_val(Some_val(v_old_fd)) : NULL;
+  new_dir = Is_some(v_new_fd) ? Handle_val(Some_val(v_new_fd)) : NULL;
+
+  old_path = caml_stat_strdup_to_utf16(String_val(v_old_path));
+  RtlInitUnicodeString(&relative, old_path);
+  InitializeObjectAttributes(&obj_attr, &relative, OBJ_CASE_INSENSITIVE, old_dir, NULL);
+  caml_enter_blocking_section();
+  r = NtCreatefile(
+    &h,
+    DELETE | SYNCHRONIZE,
+    &obj_attr,
+    &io_status,
+    0,
+    FILE_ATTRIBUTE_NORMAL,
+    (FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE),
+    FILE_OPEN,
+    (FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT | FILE_OPEN_REPARSE_POINT),
+    NULL,
+    0
+  );
+  caml_leave_blocking_section();
+  caml_stat_free(old_path);
+  if (!NT_SUCCESS(r)) {
+    caml_win32_maperr(RtlNtStatusToDosError(r));
+    uerror("renameat", v_old_path);
+  }
+
+  new_path = caml_stat_strdup_to_utf16(String_val(v_new_path));
+  name_len = wcslen(new_path) * sizeof(wchar_t);
+  info_size = sizeof(FILE_RENAME_INFO) + name_len;
+  info = caml_stat_alloc(info_size);
+  info->Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
+  info->RootDirectory = new_dir;
+  info->FileNameLength = (ULONG)name_len;
+  memcpy(info->FileName, new_path, name_len);
+  caml_stat_free(new_path);
+
+  caml_enter_blocking_section();
+  r = NtSetInformationFile(h, &io_status, info, (ULONG)info_size, FileRenameInformationEx);
+  if (r == STATUS_INVALID_PARAMETER || r == STATUS_INVALID_INFO_CLASS) {
+    /* FAT32 volumes only seem to have the original class afaict */
+    info->Flags = 0;
+    info->ReplaceIfExists = TRUE;
+    r = NtSetInformationFile(h, &io_status, info, (ULONG)info_size, FileRenameInformation);
+  }
+  CloseHandle(h);
+  caml_leave_blocking_section();
+  caml_stat_free(info);
+  if (!NT_SUCCESS(r)) {
+    caml_win32_maperr(RtlNtStatusToDosError(r));
+    uerror("renameat", v_new_path);
+  }
+
+  CAMLreturn(Val_unit);
 }
 
 CAMLprim value caml_eio_windows_symlinkat(value v_old_path, value v_new_fd, value v_new_path)
