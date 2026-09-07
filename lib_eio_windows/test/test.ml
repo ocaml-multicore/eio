@@ -86,6 +86,7 @@ let () =
     "net", Test_net.tests env;
     "fs", Test_fs.tests env;
     "pipe", Test_pipe.tests;
+    "process", Test_process.tests env;
     "timeout", Timeout.tests env;
     "random", Random.tests env;
     "dla", Dla.tests;
