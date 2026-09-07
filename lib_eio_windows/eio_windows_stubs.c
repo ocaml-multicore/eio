@@ -277,7 +277,153 @@ CAMLprim value caml_eio_windows_symlinkat(value v_old_path, value v_new_fd, valu
   uerror("symlinkat is not supported on windows yet", Nothing);
 }
 
-CAMLprim value caml_eio_windows_spawn(value v_errors, value v_actions)
+/* The block CreateProcess expects: the entries NUL-separated, then a final NUL. */
+static wchar_t *env_block_of_array(value v_env)
 {
-  uerror("processes are not supported on windows yet", Nothing);
+  mlsize_t n = Wosize_val(v_env), i;
+  size_t total = n == 0 ? 2 : 1;
+  wchar_t **parts = caml_stat_alloc((n + 1) * sizeof(wchar_t *));
+  wchar_t *block, *p;
+
+  for (i = 0; i < n; i++) {
+    parts[i] = caml_stat_strdup_to_utf16(String_val(Field(v_env, i)));
+    total += wcslen(parts[i]) + 1;
+  }
+  p = block = caml_stat_alloc(total * sizeof(wchar_t));
+  for (i = 0; i < n; i++) {
+    size_t len = wcslen(parts[i]) + 1;
+    memcpy(p, parts[i], len * sizeof(wchar_t));
+    caml_stat_free(parts[i]);
+    p += len;
+  }
+  *p = 0;
+  if (n == 0) p[1] = 0;
+  caml_stat_free(parts);
+  return block;
+}
+
+CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
+                                      value v_stdin, value v_stdout, value v_stderr,
+                                      value v_cmdline)
+{
+  CAMLparam5(v_cwd, v_env, v_stdin, v_stdout, v_stderr);
+  CAMLxparam1(v_cmdline);
+  CAMLlocal1(v_result);
+
+  wchar_t *cmdline = NULL, *cwd = NULL, *env_block = NULL;
+  HANDLE src[3];
+  HANDLE dup[3] = { NULL, NULL, NULL };
+  STARTUPINFOEXW si;
+  PROCESS_INFORMATION pi;
+  SIZE_T attr_size = 0;
+  BOOL ok = FALSE;
+  DWORD err = 0;
+  DWORD create_flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT;
+  HANDLE cur = GetCurrentProcess();
+
+  memset(&si, 0, sizeof(si));
+  memset(&pi, 0, sizeof(pi));
+
+  caml_unix_check_path(v_cmdline, "execve");
+  if (Is_some(v_cwd)) caml_unix_check_path(Field(v_cwd, 0), "execve");
+  cmdline = caml_stat_strdup_to_utf16(String_val(v_cmdline));
+  if (Is_some(v_cwd)) cwd = caml_stat_strdup_to_utf16(String_val(Field(v_cwd, 0)));
+  /* Always passed: NULL would make the child inherit our environment. */
+  env_block = env_block_of_array(v_env);
+
+  src[0] = Handle_val(v_stdin);
+  src[1] = Handle_val(v_stdout);
+  src[2] = Handle_val(v_stderr);
+
+  for (int i = 0; i < 3; i++) {
+    if (!DuplicateHandle(cur, src[i], cur, &dup[i], 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+      err = GetLastError();
+      goto cleanup;
+    }
+  }
+
+  si.StartupInfo.cb = sizeof(STARTUPINFOEXW);
+  si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+  si.StartupInfo.hStdInput  = dup[0];
+  si.StartupInfo.hStdOutput = dup[1];
+  si.StartupInfo.hStdError  = dup[2];
+
+  if (!GetConsoleWindow()) create_flags |= CREATE_NO_WINDOW;
+
+  InitializeProcThreadAttributeList(NULL, 1, 0, &attr_size);
+  si.lpAttributeList = caml_stat_alloc(attr_size);
+  if (!InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &attr_size)) {
+    err = GetLastError();
+    caml_stat_free(si.lpAttributeList);
+    si.lpAttributeList = NULL;
+    goto cleanup;
+  }
+  if (!UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                                 dup, 3 * sizeof(HANDLE), NULL, NULL)) {
+    err = GetLastError();
+    goto cleanup;
+  }
+
+  caml_enter_blocking_section();
+  ok = CreateProcessW(NULL, cmdline, NULL, NULL, TRUE, create_flags, env_block, cwd,
+                      &si.StartupInfo, &pi);
+  if (!ok) err = GetLastError();
+  caml_leave_blocking_section();
+
+cleanup:
+  if (si.lpAttributeList) {
+    DeleteProcThreadAttributeList(si.lpAttributeList);
+    caml_stat_free(si.lpAttributeList);
+  }
+  for (int i = 0; i < 3; i++)
+    if (dup[i]) CloseHandle(dup[i]);
+  caml_stat_free(cmdline);
+  caml_stat_free(cwd);
+  caml_stat_free(env_block);
+
+  if (!ok) {
+    caml_win32_maperr(err);
+    /* Named "execve" so the portable error translation applies unchanged. */
+    uerror("execve", v_cmdline);
+  }
+
+  CloseHandle(pi.hThread);
+  v_result = caml_alloc_tuple(2);
+  Store_field(v_result, 0, Val_long(pi.dwProcessId));
+  Store_field(v_result, 1, caml_win32_alloc_handle(pi.hProcess));
+  CAMLreturn(v_result);
+}
+
+CAMLprim value caml_eio_windows_spawn_bytes(value *argv, int argn)
+{
+  (void)argn;
+  return caml_eio_windows_spawn(argv[0], argv[1], argv[2], argv[3],
+                                argv[4], argv[5]);
+}
+
+CAMLprim value caml_eio_windows_process_wait(value v_handle)
+{
+  CAMLparam1(v_handle);
+  HANDLE h = Handle_val(v_handle);
+  DWORD code = 0;
+  DWORD wait_res;
+  caml_enter_blocking_section();
+  wait_res = WaitForSingleObject(h, INFINITE);
+  caml_leave_blocking_section();
+  if (wait_res == WAIT_FAILED) {
+    caml_win32_maperr(GetLastError());
+    uerror("process_wait", Nothing);
+  }
+  if (!GetExitCodeProcess(h, &code)) {
+    caml_win32_maperr(GetLastError());
+    uerror("process_wait", Nothing);
+  }
+  CAMLreturn(Val_long((intnat)(unsigned int)code));
+}
+
+CAMLprim value caml_eio_windows_process_terminate(value v_handle, value v_code)
+{
+  CAMLparam2(v_handle, v_code);
+  /* Signalling an already-exited process is a no-op rather than an error. */
+  CAMLreturn(Val_bool(TerminateProcess(Handle_val(v_handle), (UINT)Long_val(v_code))));
 }

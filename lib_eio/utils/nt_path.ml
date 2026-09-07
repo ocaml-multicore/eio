@@ -124,14 +124,24 @@ let normalise rest =
   in
   "\\" ^ String.concat "\\" (go [] (String.split_on_char '\\' rest))
 
+(* The rest of [p] after the prefix [r], if [p] has it. *)
+let after r p = Option.map (fun i -> drop i p) (r p 0)
+
 (* [qualify p] is the absolute Win32 path [p] named in the NT namespace. *)
 let qualify p =
-  let after r = Option.map (fun i -> drop i p) (r p 0) in
   "\\??\\" ^
-  match after nt_prefix, after (bslash *> bslash) with
+  match after nt_prefix p, after (bslash *> bslash) p with
   | Some rest, _ -> rest                     (* \??\, \\?\ or \\.\ *)
   | None, Some share -> "UNC\\" ^ share      (* \\server\share *)
   | None, None -> p                          (* C:\... *)
+
+let to_win32 p =
+  match after (verbatim_prefix *> bslash) p with
+  | None -> p                                (* including \\.\, which Win32 understands *)
+  | Some rest ->
+    match after (unc_kw *> bslash) rest with
+    | Some share -> "\\\\" ^ share           (* \\server\share *)
+    | None -> rest                           (* C:\... *)
 
 let to_nt ~cwd p =
   if verbatim p then qualify p
