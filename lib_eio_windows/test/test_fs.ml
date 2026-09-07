@@ -51,6 +51,28 @@ let try_rmdir path =
 let with_temp_file path fn =
  Fun.protect (fun () -> fn path) ~finally:(fun () -> Eio.Path.unlink path)
 
+(* Remove [paths] after [fn], ignoring any that have gone already. List a
+   directory after its contents. *)
+let with_cleanup paths fn =
+  let rm path =
+    try Unix.unlink path
+    with Unix.Unix_error _ -> (try Unix.rmdir path with Unix.Unix_error _ -> ())
+  in
+  Fun.protect fn ~finally:(fun () -> List.iter rm paths)
+
+(* A temporary file made by the stdlib, so that [fs] is given an absolute path. *)
+let with_stdlib_temp_file prefix fn =
+  let path = Filename.temp_file prefix "" in
+  with_cleanup [path] (fun () -> fn path)
+
+(* Making a symlink needs a privilege that older Windows withholds. *)
+let with_symlinks fn =
+  if Unix.has_symlink () then fn () else Alcotest.skip ()
+
+(* Read and write without Eio, to see what really landed on disk. *)
+let write_file path data = Out_channel.with_open_bin path (fun oc -> Out_channel.output_string oc data)
+let read_file path = In_channel.with_open_bin path In_channel.input_all
+
 let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
@@ -204,9 +226,7 @@ let test_symlink env () =
      Unix.mkdir "another" 0o700;
      print_endline @@ Unix.realpath "to-subdir" |}
   *)
-  if not (Unix.has_symlink ()) then
-    Printf.printf "Skipping test_symlink on systems that don't support symlinks.\n"
-  else
+  with_symlinks @@ fun () ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "sandbox");
   Unix.symlink ~to_dir:true ".." "sandbox\\to-root";
@@ -313,6 +333,69 @@ let test_remove_dir env () =
   in
   ()
 
+(* Absolute Win32 paths via the unsandboxed [fs] (#931) *)
+let test_fs_absolute_read env () =
+  let fs = Eio.Stdenv.fs env in
+  with_stdlib_temp_file "eio-abs" @@ fun path ->
+  let data = "abs-read-data" in
+  write_file path data;
+  Alcotest.(check string) "same data" data (Path.load (fs / path));
+  let dir = Filename.dirname path in
+  let unnormalised = String.concat "/" [dir; ".."; Filename.basename dir; Filename.basename path] in
+  Alcotest.(check string) "with .. and /" data (Path.load (fs / unnormalised))
+
+let test_fs_absolute_write env () =
+  let fs = Eio.Stdenv.fs env in
+  let path = Filename.temp_file "eio-abs-write" "" in
+  Unix.unlink path;
+  with_cleanup [path] @@ fun () ->
+  let data = "abs-write-data" in
+  Path.save ~create:(`Exclusive 0o600) (fs / path) data;
+  Alcotest.(check string) "same data" data (read_file path)
+
+let test_fs_absolute_unlink env () =
+  let fs = Eio.Stdenv.fs env in
+  with_stdlib_temp_file "eio-abs-unlink" @@ fun path ->
+  Path.unlink (fs / path);
+  Alcotest.(check bool) "file gone" false (Sys.file_exists path)
+
+let test_fs_absolute_mkdir_rmdir env () =
+  let fs = Eio.Stdenv.fs env in
+  let path = Filename.temp_file "eio-abs-dir" "" in
+  Unix.unlink path;
+  with_cleanup [path] @@ fun () ->
+  Path.mkdir ~perm:0o700 (fs / path);
+  Alcotest.(check bool) "is dir" true (Sys.is_directory path);
+  Path.rmdir (fs / path);
+  Alcotest.(check bool) "dir gone" false (Sys.file_exists path)
+
+let test_fs_relative_read env () =
+  let fs = Eio.Stdenv.fs env in
+  let name = "fs-rel-test-file" in
+  let data = "rel-read-data" in
+  with_cleanup [name] @@ fun () ->
+  write_file name data;
+  Alcotest.(check string) "same data" data (Path.load (fs / name))
+
+let test_fs_nt_prefixed_read env () =
+  let fs = Eio.Stdenv.fs env in
+  with_stdlib_temp_file "eio-nt" @@ fun path ->
+  let data = "nt-prefixed-data" in
+  write_file path data;
+  Alcotest.(check string) "same data" data (Path.load (fs / ("\\??\\" ^ path)))
+
+let test_fs_symlink_follow_read env () =
+  with_symlinks @@ fun () ->
+  let fs = Eio.Stdenv.fs env in
+  let data = "symlink-follow-data" in
+  let target = "slt-target" and link = "slt-link" in
+  with_cleanup [link; target] @@ fun () ->
+  write_file target data;
+  Unix.symlink target link;
+  Alcotest.(check string) "relative link" data (Path.load (fs / link));
+  let abs_link = Filename.concat (Sys.getcwd ()) link in
+  Alcotest.(check string) "absolute link" data (Path.load (fs / abs_link))
+
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
   "absolute-join", `Quick, test_absolute_join env;
@@ -329,5 +412,12 @@ let tests env = [
   "unlink", `Quick, test_unlink env;
   "failing-unlink", `Quick, try_failing_unlink env;
   "rmdir", `Quick, test_remove_dir env;
-  "mkdirs", `Quick, test_mkdirs env; 
+  "mkdirs", `Quick, test_mkdirs env;
+  "fs-absolute-read", `Quick, test_fs_absolute_read env;
+  "fs-absolute-write", `Quick, test_fs_absolute_write env;
+  "fs-absolute-unlink", `Quick, test_fs_absolute_unlink env;
+  "fs-absolute-mkdir-rmdir", `Quick, test_fs_absolute_mkdir_rmdir env;
+  "fs-relative-read", `Quick, test_fs_relative_read env;
+  "fs-nt-prefixed-read", `Quick, test_fs_nt_prefixed_read env;
+  "fs-symlink-follow-read", `Quick, test_fs_symlink_follow_read env;
 ]
