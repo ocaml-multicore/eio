@@ -396,6 +396,46 @@ let test_fs_symlink_follow_read env () =
   let abs_link = Filename.concat (Sys.getcwd ()) link in
   Alcotest.(check string) "absolute link" data (Path.load (fs / abs_link))
 
+let test_sandbox_write_through_symlink_leaf env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let target = "slt2-target" and link = "slt2-link" in
+  with_cleanup [link; target] @@ fun () ->
+  write_file target "old";
+  Unix.symlink target link;
+  Path.save ~create:`Never (cwd / link) "new";
+  Alcotest.(check string) "wrote through symlink" "new" (read_file target)
+
+(* As above, but in a subtree, whose [dir_path] is absolute, and with a relative link target *)
+let test_subtree_write_through_symlink_leaf env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let dir = "slt3-dir" in
+  let target = dir ^ "\\target" and link = dir ^ "\\link" in
+  with_cleanup [link; target; dir] @@ fun () ->
+  try_mkdir (cwd / dir);
+  write_file target "old";
+  Unix.symlink "target" link;
+  Eio.Path.with_subtree (cwd / dir) @@ fun sub ->
+  Path.save ~create:`Never (sub / "link") "new";
+  Alcotest.(check string) "wrote through subtree symlink" "new" (read_file target)
+
+let test_sandbox_symlink_escape_write env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let dir = "slt4-dir" and outside = "slt4-outside" in
+  let escape = dir ^ "\\escape" in
+  with_cleanup [escape; dir; outside] @@ fun () ->
+  try_mkdir (cwd / dir);
+  write_file outside "unchanged";
+  Unix.symlink ("..\\" ^ outside) escape;
+  (try
+     Eio.Path.with_subtree (cwd / dir) @@ fun sub ->
+     Path.save ~create:`Never (sub / "escape") "x";
+     failwith "Expected permission denied"
+   with Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ());
+  Alcotest.(check string) "outside file unchanged" "unchanged" (read_file outside)
+
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
   "absolute-join", `Quick, test_absolute_join env;
@@ -420,4 +460,7 @@ let tests env = [
   "fs-relative-read", `Quick, test_fs_relative_read env;
   "fs-nt-prefixed-read", `Quick, test_fs_nt_prefixed_read env;
   "fs-symlink-follow-read", `Quick, test_fs_symlink_follow_read env;
+  "sandbox-write-through-symlink-leaf", `Quick, test_sandbox_write_through_symlink_leaf env;
+  "subtree-write-through-symlink-leaf", `Quick, test_subtree_write_through_symlink_leaf env;
+  "sandbox-symlink-escape-write", `Quick, test_sandbox_symlink_escape_write env;
 ]
