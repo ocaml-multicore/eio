@@ -39,6 +39,8 @@ val lseek : fd -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
 val fsync : fd -> unit
 val ftruncate : fd -> Optint.Int63.t -> unit
 
+type follow = Follow | Nofollow | Open_link
+
 val fstat : fd -> Unix.LargeFile.stats
 val lstat : string -> Unix.LargeFile.stats
 
@@ -46,7 +48,7 @@ val realpath : string -> string
 val read_link : ?dirfd:fd -> string -> string
 val chown : ?dirfd:fd -> follow:bool -> ?uid:int64 -> ?gid:int64 -> string -> unit
 
-val mkdir : ?dirfd:fd -> ?nofollow:bool -> mode:int -> string -> unit
+val mkdir : ?dirfd:fd -> ?follow:follow -> mode:int -> string -> unit
 val unlink : ?dirfd:fd -> dir:bool -> string -> unit
 
 val rename : ?old_dir:fd -> string -> ?new_dir:fd -> string -> unit
@@ -134,7 +136,7 @@ module Flags : sig
   end
 end
 
-val openat : ?dirfd:fd -> ?nofollow:bool-> sw:Switch.t -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> fd
+val openat : ?dirfd:fd -> ?follow:follow -> sw:Switch.t -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> fd
 (** [openat ?dirfd ~sw path ...] opens [path], relative to [dirfd] if given
     and otherwise a Win32 path, relative to the current directory.
 

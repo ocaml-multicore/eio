@@ -100,8 +100,9 @@ void no_follow(HANDLE h) {
   }
 }
 
-// We recreate an openat like function using NtCreateFile
-CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_nofollow, value v_pathname, value v_desired_access, value v_create_disposition, value v_create_options)
+// We recreate an openat like function using NtCreateFile.
+// [v_follow] is a [Low_level.follow]: 0 opens a symlink's target, 1 raises ELOOP on one and 2 opens the symlink itself.
+CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_follow, value v_pathname, value v_desired_access, value v_create_disposition, value v_create_options)
 {
   CAMLparam2(v_dirfd, v_pathname);
   HANDLE h, dir;
@@ -110,6 +111,7 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_nofollow, value v_
   wchar_t *pathname;
   UNICODE_STRING relative;
   NTSTATUS r;
+  int follow = Int_val(v_follow);
 
   // Not sure what the overhead of this is, but it allows us to have low-level control
   // over file creation. In particular, we can specify the HANDLE to the parent directory
@@ -149,7 +151,7 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_nofollow, value v_
        FILE_SYNCHRONOUS_IO_NONALERT
       | FILE_OPEN_FOR_BACKUP_INTENT
       | Int_val(v_create_options)
-      | (Bool_val(v_nofollow) ? FILE_OPEN_REPARSE_POINT : 0)),
+      | (follow != 0 ? FILE_OPEN_REPARSE_POINT : 0)),
     NULL, // Extended attribute buffer
     0     // Extended attribute buffer length
   );
@@ -165,15 +167,41 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_nofollow, value v_
   // No follow check -- Windows doesn't actually have that ability
   // so we have to do it after the fact. This will raise if a symbolic
   // link is encountered and will close the handle.
-  if (Bool_val(v_nofollow)) {
+  if (follow == 1) {
     no_follow(h);
   }
-  
+
   CAMLreturn(caml_win32_alloc_handle(h));
 }
 
 value caml_eio_windows_openat_bytes(value* values, int argc) {
     return caml_eio_windows_openat(values[0], values[1], values[2], values[3], values[4], values[5]);
+}
+
+// The size in bytes of the target path of the symlink open on [v_fd], or None if it is not a symlink
+CAMLprim value caml_eio_windows_symlink_size(value v_fd)
+{
+  CAMLparam1(v_fd);
+  HANDLE h = Handle_val(v_fd);
+  BY_HANDLE_FILE_INFORMATION info;
+  union {
+    REPARSE_DATA_BUFFER point;
+    char raw[MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
+  } buffer;
+  DWORD len;
+
+  if (!GetFileInformationByHandle(h, &info) || !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
+    CAMLreturn(Val_none);
+
+  if (!DeviceIoControl(h, FSCTL_GET_REPARSE_POINT, NULL, 0, &buffer, sizeof(buffer), &len, NULL)) {
+    caml_win32_maperr(GetLastError());
+    uerror("fstat", Nothing);
+  }
+
+  if (buffer.point.ReparseTag != IO_REPARSE_TAG_SYMLINK)
+    CAMLreturn(Val_none);
+
+  CAMLreturn(caml_alloc_some(Val_int(buffer.point.SymbolicLinkReparseBuffer.SubstituteNameLength)));
 }
 
 CAMLprim value caml_eio_windows_unlinkat(value v_dirfd, value v_pathname, value v_dir)

@@ -80,7 +80,7 @@ end = struct
         let dir = resolve t dir in
         Switch.run @@ fun sw ->
         let open Low_level in
-        let dirfd = Err.run (Low_level.openat ~sw ~nofollow:true dir Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_)) Flags.Create.(directory) in
+        let dirfd = Err.run (Low_level.openat ~sw ~follow:Nofollow dir Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_)) Flags.Create.(directory) in
         fn (Some dirfd) leaf
       )
     ) else fn None path
@@ -90,11 +90,11 @@ end = struct
   (* Sandboxes use [O_NOFOLLOW] when opening files ([resolve] already removed any symlinks).
      This avoids a race where symlink might be added after [realpath] returns.
      TODO: Emulate [O_NOFOLLOW] here. *)
-  let opt_nofollow t = t.sandbox
+  let opt_follow t = if t.sandbox then Low_level.Nofollow else Low_level.Follow
 
   let open_in t ~sw path =
     let open Low_level in
-    let fd = Err.run (Low_level.openat ~sw ~nofollow:(opt_nofollow t) (resolve t path) Low_level.Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_)) Flags.Create.(non_directory) in
+    let fd = Err.run (Low_level.openat ~sw ~follow:(opt_follow t) (resolve t path) Low_level.Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_)) Flags.Create.(non_directory) in
     (Flow.of_fd fd :> Eio.File.ro_ty Eio.Resource.t)
 
   let rec open_out t ~sw ~append ~create path =
@@ -112,7 +112,7 @@ end = struct
     in
     match
       with_parent_dir t path @@ fun dirfd path ->
-      Low_level.openat ?dirfd ~nofollow:(opt_nofollow t) ~sw path flags disp Flags.Create.(non_directory)
+      Low_level.openat ?dirfd ~follow:(opt_follow t) ~sw path flags disp Flags.Create.(non_directory)
     with
     | fd -> (Flow.of_fd fd :> Eio.File.rw_ty r)
     (* This is the result of raising [caml_unix_error(ELOOP,...)] *)
@@ -144,7 +144,7 @@ end = struct
     let flags = Low_level.Flags.Open.(generic_read + synchronise) in
     let dis = Flags.Disposition.open_ in
     let create = Flags.Create.empty in
-    let fd = Err.run (openat ~sw ~nofollow:(not follow) (resolve t path) flags dis) create in
+    let fd = Err.run (openat ~sw ~follow:(if follow then Follow else Nofollow) (resolve t path) flags dis) create in
     Flow.Impl.stat fd
 
   let read_dir t path =
