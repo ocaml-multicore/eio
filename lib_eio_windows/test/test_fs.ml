@@ -73,6 +73,17 @@ let with_symlinks fn =
 let write_file path data = Out_channel.with_open_bin path (fun oc -> Out_channel.output_string oc data)
 let read_file path = In_channel.with_open_bin path In_channel.input_all
 
+(* Check that [fn] reports a missing path as [Not_found] without creating it.
+   [fn] describes what it got instead, for the failure message. *)
+let check_missing name fn =
+  let path = Filename.temp_file name "" in
+  Unix.unlink path;
+  with_cleanup [path] @@ fun () ->
+  (match fn path with
+   | got -> Alcotest.failf "Expected Not_found, got %s" got
+   | exception Eio.Io (Eio.Fs.E (Not_found _), _) -> ());
+  Alcotest.(check bool) "file not created" false (Sys.file_exists path)
+
 let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
@@ -436,6 +447,16 @@ let test_sandbox_symlink_escape_write env () =
    with Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ());
   Alcotest.(check string) "outside file unchanged" "unchanged" (read_file outside)
 
+let test_fs_missing_read_no_create env () =
+  let fs = Eio.Stdenv.fs env in
+  check_missing "eio-missing-read" @@ fun path ->
+  Fmt.str "%S" (Path.load (fs / path))
+
+let test_fs_missing_stat_no_create env () =
+  let fs = Eio.Stdenv.fs env in
+  check_missing "eio-missing-stat" @@ fun path ->
+  Fmt.str "kind %a" Eio.File.Stat.pp_kind (Eio.Path.stat ~follow:true (fs / path)).kind
+
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
   "absolute-join", `Quick, test_absolute_join env;
@@ -463,4 +484,6 @@ let tests env = [
   "sandbox-write-through-symlink-leaf", `Quick, test_sandbox_write_through_symlink_leaf env;
   "subtree-write-through-symlink-leaf", `Quick, test_subtree_write_through_symlink_leaf env;
   "sandbox-symlink-escape-write", `Quick, test_sandbox_symlink_escape_write env;
+  "fs-missing-read-no-create", `Quick, test_fs_missing_read_no_create env;
+  "fs-missing-stat-no-create", `Quick, test_fs_missing_stat_no_create env;
 ]
