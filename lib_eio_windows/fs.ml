@@ -25,6 +25,7 @@
 open Eio.Std
 
 module Fd = Eio_unix.Fd
+module Nt_path = Eio_utils.Nt_path
 
 module rec Dir : sig
   include Eio.Fs.Pi.DIR
@@ -53,13 +54,11 @@ end = struct
   let resolve t path =
     if t.sandbox then (
       if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
-      if Filename.is_relative path then (
+      if Nt_path.is_relative path then (
         let dir_path = Err.run Low_level.realpath t.dir_path in
-        let full = Err.run Low_level.realpath (Filename.concat dir_path path) in
-        let prefix_len = String.length dir_path + 1 in
-        if String.length full >= prefix_len && String.sub full 0 prefix_len = dir_path ^ Filename.dir_sep then begin
-          full
-        end else if full = dir_path then
+        let full = Err.run Low_level.realpath (Nt_path.join dir_path path) in
+        let prefix = Nt_path.join dir_path "" in    (* [dir_path] and a trailing separator *)
+        if String.starts_with ~prefix full || full = dir_path then
           full
         else
           raise @@ Eio.Fs.err (Permission_denied (Err.Outside_sandbox (full, dir_path)))
@@ -71,7 +70,7 @@ end = struct
   let with_parent_dir t path fn =
     if t.sandbox then (
       if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
-      let dir, leaf = Filename.dirname path, Filename.basename path in
+      let dir, leaf = Nt_path.dirname path, Nt_path.basename path in
       if leaf = ".." then (
         (* We could be smarter here and normalise the path first, but '..'
            doesn't make sense for any of the current uses of [with_parent_dir]
@@ -123,11 +122,7 @@ end = struct
          A leaf symlink might be OK, but we need to check it's still in the sandbox.
          todo: possibly we should limit the number of redirections here, like the kernel does. *)
       let target = Unix.readlink path in
-      let full_target =
-        if Filename.is_relative target then
-          Filename.concat (Filename.dirname path) target
-        else target
-      in
+      let full_target = Nt_path.join (Nt_path.dirname path) target in
       open_out t ~sw ~append ~create full_target
     | exception Unix.Unix_error (code, name, arg) ->
       raise (Err.v code name arg)
@@ -163,7 +158,7 @@ end = struct
     let entries =
       read_dir t path
       |> List.map (fun name ->
-          match stat ~follow:false t (Filename.concat path name) with
+          match stat ~follow:false t (Nt_path.join path name) with
           | info -> (info.kind, name)
           | exception Eio.Exn.Io _ -> (`Unknown, name)
         )
@@ -194,7 +189,7 @@ end = struct
 
   let open_subtree t ~sw path =
     Switch.check sw;
-    let label = Filename.basename path in
+    let label = Nt_path.basename path in
     let d = v ~label (resolve t path) ~sandbox:true in
     Switch.on_release sw (fun () -> close d);
     Eio.Resource.T (d, Handler.v)
@@ -206,10 +201,10 @@ end = struct
   let pp f t = Fmt.string f (String.escaped t.label)
 
   let native_internal t path =
-    if Filename.is_relative path then (
+    if Nt_path.is_relative path then (
       let p =
         if t.dir_path = "." then path
-        else Filename.concat t.dir_path path
+        else Nt_path.join t.dir_path path
       in
       if p = "" then "."
       else if p = "." then p

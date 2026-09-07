@@ -91,6 +91,15 @@ let split p =
       in
       Some (dirname, basename)
 
+let parent_and_leaf p =
+  match split p with
+  | Some ("", leaf) -> ".", leaf
+  | Some parts -> parts
+  | None -> ".", (if p = "" then "." else p)
+
+let dirname p = fst (parent_and_leaf p)
+let basename p = snd (parent_and_leaf p)
+
 let concat a b =
   let l = String.length a in
   if l = 0 then b
