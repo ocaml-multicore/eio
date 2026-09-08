@@ -113,8 +113,14 @@ let getrandom { Cstruct.buffer; off; len } =
   in_worker_thread @@ fun () ->
   loop 0
 
+external eio_symlink_size : Unix.file_descr -> int option = "caml_eio_windows_symlink_size"
+
 let fstat fd =
-  Fd.use_exn "fstat" fd Unix.LargeFile.fstat
+  Fd.use_exn "fstat" fd @@ fun fd ->
+  let st = Unix.LargeFile.fstat fd in
+  match eio_symlink_size fd with
+  | None -> st
+  | Some size -> { st with st_kind = S_LNK; st_size = Int64.of_int size }
 
 let lstat path =
   in_worker_thread @@ fun () ->
@@ -208,6 +214,7 @@ module Flags = struct
 
   module Create = struct
     type t = int
+    let empty = 0
     let directory = Config.file_directory_file
     let non_directory = Config.file_non_directory_file
     let no_intermediate_buffering = Config.file_no_intermediate_buffering
@@ -223,23 +230,32 @@ let rec with_dirfd op dirfd fn =
   | Some dirfd -> Fd.use_exn op dirfd (fun fd -> fn (Some fd))
   | exception Unix.Unix_error(Unix.EINTR, _, "") -> with_dirfd op dirfd fn
 
-external eio_openat : Unix.file_descr option -> bool -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> Unix.file_descr = "caml_eio_windows_openat_bytes" "caml_eio_windows_openat"
+let nt_path dirfd path =
+  match dirfd with
+  | Some _ -> path
+  | None -> Eio_utils.Nt_path.to_nt ~cwd:(Sys.getcwd ()) path
 
-let openat ?dirfd ?(nofollow=false) ~sw path flags dis create =
+type follow = Follow | Nofollow | Open_link
+
+external eio_openat : Unix.file_descr option -> follow -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> Unix.file_descr = "caml_eio_windows_openat_bytes" "caml_eio_windows_openat"
+
+let openat ?dirfd ?(follow=Follow) ~sw path flags dis create =
   with_dirfd "openat" dirfd @@ fun dirfd ->
   Switch.check sw;
-  in_worker_thread ~label:"openat" (fun () -> eio_openat dirfd nofollow path Flags.Open.(flags + cloexec (* + nonblock *)) dis create)
+  let path = nt_path dirfd path in
+  in_worker_thread ~label:"openat" (fun () -> eio_openat dirfd follow path Flags.Open.(flags + cloexec (* + nonblock *)) dis create)
   |> Fd.of_unix ~sw ~blocking:false ~close_unix:true
 
-let mkdir ?dirfd ?(nofollow=false) ~mode:_ path =
+let mkdir ?dirfd ?(follow=Follow) ~mode:_ path =
   Switch.run @@ fun sw ->
-  let _ : Fd.t = openat ?dirfd ~nofollow ~sw path Flags.Open.(generic_write + synchronise) Flags.Disposition.(create) Flags.Create.(directory) in
+  let _ : Fd.t = openat ?dirfd ~follow ~sw path Flags.Open.(generic_write + synchronise) Flags.Disposition.(create) Flags.Create.(directory) in
   ()
 
 external eio_unlinkat : Unix.file_descr option -> string -> bool -> unit = "caml_eio_windows_unlinkat"
 
 let unlink ?dirfd ~dir path =
   with_dirfd "unlink" dirfd @@ fun dirfd ->
+  let path = nt_path dirfd path in
   in_worker_thread ~label:"unlink" @@ fun () ->
   eio_unlinkat dirfd path dir
 

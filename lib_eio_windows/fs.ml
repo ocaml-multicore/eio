@@ -25,9 +25,7 @@
 open Eio.Std
 
 module Fd = Eio_unix.Fd
-
-(* NT object-manager namespace prefix, required by NtCreateFile. *)
-let nt_prefix = "\\??\\"
+module Nt_path = Eio_utils.Nt_path
 
 module rec Dir : sig
   include Eio.Fs.Pi.DIR
@@ -56,14 +54,12 @@ end = struct
   let resolve t path =
     if t.sandbox then (
       if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
-      if Filename.is_relative path then (
+      if Nt_path.is_relative path then (
         let dir_path = Err.run Low_level.realpath t.dir_path in
-        let full = Err.run Low_level.realpath (Filename.concat dir_path path) in
-        let prefix_len = String.length dir_path + 1 in
-        if String.length full >= prefix_len && String.sub full 0 prefix_len = dir_path ^ Filename.dir_sep then begin
-          nt_prefix ^ full
-        end else if full = dir_path then
-          nt_prefix ^ full
+        let full = Err.run Low_level.realpath (Nt_path.join dir_path path) in
+        let prefix = Nt_path.join dir_path "" in    (* [dir_path] and a trailing separator *)
+        if String.starts_with ~prefix full || full = dir_path then
+          full
         else
           raise @@ Eio.Fs.err (Permission_denied (Err.Outside_sandbox (full, dir_path)))
       ) else (
@@ -71,16 +67,10 @@ end = struct
       )
     ) else path
 
-  let strip_nt_prefix p =
-    let n = String.length nt_prefix in
-    if String.starts_with ~prefix:nt_prefix p
-    then String.sub p n (String.length p - n)
-    else p
-
   let with_parent_dir t path fn =
     if t.sandbox then (
       if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
-      let dir, leaf = Filename.dirname path, Filename.basename path in
+      let dir, leaf = Nt_path.dirname path, Nt_path.basename path in
       if leaf = ".." then (
         (* We could be smarter here and normalise the path first, but '..'
            doesn't make sense for any of the current uses of [with_parent_dir]
@@ -90,7 +80,7 @@ end = struct
         let dir = resolve t dir in
         Switch.run @@ fun sw ->
         let open Low_level in
-        let dirfd = Err.run (Low_level.openat ~sw ~nofollow:true dir Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_if)) Flags.Create.(directory) in
+        let dirfd = Err.run (Low_level.openat ~sw ~follow:Nofollow dir Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_)) Flags.Create.(directory) in
         fn (Some dirfd) leaf
       )
     ) else fn None path
@@ -100,11 +90,11 @@ end = struct
   (* Sandboxes use [O_NOFOLLOW] when opening files ([resolve] already removed any symlinks).
      This avoids a race where symlink might be added after [realpath] returns.
      TODO: Emulate [O_NOFOLLOW] here. *)
-  let opt_nofollow t = t.sandbox
+  let opt_follow t = if t.sandbox then Low_level.Nofollow else Low_level.Follow
 
   let open_in t ~sw path =
     let open Low_level in
-    let fd = Err.run (Low_level.openat ~sw ~nofollow:(opt_nofollow t) (resolve t path)) Low_level.Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_if) Flags.Create.(non_directory) in
+    let fd = Err.run (Low_level.openat ~sw ~follow:(opt_follow t) (resolve t path) Low_level.Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_)) Flags.Create.(non_directory) in
     (Flow.of_fd fd :> Eio.File.ro_ty Eio.Resource.t)
 
   let rec open_out t ~sw ~append ~create path =
@@ -122,21 +112,16 @@ end = struct
     in
     match
       with_parent_dir t path @@ fun dirfd path ->
-      Low_level.openat ?dirfd ~nofollow:(opt_nofollow t) ~sw path flags disp Flags.Create.(non_directory)
+      Low_level.openat ?dirfd ~follow:(opt_follow t) ~sw path flags disp Flags.Create.(non_directory)
     with
     | fd -> (Flow.of_fd fd :> Eio.File.rw_ty r)
     (* This is the result of raising [caml_unix_error(ELOOP,...)] *)
-    | exception Unix.Unix_error (EUNKNOWNERR 114, _, _) ->
-      print_endline "UNKNOWN";
+    | exception Unix.Unix_error ((ELOOP | EUNKNOWNERR 114), _, _) ->
       (* The leaf was a symlink (or we're unconfined and the main path changed, but ignore that).
          A leaf symlink might be OK, but we need to check it's still in the sandbox.
          todo: possibly we should limit the number of redirections here, like the kernel does. *)
-      let target = Unix.readlink path in
-      let full_target =
-        if Filename.is_relative target then
-          Filename.concat (Filename.dirname path) target
-        else target
-      in
+      let target = Unix.readlink (Nt_path.join t.dir_path path) in
+      let full_target = Nt_path.join (Nt_path.dirname path) target in
       open_out t ~sw ~append ~create full_target
     | exception Unix.Unix_error (code, name, arg) ->
       raise (Err.v code name arg)
@@ -157,9 +142,17 @@ end = struct
     Switch.run @@ fun sw ->
     let open Low_level in
     let flags = Low_level.Flags.Open.(generic_read + synchronise) in
-    let dis = Flags.Disposition.open_if in
-    let create = Flags.Create.non_directory in
-    let fd = Err.run (openat ~sw ~nofollow:(not follow) (resolve t path) flags dis) create in
+    let dis = Flags.Disposition.open_ in
+    let create = Flags.Create.empty in
+    let leaf = Nt_path.basename path in
+    let fd =
+      (* "." and ".." are never symlinks, and [with_parent_dir] rejects ".." *)
+      if follow || leaf = "." || leaf = ".." then
+        Err.run (openat ~sw (resolve t path) flags dis) create
+      else
+        with_parent_dir t path @@ fun dirfd path ->
+        Err.run (openat ?dirfd ~follow:Open_link ~sw path flags dis) create
+    in
     Flow.Impl.stat fd
 
   let read_dir t path =
@@ -172,7 +165,7 @@ end = struct
     let entries =
       read_dir t path
       |> List.map (fun name ->
-          match stat ~follow:false t (Filename.concat path name) with
+          match stat ~follow:false t (Nt_path.join path name) with
           | info -> (info.kind, name)
           | exception Eio.Exn.Io _ -> (`Unknown, name)
         )
@@ -203,7 +196,7 @@ end = struct
 
   let open_subtree t ~sw path =
     Switch.check sw;
-    let label = Filename.basename path in
+    let label = Nt_path.basename path in
     let d = v ~label (resolve t path) ~sandbox:true in
     Switch.on_release sw (fun () -> close d);
     Eio.Resource.T (d, Handler.v)
@@ -215,10 +208,10 @@ end = struct
   let pp f t = Fmt.string f (String.escaped t.label)
 
   let native_internal t path =
-    if Filename.is_relative path then (
+    if Nt_path.is_relative path then (
       let p =
         if t.dir_path = "." then path
-        else Filename.concat (strip_nt_prefix t.dir_path) path
+        else Nt_path.join t.dir_path path
       in
       if p = "" then "."
       else if p = "." then p

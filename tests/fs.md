@@ -532,6 +532,70 @@ Components separated by "/" can come back separated by "\".
 - : string option = Some "a\\b"
 ```
 
+# Win32 to NT paths
+
+`NtCreateFile` takes an NT object-manager path, so `to_nt` qualifies a Win32
+path, resolving a relative one against the current directory:
+
+```ocaml
+let to_nt = Eio_utils.Nt_path.to_nt ~cwd:"C:\\cwd\\dir"
+```
+
+```ocaml
+# to_nt "C:\\a\\b";;
+- : string = "\\??\\C:\\a\\b"
+
+# to_nt "a\\b";;
+- : string = "\\??\\C:\\cwd\\dir\\a\\b"
+
+# to_nt ".";;
+- : string = "\\??\\C:\\cwd\\dir"
+
+# to_nt "..";;
+- : string = "\\??\\C:\\cwd"
+
+# to_nt "\\x";;
+- : string = "\\??\\C:\\x"
+
+# to_nt "c:x";;
+- : string = "\\??\\C:\\cwd\\dir\\x"
+
+# to_nt "D:x";;
+- : string = "\\??\\D:\\x"
+
+# to_nt "\\\\srv\\share\\x";;
+- : string = "\\??\\UNC\\srv\\share\\x"
+
+# to_nt "\\\\.\\pipe\\x";;
+- : string = "\\??\\pipe\\x"
+```
+
+The NT namespace does no normalisation, so Win32's is applied first:
+
+```ocaml
+# to_nt "C:/a/./b//c/";;
+- : string = "\\??\\C:\\a\\b\\c"
+
+# to_nt "C:\\a\\..\\..\\b";;
+- : string = "\\??\\C:\\b"
+
+# to_nt "a\\..\\..\\b";;
+- : string = "\\??\\C:\\cwd\\b"
+```
+
+Verbatim and NT paths only have their prefix changed:
+
+```ocaml
+# to_nt "\\\\?\\C:\\a\\..\\b";;
+- : string = "\\??\\C:\\a\\..\\b"
+
+# to_nt "\\\\?\\UNC\\srv\\share\\x";;
+- : string = "\\??\\UNC\\srv\\share\\x"
+
+# to_nt "\\??\\C:\\a/b";;
+- : string = "\\??\\C:\\a/b"
+```
+
 # Mkdirs
 
 Recursively creating directories with `mkdirs`.

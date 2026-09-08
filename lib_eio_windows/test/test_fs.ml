@@ -51,6 +51,45 @@ let try_rmdir path =
 let with_temp_file path fn =
  Fun.protect (fun () -> fn path) ~finally:(fun () -> Eio.Path.unlink path)
 
+(* Remove [paths] after [fn], ignoring any that have gone already. List a
+   directory after its contents. *)
+let with_cleanup paths fn =
+  let rm path =
+    try Unix.unlink path
+    with Unix.Unix_error _ -> (try Unix.rmdir path with Unix.Unix_error _ -> ())
+  in
+  Fun.protect fn ~finally:(fun () -> List.iter rm paths)
+
+(* A temporary file made by the stdlib, so that [fs] is given an absolute path. *)
+let with_stdlib_temp_file prefix fn =
+  let path = Filename.temp_file prefix "" in
+  with_cleanup [path] (fun () -> fn path)
+
+(* Making a symlink needs a privilege that older Windows withholds. *)
+let with_symlinks fn =
+  if Unix.has_symlink () then fn () else Alcotest.skip ()
+
+(* Read and write without Eio, to see what really landed on disk. *)
+let write_file path data = Out_channel.with_open_bin path (fun oc -> Out_channel.output_string oc data)
+let read_file path = In_channel.with_open_bin path In_channel.input_all
+
+let stat_kind = Alcotest.testable Eio.File.Stat.pp_kind ( = )
+
+let check_kind ~follow path expected =
+  Alcotest.check stat_kind (Fmt.str "%a ~follow:%b" Path.pp path follow) expected
+    (Eio.Path.stat ~follow path).kind
+
+(* Check that [fn] reports a missing path as [Not_found] without creating it.
+   [fn] describes what it got instead, for the failure message. *)
+let check_missing name fn =
+  let path = Filename.temp_file name "" in
+  Unix.unlink path;
+  with_cleanup [path] @@ fun () ->
+  (match fn path with
+   | got -> Alcotest.failf "Expected Not_found, got %s" got
+   | exception Eio.Io (Eio.Fs.E (Not_found _), _) -> ());
+  Alcotest.(check bool) "file not created" false (Sys.file_exists path)
+
 let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
@@ -103,7 +142,7 @@ let test_native env () =
   Alcotest.(check string) "empty" "." (Path.native_exn cwd);
   Alcotest.(check string) "fs relative" ".\\foo" (Path.native_exn (Eio.Stdenv.fs env / "foo"));
   Alcotest.(check string) "absolute" "C:\\foo" (Path.native_exn (Eio.Stdenv.fs env / "C:\\foo"));
-  (* A subtree records its directory in NT form; native must yield the Win32 form. *)
+  (* A subtree records its directory as an absolute Win32 path. *)
   Path.mkdir (cwd / "native-sub") ~perm:0o700;
   Fun.protect ~finally:(fun () -> Path.rmdir (cwd / "native-sub")) @@ fun () ->
   Path.with_open_dir (cwd / "native-sub") @@ fun sub ->
@@ -204,9 +243,7 @@ let test_symlink env () =
      Unix.mkdir "another" 0o700;
      print_endline @@ Unix.realpath "to-subdir" |}
   *)
-  if not (Unix.has_symlink ()) then
-    Printf.printf "Skipping test_symlink on systems that don't support symlinks.\n"
-  else
+  with_symlinks @@ fun () ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "sandbox");
   Unix.symlink ~to_dir:true ".." "sandbox\\to-root";
@@ -313,6 +350,159 @@ let test_remove_dir env () =
   in
   ()
 
+(* Absolute Win32 paths via the unsandboxed [fs] (#931) *)
+let test_fs_absolute_read env () =
+  let fs = Eio.Stdenv.fs env in
+  with_stdlib_temp_file "eio-abs" @@ fun path ->
+  let data = "abs-read-data" in
+  write_file path data;
+  Alcotest.(check string) "same data" data (Path.load (fs / path));
+  let dir = Filename.dirname path in
+  let unnormalised = String.concat "/" [dir; ".."; Filename.basename dir; Filename.basename path] in
+  Alcotest.(check string) "with .. and /" data (Path.load (fs / unnormalised))
+
+let test_fs_absolute_write env () =
+  let fs = Eio.Stdenv.fs env in
+  let path = Filename.temp_file "eio-abs-write" "" in
+  Unix.unlink path;
+  with_cleanup [path] @@ fun () ->
+  let data = "abs-write-data" in
+  Path.save ~create:(`Exclusive 0o600) (fs / path) data;
+  Alcotest.(check string) "same data" data (read_file path)
+
+let test_fs_absolute_unlink env () =
+  let fs = Eio.Stdenv.fs env in
+  with_stdlib_temp_file "eio-abs-unlink" @@ fun path ->
+  Path.unlink (fs / path);
+  Alcotest.(check bool) "file gone" false (Sys.file_exists path)
+
+let test_fs_absolute_mkdir_rmdir env () =
+  let fs = Eio.Stdenv.fs env in
+  let path = Filename.temp_file "eio-abs-dir" "" in
+  Unix.unlink path;
+  with_cleanup [path] @@ fun () ->
+  Path.mkdir ~perm:0o700 (fs / path);
+  Alcotest.(check bool) "is dir" true (Sys.is_directory path);
+  Path.rmdir (fs / path);
+  Alcotest.(check bool) "dir gone" false (Sys.file_exists path)
+
+let test_fs_relative_read env () =
+  let fs = Eio.Stdenv.fs env in
+  let name = "fs-rel-test-file" in
+  let data = "rel-read-data" in
+  with_cleanup [name] @@ fun () ->
+  write_file name data;
+  Alcotest.(check string) "same data" data (Path.load (fs / name))
+
+let test_fs_nt_prefixed_read env () =
+  let fs = Eio.Stdenv.fs env in
+  with_stdlib_temp_file "eio-nt" @@ fun path ->
+  let data = "nt-prefixed-data" in
+  write_file path data;
+  Alcotest.(check string) "same data" data (Path.load (fs / ("\\??\\" ^ path)))
+
+let test_fs_symlink_follow_read env () =
+  with_symlinks @@ fun () ->
+  let fs = Eio.Stdenv.fs env in
+  let data = "symlink-follow-data" in
+  let target = "slt-target" and link = "slt-link" in
+  with_cleanup [link; target] @@ fun () ->
+  write_file target data;
+  Unix.symlink target link;
+  Alcotest.(check string) "relative link" data (Path.load (fs / link));
+  let abs_link = Filename.concat (Sys.getcwd ()) link in
+  Alcotest.(check string) "absolute link" data (Path.load (fs / abs_link))
+
+let test_sandbox_write_through_symlink_leaf env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let target = "slt2-target" and link = "slt2-link" in
+  with_cleanup [link; target] @@ fun () ->
+  write_file target "old";
+  Unix.symlink target link;
+  Path.save ~create:`Never (cwd / link) "new";
+  Alcotest.(check string) "wrote through symlink" "new" (read_file target)
+
+(* As above, but in a subtree, whose [dir_path] is absolute, and with a relative link target *)
+let test_subtree_write_through_symlink_leaf env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let dir = "slt3-dir" in
+  let target = dir ^ "\\target" and link = dir ^ "\\link" in
+  with_cleanup [link; target; dir] @@ fun () ->
+  try_mkdir (cwd / dir);
+  write_file target "old";
+  Unix.symlink "target" link;
+  Eio.Path.with_subtree (cwd / dir) @@ fun sub ->
+  Path.save ~create:`Never (sub / "link") "new";
+  Alcotest.(check string) "wrote through subtree symlink" "new" (read_file target)
+
+let test_sandbox_symlink_escape_write env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let dir = "slt4-dir" and outside = "slt4-outside" in
+  let escape = dir ^ "\\escape" in
+  with_cleanup [escape; dir; outside] @@ fun () ->
+  try_mkdir (cwd / dir);
+  write_file outside "unchanged";
+  Unix.symlink ("..\\" ^ outside) escape;
+  (try
+     Eio.Path.with_subtree (cwd / dir) @@ fun sub ->
+     Path.save ~create:`Never (sub / "escape") "x";
+     failwith "Expected permission denied"
+   with Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ());
+  Alcotest.(check string) "outside file unchanged" "unchanged" (read_file outside)
+
+let test_fs_missing_read_no_create env () =
+  let fs = Eio.Stdenv.fs env in
+  check_missing "eio-missing-read" @@ fun path ->
+  Fmt.str "%S" (Path.load (fs / path))
+
+let test_fs_missing_stat_no_create env () =
+  let fs = Eio.Stdenv.fs env in
+  check_missing "eio-missing-stat" @@ fun path ->
+  Fmt.str "kind %a" Eio.File.Stat.pp_kind (Eio.Path.stat ~follow:true (fs / path)).kind
+
+let test_stat_directory env () =
+  let cwd = Eio.Stdenv.cwd env in
+  with_cleanup ["stat-dir"] @@ fun () ->
+  try_mkdir (cwd / "stat-dir");
+  check_kind ~follow:true (cwd / "stat-dir") `Directory;
+  check_kind ~follow:false (cwd / "stat-dir") `Directory
+
+let test_stat_regular_file env () =
+  let cwd = Eio.Stdenv.cwd env in
+  let fs = Eio.Stdenv.fs env in
+  with_cleanup ["stat-file"] @@ fun () ->
+  Path.save ~create:(`Exclusive 0o600) (cwd / "stat-file") "data";
+  let abs = Filename.concat (Sys.getcwd ()) "stat-file" in
+  check_kind ~follow:true (cwd / "stat-file") `Regular_file;
+  check_kind ~follow:false (cwd / "stat-file") `Regular_file;
+  check_kind ~follow:true (fs / abs) `Regular_file;
+  check_kind ~follow:false (fs / abs) `Regular_file
+
+let test_stat_symlink env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let fs = Eio.Stdenv.fs env in
+  let target = "statl-target" and link = "statl-link" and dangling = "statl-dangling" in
+  with_cleanup [link; dangling; target] @@ fun () ->
+  write_file target "data";
+  Unix.symlink target link;
+  Unix.symlink "statl-missing" dangling;
+  let abs_link = Filename.concat (Sys.getcwd ()) link in
+  check_kind ~follow:false (cwd / link) `Symbolic_link;
+  check_kind ~follow:true (cwd / link) `Regular_file;
+  check_kind ~follow:false (fs / abs_link) `Symbolic_link;
+  check_kind ~follow:true (fs / abs_link) `Regular_file;
+  check_kind ~follow:false (cwd / dangling) `Symbolic_link;
+  (match Eio.Path.stat ~follow:true (cwd / dangling) with
+   | st -> Alcotest.failf "Expected Not_found, got %a" Eio.File.Stat.pp_kind st.kind
+   | exception Eio.Io (Eio.Fs.E (Not_found _), _) -> ());
+  let size = (Eio.Path.stat ~follow:false (cwd / link)).size in
+  (* Windows stores the target path in UTF-16 *)
+  Alcotest.(check int) "size is that of the target path" (2 * String.length target) (Optint.Int63.to_int size)
+
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
   "absolute-join", `Quick, test_absolute_join env;
@@ -329,5 +519,20 @@ let tests env = [
   "unlink", `Quick, test_unlink env;
   "failing-unlink", `Quick, try_failing_unlink env;
   "rmdir", `Quick, test_remove_dir env;
-  "mkdirs", `Quick, test_mkdirs env; 
+  "mkdirs", `Quick, test_mkdirs env;
+  "fs-absolute-read", `Quick, test_fs_absolute_read env;
+  "fs-absolute-write", `Quick, test_fs_absolute_write env;
+  "fs-absolute-unlink", `Quick, test_fs_absolute_unlink env;
+  "fs-absolute-mkdir-rmdir", `Quick, test_fs_absolute_mkdir_rmdir env;
+  "fs-relative-read", `Quick, test_fs_relative_read env;
+  "fs-nt-prefixed-read", `Quick, test_fs_nt_prefixed_read env;
+  "fs-symlink-follow-read", `Quick, test_fs_symlink_follow_read env;
+  "sandbox-write-through-symlink-leaf", `Quick, test_sandbox_write_through_symlink_leaf env;
+  "subtree-write-through-symlink-leaf", `Quick, test_subtree_write_through_symlink_leaf env;
+  "sandbox-symlink-escape-write", `Quick, test_sandbox_symlink_escape_write env;
+  "fs-missing-read-no-create", `Quick, test_fs_missing_read_no_create env;
+  "fs-missing-stat-no-create", `Quick, test_fs_missing_stat_no_create env;
+  "stat-directory", `Quick, test_stat_directory env;
+  "stat-regular-file", `Quick, test_stat_regular_file env;
+  "stat-symlink", `Quick, test_stat_symlink env;
 ]
