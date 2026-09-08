@@ -7,8 +7,6 @@ open Eio.Std
 
 module Env = Eio.Process.Env
 module Process = Eio_linux.Low_level.Process
-
-let default_env = Unix.environment () |> Env.of_array
 ```
 
 ## Spawning processes
@@ -31,7 +29,8 @@ FOO=bar
 Changing directory:
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let child = Process.spawn ~sw Process.Fork_action.[
     chdir "/";
@@ -47,7 +46,8 @@ Changing directory:
 Changing directory using a file descriptor:
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let root =
     Eio_linux.Low_level.openat2 ~sw "/"
@@ -71,7 +71,8 @@ Changing directory using a file descriptor:
 Exit status:
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let child = Process.spawn ~sw Process.Fork_action.[
     execve "/usr/bin/env"
@@ -85,7 +86,8 @@ Exit status:
 Failure starting child:
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   Process.spawn ~sw Process.Fork_action.[
     chdir "/idontexist";
@@ -99,7 +101,8 @@ Exception: Unix.Unix_error(Unix.ENOENT, "chdir", "")
 Signalling a running child:
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# Eio_linux.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let child =
     Process.spawn ~sw Process.Fork_action.[

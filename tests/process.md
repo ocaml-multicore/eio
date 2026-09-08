@@ -233,6 +233,16 @@ A custom environment:
 - : string = ":2"
 ```
 
+Using the parent's environment explicitly:
+
+```ocaml
+# run @@ fun mgr env ->
+  Unix.putenv "DISPLAY" ":1";
+  let env = Eio.Process.environment mgr in
+  Process.parse_out ~env mgr Eio.Buf_read.line ["sh"; "-c"; "echo $DISPLAY"];;
+- : string = ":1"
+```
+
 Eio's child reaping code doesn't interfere with OCaml's process spawning:
 
 ```ocaml
@@ -317,4 +327,27 @@ val e : Env.t = [""
              "a=7"
              "c=5"
              "c=6"]
+```
+
+Using the environment capability:
+
+```ocaml
+# run @@ fun mgr _env ->
+  Unix.putenv "DISPLAY" ":1";
+  Eio.Process.getenv_opt mgr "DISPLAY";;
+- : string option = Some ":1"
+```
+
+```ocaml
+# run @@ fun mgr _env ->
+  Eio.Process.getenv_opt mgr "THIS_VAR_PROBABLY_WILL_NOT_EXIST";;
+- : string option = None
+```
+
+```ocaml
+# run @@ fun mgr _env ->
+  Unix.putenv "DISPLAY" ":1";
+  let env = Eio.Process.environment mgr in
+  Eio.Process.Env.get_opt "DISPLAY" env;;
+- : string option = Some ":1"
 ```

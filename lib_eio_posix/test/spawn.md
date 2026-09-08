@@ -7,8 +7,6 @@ open Eio.Std
 
 module Env = Eio.Process.Env
 module Process = Eio_posix.Low_level.Process
-
-let default_env = Unix.environment () |> Env.of_array
 ```
 
 ## Spawning processes
@@ -31,7 +29,8 @@ FOO=bar
 Changing directory:
 
 ```ocaml
-# Eio_posix.run @@ fun _env ->
+# Eio_posix.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let child = Process.spawn ~sw Process.Fork_action.[
     chdir "/";
@@ -47,7 +46,8 @@ Changing directory:
 Changing directory using a file descriptor:
 
 ```ocaml
-# Eio_posix.run @@ fun _env ->
+# Eio_posix.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let root = Eio_posix.Low_level.openat ~sw ~mode:0 Fs "/" Eio_posix.Low_level.Open_flags.(rdonly + directory) in
   let child = Process.spawn ~sw Process.Fork_action.[
@@ -64,7 +64,8 @@ Changing directory using a file descriptor:
 Exit status:
 
 ```ocaml
-# Eio_posix.run @@ fun _env ->
+# Eio_posix.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let child = Process.spawn ~sw Process.Fork_action.[
     execve "/usr/bin/env"
@@ -78,7 +79,8 @@ Exit status:
 Failure starting child:
 
 ```ocaml
-# Eio_posix.run @@ fun _env ->
+# Eio_posix.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   Process.spawn ~sw Process.Fork_action.[
     chdir "/idontexist";
@@ -92,7 +94,8 @@ Exception: Unix.Unix_error(Unix.ENOENT, "chdir", "")
 Signalling a running child:
 
 ```ocaml
-# Eio_posix.run @@ fun _env ->
+# Eio_posix.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let child =
     Process.spawn ~sw Process.Fork_action.[
@@ -163,7 +166,8 @@ let read_all pipe =
 Swapping FDs (note: plain sh can't handle multi-digit FDs!):
 
 ```ocaml
-# Eio_posix.run @@ fun _env ->
+# Eio_posix.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let pipe1_r, pipe1_w = Eio_unix.pipe sw in
   let pipe2_r, pipe2_w = Eio_unix.pipe sw in
@@ -208,7 +212,8 @@ Swapping FDs (note: plain sh can't handle multi-digit FDs!):
 Keeping an FD open:
 
 ```ocaml
-# Eio_posix.run @@ fun _env ->
+# Eio_posix.run @@ fun env ->
+  let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let pipe1_r, pipe1_w = Eio_unix.pipe sw in
   let child =

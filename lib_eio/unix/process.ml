@@ -136,6 +136,9 @@ end) = struct
 
   type tag = [ `Generic | `Unix ]
 
+  let environment _t = Unix.environment () |> Eio.Process.Env.of_array
+  let getenv_opt _t name = Sys.getenv_opt name
+
   let pipe _ ~sw =
     (Private.pipe sw :> ([Eio.Resource.close_ty | Eio.Flow.source_ty] r *
     [Eio.Resource.close_ty | Eio.Flow.sink_ty] r))
