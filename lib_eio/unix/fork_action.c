@@ -97,7 +97,7 @@ CAMLprim value eio_unix_make_string_array(value v_len) {
 
   v_str_array = caml_alloc_custom_mem(&string_array_ops, sizeof(char ***), total);
 
-  char **c = calloc(sizeof(char *), n + 1);
+  char **c = calloc(n + 1, sizeof(char *));
   String_array_val(v_str_array) = c;
   if (!c)
     caml_raise_out_of_memory();
