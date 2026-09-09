@@ -52,6 +52,9 @@ val mkdir : ?dirfd:fd -> ?follow:follow -> mode:int -> string -> unit
 val unlink : ?dirfd:fd -> dir:bool -> string -> unit
 
 val rename : ?old_dir:fd -> string -> ?new_dir:fd -> string -> unit
+(** [rename ?old_dir old ?new_dir new] moves [old] to [new], replacing an
+    existing file or empty directory. Some volumes such as FAT cannot
+    replace a directory and will fail. *)
 
 val symlink : link_to:string -> fd option -> string -> unit
 (** [symlink ~link_to dir path] will create a new symlink at [dir / path]

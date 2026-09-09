@@ -264,6 +264,7 @@ external eio_renameat : Unix.file_descr option -> string -> Unix.file_descr opti
 let rename ?old_dir old_path ?new_dir new_path =
   with_dirfd "rename-old" old_dir @@ fun old_dir ->
   with_dirfd "rename-new" new_dir @@ fun new_dir ->
+  let old_path = nt_path old_dir old_path and new_path = nt_path new_dir new_path in
   in_worker_thread ~label:"rename" @@ fun () ->
   eio_renameat old_dir old_path new_dir new_path
 
