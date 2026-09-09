@@ -1547,3 +1547,25 @@ Exception: Failure "Simulated error".
 +"/" / "" = "/"
 - : unit = ()
 ```
+
+# Importing files from FDs
+
+```ocaml
+# run ~clear:["unix-file"] @@ fun env ->
+  let path = env#cwd / "unix-file" in
+  Switch.run (fun sw ->
+     Unix.openfile (Eio.Path.native_exn path) [O_CREAT; O_RDWR] 0o600
+     |> Eio_unix.File.import_rw ~sw ~close_unix:true
+     |> Eio.Flow.copy_string "test-data"
+  );
+  Switch.run (fun sw ->
+     let file =
+       Unix.openfile (Eio.Path.native_exn path) [O_RDONLY] 0
+       |> Eio_unix.File.import_ro ~sw ~close_unix:true
+     in
+     let buf = Cstruct.create 6 in
+     Eio.File.pread_exact file ~file_offset:(Optint.Int63.of_int 1) [buf];
+     Cstruct.to_string buf
+  );;
+- : string = "est-da"
+```
