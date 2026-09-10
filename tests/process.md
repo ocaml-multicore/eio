@@ -233,6 +233,16 @@ A custom environment:
 - : string = ":2"
 ```
 
+Using the parent's environment explicitly:
+
+```ocaml
+# run @@ fun mgr env ->
+  Unix.putenv "DISPLAY" ":1";
+  let env = Eio.Process.environment mgr in
+  Process.parse_out ~env mgr Eio.Buf_read.line ["sh"; "-c"; "echo $DISPLAY"];;
+- : string = ":1"
+```
+
 Eio's child reaping code doesn't interfere with OCaml's process spawning:
 
 ```ocaml
@@ -293,10 +303,8 @@ Invalid environment variable name "k="
 # e |> Env.override ["k", Some "v=1"] |> Env.get_opt "k";;
 - : string option = Some "v=1"
 
-# try Env.(get_opt "" empty) |> ignore
-  with Invalid_argument x -> print_endline x;;
-Invalid environment variable name ""
-- : unit = ()
+# Env.(get_opt "" (of_array [| "=foo" |]));;
+- : string option = None
 
 # try e |> Env.override ["", None] |> ignore
   with Invalid_argument x -> print_endline x;;
@@ -319,4 +327,27 @@ val e : Env.t = [""
              "a=7"
              "c=5"
              "c=6"]
+```
+
+Using the environment capability:
+
+```ocaml
+# run @@ fun mgr _env ->
+  Unix.putenv "DISPLAY" ":1";
+  Eio.Process.getenv_opt mgr "DISPLAY";;
+- : string option = Some ":1"
+```
+
+```ocaml
+# run @@ fun mgr _env ->
+  Eio.Process.getenv_opt mgr "THIS_VAR_PROBABLY_WILL_NOT_EXIST";;
+- : string option = None
+```
+
+```ocaml
+# run @@ fun mgr _env ->
+  Unix.putenv "DISPLAY" ":1";
+  let env = Eio.Process.environment mgr in
+  Eio.Process.Env.get_opt "DISPLAY" env;;
+- : string option = Some ":1"
 ```

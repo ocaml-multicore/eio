@@ -52,6 +52,8 @@ type 'a mgr = 'a r
  constraint 'a = [> [> `Generic] mgr_ty]
 (** A process manager capable of spawning new processes. *)
 
+(** {2 Environment variables} *)
+
 module Env : sig
   (** A list of environment variable entries.
 
@@ -79,9 +81,8 @@ module Env : sig
       This just adds [xs] to {!empty} using {!override}. *)
 
   val get_opt : string -> t -> string option
-  (** [get_opt name t] is the value of [name] in [t], or [None] if there is no such binding.
-
-      @raise Invalid_argument if [name] is not a valid name. *)
+  (** [get_opt name t] is the value of [name] in [t], or [None] if there is no such binding
+      (or if [name] is not a valid name). *)
 
   val override : (string * string option) list -> t -> t
   (** [override bindings t] is a new environment which is like [t]
@@ -108,6 +109,13 @@ module Env : sig
 
   val pp : t Fmt.t
 end
+
+val environment : _ mgr -> Env.t
+(** [environment t] returns a snapshot of this process's current environment. *)
+
+val getenv_opt : _ mgr -> string -> string option
+(** [getenv_opt t name] will get the environment variable called [name].
+    Returns [None] if [name] does not exist. *)
 
 (** {2 Processes} *)
 
@@ -227,6 +235,9 @@ module Pi : sig
   module type MGR = sig
     type tag
     type t
+
+    val environment : t -> Env.t
+    val getenv_opt : t -> string -> string option
 
     val pipe :
       t ->

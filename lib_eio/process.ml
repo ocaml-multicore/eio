@@ -93,13 +93,15 @@ module Env = struct
     Printf.sprintf "%s=%s" name value
 
   let get_opt name t =
-    Name.validate name;
-    let prefix = name ^ "=" in
-    Array.find_opt (Name.starts_with ~prefix) t
-    |> Option.map (fun e ->
-        let i = String.length prefix in
-        String.sub e i (String.length e - i)
-      )
+    if name = "" then None
+    else (
+      let prefix = name ^ "=" in
+      Array.find_opt (Name.starts_with ~prefix) t
+      |> Option.map (fun e ->
+          let i = String.length prefix in
+          String.sub e i (String.length e - i)
+        )
+    )
 
   let override bindings t =
     List.iter validate_binding bindings;
@@ -163,6 +165,9 @@ module Pi = struct
     type tag
     type t
 
+    val environment : t -> Env.t
+    val getenv_opt : t -> string -> string option
+
     val pipe :
       t ->
       sw:Switch.t ->
@@ -220,6 +225,16 @@ let signal (type tag) (t : [> tag ty] r) s =
   let (Resource.T (v, ops)) = t in
   let module X = (val (Resource.get ops Pi.Process)) in
   X.signal v s
+
+let environment (type tag) (t : [> tag mgr_ty] r) =
+  let (Resource.T (v, ops)) = t in
+  let module X = (val (Resource.get ops Pi.Mgr)) in
+  X.environment v
+
+let getenv_opt (type tag) (t : [> tag mgr_ty] r) =
+  let (Resource.T (v, ops)) = t in
+  let module X = (val (Resource.get ops Pi.Mgr)) in
+  X.getenv_opt v
 
 let spawn (type tag) ~sw (t : [> tag mgr_ty] r) ?cwd ?stdin ?stdout ?stderr ?env ?executable args : tag ty r =
   let (Resource.T (v, ops)) = t in
