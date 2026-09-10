@@ -360,15 +360,16 @@ let float_of_time s ns =
 
 let eio_of_statx x =
   let module X = Uring.Statx in
+  let kind = X.kind x in
   { Eio.File.Stat.
-    dev     = X.dev x;
+    dev     = Eio.File.Dev.of_int64 (X.dev x);
     ino     = X.ino x;
-    kind    = X.kind x;
+    kind;
     perm    = X.perm x;
     nlink   = X.nlink x;
     uid     = X.uid x;
     gid     = X.gid x;
-    rdev    = X.rdev x;
+    rdev    = Eio_unix.Private.rdev_of_int64 ~kind (X.rdev x);
     size    = X.size x |> Optint.Int63.of_int64;
     blksize = X.blksize x;
     blocks  = X.blocks x;
@@ -718,6 +719,14 @@ let chmod ~follow ~mode dirfd path =
             (* The original error is less confusing *)
             let unix_error = Eio_unix.Unix_error (orig_code, orig_fn, orig_arg) in
             raise @@ Eio.Exn.create (Eio.Exn.Not_available unix_error)
+      )
+  with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
+
+let mknod kind ~perm dirfd path =
+  try
+    with_parent_dir_fd dirfd path @@ fun parent leaf ->
+    Eio_unix.run_in_systhread ~label:"mknod" (fun () ->
+        Eio_unix.Private.mknod parent leaf ~kind ~perm
       )
   with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 

@@ -16,6 +16,7 @@
    primitives.h.new
    (run %{bin:lintcstubs_arity_cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Fd.cmt}
+        %{dep:.eio_unix.objs/byte/eio_unix__Dev.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Private.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Cap.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Fork_action.cmt}

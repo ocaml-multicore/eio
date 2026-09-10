@@ -199,6 +199,40 @@ let test_statx () =
     );
   Eio.Path.unlink path
 
+let test_mknod () =
+  Eio_linux.run @@ fun env ->
+  let ( / ) = Eio.Path.( / ) in
+  let dir = env#cwd / "mknod_test" in
+  Eio.Path.rmtree ~missing_ok:true dir;
+  Eio.Path.mkdir dir ~perm:0o700;
+  Eio_linux.Low_level.mknod `Fifo ~perm:0o600 Cwd "mknod_test/fifo";
+  let st = Eio.Path.stat ~follow:false (dir / "fifo") in
+  Alcotest.check kind_t "kind" `Fifo st.kind;
+  Alcotest.(check bool) "a fifo has no rdev" true (st.rdev = None);
+  (* A second attempt fails. *)
+  begin
+    match Eio_linux.Low_level.mknod `Fifo ~perm:0o600 Cwd "mknod_test/fifo" with
+    | () -> Alcotest.fail "Expected EEXIST, but call succeeded"
+    | exception Eio.Io (Eio.Fs.E Already_exists _, _) -> ()
+  end;
+  (* Escaping the sandbox is rejected. *)
+  begin
+    match Eio_linux.Low_level.mknod `Fifo ~perm:0o600 Cwd "../escape-fifo" with
+    | () -> Alcotest.fail "Sandbox escape should have been rejected!"
+    | exception Eio.Io (Eio.Fs.E Permission_denied _, _) -> ()
+  end;
+  (* /dev/null decomposes into a major:minor pair. *)
+  let st = Eio.Path.stat ~follow:true (env#fs / "/dev/null") in
+  Alcotest.check kind_t "kind" `Character_special st.kind;
+  begin match st.rdev with
+    | None -> Alcotest.fail "/dev/null should have an rdev!"
+    | Some d ->
+      Alcotest.(check bool) "rdev round-trips" true
+        (Eio.File.Dev.equal d
+           (Eio_unix.Dev.make ~major:(Eio_unix.Dev.major d) ~minor:(Eio_unix.Dev.minor d)))
+  end;
+  Eio.Path.rmtree dir
+
 let test_fallocate () =
   Eio_linux.run @@ fun env ->
   let ( / ) = Eio.Path.( / ) in
@@ -318,6 +352,7 @@ let () =
       test_case "expose_backend"       `Quick test_expose_backend;
       test_case "statx"                `Quick test_statx;
       test_case "fstat"                `Quick test_fstat;
+      test_case "mknod"                `Quick test_mknod;
       test_case "fallocate"            `Quick test_fallocate;
       test_case "ftruncate"            `Quick test_ftruncate;
       test_case "signal_race"          `Quick test_signal_race;

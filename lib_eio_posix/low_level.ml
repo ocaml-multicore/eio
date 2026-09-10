@@ -485,6 +485,12 @@ let symlink ~link_to new_dir new_path =
   let new_dir = Option.value new_dir ~default:at_fdcwd in
   eio_symlinkat link_to new_dir new_path
 
+let mknod kind ~perm dirfd path =
+  in_worker_thread "mknod" @@ fun () ->
+  Resolve.with_parent "mknod" dirfd path @@ fun dirfd path ->
+  let dirfd = Option.value dirfd ~default:at_fdcwd in
+  Eio_unix.Private.mknod_unix dirfd path ~kind ~perm
+
 let read_link dirfd path =
   in_worker_thread "read_link" @@ fun () ->
   Resolve.with_parent "read_link" dirfd path @@ fun dirfd path ->
