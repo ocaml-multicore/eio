@@ -93,13 +93,15 @@ module Env = struct
     Printf.sprintf "%s=%s" name value
 
   let get_opt name t =
-    Name.validate name;
-    let prefix = name ^ "=" in
-    Array.find_opt (Name.starts_with ~prefix) t
-    |> Option.map (fun e ->
-        let i = String.length prefix in
-        String.sub e i (String.length e - i)
-      )
+    if name = "" then None
+    else (
+      let prefix = name ^ "=" in
+      Array.find_opt (Name.starts_with ~prefix) t
+      |> Option.map (fun e ->
+          let i = String.length prefix in
+          String.sub e i (String.length e - i)
+        )
+    )
 
   let override bindings t =
     List.iter validate_binding bindings;

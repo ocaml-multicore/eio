@@ -293,10 +293,8 @@ Invalid environment variable name "k="
 # e |> Env.override ["k", Some "v=1"] |> Env.get_opt "k";;
 - : string option = Some "v=1"
 
-# try Env.(get_opt "" empty) |> ignore
-  with Invalid_argument x -> print_endline x;;
-Invalid environment variable name ""
-- : unit = ()
+# Env.(get_opt "" (of_array [| "=foo" |]));;
+- : string option = None
 
 # try e |> Env.override ["", None] |> ignore
   with Invalid_argument x -> print_endline x;;
