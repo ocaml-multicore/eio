@@ -101,6 +101,9 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
     effc = fun (type a) (e : a Effect.t) : ((a, Sched.exit) continuation -> Sched.exit) option ->
       match e with
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k Time.mono_clock)
+      | Eio_unix.Private.Import_file fd -> Some (fun k ->
+          continue k (Flow.of_fd fd :> Eio_unix.File.rw_ty r)
+        )
       | Eio_unix.Net.Import_socket_stream (sw, close_unix, fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~seekable:false ~close_unix fd in
           continue k (Flow.of_fd fd :> _ Eio_unix.Net.stream_socket)

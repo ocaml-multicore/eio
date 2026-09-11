@@ -47,6 +47,9 @@ end
 module Net = Net
 (** Extended network API with support for file descriptors. *)
 
+module File = File
+(** Extended file API with support for file descriptors. *)
+
 type source_ty = [`Unix_fd | Eio.Resource.close_ty | Eio.Flow.source_ty]
 type sink_ty   = [`Unix_fd | Eio.Resource.close_ty | Eio.Flow.sink_ty]
 type 'a source = ([> source_ty] as 'a) r
@@ -137,6 +140,7 @@ module Private : sig
     | Await_writable : Unix.file_descr -> unit Effect.t      (** See {!await_writable} *)
     | Get_monotonic_clock : Eio.Time.Mono.ty r Effect.t
     | Pipe : Eio.Switch.t -> (source_ty r * sink_ty r) Effect.t    (** See {!pipe} *)
+    | Import_file : Fd.t -> File.rw_ty r Effect.t            (** See {!File.import_rw} *)
 
   module Rcfd = Rcfd
 

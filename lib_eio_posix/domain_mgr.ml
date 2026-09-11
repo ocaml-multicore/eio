@@ -41,6 +41,10 @@ let run_event_loop fn x =
     effc = fun (type a) (e : a Effect.t) : ((a, Sched.exit) continuation -> Sched.exit) option ->
       match e with
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k Time.mono_clock)
+      | Eio_unix.Private.Import_file fd -> Some (fun k ->
+          Fd.use_exn "Import_file" fd Unix.set_nonblock;
+          continue k (Flow.of_fd fd :> Eio_unix.File.rw_ty r)
+        )
       | Eio_unix.Net.Import_socket_stream (sw, close_unix, unix_fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
           Unix.set_nonblock unix_fd;
