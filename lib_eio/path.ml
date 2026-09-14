@@ -26,18 +26,18 @@ let split (d, p) =
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
   X.split p |> Option.map (fun (dirname, basename) -> ((d, dirname), basename))
 
-let open_in ~sw t =
+let open_in ~sw ?(follow=true) t =
   let (Resource.T (dir, ops), path) = t in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
-  try X.open_in dir ~sw path
+  try X.open_in dir ~follow ~sw path
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "opening %a" pp t
 
-let open_out ~sw ?(append=false) ~create t =
+let open_out ~sw ?(follow=true) ?(append=false) ~create t =
   let (Resource.T (dir, ops), path) = t in
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
-  try X.open_out dir ~sw ~append ~create path
+  try X.open_out dir ~sw ~follow ~append ~create path
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "opening %a" pp t
@@ -102,11 +102,11 @@ let is_file t =
 let is_directory t =
   kind ~follow:true t = `Directory
 
-let with_open_in path fn =
-  Switch.run ~name:"with_open_in" @@ fun sw -> fn (open_in ~sw path)
+let with_open_in ?follow path fn =
+  Switch.run ~name:"with_open_in" @@ fun sw -> fn (open_in ~sw ?follow path)
 
-let with_open_out ?append ~create path fn =
-  Switch.run ~name:"with_open_out" @@ fun sw -> fn (open_out ~sw ?append ~create path)
+let with_open_out ?follow ?append ~create path fn =
+  Switch.run ~name:"with_open_out" @@ fun sw -> fn (open_out ~sw ?follow ?append ~create path)
 
 let with_subtree path fn =
   Switch.run ~name:"with_subtree" @@ fun sw -> fn (open_subtree ~sw path)
@@ -118,8 +118,8 @@ let with_lines path fn =
   let buf = Buf_read.of_flow flow ~max_size:max_int in
   fn (Buf_read.lines buf)
 
-let load t =
-  with_open_in t @@ fun flow ->
+let load ?follow t =
+  with_open_in ?follow t @@ fun flow ->
   try
     let size = File.size flow in
     if Optint.Int63.(compare size (of_int Sys.max_string_length)) = 1 then
@@ -134,8 +134,8 @@ let load t =
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "loading %a" pp t
 
-let save ?append ~create path data =
-  with_open_out ?append ~create path @@ fun flow ->
+let save ?follow ?append ~create path data =
+  with_open_out ?follow ?append ~create path @@ fun flow ->
   Flow.copy_string data flow
 
 let unlink ?(missing_ok=false) t =

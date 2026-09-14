@@ -91,17 +91,28 @@ val split : 'a t -> ('a t * string) option
 
 (** {1 Reading files} *)
 
-val load : _ t -> string
+val load :
+  ?follow:bool ->
+  _ t -> string
 (** [load t] returns the contents of the given file.
 
     This is a convenience wrapper around {!with_open_in}. *)
 
-val open_in : sw:Switch.t -> _ t -> File.ro_ty r
+val open_in :
+  sw:Switch.t ->
+  ?follow:bool ->
+  _ t -> File.ro_ty r
 (** [open_in ~sw t] opens [t] for reading.
 
-    Note: files are always opened in binary mode. *)
+    Note: files are always opened in binary mode.
 
-val with_open_in : _ t -> (File.ro_ty r -> 'a) -> 'a
+    @param follow If [true] (the default) and [t] is a symlink, the symlink is followed and the target is opened.
+                  If [false], trying to open a symlink raises {!Fs.Symlink}.
+                  This only affects [t] itself; symlinks earlier in the path are still followed. *)
+
+val with_open_in :
+  ?follow:bool ->
+  _ t -> (File.ro_ty r -> 'a) -> 'a
 (** [with_open_in] is like [open_in], but calls [fn flow] with the new flow and closes
     it automatically when [fn] returns (if it hasn't already been closed by then). *)
 
@@ -112,13 +123,18 @@ val with_lines : _ t -> (string Seq.t -> 'a) -> 'a
 
 (** {1 Writing files} *)
 
-val save : ?append:bool -> create:create -> _ t -> string -> unit
+val save :
+  ?follow:bool ->
+  ?append:bool ->
+  create:create ->
+  _ t -> string -> unit
 (** [save t data ~create] writes [data] to [t].
 
     This is a convenience wrapper around {!with_open_out}. *)
 
 val open_out :
   sw:Switch.t ->
+  ?follow:bool ->
   ?append:bool ->
   create:create ->
   _ t -> File.rw_ty Resource.t
@@ -126,9 +142,13 @@ val open_out :
 
     Note: files are always opened in binary mode.
     @param append Open for appending: always write at end of file.
-    @param create Controls whether to create the file, and what permissions to give it if so. *)
+    @param create Controls whether to create the file, and what permissions to give it if so.
+    @param follow If [true] (the default) and [t] is a symlink, the symlink is followed and the target is opened.
+                  If [false], trying to open a symlink raises {!Fs.Symlink}.
+                  This only affects [t] itself; symlinks earlier in the path are still followed. *)
 
 val with_open_out :
+  ?follow:bool ->
   ?append:bool ->
   create:create ->
   _ t -> (File.rw_ty r -> 'a) -> 'a

@@ -90,14 +90,14 @@ end = struct
   (* Sandboxes use [O_NOFOLLOW] when opening files ([resolve] already removed any symlinks).
      This avoids a race where symlink might be added after [realpath] returns.
      TODO: Emulate [O_NOFOLLOW] here. *)
-  let opt_follow t = if t.sandbox then Low_level.Nofollow else Low_level.Follow
+  let opt_follow ~follow t = if not follow || t.sandbox then Low_level.Nofollow else Low_level.Follow
 
-  let open_in t ~sw path =
+  let open_in t ~sw ~follow path =
     let open Low_level in
-    let fd = Err.run (Low_level.openat ~sw ~follow:(opt_follow t) (resolve t path) Low_level.Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_)) Flags.Create.(non_directory) in
+    let fd = Err.run (Low_level.openat ~sw ~follow:(opt_follow ~follow t) (resolve t path) Low_level.Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_)) Flags.Create.(non_directory) in
     (Flow.of_fd fd :> Eio.File.ro_ty Eio.Resource.t)
 
-  let rec open_out t ~sw ~append ~create path =
+  let rec open_out t ~sw ~follow ~append ~create path =
     let open Low_level in
     let _mode, disp =
       match create with
@@ -112,17 +112,17 @@ end = struct
     in
     match
       with_parent_dir t path @@ fun dirfd path ->
-      Low_level.openat ?dirfd ~follow:(opt_follow t) ~sw path flags disp Flags.Create.(non_directory)
+      Low_level.openat ?dirfd ~follow:(opt_follow ~follow t) ~sw path flags disp Flags.Create.(non_directory)
     with
     | fd -> (Flow.of_fd fd :> Eio.File.rw_ty r)
     (* This is the result of raising [caml_unix_error(ELOOP,...)] *)
-    | exception Unix.Unix_error ((ELOOP | EUNKNOWNERR 114), _, _) ->
+    | exception Unix.Unix_error ((ELOOP | EUNKNOWNERR 114), _, _) when follow ->
       (* The leaf was a symlink (or we're unconfined and the main path changed, but ignore that).
          A leaf symlink might be OK, but we need to check it's still in the sandbox.
          todo: possibly we should limit the number of redirections here, like the kernel does. *)
       let target = Unix.readlink (Nt_path.join t.dir_path path) in
       let full_target = Nt_path.join (Nt_path.dirname path) target in
-      open_out t ~sw ~append ~create full_target
+      open_out t ~sw ~follow ~append ~create full_target
     | exception Unix.Unix_error (code, name, arg) ->
       raise (Err.v code name arg)
 
