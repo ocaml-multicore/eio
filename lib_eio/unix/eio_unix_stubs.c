@@ -124,6 +124,12 @@ CAMLprim value eio_unix_fchownat(value v_fd, value v_path, value v_uid, value v_
   uid_t uid = Int64_val(v_uid);
   gid_t gid = Int64_val(v_gid);
   int ret;
+
+  if (uid < -1)
+    caml_unix_error(EINVAL, "fchownat uid", v_path);
+  if (gid < -1)
+    caml_unix_error(EINVAL, "fchownat gid", v_path);
+
   caml_unix_check_path(v_path, "fchownat");
   path = caml_stat_strdup(String_val(v_path));
   caml_enter_blocking_section();
