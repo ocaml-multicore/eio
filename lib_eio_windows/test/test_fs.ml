@@ -543,6 +543,40 @@ let test_rename_over_dir env () =
     Alcotest.(check string) "non-empty directory kept" "y" (read_file "rn-full\\inside");
     Alcotest.(check string) "source kept" "x" (read_file "rn-empty\\inside")
 
+let test_open_no_follow env () =
+  let cwd = Eio.Stdenv.cwd env in
+  with_cleanup ["dir1"; "link1"] @@ fun () ->
+  let dir1 = cwd / "dir1" in
+  let link1 = cwd / "link1" in
+  Path.mkdir dir1 ~perm:0o700;
+  Unix.symlink "dir1" "link1";   (* todo: use Eio.Path.symlink *)
+  let file = dir1 / "file" in
+  let link2 = link1 / "link" in
+  Path.save file "data1" ~create:(`Exclusive 0o600);
+  Unix.symlink "file" "dir1/link";
+  Path.save ~create:`Never file "data2";
+  Path.save ~create:`Never (link1 / "file") "data3";
+  Path.save ~create:`Never link2 "data4";
+  Path.save ~follow:false ~create:`Never file "data2";
+  Path.save ~follow:false ~create:`Never (link1 / "file") "data3";
+  begin
+    try Path.save ~follow:false ~create:`Never link2 "data4"; Alcotest.fail "Expected symlink error on save"
+    with Eio.Io (Eio.Fs.E Symlink, _) -> ()
+  end;
+  let try_read_file ~follow path =
+    Alcotest.(check string) (Fmt.str "read %a follow=%b" Eio.Path.pp path follow)
+      "data3" (Eio.Path.load ~follow path)
+  in
+  try_read_file ~follow:true file;
+  try_read_file ~follow:true (link1 / "file");
+  try_read_file ~follow:true link2;
+  try_read_file ~follow:false file;
+  try_read_file ~follow:false (link1 / "file");
+  begin
+    try try_read_file ~follow:false link2; Alcotest.fail "Expected symlink error on load"
+    with Eio.Io (Eio.Fs.E Symlink, _) -> ()
+  end
+
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
   "absolute-join", `Quick, test_absolute_join env;
@@ -577,4 +611,5 @@ let tests env = [
   "stat-symlink", `Quick, test_stat_symlink env;
   "rename", `Quick, test_rename env;
   "rename-over-directory", `Quick, test_rename_over_dir env;
+  "open-no-follow", `Quick, test_open_no_follow env;
 ]
