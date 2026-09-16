@@ -3,6 +3,9 @@
 all:
 	dune build @runtest @all
 
+docs:
+	dune build @install && dune exec -- odoc_driver --remap --html-dir=_build/odoc eio eio_linux eio_posix eio_windows eio_main
+
 bench:
 	dune exec -- ./bench/main.exe
 
