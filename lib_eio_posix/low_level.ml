@@ -202,6 +202,7 @@ module Open_flags = struct
 
   let empty = 0
   let ( + ) = ( lor )
+  let mem a b = (a land b) = a
 
   let ( +? ) x = function
     | None -> x
@@ -320,7 +321,8 @@ module Resolve = struct
       let flags = if trailing_slash leaf then Open_flags.(flags + directory) else flags in
       match eio_openat base leaf Open_flags.(flags + nofollow + nonblock) mode with
       | fd -> Fd.of_unix fd ~sw ~blocking:false ~close_unix:true
-      | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) ->
+      | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e)
+          when not Open_flags.(mem nofollow flags) ->
         (* Note: Linux uses ELOOP or ENOTDIR. FreeBSD uses EMLINK. NetBSD uses EFTYPE. *)
         match Eio_unix.Private.read_link_unix base leaf with
         | target ->

@@ -13,6 +13,7 @@ type error =
   | Permission_denied of Exn.Backend.t
   | File_too_large
   | Not_native of string          (** Raised by {!Path.native_exn}. *)
+  | Symlink                       (** Too many symlinks, or symlink when not following. *)
 
 type Exn.err += E of error
 
@@ -29,6 +30,7 @@ let () =
           | Permission_denied e -> Fmt.pf f "Permission_denied %a" Exn.Backend.pp e
           | File_too_large -> Fmt.pf f "File_too_large"
           | Not_native m -> Fmt.pf f "Not_native %S" m
+          | Symlink -> Fmt.pf f "Symlink"
         end;
         true
       | _ -> false
@@ -62,11 +64,16 @@ module Pi = struct
   module type DIR = sig
     type t
 
-    val open_in : t -> sw:Switch.t -> path -> File.ro_ty r
+    val open_in :
+      t ->
+      sw:Switch.t ->
+      follow:bool ->
+      path -> File.ro_ty r
 
     val open_out :
       t ->
       sw:Switch.t ->
+      follow:bool ->
       append:bool ->
       create:create ->
       path -> File.rw_ty r

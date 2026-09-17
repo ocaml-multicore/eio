@@ -72,13 +72,15 @@ end = struct
     let dir_path = if dir_path = "." then "" else dir_path in
     { fd; dir_path; label }
 
-  let open_in t ~sw path =
-    let fd = Err.run (Low_level.openat ~mode:0 ~sw t.fd path) Low_level.Open_flags.rdonly in
+  let open_in t ~sw ~follow path =
+    let flags = Low_level.Open_flags.rdonly in
+    let flags = if follow then flags else Low_level.Open_flags.(flags + nofollow) in
+    let fd = Err.run (Low_level.openat ~mode:0 ~sw t.fd path) flags in
     let info = Fd.use_exn "fstat" fd Unix.fstat in
     if info.st_kind = S_FIFO then fifo_reader fd
     else (Flow.of_fd fd :> Eio.File.ro_ty Eio.Resource.t)
 
-  let open_out t ~sw ~append ~create path =
+  let open_out t ~sw ~follow ~append ~create path =
     let mode, flags =
       match create with
       | `Never            -> 0,    Low_level.Open_flags.empty
@@ -87,6 +89,7 @@ end = struct
       | `Exclusive   perm -> perm, Low_level.Open_flags.(creat + excl)
     in
     let flags = if append then Low_level.Open_flags.(flags + append) else flags in
+    let flags = if follow then flags else Low_level.Open_flags.(flags + nofollow) in
     let flags = Low_level.Open_flags.(flags + rdwr) in
     match Low_level.openat ~sw ~mode t.fd path flags with
     | fd -> (Flow.of_fd fd :> Eio.File.rw_ty r)

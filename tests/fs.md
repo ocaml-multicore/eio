@@ -23,15 +23,17 @@ let run ?clear:(paths = []) fn =
   List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p)) paths;
   fn env
 
-let try_read_file path =
-  match Path.load path with
-  | s -> traceln "read %a -> %S" Path.pp path s
-  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+let try_read_file ?(follow=true) path =
+  let pp_flags f = if not follow then Fmt.pf f " (no-follow)" in
+  match Path.load ~follow path with
+  | s -> traceln "read %a -> %S%t" Path.pp path s pp_flags
+  | exception ex -> traceln "@[<h>%a%t@]" Eio.Exn.pp ex pp_flags
 
-let try_write_file ~create ?append path content =
-  match Path.save ~create ?append path content with
-  | () -> traceln "write %a -> ok" Path.pp path
-  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+let try_write_file ?(follow=true) ~create ?append path content =
+  let pp_flags f = if not follow then Fmt.pf f " (no-follow)" in
+  match Path.save ~follow ~create ?append path content with
+  | () -> traceln "write %a -> ok%t" Path.pp path pp_flags
+  | exception ex -> traceln "@[<h>%a%t@]" Eio.Exn.pp ex pp_flags
 
 let try_mkdir path =
   match Path.mkdir path ~perm:0o700 with
@@ -1568,4 +1570,43 @@ Exception: Failure "Simulated error".
      Cstruct.to_string buf
   );;
 - : string = "est-da"
+```
+
+# Following symlinks
+
+```ocaml
+# run ~clear:["dir1"; "link1"] @@ fun env ->
+  let dir1 = env#cwd / "dir1" in
+  let link1 = env#cwd / "link1" in
+  Path.mkdir dir1 ~perm:0o700;
+  Path.symlink link1 ~link_to:"dir1";
+  let file = dir1 / "file" in
+  let link2 = link1 / "link" in
+  Path.save file "data1" ~create:(`Exclusive 0o600);
+  Path.symlink link2 ~link_to:"file";
+  try_write_file ~create:`Never file "data2";
+  try_write_file ~create:`Never (link1 / "file") "data3";
+  try_write_file ~create:`Never link2 "data4";
+  try_write_file ~follow:false ~create:`Never file "data2";
+  try_write_file ~follow:false ~create:`Never (link1 / "file") "data3";
+  try_write_file ~follow:false ~create:`Never link2 "data4";
+  try_read_file file;
+  try_read_file (link1 / "file");
+  try_read_file link2;
+  try_read_file ~follow:false file;
+  try_read_file ~follow:false (link1 / "file");
+  try_read_file ~follow:false link2;
++write <cwd:dir1/file> -> ok
++write <cwd:link1/file> -> ok
++write <cwd:link1/link> -> ok
++write <cwd:dir1/file> -> ok (no-follow)
++write <cwd:link1/file> -> ok (no-follow)
++Eio.Io Fs Symlink, opening <cwd:link1/link> (no-follow)
++read <cwd:dir1/file> -> "data3"
++read <cwd:link1/file> -> "data3"
++read <cwd:link1/link> -> "data3"
++read <cwd:dir1/file> -> "data3" (no-follow)
++read <cwd:link1/file> -> "data3" (no-follow)
++Eio.Io Fs Symlink, opening <cwd:link1/link> (no-follow)
+- : unit = ()
 ```

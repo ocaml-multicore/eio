@@ -96,7 +96,7 @@ void no_follow(HANDLE h) {
 
   if (b.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
     CloseHandle(h);
-    caml_unix_error(ELOOP, "nofollow", Nothing);
+    caml_unix_error(-WSAELOOP, "nofollow", Nothing);
   }
 }
 

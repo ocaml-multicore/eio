@@ -58,15 +58,17 @@ end = struct
     let dir_path = if dir_path = "." then "" else dir_path in
     { fd; dir_path; label }
 
-  let open_in t ~sw path =
+  let open_in t ~sw ~follow path =
+    let flags = Uring.Open_flags.cloexec in
+    let flags = if follow then flags else Uring.Open_flags.(flags + nofollow) in
     let fd = Low_level.openat ~sw t.fd path
         ~access:`R
-        ~flags:Uring.Open_flags.cloexec
+        ~flags
         ~perm:0
     in
     (Flow.of_fd fd :> Eio.File.ro_ty r)
 
-  let open_out t ~sw ~append ~create path =
+  let open_out t ~sw ~follow ~append ~create path =
     let perm, flags =
       match create with
       | `Never            -> 0,    Uring.Open_flags.empty
@@ -75,6 +77,7 @@ end = struct
       | `Exclusive   perm -> perm, Uring.Open_flags.(creat + excl)
     in
     let flags = if append then Uring.Open_flags.(flags + append) else flags in
+    let flags = if follow then flags else Uring.Open_flags.(flags + nofollow) in
     let fd = Low_level.openat ~sw t.fd path
         ~access:`RW
         ~flags:Uring.Open_flags.(cloexec + flags)

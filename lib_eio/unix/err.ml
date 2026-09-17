@@ -19,4 +19,5 @@ let v code name arg =
   | EEXIST -> Eio.Fs.err (Already_exists e)
   | ENOENT -> Eio.Fs.err (Not_found e)
   | EXDEV | EACCES | EPERM -> Eio.Fs.err (Permission_denied e)
+  | ELOOP | EMLINK -> Eio.Fs.err Symlink
   | _ -> unclassified e
