@@ -55,10 +55,10 @@ module Pi = struct
 
   module type PATH = sig
     val split : path -> (path * string) option
-    (** The implementation of {!Path.split}. *)
+    (** The implementation of {!Eio.Path.split}. *)
 
     val join : path -> path -> path
-    (** The implementation of {!Path.(/)}. *)
+    (** The implementation of {!Eio.Path.(/)}. *)
   end
 
   module type DIR = sig

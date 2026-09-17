@@ -135,6 +135,15 @@ Try to avoid making unnecessary changes; this makes review harder and clutters u
 `ocamlformat` may be useful to get badly messed up code to a baseline unformatted state,
 from which human formatting can be added where needed.
 
+## Generating the API documentation
+
+```
+opam install odoc-driver
+make docs
+```
+
+The results will be in `_build/odoc/`.
+
 ## AI-generated Code
 
 Contributing to Eio should not be done _solely_ using "AI tools" such as ChatGPT. This is for a few reasons:
