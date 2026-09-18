@@ -35,6 +35,9 @@ let () =
             "FILE_NO_INTERMEDIATE_BUFFERING", Int;
             "FILE_WRITE_THROUGH", Int;
             "FILE_SEQUENTIAL_ONLY", Int;
+
+            (* Exit Codes *)
+            "STATUS_CONTROL_C_EXIT", Int;
           ]
         |> List.map (function
             | name, C.C_define.Value.Int v ->
