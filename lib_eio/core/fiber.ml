@@ -260,6 +260,7 @@ module List = struct
       aux items
 
   let map ?max_fibers fn = filter_map ?max_fibers (fun x -> Some (fn x))
+  let partition_map ?max_fibers fn items = List.partition_map Fun.id (map ?max_fibers fn items) 
   let filter ?max_fibers fn = filter_map ?max_fibers (fun x -> if fn x then Some x else None)
 
   let iter ?(max_fibers=max_int) fn items =
