@@ -13,10 +13,6 @@ module Bench_dir = struct
 
   let get_name = function Dir { name; _ } | File { name; _ } -> name
 
-  let get_children = function
-    | Dir { children; _ } -> children
-    | File _ -> invalid_arg "Files don't have children"
-
   let compare a b = String.compare (get_name a) (get_name b)
 
   let rec sort = function
