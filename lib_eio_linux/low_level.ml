@@ -55,6 +55,12 @@ module Fixed = struct
       fn chunk
     | None ->
       fallback ()
+
+  let avail () =
+    let s = Sched.get () in
+    match s.mem with
+    | None -> 0
+    | Some mem -> avail mem
 end
 
 type dir_fd =

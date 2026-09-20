@@ -139,17 +139,21 @@ let test_read_exact () =
     ~resolve:Uring.Resolve.empty
     "test.data"
   in
-  Eio_linux.Low_level.Fixed.use ~fallback:Alcotest.skip @@ fun chunk ->
-  (* Try to read one byte too far. If it's not updating the file offset, it will
-     succeed. *)
-  let len = String.length msg + 1 in
-  try
-    Eio_linux.Low_level.read_exactly ~file_offset:Optint.Int63.one fd chunk len;
-    assert false
-  with End_of_file ->
-    let got = Eio_linux.Low_level.Fixed.to_string chunk ~len:(String.length msg) in
-    if got <> msg then Fmt.failwith "%S vs %S" got msg;
-    Eio.Path.unlink path
+  Alcotest.(check int) "Initially free" 1 (Eio_linux.Low_level.Fixed.avail ());
+  Eio_linux.Low_level.Fixed.use ~fallback:Alcotest.skip (fun chunk ->
+      Alcotest.(check int) "Nothing free" 0 (Eio_linux.Low_level.Fixed.avail ());
+      (* Try to read one byte too far. If it's not updating the file offset, it will
+         succeed. *)
+      let len = String.length msg + 1 in
+      try
+        Eio_linux.Low_level.read_exactly ~file_offset:Optint.Int63.one fd chunk len;
+        assert false
+      with End_of_file ->
+        let got = Eio_linux.Low_level.Fixed.to_string chunk ~len:(String.length msg) in
+        if got <> msg then Fmt.failwith "%S vs %S" got msg;
+        Eio.Path.unlink path
+    );
+  Alcotest.(check int) "Available again" 1 (Eio_linux.Low_level.Fixed.avail ())
 
 let test_expose_backend () =
   Eio_linux.run @@ fun env ->
