@@ -99,9 +99,5 @@ let peek t =
   | Unresolved _ -> None
   | Resolved x -> Some x
 
-let id t =
-  let t = of_public_promise t in
-  t.id
-
 let is_resolved t =
   Option.is_some (peek t)

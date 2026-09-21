@@ -88,10 +88,6 @@ let with_daemon t fn =
         dec_fibers t
       )
 
-let or_raise = function
-  | Ok x -> x
-  | Error ex -> raise ex
-
 let rec await_idle t =
   (* Wait for fibers to finish: *)
   while t.fibers > 0 do
@@ -156,18 +152,6 @@ let run_protected ?name fn =
   Cancel.with_cc ~ctx ~parent:ctx.cancel_context ~protected:true Switch @@ fun cancel ->
   Option.iter (Trace.name cancel.id) name;
   run_internal (create cancel) fn
-
-(* Run [fn ()] in [t]'s cancellation context.
-   This prevents [t] from finishing until [fn] is done,
-   and means that cancelling [t] will cancel [fn]. *)
-let run_in t fn =
-  with_op t @@ fun () ->
-  let ctx = Effect.perform Cancel.Get_context in
-  let old_cc = ctx.cancel_context in
-  Cancel.move_fiber_to t.cancel ctx;
-  match fn () with
-  | ()           -> Cancel.move_fiber_to old_cc ctx;
-  | exception ex -> Cancel.move_fiber_to old_cc ctx; raise ex
 
 exception Release_error of string * exn
 
