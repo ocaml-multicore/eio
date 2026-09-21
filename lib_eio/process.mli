@@ -66,7 +66,9 @@ module Env : sig
 
       On Windows, name comparison is (ASCII) case-insensitive.
       The convention of always using uppercase ASCII names for environment
-      variables will avoid different behaviour across platforms. *)
+      variables will avoid different behaviour across platforms.
+
+      @since 1.6 *)
 
   type t = string array
   (** Note: this type is currently exposed for backwards compatibility and will
@@ -111,11 +113,15 @@ module Env : sig
 end
 
 val environment : _ mgr -> Env.t
-(** [environment t] returns a snapshot of this process's current environment. *)
+(** [environment t] returns a snapshot of this process's current environment.
+
+    @since 1.6 *)
 
 val getenv_opt : _ mgr -> string -> string option
 (** [getenv_opt t name] will get the environment variable called [name].
-    Returns [None] if [name] does not exist. *)
+    Returns [None] if [name] does not exist.
+
+    @since 1.6 *)
 
 (** {2 Processes} *)
 

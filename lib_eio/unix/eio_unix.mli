@@ -48,7 +48,9 @@ module Net = Net
 (** Extended network API with support for file descriptors. *)
 
 module File = File
-(** Extended file API with support for file descriptors. *)
+(** Extended file API with support for file descriptors.
+
+    @since 1.6 *)
 
 type source_ty = [`Unix_fd | Eio.Resource.close_ty | Eio.Flow.source_ty]
 type sink_ty   = [`Unix_fd | Eio.Resource.close_ty | Eio.Flow.sink_ty]

@@ -108,7 +108,8 @@ val open_in :
 
     @param follow If [true] (the default) and [t] is a symlink, the symlink is followed and the target is opened.
                   If [false], trying to open a symlink raises {!Fs.Symlink}.
-                  This only affects [t] itself; symlinks earlier in the path are still followed. *)
+                  This only affects [t] itself; symlinks earlier in the path are still followed.
+                  Since 1.6. *)
 
 val with_open_in :
   ?follow:bool ->
@@ -145,7 +146,8 @@ val open_out :
     @param create Controls whether to create the file, and what permissions to give it if so.
     @param follow If [true] (the default) and [t] is a symlink, the symlink is followed and the target is opened.
                   If [false], trying to open a symlink raises {!Fs.Symlink}.
-                  This only affects [t] itself; symlinks earlier in the path are still followed. *)
+                  This only affects [t] itself; symlinks earlier in the path are still followed.
+                  Since 1.6. *)
 
 val with_open_out :
   ?follow:bool ->
