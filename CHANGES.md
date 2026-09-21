@@ -1,3 +1,36 @@
+## v1.6
+
+New features:
+
+- Add `Eio.Process.Env` (@patricoferris @talex5 @avsm #930 #923).  
+  You can use `Eio.Process.environment` to snapshot the current environment,
+  modify it using `Eio.Process.Env.override`, then use it with `Process.spawn ~env`.
+
+- `Eio.Path`: add `?follow` arguments to open functions (@talex5 #938, requested by @samoht).  
+  Setting `~follow:false` witll raise an exception rather than opening a symlink.
+
+- Add `Eio_unix.File` module (@talex5 #937, reviewed by @avsm, requested by @samoht).  
+  Allows creating Eio files and flows from FDs.
+
+- Windows: add rename support (@avsm #934, reviewed by @talex5).
+
+Bug fixes:
+
+- eio_windows: fix NT path handling and stat (@avsm #932, reviewed by @talex5, reported by @kentookura).  
+  Creating files with absolute paths resulted in a `Unix.ENOENT` error.
+  Also, various other bugs in the Windows path handling were fixed.
+
+Code cleanups and documentation:
+
+- Add `index.mld` for `eio` (@talex5 @avsm #926).  
+  This provides a [quick overview](https://ocaml-multicore.github.io/eio/eio/index.html) of the main `eio` library.
+
+- Fix odoc problems (@talex5 @jonludlam #939).
+
+- Remove unused code (@talex5 #941).
+
+- Fix (harmless) gcc warning `calloc-transposed-args` (@talex5 #933).
+
 ## v1.5
 
 New features:
