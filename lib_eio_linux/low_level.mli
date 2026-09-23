@@ -62,6 +62,9 @@ module Fixed : sig
 
   val free : chunk -> unit
 
+  val avail : unit -> int
+  (** [avail ()] returns the current number of free chunks. *)
+
   val use : fallback:(unit -> 'a) -> (chunk -> 'a) -> 'a
   (** [use ~fallback fn] runs [fn chunk] with a freshly allocated chunk and then frees it.
 
