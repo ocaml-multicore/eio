@@ -215,6 +215,8 @@ end = struct
     with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.chmod ~mode:perm dirfd) path
 
+  let sync_dir _t _path = ()        (* Directories do not require fsync on Windows *)
+
   let pp f t = Fmt.string f (String.escaped t.label)
 
   let native_internal t path =
