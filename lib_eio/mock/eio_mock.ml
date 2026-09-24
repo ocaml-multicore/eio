@@ -2,6 +2,7 @@ module Action = Action
 module Handler = Handler
 module Flow = Flow
 module Net = Net
+module Dir = Dir
 module Clock = Clock
 module Domain_manager = Domain_manager
 module Backend = Backend
