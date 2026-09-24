@@ -292,3 +292,9 @@ val chown : follow:bool -> ?uid:int64 -> ?gid:int64 -> _ t -> unit
     @param follow If [t] is a symbolic link, change the ownership of its target.
 
     @since 1.4 *)
+
+val sync_dir : _ t -> unit
+(** [sync_dir t] transfers (flushes) all changes to directory [t] to the physical device,
+    so that they will persist even if the computer crashes.
+
+    For files, use {!File.sync} instead. *)

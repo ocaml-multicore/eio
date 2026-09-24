@@ -234,3 +234,11 @@ let chown ~follow ?uid ?gid t =
   with Exn.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Exn.reraise_with_context ex bt "changing ownership of %a" pp t
+
+let sync_dir t =
+  let (Resource.T (dir, ops), path) = t in
+  let module X = (val (Resource.get ops Fs.Pi.Dir)) in
+  try X.sync_dir dir path
+  with Exn.Io _ as ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    Exn.reraise_with_context ex bt "synchronising %a" pp t

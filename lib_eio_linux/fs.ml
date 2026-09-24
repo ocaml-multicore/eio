@@ -169,6 +169,14 @@ end = struct
   let chmod t ~follow ~perm path =
     Low_level.chmod t.fd ~follow ~mode:perm path
 
+  let sync_dir t path =
+    Switch.run @@ fun sw ->
+    Low_level.openat ~sw t.fd path
+      ~flags:Uring.Open_flags.directory
+      ~access:`R 
+      ~perm:0 
+    |> Low_level.fsync
+
   let pp f t = Fmt.string f (String.escaped t.label)
 
   let fd t = t.fd
