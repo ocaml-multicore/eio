@@ -419,6 +419,15 @@ val run_server :
     It accepts incoming client connections on socket [sock] and handles them with {!accept_fork}
     (see that for the description of [on_error] and [connection_handler]).
 
+    {b Running a Public Server}
+
+    For a public server, you should set [max_connections] low enough that an attacker can't
+    crash the server simply by hitting the limit on the maximum number of open file descriptors.
+    Exactly what the limit should be depends on how many other FDs your application will need.
+    It may help to increase the default limit set by your operating system.
+    You will also need to limit how many connections each user (e.g. IPv4 address) can have open,
+    how long idle connections can stay open, etc.
+
     {b Running a Parallel Server}
 
     By default [s] runs on a {e single} OCaml {!module:Domain}. However, if [additional_domains:(domain_mgr, domains)]
