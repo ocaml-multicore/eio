@@ -86,6 +86,11 @@ let chdir path =
   traceln "chdir %S" path;
   Unix.chdir path
 
+let try_sync_dir path =
+  match Path.sync_dir path with
+  | () -> traceln "sync_dir %a -> ok" Path.pp path
+  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+
 let try_stat ?(info_type=`Kind) path =
   let stat ~follow =
     match Eio.Path.stat ~follow path, info_type with
@@ -1608,5 +1613,27 @@ Exception: Failure "Simulated error".
 +read <cwd:dir1/file> -> "data3" (no-follow)
 +read <cwd:link1/file> -> "data3" (no-follow)
 +Eio.Io Fs Symlink, opening <cwd:link1/link> (no-follow)
+- : unit = ()
+```
+
+# sync_dir
+
+Can't check that fsync actually worked, but at least make sure it doesn't crash:
+
+```ocaml
+# run ~clear:["dir1"] @@ fun env ->
+  let cwd = env#cwd in
+  let fs = env#fs in
+  try_sync_dir cwd;
+  try_sync_dir fs;
+  let dir1 = cwd / "dir1" in
+  try_mkdir dir1;
+  try_sync_dir dir1;
+  Path.with_subtree dir1 try_sync_dir;;
++sync_dir <cwd> -> ok
++sync_dir <fs> -> ok
++mkdir <cwd:dir1> -> ok
++sync_dir <cwd:dir1> -> ok
++sync_dir <dir1> -> ok
 - : unit = ()
 ```

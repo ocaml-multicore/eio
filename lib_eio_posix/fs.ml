@@ -134,6 +134,12 @@ end = struct
   let chown ~follow ?uid ?gid t path =
     Err.run (Low_level.chown ~follow ?uid ?gid t.fd) path
 
+  let sync_dir t =
+    Err.run @@ fun path ->
+    Switch.run @@ fun sw ->
+    Low_level.openat ~sw t.fd path Low_level.Open_flags.(rdonly + directory) ~mode:0
+    |> Low_level.fsync
+
   let open_subtree t ~sw path =
     let flags = Low_level.Open_flags.(rdonly + directory +? path) in
     let fd = Err.run (Low_level.openat ~sw ~mode:0 t.fd path) flags in
