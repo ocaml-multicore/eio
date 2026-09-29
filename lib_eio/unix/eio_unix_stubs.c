@@ -7,6 +7,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <string.h>
+#ifdef __linux__
+/* [makedev] and friends have lived here rather than in <sys/types.h>
+   since glibc 2.28. See makedev(3). */
+# include <sys/sysmacros.h>
+#endif
 #ifdef _WIN32
 # include <winsock2.h>
 # include <ws2tcpip.h>
@@ -132,6 +137,64 @@ CAMLprim value eio_unix_fchownat(value v_fd, value v_path, value v_uid, value v_
   caml_stat_free_preserving_errno(path);
   if (ret == -1)
     caml_uerror("fchownat", v_path);
+  CAMLreturn(Val_unit);
+#endif
+}
+
+CAMLprim value eio_unix_makedev(value v_major, value v_minor) {
+#ifdef _WIN32
+  caml_unix_error(EOPNOTSUPP, "makedev not supported on Windows", Nothing);
+#else
+  return caml_copy_int64((int64_t) makedev(Int_val(v_major), Int_val(v_minor)));
+#endif
+}
+
+CAMLprim value eio_unix_dev_major(value v_dev) {
+#ifdef _WIN32
+  caml_unix_error(EOPNOTSUPP, "major not supported on Windows", Nothing);
+#else
+  return Val_int(major((dev_t) Int64_val(v_dev)));
+#endif
+}
+
+CAMLprim value eio_unix_dev_minor(value v_dev) {
+#ifdef _WIN32
+  caml_unix_error(EOPNOTSUPP, "minor not supported on Windows", Nothing);
+#else
+  return Val_int(minor((dev_t) Int64_val(v_dev)));
+#endif
+}
+
+/* Keep in sync with [mknod_unix] in private.ml. */
+#ifndef _WIN32
+static mode_t eio_unix_node_type(value v_kind) {
+  switch (Int_val(v_kind)) {
+    case 0: return S_IFIFO;
+    case 1: return S_IFSOCK;
+    case 2: return S_IFREG;
+    case 3: return S_IFCHR;
+    case 4: return S_IFBLK;
+    default: caml_invalid_argument("mknodat: unknown node kind");
+  }
+}
+#endif
+
+CAMLprim value eio_unix_mknodat(value v_fd, value v_path, value v_kind, value v_perm, value v_dev) {
+#ifdef _WIN32
+  caml_unix_error(EOPNOTSUPP, "mknodat not supported on Windows", v_path);
+#else
+  CAMLparam2(v_path, v_dev);
+  char *path;
+  mode_t mode = eio_unix_node_type(v_kind) | (Int_val(v_perm) & 07777);
+  dev_t dev = (dev_t) Int64_val(v_dev);
+  int ret;
+  caml_unix_check_path(v_path, "mknodat");
+  path = caml_stat_strdup(String_val(v_path));
+  caml_enter_blocking_section();
+  ret = mknodat(Int_val(v_fd), path, mode, dev);
+  caml_leave_blocking_section();
+  caml_stat_free_preserving_errno(path);
+  if (ret == -1) caml_uerror("mknodat", v_path);
   CAMLreturn(Val_unit);
 #endif
 }
