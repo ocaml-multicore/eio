@@ -130,6 +130,11 @@ let take_nonblocking = function
     | Ok x -> Some x
     | Error `Closed | Error `Would_block -> None
 
+let select streams =
+  let f_of (stream, f) () = f (take stream) in
+  let fs = List.map f_of streams in
+  Fiber.any fs
+
 let length = function
   | Sync _ -> 0
   | Locking x -> Locking.length x
