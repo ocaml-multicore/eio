@@ -6,6 +6,7 @@
 
 ```ocaml
 open Eio.Std
+let run = Eio_linux.run ~fallback:(fun (`Msg x) -> mdx_skip x)
 ```
 
 # Tests
@@ -13,7 +14,7 @@ open Eio.Std
 One domain closes an FD after another domain has enqueued a uring operation mentioning it.
 
 ```ocaml
-# Eio_linux.run @@ fun env ->
+# run @@ fun env ->
   let dm = env#domain_mgr in
   Switch.run @@ fun sw ->
   let m = Mutex.create () in

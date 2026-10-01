@@ -7,6 +7,8 @@
 ```
 
 ```ocaml
+let run = Eio_linux.run ~fallback:(fun (`Msg x) -> mdx_skip x)
+
 let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 0)
 
 module Sockopt = Eio.Net.Sockopt
@@ -34,7 +36,7 @@ available, so the round-trip is deterministic; the value is returned without the
 kernel's NUL padding, so we get back exactly what was set:
 
 ```ocaml
-# Eio_linux.run @@ fun env ->
+# run @@ fun env ->
   Switch.run @@ fun sw ->
   let server = Eio.Net.listen env#net ~sw ~reuse_addr:true ~backlog:1 addr in
   try_setsockopt server Sockopt.TCP_CONGESTION "reno";;
@@ -47,7 +49,7 @@ kernel's NUL padding, so we get back exactly what was set:
 Test Linux-specific TCP socket options:
 
 ```ocaml
-# Eio_linux.run @@ fun env ->
+# run @@ fun env ->
   Switch.run @@ fun sw ->
   let net = env#net in
   let listen_sock = Eio.Net.listen net ~sw ~reuse_addr:true ~backlog:5 addr in
@@ -97,7 +99,7 @@ Test Linux-specific TCP socket options:
 Test additional Linux socket options:
 
 ```ocaml
-# Eio_linux.run @@ fun env ->
+# run @@ fun env ->
   Switch.run @@ fun sw ->
   let net = env#net in
   (* Test TCP_FASTOPEN on listening socket *)
@@ -121,7 +123,7 @@ Test additional Linux socket options:
 Test that invalid values are rejected properly:
 
 ```ocaml
-# Eio_linux.run @@ fun env ->
+# run @@ fun env ->
   Switch.run @@ fun sw ->
   let net = env#net in
 

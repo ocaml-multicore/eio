@@ -7,6 +7,8 @@ open Eio.Std
 
 module Env = Eio.Process.Env
 module Process = Eio_linux.Low_level.Process
+
+let run = Eio_linux.run ~fallback:(fun (`Msg x) -> mdx_skip x)
 ```
 
 ## Spawning processes
@@ -14,7 +16,7 @@ module Process = Eio_linux.Low_level.Process
 Setting environment variables:
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# run @@ fun _env ->
   Switch.run @@ fun sw ->
   let child = Process.spawn ~sw Process.Fork_action.[
     execve "/usr/bin/env"
@@ -29,7 +31,7 @@ FOO=bar
 Changing directory:
 
 ```ocaml
-# Eio_linux.run @@ fun env ->
+# run @@ fun env ->
   let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let child = Process.spawn ~sw Process.Fork_action.[
@@ -46,7 +48,7 @@ Changing directory:
 Changing directory using a file descriptor:
 
 ```ocaml
-# Eio_linux.run @@ fun env ->
+# run @@ fun env ->
   let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let root =
@@ -71,7 +73,7 @@ Changing directory using a file descriptor:
 Exit status:
 
 ```ocaml
-# Eio_linux.run @@ fun env ->
+# run @@ fun env ->
   let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let child = Process.spawn ~sw Process.Fork_action.[
@@ -86,7 +88,7 @@ Exit status:
 Failure starting child:
 
 ```ocaml
-# Eio_linux.run @@ fun env ->
+# run @@ fun env ->
   let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   Process.spawn ~sw Process.Fork_action.[
@@ -101,7 +103,7 @@ Exception: Unix.Unix_error(Unix.ENOENT, "chdir", "")
 Signalling a running child:
 
 ```ocaml
-# Eio_linux.run @@ fun env ->
+# run @@ fun env ->
   let default_env = Eio.Stdenv.process_mgr env |> Eio.Process.environment in
   Switch.run @@ fun sw ->
   let child =
@@ -122,7 +124,7 @@ Signalling a running child:
 Signalling an exited child does nothing:
 
 ```ocaml
-# Eio_linux.run @@ fun _env ->
+# run @@ fun _env ->
   Switch.run @@ fun sw ->
   let child =
     Process.spawn ~sw Process.Fork_action.[
