@@ -25,7 +25,7 @@
   (domain-local-await (>= 0.1.0))
   (crowbar (and (>= 0.2) :with-test))
   (mtime (>= 2.0.0))
-  (mdx (and (>= 2.4.1) :with-test))
+  (mdx (and (>= 2.7.0) :with-test))
   (lintcstubs-arity :with-test)
   (dscheck (and (>= 0.1.0) :with-test))))
 (package

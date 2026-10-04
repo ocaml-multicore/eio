@@ -2,6 +2,8 @@ open Eio.Std
 
 module Trace = Eio.Private.Trace
 
+let run = Eio_linux.run ~fallback:(fun (`Msg _) -> Alcotest.skip ())
+
 let () =
   Logs.(set_level ~all:true (Some Debug));
   Logs.set_reporter @@ Logs.format_reporter ();
@@ -19,7 +21,7 @@ let read_one_byte ~sw r =
     )
 
 let test_poll_add () =
-  Eio_linux.run @@ fun _stdenv ->
+  run @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   let thread = read_one_byte ~sw r in
@@ -34,7 +36,7 @@ let test_poll_add () =
   Alcotest.(check string) "Received data" "!" result
 
 let test_poll_add_busy () =
-  Eio_linux.run ~queue_depth:2 @@ fun _stdenv ->
+  run ~queue_depth:2 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   let a = read_one_byte ~sw r in
@@ -53,7 +55,7 @@ let test_poll_add_busy () =
 
 (* Write a string to a pipe and read it out again. *)
 let test_copy () =
-  Eio_linux.run ~queue_depth:3 @@ fun _stdenv ->
+  run ~queue_depth:3 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let msg = "Hello!" in
   let from_pipe, to_pipe = Eio_unix.pipe sw in
@@ -70,7 +72,7 @@ let test_copy () =
 
 (* Write a string via 2 pipes. The copy from the 1st to 2nd pipe will be optimised and so tests a different code-path. *)
 let test_direct_copy () =
-  Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
+  run ~queue_depth:4 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let msg = "Hello!" in
   let from_pipe1, to_pipe1 = Eio_unix.pipe sw in
@@ -89,7 +91,7 @@ let test_direct_copy () =
 
 (* Read and write using IO vectors rather than the fixed buffers. *)
 let test_iovec () =
-  Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
+  run ~queue_depth:4 @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let from_pipe, to_pipe = Eio_unix.pipe sw in
   let from_pipe = Eio_unix.Resource.fd from_pipe in
@@ -113,7 +115,7 @@ let test_iovec () =
 (* We fill the SQE buffer and need to submit early. *)
 let test_no_sqe () =
   try
-    Eio_linux.run ~queue_depth:4 @@ fun _stdenv ->
+    run ~queue_depth:4 @@ fun _stdenv ->
     Switch.run @@ fun sw ->
     for _ = 1 to 8 do
       Fiber.fork ~sw (fun () ->
@@ -126,7 +128,7 @@ let test_no_sqe () =
   with Exit -> ()
 
 let test_read_exact () =
-  Eio_linux.run ~queue_depth:4 ~n_blocks:1 @@ fun env ->
+  run ~queue_depth:4 ~n_blocks:1 @@ fun env ->
   let ( / ) = Eio.Path.( / ) in
   let path = env#cwd / "test.data" in
   let msg = "hello" in
@@ -156,7 +158,7 @@ let test_read_exact () =
   Alcotest.(check int) "Available again" 1 (Eio_linux.Low_level.Fixed.avail ())
 
 let test_expose_backend () =
-  Eio_linux.run @@ fun env ->
+  run @@ fun env ->
   let backend = Eio.Stdenv.backend_id env in
   assert (backend = "linux")
 
@@ -164,7 +166,7 @@ let kind_t = Alcotest.of_pp Uring.Statx.pp_kind
 
 let test_statx () =
   let module X = Uring.Statx in
-  Eio_linux.run ~queue_depth:4 @@ fun env ->
+  run ~queue_depth:4 @@ fun env ->
   let ( / ) = Eio.Path.( / ) in
   let path = env#cwd / "test2.data" in
   Eio.Path.with_open_out path ~create:(`Or_truncate 0o600) @@ fun file ->
@@ -204,7 +206,7 @@ let test_statx () =
   Eio.Path.unlink path
 
 let test_fallocate () =
-  Eio_linux.run @@ fun env ->
+  run @@ fun env ->
   let ( / ) = Eio.Path.( / ) in
   let path = env#cwd / "fallocate.data" in
   Switch.run @@ fun sw ->
@@ -230,7 +232,7 @@ let test_fallocate () =
     Eio.Path.unlink path
 
 let test_ftruncate () =
-  Eio_linux.run @@ fun env ->
+  run @@ fun env ->
   let ( / ) = Eio.Path.( / ) in
   let path = env#cwd / "ftruncate.data" in
   Switch.run @@ fun sw ->
@@ -247,7 +249,7 @@ let test_ftruncate () =
   Eio.Path.unlink path
 
 let test_fstat () =
-  Eio_linux.run ~queue_depth:4 @@ fun env ->
+  run ~queue_depth:4 @@ fun env ->
   let ( / ) = Eio.Path.( / ) in
   let path = env#cwd / "test3.data" in
   Eio.Path.save path "hello" ~create:(`Or_truncate 0o600);
@@ -266,7 +268,7 @@ let test_fstat () =
    submit an item. This causes liburing to retry without giving our OCaml signal handler a chance to run.
    Note: we can't run this test with a timeout because liburing does return in that case! *)
 let test_signal_race () =
-  Eio_linux.run @@ fun _env ->
+  run @@ fun _env ->
   let cond = Eio.Condition.create () in
   let handle _ = Eio.Condition.broadcast cond in
   Sys.(set_signal sigalrm) (Signal_handle handle);
@@ -275,7 +277,7 @@ let test_signal_race () =
     (fun () -> ignore (Unix.setitimer ITIMER_REAL { it_interval = 0.; it_value = 0.001 } : Unix.interval_timer_status))
 
 let test_alloc_fixed_or_wait () =
-  Eio_linux.run ~n_blocks:1 @@ fun _env ->
+  run ~n_blocks:1 @@ fun _env ->
   match Eio_linux.Low_level.Fixed.alloc_or_wait () with
   | exception (Failure "No fixed buffer available") [@warning "-52"] -> Alcotest.skip ()
   | block ->
