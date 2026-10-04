@@ -2,6 +2,7 @@
 
 let is_drive_letter = function 'A' .. 'Z' | 'a' .. 'z' -> true | _ -> false
 let is_sep c = c = '\\' || c = '/'
+let backslashes = String.map (fun c -> if c = '/' then '\\' else c)
 
 (* A recognizer matches at position [i] of [s] and returns the position
    one past the match, or [None] if it doesn't match. *)
@@ -22,7 +23,17 @@ let opt p : recognizer = p <|> (fun _ i -> Some i)
 let rec many p : recognizer = fun s i ->
   match p s i with Some j -> many p s j | None -> Some i
 
+let matches (r : recognizer) s = Option.is_some (r s 0)
+
 let chr c = charp (Char.equal c)
+let eos : recognizer = fun s i -> if i = String.length s then Some i else None
+
+let word w : recognizer = fun s i ->
+  let n = String.length w in
+  if i + n <= String.length s && String.lowercase_ascii (String.sub s i n) = w then Some (i + n) else None
+
+let any_word ws = List.fold_left (fun r w -> r <|> word w) (fun _ _ -> None) ws
+
 let sep = charp is_sep
 let bslash = chr '\\'
 let qmark = chr '?'
@@ -60,8 +71,28 @@ let verbatim s = Option.is_some (verbatim_prefix s 0)
 (* [\??\], [\\?\] and [\\.\] all name the NT object-manager namespace. *)
 let nt_prefix = (verbatim_prefix <|> (bslash *> bslash *> chr '.')) *> bslash
 
-(* [is_relative p] is [true] unless [p] begins with a volume or a separator. *)
-let is_relative s = Option.is_none ((volume_prefix <|> sep) s 0)
+type kind = [ `Relative | `Rooted | `Drive_relative | `Absolute | `Unc | `Device | `Verbatim ]
+
+let pp_kind ppf : kind -> unit = function
+  | `Relative -> Fmt.string ppf "relative"
+  | `Rooted -> Fmt.string ppf "rooted"
+  | `Drive_relative -> Fmt.string ppf "drive-relative"
+  | `Absolute -> Fmt.string ppf "absolute"
+  | `Unc -> Fmt.string ppf "UNC"
+  | `Device -> Fmt.string ppf "device"
+  | `Verbatim -> Fmt.string ppf "verbatim"
+
+(* See https://learn.microsoft.com/en-us/dotnet/standard/io/file-path-formats#identify-the-path *)
+let classify p : kind =
+  if verbatim p then `Verbatim
+  else if matches (sep *> sep *> q_or_dot) p then `Device
+  else if matches (sep *> sep) p then `Unc
+  else if matches (drive *> sep) p then `Absolute
+  else if matches drive p then `Drive_relative
+  else if matches sep p then `Rooted
+  else `Relative
+
+let is_relative p = classify p = `Relative
 
 let volume_end s = Option.value (volume_prefix s 0) ~default:0
 let drop n s = String.sub s n (String.length s - n)
@@ -115,37 +146,84 @@ let join p1 p2 =
   | ".", p2 -> p2
   | p1, p2 -> concat p1 p2
 
-let normalise rest =
-  let rec go acc = function
-    | [] -> List.rev acc
-    | ("" | ".") :: xs -> go acc xs
-    | ".." :: xs -> go (match acc with [] -> [] | _ :: acc -> acc) xs
-    | x :: xs -> go (x :: acc) xs
+let chop s = String.sub s 0 (String.length s - 1)
+
+let rec trim_end s =
+  if String.ends_with ~suffix:"." s || String.ends_with ~suffix:" " s then trim_end (chop s) else s
+
+(* https://learn.microsoft.com/en-us/dotnet/standard/io/file-path-formats#path-normalization *)
+let normalise_components path =
+  let rec go ~above acc = function
+    | [] -> let acc = List.rev acc in if above then `Escaped acc else `Within acc
+    | ("" | ".") :: xs -> go ~above acc xs
+    | ".." :: xs -> (match acc with _ :: acc -> go ~above acc xs | [] -> go ~above:true [] xs)
+    | [x] -> go ~above (match trim_end x with "" -> acc | x -> x :: acc) []
+    | x :: xs when String.ends_with ~suffix:"." x && not (String.ends_with ~suffix:".." x) -> go ~above (chop x :: acc) xs
+    | x :: xs -> go ~above (x :: acc) xs
   in
-  "\\" ^ String.concat "\\" (go [] (String.split_on_char '\\' rest))
+  go ~above:false [] (String.split_on_char '\\' path)
+
+let normalise path =
+  match normalise_components path with
+  | `Within cs | `Escaped cs -> "\\" ^ String.concat "\\" cs
+
+let after r p = Option.map (fun i -> drop i p) (r p 0)
 
 (* [qualify p] is the absolute Win32 path [p] named in the NT namespace. *)
 let qualify p =
-  let after r = Option.map (fun i -> drop i p) (r p 0) in
   "\\??\\" ^
-  match after nt_prefix, after (bslash *> bslash) with
+  match after nt_prefix p, after (bslash *> bslash) p with
   | Some rest, _ -> rest                     (* \??\, \\?\ or \\.\ *)
   | None, Some share -> "UNC\\" ^ share      (* \\server\share *)
   | None, None -> p                          (* C:\... *)
 
 let to_nt ~cwd p =
-  if verbatim p then qualify p
-  else (
-    let backslashes = String.map (fun c -> if c = '/' then '\\' else c) in
-    let vol, rest = split_volume (backslashes p) in
-    let cwd_vol, cwd_rest = split_volume (backslashes cwd) in
-    let rooted = rest <> "" && rest.[0] = '\\' in
-    let vol, base =
-      match vol with
-      | "" -> cwd_vol, (if rooted then "" else cwd_rest)
-      | v when rooted || v.[0] = '\\' -> v, ""
-      | v when String.uppercase_ascii v = String.uppercase_ascii cwd_vol -> cwd_vol, cwd_rest
-      | v -> v, ""    (* Win32 keeps a current directory per drive; but we sadly can't see it *)
+  let vol, rest = split_volume (backslashes p) in
+  let cwd_vol, cwd_rest = split_volume (backslashes cwd) in
+  let resolve vol base = qualify (vol ^ normalise (base ^ "\\" ^ rest)) in
+  match classify p with
+  | `Verbatim -> qualify p
+  | `Relative -> resolve cwd_vol cwd_rest
+  | `Rooted -> resolve cwd_vol ""
+  | `Drive_relative when String.uppercase_ascii vol = String.uppercase_ascii cwd_vol -> resolve cwd_vol cwd_rest
+  | `Drive_relative       (* We can't see other drives' current directories, so use the root *)
+  | `Absolute | `Unc | `Device -> resolve vol ""
+
+(* Names reserved for devices, from
+   https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#naming-conventions
+   The docs say these are reserved even with an extension. Win32 also ignores
+   trailing spaces and a ":" (an empty stream name), so "NUL ." and "NUL:" are
+   devices too, as are "NUL.txt" on older versions of Windows. *)
+let reserved_name =
+  (any_word ["con"; "prn"; "aux"; "nul"]
+   <|> (any_word ["com"; "lpt"] *> any_word ["1"; "2"; "3"; "4"; "5"; "6"; "7"; "8"; "9"; "¹"; "²"; "³"]))
+  *> many (chr ' ') *> (chr '.' <|> chr ':' <|> eos)
+
+let to_win32 p =
+  match after (verbatim_prefix *> bslash) p with
+  | None -> p
+  | Some rest ->
+    let win32 =
+      match after (unc_kw *> bslash) rest with
+      | Some share -> "\\\\" ^ share
+      | None -> rest
     in
-    qualify (vol ^ normalise (base ^ "\\" ^ rest))
-  )
+    if to_nt ~cwd:"" win32 = "\\??\\" ^ rest
+    && not (List.exists (matches reserved_name) (String.split_on_char '\\' win32))
+    then win32
+    else "\\\\?\\" ^ rest
+
+let beneath ~root p =
+  match classify p with
+  | `Relative ->
+    (match normalise_components (backslashes p) with
+     | `Within components -> Some components
+     | `Escaped _ -> None)
+  | _ ->
+    let components p = String.split_on_char '\\' (to_nt ~cwd:root p) |> List.filter (( <> ) "") in
+    let rec strip = function
+      | [], rest -> Some rest
+      | r :: root, x :: rest when String.lowercase_ascii r = String.lowercase_ascii x -> strip (root, rest)
+      | _ -> None
+    in
+    strip (components root, components p)
