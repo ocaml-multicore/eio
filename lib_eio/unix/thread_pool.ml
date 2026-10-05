@@ -62,6 +62,7 @@ module Free_pool = struct
   let make_thread t =
     let mbox = Mailbox.create () in
     let _thread : Thread.t = Thread.create (fun () ->
+        Thread.set_current_thread_name "Eio_unix.Thread_pool";
         while true do
           match Mailbox.take mbox with
           | New -> assert false
