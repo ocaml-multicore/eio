@@ -16,6 +16,8 @@ exception Unpollable
     devices such as [/dev/tty] and [/dev/null]. The caller should wait
     using select(2) instead. *)
 
+val install_sigchld_handler : unit -> unit
+
 val with_sched : (t -> 'a) -> 'a
 (** [with_sched fn] sets up a scheduler and calls [fn t].
     Typically [fn] will call {!run}.

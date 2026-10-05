@@ -50,6 +50,7 @@ type t = {
      In that case, [need_wakeup = true] and you must signal using [eventfd]. *)
   eventfd : Rcfd.t;                     (* For sending events. *)
   eventfd_r : Unix.file_descr;          (* For reading events. *)
+  sigchld_r : Unix.file_descr;
 
   mutable active_ops : int;             (* Exit when this is zero and [run_q] and [sleep_q] are empty. *)
 
@@ -64,6 +65,22 @@ type t = {
 
   thread_pool : Eio_unix.Private.Thread_pool.t;
 }
+
+external wake_on_sigchld : Unix.file_descr -> unit = "caml_eio_posix_wake_on_sigchld"
+
+let sigchld_pipe =
+  let lock = Mutex.create () in
+  let pipe = lazy (
+    let r, w = Unix.pipe ~cloexec:true () in
+    Unix.set_nonblock r;
+    Unix.set_nonblock w;
+    r, w
+  ) in
+  fun () -> Mutex.protect lock (fun () -> Lazy.force pipe)
+
+let install_sigchld_handler () =
+  Eio_unix.Process.install_sigchld_handler ();
+  wake_on_sigchld (snd (sigchld_pipe ()))
 
 (* The message to send to [eventfd] (any character would do). *)
 let wake_buffer = Bytes.of_string "!"
@@ -163,6 +180,9 @@ let ready t _index fd revents =
   if fd == t.eventfd_r then (
     clear_event_fd t
     (* The scheduler will now look at the run queue again and notice any new items. *)
+  ) else if fd == t.sigchld_r then (
+    try ignore (Unix.read fd (Bytes.create 8) 0 8 : int)
+    with Unix.Unix_error ((Unix.EAGAIN | EWOULDBLOCK), _, _) -> ()
   ) else if Poll.Flags.(mem revents pollnval) then (
     let waiters = Hashtbl.find t.fd_map fd in
     let pending = Lwt_dllist.create () in
@@ -255,6 +275,7 @@ let with_sched fn =
   Unix.set_nonblock eventfd_r;
   Unix.set_nonblock eventfd_w;
   let eventfd = Rcfd.make eventfd_w in
+  let sigchld_r, _ = sigchld_pipe () in
   let cleanup () =
     Unix.close eventfd_r;
     let was_open = Rcfd.close eventfd in
@@ -263,12 +284,16 @@ let with_sched fn =
   let poll = Poll.create () in
   let fd_map = Hashtbl.create 10 in
   let thread_pool = Eio_unix.Private.Thread_pool.create ~sleep_q in
-  let t = { run_q; poll; poll_maxi = (-1); fd_map; eventfd; eventfd_r;
+  let t = { run_q; poll; poll_maxi = (-1); fd_map; eventfd; eventfd_r; sigchld_r;
             active_ops = 0; need_wakeup = Atomic.make false; sleep_q; thread_pool } in
   let eventfd_ri = Iomux.Util.fd_of_unix eventfd_r in
   Poll.set_index t.poll eventfd_ri eventfd_r Poll.Flags.pollin;
   if eventfd_ri > t.poll_maxi then
     t.poll_maxi <- eventfd_ri;
+  let sigchld_ri = Iomux.Util.fd_of_unix sigchld_r in
+  Poll.set_index t.poll sigchld_ri sigchld_r Poll.Flags.pollin;
+  if sigchld_ri > t.poll_maxi then
+    t.poll_maxi <- sigchld_ri;
   match fn t with
   | x -> cleanup (); x
   | exception ex ->
