@@ -8,3 +8,10 @@
   (package eio_posix)
   (build_if (= %{os_type} "Unix"))
   (libraries eio_posix))
+
+(test
+  (name test_late_signal)
+  (package eio_posix)
+  (build_if (= %{os_type} "Unix"))
+  (foreign_stubs (language c) (names late_poll))
+  (libraries eio_posix))

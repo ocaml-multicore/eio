@@ -3,6 +3,8 @@
 #define _DARWIN_UNLIMITED_SELECT
 #endif
 
+#define CAML_INTERNALS
+
 #include "primitives.h"
 
 #define _FILE_OFFSET_BITS 64
@@ -24,6 +26,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <dirent.h>
+#include <signal.h>
+#include <unistd.h>
 
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
@@ -33,6 +37,7 @@
 #include <caml/bigarray.h>
 #include <caml/socketaddr.h>
 #include <caml/custom.h>
+#include <caml/signals.h>
 #include <caml/fail.h>
 
 #include "fork_action.h"
@@ -629,4 +634,25 @@ CAMLprim value caml_eio_posix_readdir(value v_dir_handle) {
   Store_field(v_result, 1, caml_copy_string_of_os(ent->d_name));
 
   CAMLreturn(v_result);
+}
+
+static int sigchld_fd = -1;
+
+static void handle_sigchld(int signo) {
+  int saved_errno = errno;
+  ssize_t written;
+  caml_record_signal(signo);
+  written = write(sigchld_fd, "!", 1);
+  (void) written;
+  errno = saved_errno;
+}
+
+CAMLprim value caml_eio_posix_wake_on_sigchld(value v_fd) {
+  struct sigaction sa;
+  sigchld_fd = Int_val(v_fd);
+  sa.sa_handler = handle_sigchld;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_ONSTACK;
+  if (sigaction(SIGCHLD, &sa, NULL) == -1) uerror("sigaction", Nothing);
+  return Val_unit;
 }
