@@ -539,6 +539,60 @@ Components separated by "/" can come back separated by "\".
 - : string option = Some "a\\b"
 ```
 
+# Classifying Windows paths
+
+`classify` identifies a path's type from its prefix:
+
+```ocaml
+let classify = Eio_utils.Nt_path.classify
+```
+
+```ocaml
+# classify "a\\b";;
+- : Eio_utils.Nt_path.kind = `Relative
+
+# classify "NUL";;
+- : Eio_utils.Nt_path.kind = `Relative
+
+# classify "\\a";;
+- : Eio_utils.Nt_path.kind = `Rooted
+
+# classify "C:a";;
+- : Eio_utils.Nt_path.kind = `Drive_relative
+
+# classify "C:\\a";;
+- : Eio_utils.Nt_path.kind = `Absolute
+
+# classify "\\\\srv\\share\\a";;
+- : Eio_utils.Nt_path.kind = `Unc
+
+# classify "\\\\.\\pipe\\a";;
+- : Eio_utils.Nt_path.kind = `Device
+
+# classify "\\\\?\\C:\\a";;
+- : Eio_utils.Nt_path.kind = `Verbatim
+
+# classify "\\??\\C:\\a";;
+- : Eio_utils.Nt_path.kind = `Verbatim
+```
+
+`pp_kind` describes a type:
+
+```ocaml
+# Fmt.str "%a" Eio_utils.Nt_path.pp_kind (classify "C:a");;
+- : string = "drive-relative"
+```
+
+A device path is only verbatim with exactly the `\\?\` prefix:
+
+```ocaml
+# classify "//?/C:/a";;
+- : Eio_utils.Nt_path.kind = `Device
+
+# classify "\\\\?\\UNC\\srv\\share";;
+- : Eio_utils.Nt_path.kind = `Verbatim
+```
+
 # Win32 to NT paths
 
 `NtCreateFile` takes an NT object-manager path, so `to_nt` qualifies a Win32
@@ -601,6 +655,196 @@ Verbatim and NT paths only have their prefix changed:
 
 # to_nt "\\??\\C:\\a/b";;
 - : string = "\\??\\C:\\a/b"
+```
+
+Like Win32, `to_nt` removes one trailing "." from each component, and all the
+trailing dots and spaces from the end of the path. Unlike Win32, it drops a
+trailing separator and doesn't treat names such as `NUL` as devices.
+
+```ocaml
+# to_nt "C:\\a.\\b.";;
+- : string = "\\??\\C:\\a\\b"
+
+# to_nt "C:\\a..\\...\\b. .";;
+- : string = "\\??\\C:\\a..\\...\\b"
+
+# to_nt "C:\\a \\b ";;
+- : string = "\\??\\C:\\a \\b"
+
+# to_nt "C:\\a\\b \\";;
+- : string = "\\??\\C:\\a\\b "
+
+# to_nt "C:\\a\\NUL";;
+- : string = "\\??\\C:\\a\\NUL"
+```
+
+So a name made only of dots (or ending in one) can't be the last component of a
+Win32 path, though it can be reached from a verbatim one:
+
+```ocaml
+# to_nt "C:\\a\\...";;
+- : string = "\\??\\C:\\a"
+
+# to_nt "C:\\a\\...\\b";;
+- : string = "\\??\\C:\\a\\...\\b"
+
+# to_nt "\\\\?\\C:\\a\\...";;
+- : string = "\\??\\C:\\a\\..."
+```
+
+# NT to Win32 paths
+
+`to_win32` removes a verbatim or NT prefix:
+
+```ocaml
+let to_win32 = Eio_utils.Nt_path.to_win32
+```
+
+```ocaml
+# to_win32 "\\??\\C:\\a\\b";;
+- : string = "C:\\a\\b"
+
+# to_win32 "\\\\?\\C:\\a\\b";;
+- : string = "C:\\a\\b"
+
+# to_win32 "\\??\\UNC\\srv\\share\\x";;
+- : string = "\\\\srv\\share\\x"
+
+# to_win32 "\\\\?\\C:\\";;
+- : string = "C:\\"
+```
+
+Other paths are already Win32 paths:
+
+```ocaml
+# to_win32 "C:\\a";;
+- : string = "C:\\a"
+
+# to_win32 "\\\\.\\pipe\\x";;
+- : string = "\\\\.\\pipe\\x"
+```
+
+If Win32 would read the result as a different path, the verbatim path is kept:
+
+```ocaml
+# to_win32 "\\??\\C:\\a\\b.";;
+- : string = "\\\\?\\C:\\a\\b."
+
+# to_win32 "\\??\\C:\\a\\..\\b";;
+- : string = "\\\\?\\C:\\a\\..\\b"
+
+# to_win32 "\\??\\C:\\a\\nul.txt";;
+- : string = "\\\\?\\C:\\a\\nul.txt"
+
+# to_win32 "\\??\\C:\\a\\COM1";;
+- : string = "\\\\?\\C:\\a\\COM1"
+
+# to_win32 "\\??\\C:";;
+- : string = "\\\\?\\C:"
+
+# to_win32 "\\??\\Volume{x}\\a";;
+- : string = "\\\\?\\Volume{x}\\a"
+```
+
+Long paths are fine, as we assume long path support is enabled:
+
+```ocaml
+# to_win32 ("\\??\\C:\\" ^ String.make 300 'a') |> String.starts_with ~prefix:"C:\\";;
+- : bool = true
+```
+
+Reserved device names are recognised with any extension, and in their
+superscript forms, but other names that just look like them are not:
+
+```ocaml
+# to_win32 "\\??\\C:\\a\\NUL.tar.gz";;
+- : string = "\\\\?\\C:\\a\\NUL.tar.gz"
+
+# to_win32 "\\??\\C:\\a\\LPT¹";;
+- : string = "\\\\?\\C:\\a\\LPT¹"
+
+# to_win32 "\\??\\C:\\a\\COM10";;
+- : string = "C:\\a\\COM10"
+
+# to_win32 "\\??\\C:\\a\\CONIN$";;
+- : string = "C:\\a\\CONIN$"
+
+# to_win32 "\\??\\C:\\a\\NULL";;
+- : string = "C:\\a\\NULL"
+```
+
+As Win32 ignores trailing spaces and dots, and a ":" for an empty stream name,
+these are devices too:
+
+```ocaml
+# to_win32 "\\??\\C:\\a\\NUL .";;
+- : string = "\\\\?\\C:\\a\\NUL ."
+
+# to_win32 "\\??\\C:\\a\\NUL:";;
+- : string = "\\\\?\\C:\\a\\NUL:"
+```
+
+Paths in the NT namespace, but not the Win32 one, are kept verbatim too:
+
+```ocaml
+# to_win32 "\\??\\GLOBALROOT\\Device\\HarddiskVolume1\\x";;
+- : string = "\\\\?\\GLOBALROOT\\Device\\HarddiskVolume1\\x"
+```
+
+# Paths beneath a directory
+
+`beneath ~root` gives the components of a path within `root`:
+
+```ocaml
+let beneath = Eio_utils.Nt_path.beneath ~root:"\\\\?\\C:\\sb"
+```
+
+A relative path is normalised as for `to_nt`, but may not leave `root`, even
+to come back:
+
+```ocaml
+# beneath "a\\b";;
+- : string list option = Some ["a"; "b"]
+
+# beneath "a/./b.\\..\\c. ";;
+- : string list option = Some ["a"; "c"]
+
+# beneath "";;
+- : string list option = Some []
+
+# beneath "a\\..\\..\\sb\\c";;
+- : string list option = None
+
+# beneath "..";;
+- : string list option = None
+```
+
+Other paths must name something within `root`:
+
+```ocaml
+# beneath "C:\\sb\\x";;
+- : string list option = Some ["x"]
+
+# beneath "c:\\SB\\x\\..\\y";;
+- : string list option = Some ["y"]
+
+# beneath "\\\\?\\C:\\sb\\x";;
+- : string list option = Some ["x"]
+
+# beneath "C:\\sb";;
+- : string list option = Some []
+
+# beneath "C:\\sbx";;
+- : string list option = None
+
+# beneath "C:\\x";;
+- : string list option = None
+
+# beneath "\\x";;
+- : string list option = None
+
+# beneath "D:\\sb\\x";;
+- : string list option = None
 ```
 
 # Mkdirs
