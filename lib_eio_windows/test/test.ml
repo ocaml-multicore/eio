@@ -85,6 +85,7 @@ let () =
   Alcotest.run ~bail:true "eio_windows" [
     "net", Test_net.tests env;
     "fs", Test_fs.tests env;
+    "process", Test_process.tests env;
     "timeout", Timeout.tests env;
     "random", Random.tests env;
     "dla", Dla.tests;
