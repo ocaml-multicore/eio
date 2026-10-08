@@ -245,6 +245,8 @@ let test_symlink env () =
   *)
   with_symlinks @@ fun () ->
   let cwd = Eio.Stdenv.cwd env in
+  let paths = ["sandbox\\to-root"; "sandbox\\to-subdir"; "sandbox\\dangle"; "sandbox\\subdir\\nested"; "sandbox\\subdir"; "sandbox"; "tmp"] in
+  with_cleanup paths @@ fun () ->
   try_mkdir (cwd / "sandbox");
   Unix.symlink ~to_dir:true ".." "sandbox\\to-root";
   Unix.symlink ~to_dir:true "subdir" "sandbox\\to-subdir";
@@ -500,8 +502,8 @@ let test_stat_symlink env () =
    | st -> Alcotest.failf "Expected Not_found, got %a" Eio.File.Stat.pp_kind st.kind
    | exception Eio.Io (Eio.Fs.E (Not_found _), _) -> ());
   let size = (Eio.Path.stat ~follow:false (cwd / link)).size in
-  (* Windows stores the target path in UTF-16 *)
-  Alcotest.(check int) "size is that of the target path" (2 * String.length target) (Optint.Int63.to_int size)
+  (* As on POSIX, the size is the length of the target that [read_link] returns *)
+  Alcotest.(check int) "size is that of the target path" (String.length target) (Optint.Int63.to_int size)
 
 let test_rename env () =
   let cwd = Eio.Stdenv.cwd env in
@@ -544,16 +546,17 @@ let test_rename_over_dir env () =
     Alcotest.(check string) "source kept" "x" (read_file "rn-empty\\inside")
 
 let test_open_no_follow env () =
+  with_symlinks @@ fun () ->
   let cwd = Eio.Stdenv.cwd env in
-  with_cleanup ["dir1"; "link1"] @@ fun () ->
+  with_cleanup ["dir1\\link"; "dir1\\file"; "link1"; "dir1"] @@ fun () ->
   let dir1 = cwd / "dir1" in
   let link1 = cwd / "link1" in
   Path.mkdir dir1 ~perm:0o700;
-  Unix.symlink "dir1" "link1";   (* todo: use Eio.Path.symlink *)
+  Path.symlink ~link_to:"dir1" link1;
   let file = dir1 / "file" in
   let link2 = link1 / "link" in
   Path.save file "data1" ~create:(`Exclusive 0o600);
-  Unix.symlink "file" "dir1/link";
+  Path.symlink ~link_to:"file" (dir1 / "link");
   Path.save ~create:`Never file "data2";
   Path.save ~create:`Never (link1 / "file") "data3";
   Path.save ~create:`Never link2 "data4";
@@ -576,6 +579,140 @@ let test_open_no_follow env () =
     try try_read_file ~follow:false link2; Alcotest.fail "Expected symlink error on load"
     with Eio.Io (Eio.Fs.E Symlink, _) -> ()
   end
+
+let check_symlink_error name fn =
+  match fn () with
+  | _ -> Alcotest.failf "%s: expected a symlink error" name
+  | exception Eio.Io (Eio.Fs.E Symlink, _) -> ()
+
+let check_permission_denied name fn =
+  match fn () with
+  | _ -> Alcotest.failf "%s: expected permission denied" name
+  | exception Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ()
+
+let test_eio_symlink env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  with_cleanup ["esl-dir\\f"; "esl-file-link"; "esl-dir-link"; "esl-dangle"; "esl-unc"; "esl-dir"] @@ fun () ->
+  try_mkdir (cwd / "esl-dir");
+  write_file "esl-dir\\f" "data";
+  Path.symlink ~link_to:"esl-dir/f" (cwd / "esl-file-link");
+  Path.symlink ~link_to:"esl-dir" (cwd / "esl-dir-link");
+  Path.symlink ~link_to:"esl-missing" (cwd / "esl-dangle");
+  Alcotest.(check string) "read through file link" "data" (Path.load (cwd / "esl-file-link"));
+  Alcotest.(check (list string)) "list through dir link" ["f"] (Path.read_dir (cwd / "esl-dir-link"));
+  (* Win32 can only list a directory through a directory link *)
+  Alcotest.(check (array string)) "native dir link" [| "f" |] (Sys.readdir "esl-dir-link");
+  Alcotest.(check string) "native file link" "data" (read_file "esl-file-link");
+  Alcotest.(check string) "read_link dir" "esl-dir" (Path.read_link (cwd / "esl-dir-link"));
+  Alcotest.(check string) "read_link native" "esl-dir\\f" (Unix.readlink "esl-file-link");
+  Path.symlink ~link_to:"\\\\srv\\share\\x" (cwd / "esl-unc");
+  Alcotest.(check string) "read_link UNC" "\\\\srv\\share\\x" (Path.read_link (cwd / "esl-unc"));
+  check_kind ~follow:false (cwd / "esl-dir-link") `Symbolic_link;
+  check_kind ~follow:true (cwd / "esl-dir-link") `Directory;
+  (match Path.symlink ~link_to:"esl-dir" (cwd / "esl-dir-link") with
+   | () -> Alcotest.fail "Expected Already_exists"
+   | exception Eio.Io (Eio.Fs.E (Already_exists _), _) -> ());
+  (* Writing through a dangling link creates its target *)
+  with_cleanup ["esl-missing"] @@ fun () ->
+  Path.save ~create:(`If_missing 0o600) (cwd / "esl-dangle") "new";
+  Alcotest.(check string) "created target" "new" (read_file "esl-missing")
+
+(* [unlink] should remove the link itself (even to a dir) *)
+let test_unlink_symlink env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  with_cleanup ["usl-file-link"; "usl-dir-link"; "usl-dir-link2"; "usl-file"; "usl-dir"] @@ fun () ->
+  write_file "usl-file" "data";
+  try_mkdir (cwd / "usl-dir");
+  Unix.symlink "usl-file" "usl-file-link";
+  Path.symlink ~link_to:"usl-dir" (cwd / "usl-dir-link");
+  Path.symlink ~link_to:"usl-dir" (cwd / "usl-dir-link2");
+  Path.unlink (cwd / "usl-file-link");
+  Path.unlink (cwd / "usl-dir-link");
+  Path.rmdir (cwd / "usl-dir-link2");
+  Alcotest.(check bool) "file link gone" false (Sys.file_exists "usl-file-link");
+  Alcotest.(check bool) "dir link gone" false (Sys.file_exists "usl-dir-link");
+  Alcotest.(check bool) "dir link gone (rmdir)" false (Sys.file_exists "usl-dir-link2");
+  Alcotest.(check string) "file target kept" "data" (read_file "usl-file");
+  Alcotest.(check bool) "dir target kept" true (Sys.is_directory "usl-dir");
+  match Path.unlink (cwd / "usl-dir") with
+  | () -> Alcotest.fail "unlink removed a directory"
+  | exception Eio.Io _ -> ()
+
+(* Links inside a subtree are only followed when they stay inside it. *)
+let test_subtree_symlinks env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let paths = ["sts\\a\\b\\f"; "sts\\a\\b"; "sts\\a\\up"; "sts\\a"; "sts\\to-b"; "sts\\abs"; "sts\\abs-in"; "sts\\loop1"; "sts\\loop2"; "sts\\f"; "sts\\out"; "sts"] in
+  with_cleanup paths @@ fun () ->
+  try_mkdir (cwd / "sts");
+  Path.with_open_dir (cwd / "sts") @@ fun sub ->
+  Path.mkdirs ~perm:0o700 (sub / "a" / "b");
+  Path.save ~create:(`Exclusive 0o600) (sub / "a/b/f") "inner";
+  Path.save ~create:(`Exclusive 0o600) (sub / "f") "outer";
+  Path.symlink ~link_to:"a\\b" (sub / "to-b");
+  Path.symlink ~link_to:".." (sub / "a" / "up");
+  Path.symlink ~link_to:"..\\.." (sub / "out");
+  Path.symlink ~link_to:(Sys.getcwd ()) (sub / "abs");
+  Path.symlink ~link_to:(Filename.concat (Sys.getcwd ()) "sts\\a\\b") (sub / "abs-in");
+  Path.symlink ~link_to:"loop2" (sub / "loop1");
+  Path.symlink ~link_to:"loop1" (sub / "loop2");
+  Alcotest.(check string) "via link" "inner" (Path.load (sub / "to-b" / "f"));
+  Alcotest.(check string) "via absolute link inside" "inner" (Path.load (sub / "abs-in" / "f"));
+  Alcotest.(check string) "via link to parent" "outer" (Path.load (sub / "a" / "up" / "f"));
+  Alcotest.(check string) "read_link" "a\\b" (Path.read_link (sub / "to-b"));
+  Alcotest.(check string) "lexical .." "outer" (Path.load (sub / "to-b" / ".." / "f"));
+  check_permission_denied "link outside" (fun () -> Path.read_dir (sub / "out"));
+  check_permission_denied "absolute link" (fun () -> Path.read_dir (sub / "abs"));
+  check_permission_denied "write via link outside" (fun () ->
+      Path.save ~create:(`Exclusive 0o600) (sub / "out" / "sts-escaped") "x");
+  check_permission_denied "symlink via link outside" (fun () ->
+      Path.symlink ~link_to:"x" (sub / "out" / "sts-escaped"));
+  Alcotest.(check bool) "nothing escaped" false (Sys.file_exists "..\\sts-escaped");
+  check_symlink_error "loop" (fun () -> Path.load (sub / "loop1"));
+  check_symlink_error "no follow" (fun () -> Path.load ~follow:false (sub / "to-b"));
+  Alcotest.(check string) "open_dir via link" "inner" (Path.with_open_dir (sub / "to-b") (fun b -> Path.load (b / "f")))
+
+(* Opening a link without following it must fail before truncating anything. *)
+let test_no_follow_truncate env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let fs = Eio.Stdenv.fs env in
+  with_cleanup ["nft-link"; "nft-target"] @@ fun () ->
+  write_file "nft-target" "data";
+  Path.symlink ~link_to:"nft-target" (cwd / "nft-link");
+  List.iter (fun dir ->
+      check_symlink_error "truncate" (fun () ->
+          Path.save ~follow:false ~create:(`Or_truncate 0o600) (dir / "nft-link") "new");
+      Alcotest.(check string) "link kept" "nft-target" (Path.read_link (dir / "nft-link"));
+      Alcotest.(check string) "target kept" "data" (read_file "nft-target")
+    ) [cwd; fs]
+
+(* Windows junctions are essentially symlinks *)
+let test_junction env () =
+  let cwd = Eio.Stdenv.cwd env in
+  let paths = ["jn-dir\\f"; "jn-sub\\inner\\g"; "jn-sub\\out"; "jn-sub\\in"; "jn-sub\\inner"; "jn-sub"; "jn-dir"] in
+  with_cleanup paths @@ fun () ->
+  try_mkdir (cwd / "jn-dir");
+  write_file "jn-dir\\f" "data";
+  Path.mkdirs ~perm:0o700 (cwd / "jn-sub" / "inner");
+  write_file "jn-sub\\inner\\g" "inner";
+  if Sys.command "mklink /J jn-sub\\out jn-dir > NUL && mklink /J jn-sub\\in jn-sub\\inner > NUL" <> 0 then
+    Alcotest.fail "mklink /J failed";
+  check_kind ~follow:false (cwd / "jn-sub" / "out") `Symbolic_link;
+  check_kind ~follow:true (cwd / "jn-sub" / "out") `Directory;
+  Alcotest.(check string) "read_link" (Filename.concat (Sys.getcwd ()) "jn-dir") (Path.read_link (cwd / "jn-sub" / "out"));
+  Alcotest.(check string) "within cwd" "data" (Path.load (cwd / "jn-sub" / "out" / "f"));
+  Path.with_open_dir (cwd / "jn-sub") (fun sub ->
+      Alcotest.(check string) "within subtree" "inner" (Path.load (sub / "in" / "g"));
+      Alcotest.(check (list string)) "list via junction" ["g"] (Path.read_dir (sub / "in"));
+      check_permission_denied "outside subtree" (fun () -> Path.load (sub / "out" / "f"))
+    );
+  (* Removing the tree removes the junctions and not what they point at (we hope) *)
+  Path.rmtree (cwd / "jn-sub");
+  Alcotest.(check bool) "tree gone" false (Sys.file_exists "jn-sub");
+  Alcotest.(check string) "target kept" "data" (read_file "jn-dir\\f")
 
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
@@ -612,4 +749,9 @@ let tests env = [
   "rename", `Quick, test_rename env;
   "rename-over-directory", `Quick, test_rename_over_dir env;
   "open-no-follow", `Quick, test_open_no_follow env;
+  "eio-symlink", `Quick, test_eio_symlink env;
+  "unlink-symlink", `Quick, test_unlink_symlink env;
+  "subtree-symlinks", `Quick, test_subtree_symlinks env;
+  "no-follow-truncate", `Quick, test_no_follow_truncate env;
+  "junction", `Quick, test_junction env;
 ]
