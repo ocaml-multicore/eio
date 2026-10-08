@@ -34,7 +34,7 @@ module Listening_socket = struct
       | Unix.ADDR_UNIX path         -> `Unix path
       | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Net.Ipaddr.of_unix host, port)
     in
-    let flow = (Flow.of_fd client :> _ Eio.Net.stream_socket) in
+    let flow = (Flow.stream client :> _ Eio.Net.stream_socket) in
     flow, client_addr
 
   let listening_addr { fd; _ } =
@@ -144,7 +144,7 @@ let connect ~bind_to ~options ~sw connect_addr =
     Option.iter (fun a -> Fd.use_exn "bind" sock (fun fd -> Unix.bind fd (Eio_unix.Net.sockaddr_to_unix a))) bind_to;
     Low_level.connect sock addr
   ) ();
-  (Flow.of_fd sock :> _ Eio_unix.Net.stream_socket)
+  (Flow.stream sock :> _ Eio_unix.Net.stream_socket)
 
 let create_datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
   let sock = Low_level.socket ~sw (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in

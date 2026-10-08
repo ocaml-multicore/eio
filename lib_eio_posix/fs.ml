@@ -49,7 +49,7 @@ end
    Therefore, use a slightly slower implementation that always checks readability first.
    See https://github.com/ocaml-multicore/eio/issues/856 *)
 let fifo_reader =
-  let handler = Eio_unix.Pi.flow_handler (module Fifo_reader) in
+  let handler = Eio_unix.Pi.file_handler (module Fifo_reader) in
   fun fd -> (Eio.Resource.T (fd, handler) :> Eio.File.ro_ty Eio.Resource.t)
 
 module rec Dir : sig

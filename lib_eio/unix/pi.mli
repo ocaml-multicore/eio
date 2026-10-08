@@ -12,14 +12,18 @@ end
 type (_, _, _) Eio.Resource.pi +=
   | Stream_socket : ('t, (module STREAM_SOCKET with type t = 't), [> `Platform of [> `Unix] | `Socket | `Stream]) Eio.Resource.pi
 
-module type FLOW = sig
+module type FILE = sig
   include Eio.File.Pi.WRITE
-  include STREAM_SOCKET with type t := t
+  val fd : t -> Fd.t
 end
 
-val flow_handler :
-  (module FLOW with type t = 't and type tag = 'tag) ->
-  ('t, [`Unix_fd | 'tag Eio.Net.stream_socket_ty | Eio.File.rw_ty]) Eio.Resource.handler
+val file_handler :
+  (module FILE with type t = 't) ->
+  ('t, [`Unix_fd | Eio.File.rw_ty]) Eio.Resource.handler
+
+val stream_handler :
+  (module STREAM_SOCKET with type t = 't and type tag = 'tag) ->
+  ('t, [`Unix_fd | 'tag Eio.Net.stream_socket_ty]) Eio.Resource.handler
 
 module type DATAGRAM_SOCKET = sig
   include Eio.Net.Pi.DATAGRAM_SOCKET
