@@ -12,6 +12,7 @@
 # include <ws2tcpip.h>
 #else
 # include <sys/socket.h>
+# include <sys/utsname.h>
 # include <netdb.h>
 # include <netinet/tcp.h>
 #endif
@@ -38,6 +39,32 @@ static void caml_stat_free_preserving_errno(void *ptr) {
   int saved = errno;
   caml_stat_free(ptr);
   errno = saved;
+}
+
+CAMLprim value eio_unix_uname(value v_unit) {
+  CAMLparam0();
+  CAMLlocal5(v_result, v_sysname, v_release, v_version, v_machine);
+  #ifdef _WIN32
+  // todo: highly unclear how to get version information on Windows
+  v_sysname = caml_copy_string("Windows");
+  v_release = caml_copy_string("");
+  v_version = v_release;
+  v_machine = v_release;
+  #else
+  struct utsname buf;
+  int ret = uname(&buf);
+  if (ret == -1) caml_uerror("uname", Nothing);
+  v_sysname = caml_copy_string(buf.sysname);
+  v_release = caml_copy_string(buf.release);
+  v_version = caml_copy_string(buf.version);
+  v_machine = caml_copy_string(buf.machine);
+  #endif
+  v_result = caml_alloc_tuple(4);
+  Store_field(v_result, 0, v_sysname);
+  Store_field(v_result, 1, v_release);
+  Store_field(v_result, 2, v_version);
+  Store_field(v_result, 3, v_machine);
+  CAMLreturn(v_result);
 }
 
 CAMLprim value eio_unix_is_blocking(value v_fd) {

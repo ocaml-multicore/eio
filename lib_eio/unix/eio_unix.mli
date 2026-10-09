@@ -82,6 +82,8 @@ val pipe : Switch.t -> [< source_ty] r * [< sink_ty] r
     can be read from [src].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
+module System_info = System_info
+
 module Process = Process
 (** Spawning child processes with extra control. *)
 

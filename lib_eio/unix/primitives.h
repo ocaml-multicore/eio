@@ -16,6 +16,7 @@ CAMLprim value eio_unix_fork_setuid(value);
 CAMLprim value eio_unix_fork_setgid(value);
 CAMLprim value eio_unix_login_tty(value);
 CAMLprim value eio_unix_error_of_code(value);
+CAMLprim value eio_unix_uname(value);
 CAMLprim value eio_unix_cap_enter(value);
 CAMLprim value eio_unix_readlinkat(value, value, value);
 CAMLprim value eio_unix_fchmodat(value, value, value, value);
