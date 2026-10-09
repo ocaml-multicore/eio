@@ -127,12 +127,19 @@ module Impl = struct
   let getsockopt t opt = Eio_unix.Private.getsockopt t opt
 end
 
-let handler = Eio_unix.Pi.flow_handler (module Impl)
+let file_handler = Eio_unix.Pi.file_handler (module Impl)
 
 let of_fd fd =
-  let r = Eio.Resource.T (fd, handler) in
-  (r : [`Unix_fd | Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r :>
-     [< `Unix_fd | Eio_unix.Net.stream_socket_ty | Eio.File.rw_ty] r)
+  let r = Eio.Resource.T (fd, file_handler) in
+  (r : [`Unix_fd | Eio.File.rw_ty] r :>
+     [< `Unix_fd | Eio.File.rw_ty] r)
+
+let stream_handler = Eio_unix.Pi.stream_handler (module Impl)
+
+let stream fd =
+  let r = Eio.Resource.T (fd, stream_handler) in
+  (r : [`Unix_fd | Eio_unix.Net.stream_socket_ty] r :>
+     [< `Unix_fd | Eio_unix.Net.stream_socket_ty] r)
 
 module Secure_random = struct
   type t = unit

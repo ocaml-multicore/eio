@@ -362,8 +362,8 @@ Wrapping a Unix FD as an Eio stream socket:
 # Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let r, w = Unix.pipe () in
-  let source = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true r :> _ Eio.Flow.source) in
-  let sink = (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true w :> _ Eio.Flow.sink) in
+  let source = (Eio_unix.File.import_ro ~sw ~close_unix:true r :> _ Eio.Flow.source) in
+  let sink = (Eio_unix.File.import_rw ~sw ~close_unix:true w :> _ Eio.Flow.sink) in
   Fiber.both
     (fun () -> Eio.Flow.copy_string "Hello\n!" sink)
     (fun () ->

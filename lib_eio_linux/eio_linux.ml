@@ -106,7 +106,7 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
         )
       | Eio_unix.Net.Import_socket_stream (sw, close_unix, fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~seekable:false ~close_unix fd in
-          continue k (Flow.of_fd fd :> _ Eio_unix.Net.stream_socket)
+          continue k (Flow.stream fd :> _ Eio_unix.Net.stream_socket)
         )
       | Eio_unix.Net.Import_socket_listening (sw, close_unix, fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~seekable:false ~close_unix fd in
@@ -119,8 +119,8 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
       | Eio_unix.Net.Socketpair_stream (sw, domain, protocol) -> Some (fun k ->
           match
             let a, b = Unix.socketpair ~cloexec:true domain Unix.SOCK_STREAM protocol in
-            let a = Fd.of_unix ~sw ~seekable:false ~close_unix:true a |> Flow.of_fd in
-            let b = Fd.of_unix ~sw ~seekable:false ~close_unix:true b |> Flow.of_fd in
+            let a = Fd.of_unix ~sw ~seekable:false ~close_unix:true a |> Flow.stream in
+            let b = Fd.of_unix ~sw ~seekable:false ~close_unix:true b |> Flow.stream in
             ((a :> _ Eio_unix.Net.stream_socket), (b :> _ Eio_unix.Net.stream_socket))
           with
           | r -> continue k r

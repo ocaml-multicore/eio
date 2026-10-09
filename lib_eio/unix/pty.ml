@@ -14,7 +14,7 @@ external get_pty_peer : Unix.file_descr -> Unix.file_descr * string = "eio_unix_
 let open_pty ~sw () =
   let pty_fd = create () in
   Unix.set_nonblock pty_fd;
-  let pty = Net.import_socket_stream ~sw ~close_unix:true pty_fd in
+  let pty = File.import_rw ~sw ~close_unix:true pty_fd in
   let tty_fd, name = get_pty_peer pty_fd in
   let tty = Fd.of_unix ~sw ~blocking:true ~seekable:false ~close_unix:true tty_fd in
   { pty; tty; name }

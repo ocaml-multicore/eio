@@ -48,7 +48,7 @@ let run_event_loop fn x =
           let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
           (* TODO: On Windows, if the FD from Unix.pipe () is passed this will fail *)
           (try Unix.set_nonblock unix_fd with Unix.Unix_error (Unix.ENOTSOCK, _, _) -> ());
-          continue k (Flow.of_fd fd :> _ Eio_unix.Net.stream_socket)
+          continue k (Flow.stream fd :> _ Eio_unix.Net.stream_socket)
         )
       | Eio_unix.Net.Import_socket_listening (sw, close_unix, unix_fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
@@ -61,7 +61,7 @@ let run_event_loop fn x =
           continue k (Net.datagram_socket fd)
         )
       | Eio_unix.Net.Socketpair_stream (sw, domain, protocol) -> Some (fun k ->
-          let wrap fd = (Flow.of_fd fd :> _ Eio_unix.Net.stream_socket) in
+          let wrap fd = (Flow.stream fd :> _ Eio_unix.Net.stream_socket) in
           socketpair k ~sw ~domain ~protocol ~ty:Unix.SOCK_STREAM wrap wrap
         )
       | Eio_unix.Net.Socketpair_datagram (sw, domain, protocol) -> Some (fun k ->

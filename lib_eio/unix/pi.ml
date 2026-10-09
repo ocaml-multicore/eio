@@ -12,15 +12,20 @@ end
 type (_, _, _) Eio.Resource.pi +=
   | Stream_socket : ('t, (module STREAM_SOCKET with type t = 't), [> `Platform of [> `Unix] | `Socket | `Stream]) Eio.Resource.pi
 
-module type FLOW = sig
+module type FILE = sig
   include Eio.File.Pi.WRITE
-  include STREAM_SOCKET with type t := t
+  val fd : t -> Fd.t
 end
 
-let flow_handler (type t tag) (module X : FLOW with type t = t and type tag = tag) : (t, _) Eio.Resource.handler =
+let file_handler (type t) (module X : FILE with type t = t) : (t, _) Eio.Resource.handler =
   Eio.Resource.handler @@
-  Eio.Resource.bindings (Eio.Net.Pi.stream_socket (module X)) @
   Eio.Resource.bindings (Eio.File.Pi.rw (module X)) @ [
+    H (Resource.T, X.fd);
+  ]
+
+let stream_handler (type t tag) (module X : STREAM_SOCKET with type t = t and type tag = tag) : (t, _) Eio.Resource.handler =
+  Eio.Resource.handler @@
+  Eio.Resource.bindings (Eio.Net.Pi.stream_socket (module X)) @ [
     H (Resource.T, X.fd);
     H (Stream_socket, (module X));
   ]
