@@ -48,9 +48,7 @@ let truncate_to_iomax xs =
     ) in
   fill 0 xs
 
-module Impl = struct
-  type tag = [`Generic | `Unix]
-
+module File = struct
   type t = Eio_unix.Fd.t
 
   let stat t =
@@ -74,6 +72,52 @@ module Impl = struct
     | got -> got
     | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.v code name arg)
 
+  let read_methods = []
+
+  let pread t ~file_offset bufs =
+    let got = Low_level.preadv ~file_offset t (truncate_to_iomax bufs) in
+    if got = 0 then raise End_of_file
+    else got
+
+  let pwrite t ~file_offset bufs = Low_level.pwritev ~file_offset t (truncate_to_iomax bufs)
+
+  let seek = Low_level.lseek
+  let sync = Low_level.fsync
+  let truncate = Low_level.ftruncate
+
+  let fd t = t
+
+  let close = Eio_unix.Fd.close
+end
+
+let file_handler = Eio_unix.Pi.file_handler (module File)
+
+let of_fd fd =
+  let r = Eio.Resource.T (fd, file_handler) in
+  (r : [`Unix_fd | Eio.File.rw_ty] r :>
+     [< `Unix_fd | Eio.File.rw_ty] r)
+
+module Stream = struct
+  type tag = [`Generic | `Unix]
+
+  type t = Eio_unix.Fd.t
+
+  let send_msg t ~fds data =
+    try
+      Low_level.send_msg ~fds t (truncate_to_iomax data)
+    with Unix.Unix_error (code, name, arg) ->
+      raise (Err.v code name arg)
+
+  let single_write t data = send_msg t ~fds:[] data
+
+  let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
+
+  let single_read t buf =
+    match snd @@ Low_level.recv_msg t [| buf |] with
+    | 0 -> raise End_of_file
+    | got -> got
+    | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.v code name arg)
+
   let shutdown t cmd =
     try
       Low_level.shutdown t @@ match cmd with
@@ -86,23 +130,9 @@ module Impl = struct
 
   let read_methods = []
 
-  let pread t ~file_offset bufs =
-    let got = Low_level.preadv ~file_offset t (truncate_to_iomax bufs) in
-    if got = 0 then raise End_of_file
-    else got
-
-  let pwrite t ~file_offset bufs = Low_level.pwritev ~file_offset t (truncate_to_iomax bufs)
-
-  let send_msg t ~fds data =
-    Low_level.send_msg ~fds t (truncate_to_iomax data)
-
   let recv_msg_with_fds t ~sw ~max_fds data =
     let _addr, n, fds = Low_level.recv_msg_with_fds t ~sw ~max_fds (truncate_to_iomax data) in
     n, fds
-
-  let seek = Low_level.lseek
-  let sync = Low_level.fsync
-  let truncate = Low_level.ftruncate
 
   let fd t = t
 
@@ -112,14 +142,7 @@ module Impl = struct
   let getsockopt t opt = Eio_unix.Private.getsockopt t opt
 end
 
-let file_handler = Eio_unix.Pi.file_handler (module Impl)
-
-let of_fd fd =
-  let r = Eio.Resource.T (fd, file_handler) in
-  (r : [`Unix_fd | Eio.File.rw_ty] r :>
-     [< `Unix_fd | Eio.File.rw_ty] r)
-
-let stream_handler = Eio_unix.Pi.stream_handler (module Impl)
+let stream_handler = Eio_unix.Pi.stream_handler (module Stream)
 
 let stream fd =
   let r = Eio.Resource.T (fd, stream_handler) in

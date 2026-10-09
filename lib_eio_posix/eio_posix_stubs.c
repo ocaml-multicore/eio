@@ -502,7 +502,7 @@ CAMLprim value caml_eio_posix_send_msg(value v_fd, value v_n_fds, value v_fds, v
   fill_fds(&msg, n_fds, v_fds);
 
   caml_enter_blocking_section();
-  r = sendmsg(Int_val(v_fd), &msg, 0);
+  r = sendmsg(Int_val(v_fd), &msg, MSG_DONTWAIT);
   caml_leave_blocking_section();
   caml_stat_free_preserving_errno(iov);
   if (r < 0) uerror("send_msg", Nothing);
@@ -567,7 +567,7 @@ CAMLprim value caml_eio_posix_recv_msg(value v_fd, value v_max_fds, value v_bufs
     .msg_controllen = controllen,
   };
   ssize_t r;
-  int flags = Int_val(v_flags);
+  int flags = Int_val(v_flags) | MSG_DONTWAIT;
 #ifdef MSG_CMSG_CLOEXEC
   flags |= MSG_CMSG_CLOEXEC;
 #endif
