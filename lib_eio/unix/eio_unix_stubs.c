@@ -10,6 +10,7 @@
 #ifdef _WIN32
 # include <winsock2.h>
 # include <ws2tcpip.h>
+# include <stdio.h>
 #else
 # include <sys/socket.h>
 # include <sys/utsname.h>
@@ -45,11 +46,41 @@ CAMLprim value eio_unix_uname(value v_unit) {
   CAMLparam0();
   CAMLlocal5(v_result, v_sysname, v_release, v_version, v_machine);
   #ifdef _WIN32
-  // todo: highly unclear how to get version information on Windows
+  typedef LONG (WINAPI *rtl_get_version)(RTL_OSVERSIONINFOW *);
+  rtl_get_version get_version;
+  RTL_OSVERSIONINFOW os = { sizeof(os) };
+  SYSTEM_INFO si;
+  const wchar_t *key = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+  char release[32] = "", product[128] = "", display[64] = "", version[256];
+  wchar_t buf[128];
+  DWORD ubr = 0, size;
+  const char *machine;
+  /* GetVersionEx seems to report the version in the application manifest, so use ntdll instead */
+  get_version = (rtl_get_version) GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion");
+  if (get_version && get_version(&os) == 0)
+    snprintf(release, sizeof(release), "%lu.%lu.%lu", os.dwMajorVersion, os.dwMinorVersion, os.dwBuildNumber);
+  GetNativeSystemInfo(&si);
+  switch (si.wProcessorArchitecture) {
+    case PROCESSOR_ARCHITECTURE_AMD64: machine = "x86_64"; break;
+    case PROCESSOR_ARCHITECTURE_ARM64: machine = "arm64"; break;
+    case PROCESSOR_ARCHITECTURE_INTEL: machine = "i386"; break;
+    case PROCESSOR_ARCHITECTURE_ARM: machine = "arm"; break;
+    default: machine = "";
+  }
   v_sysname = caml_copy_string("Windows");
-  v_release = caml_copy_string("");
-  v_version = v_release;
-  v_machine = v_release;
+  v_release = caml_copy_string(release);
+  size = sizeof(buf);
+  if (RegGetValueW(HKEY_LOCAL_MACHINE, key, L"ProductName", RRF_RT_REG_SZ, NULL, buf, &size) == ERROR_SUCCESS)
+    WideCharToMultiByte(CP_UTF8, 0, buf, -1, product, sizeof(product), NULL, NULL);
+  size = sizeof(buf);
+  if (RegGetValueW(HKEY_LOCAL_MACHINE, key, L"DisplayVersion", RRF_RT_REG_SZ, NULL, buf, &size) == ERROR_SUCCESS)
+    WideCharToMultiByte(CP_UTF8, 0, buf, -1, display, sizeof(display), NULL, NULL);
+  size = sizeof(ubr);
+  RegGetValueW(HKEY_LOCAL_MACHINE, key, L"UBR", RRF_RT_REG_DWORD, NULL, &ubr, &size);
+  snprintf(version, sizeof(version), "%s%s%s (%lu.%lu)",
+           product, display[0] ? " " : "", display, os.dwBuildNumber, ubr);
+  v_version = caml_copy_string(version);
+  v_machine = caml_copy_string(machine);
   #else
   struct utsname buf;
   int ret = uname(&buf);

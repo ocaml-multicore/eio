@@ -31,9 +31,9 @@ type t = {
       "machine" = "amd64" }
 
     { "sysname" = "Windows";
-      "release" = "";
-      "version" = "";
-      "machine" = "" }
+      "release" = "10.0.26100";
+      "version" = "Windows Server 2025 Standard 24H2 (26100.4061)";
+      "machine" = "x86_64" }
     ]}
 *)
 
