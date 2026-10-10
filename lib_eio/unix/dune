@@ -18,6 +18,7 @@
         %{dep:.eio_unix.objs/byte/eio_unix__Fd.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Private.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Cap.cmt}
+        %{dep:.eio_unix.objs/byte/eio_unix__System_info.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Fork_action.cmt}
         %{dep:.eio_unix.objs/byte/eio_unix__Pty.cmt}))))
 
