@@ -14,6 +14,11 @@ let run ?clear:(paths = []) fn =
   let cwd = Eio.Stdenv.cwd env in
   List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p)) paths;
   fn env
+
+let read flow =
+  let buf = Cstruct.of_string "?" in
+  Eio.Flow.read_exact flow buf;
+  traceln "Got %S" (Cstruct.to_string buf)
 ```
 
 ```ocaml
@@ -44,6 +49,12 @@ let with_tmp_file dir id fn =
        fn (Option.get (Eio_unix.Resource.fd_opt file))
     )
     ~finally:(fun () -> Eio.Path.unlink path)
+
+let macos =
+  run @@ fun env ->
+  match Eio.Process.parse_out env#process_mgr Eio.Buf_read.line ["uname"] with
+  | "Darwin" -> true
+  | _ -> false
 ```
 
 ## Tests
@@ -79,5 +90,35 @@ Using named sockets:
   test ~to_send:[fd] r w;;
 +Got: "x" plus 1 FDs
 +Read: "foo"
+- : unit = ()
+```
+
+When sharing an open file with another process, there is the risk that it may change the blocking mode.
+Check that socket operations are always non-blocking (because they use `MSG_DONTWAIT`), even if the mode gets changed:
+
+```ocaml
+# if macos then mdx_skip "MSG_DONTWAIT isn't supported on macos for sendmsg";;
+- : unit = ()
+
+# run @@ fun env ->
+  let a_unix, b_unix = Unix.(socketpair PF_UNIX SOCK_STREAM 0) in
+  Switch.run @@ fun sw ->
+  let a = Eio_unix.Net.import_socket_stream ~sw ~close_unix:true a_unix in
+  let b = Eio_unix.Net.import_socket_stream ~sw ~close_unix:true b_unix in
+  (* Warm-up: let the backend set the sockets to non-blocking *)
+  Fiber.both
+    (fun () -> read b)
+    (fun () -> Eio.Flow.copy_string "1" a);
+  (* Simulate another process changing the mode behind our back *)
+  Unix.clear_nonblock b_unix;
+  Fiber.both
+    (fun () -> read b)
+    (fun () -> Eio.Flow.copy_string "2" a);
+  Fiber.first
+    (fun () -> while true do Eio.Flow.write b [Cstruct.create 1_000_000] done)
+    (fun () -> Fiber.yield (); traceln "Write cancelled")
++Got "1"
++Got "2"
++Write cancelled
 - : unit = ()
 ```

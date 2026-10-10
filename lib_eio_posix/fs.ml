@@ -33,15 +33,15 @@ let as_posix_dir (Eio.Resource.T (t, ops)) =
   | Some fn -> Some (fn t)
 
 module Fifo_reader = struct
-  include Flow.Impl
+  include Flow.File
 
   let single_read t buf =
     Low_level.await_readable "single_read" t;
-    Flow.Impl.single_read t buf
+    Flow.File.single_read t buf
 
   let pread t ~file_offset bufs =
     Low_level.await_readable "pread" t;
-    Flow.Impl.pread t ~file_offset bufs
+    Flow.File.pread t ~file_offset bufs
 end
 
 (* After opening a FIFO with no writers, it is not readable according to select,
