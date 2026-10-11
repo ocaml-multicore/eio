@@ -20,6 +20,7 @@ let run_in_systhread = Thread_pool.run_in_systhread
 
 module Ipaddr = Net.Ipaddr
 
+module System_info = System_info
 module Process = Process
 module Net = Net
 module File = File
