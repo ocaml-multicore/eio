@@ -86,11 +86,6 @@ end
 
 (** Mock {!Eio.Flow} sources and sinks. *)
 module Flow : sig
-  type copy_method = [
-    | `Read_into                (** Use the source's [read_into] method (the default). *)
-    | `Read_source_buffer       (** Use the {!Eio.Flow.Read_source_buffer} optimisation. *)
-  ]
-
   type ty = [`Generic | `Mock] Eio.Net.stream_socket_ty
   type t = ty r
 
@@ -103,11 +98,17 @@ module Flow : sig
   (** [on_read t actions] configures the values to return from the mock's [read] function. *)
 
   val on_copy_bytes : t -> int Handler.actions -> unit
-  (** [on_copy_bytes t actions] configures the number of bytes to copy in each iteration. *)
+  (** [on_copy_bytes t actions] limits the number of bytes accepted by each [write] operation. *)
 
-  val set_copy_method : t -> copy_method -> unit
-  (** [set_copy_method t m] configures [t] to use the given method to read from
-      a source during a copy operation. *)
+  val trace_reads : string -> _ Eio.Flow.source -> Eio.Flow.source_ty r
+  (** [trace_reads label s] wraps [s] to make a new source that traces reads
+      (including via [Read_source_buffer]). *)
+
+  val limit_reads : int list -> _ Eio.Flow.source -> Eio.Flow.source_ty r
+  (** [limit_reads sizes s] wraps [s] to make a new source that limits the buffers
+      passed to [single_read] or to the [Read_source_buffer] callback to the given sizes.
+      e.g. [limit_reads [3; 2] s] ensures that the first read will get no more than 3 bytes.
+      Once [sizes] is exhausted, reads are unlimited. *)
 end
 
 (** Mock {!Eio.Net} networks and sockets. *)

@@ -59,6 +59,13 @@ module Pi = struct
       H (Sink, (module X));
     ]
 
+  (* Copy using the [Read_source_buffer] optimisation.
+     Avoids a copy if the source already has the data. *)
+  let copy_with_rsb ~single_write rsb dst =
+    try
+      while true do rsb (single_write dst) done
+    with End_of_file -> ()
+
   let simple_copy ~single_write t ~src:(Resource.T (src, src_ops)) =
     let rec write_all buf =
       if not (Cstruct.is_empty buf) then (
@@ -67,13 +74,19 @@ module Pi = struct
       )
     in
     let module Src = (val (Resource.get src_ops Source)) in
-    try
-      let buf = Cstruct.create 4096 in
-      while true do
-        let got = Src.single_read src buf in
-        write_all (Cstruct.sub buf 0 got)
-      done
-    with End_of_file -> ()
+    let rec aux = function
+      | Read_source_buffer rsb :: _ -> copy_with_rsb ~single_write (rsb src) t
+      | _ :: xs -> aux xs
+      | [] ->
+        try
+          let buf = Cstruct.create 4096 in
+          while true do
+            let got = Src.single_read src buf in
+            write_all (Cstruct.sub buf 0 got)
+          done
+        with End_of_file -> ()
+    in
+    aux Src.read_methods
 end
 
 open Pi

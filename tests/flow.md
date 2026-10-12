@@ -12,23 +12,8 @@ let run fn =
   Eio_main.run @@ fun _ ->
   fn ()
 
-let mock_source =
-  let module X = struct
-    type t = Cstruct.t list ref
-
-    let read_methods = []
-
-    let single_read t buf =
-      match !t with
-      | [] -> raise End_of_file
-      | x :: xs ->
-        let len = min (Cstruct.length buf) (Cstruct.length x) in
-        Cstruct.blit x 0 buf 0 len;
-        t := Cstruct.shiftv (x :: xs) len;
-        len
-  end in
-  let ops = Eio.Flow.Pi.source (module X) in
-  fun items -> Eio.Resource.T (ref items, ops)
+let mock_source bufs =
+  Eio.Flow.cstruct_source bufs |> Eio_mock.Flow.limit_reads (List.map Cstruct.length bufs)
 ```
 
 ## read_exact
@@ -72,9 +57,8 @@ Copying from a string src:
 
 ```ocaml
 # run @@ fun () ->
-  let src = Eio.Flow.string_source "foobar" in
+  let src = Eio.Flow.string_source "foobar" |> Eio_mock.Flow.limit_reads [3; 5] in
   let dst = Eio_mock.Flow.make "dst" in
-  Eio_mock.Flow.on_copy_bytes dst [`Return 3; `Return 5];
   Eio.Flow.copy src dst;;
 +dst: wrote "foo"
 +dst: wrote "bar"
@@ -85,9 +69,8 @@ Copying from src using a plain buffer (the default):
 
 ```ocaml
 # run @@ fun () ->
-  let src = Eio.Flow.cstruct_source [Cstruct.of_string "foobar"] in
+  let src = Eio.Flow.cstruct_source [Cstruct.of_string "foobar"] |> Eio_mock.Flow.limit_reads [3; 5] in
   let dst = Eio_mock.Flow.make "dst" in
-  Eio_mock.Flow.on_copy_bytes dst [`Return 3; `Return 5];
   Eio.Flow.copy src dst;;
 +dst: wrote "foo"
 +dst: wrote "bar"
@@ -98,13 +81,17 @@ Copying from src using `Read_source_buffer`:
 
 ```ocaml
 # run @@ fun () ->
-  let src = Eio.Flow.cstruct_source [Cstruct.of_string "foobar"] in
+  let src =
+    Eio.Flow.cstruct_source [Cstruct.of_string "foobar"]
+    |> Eio_mock.Flow.limit_reads [3; 5]
+    |> Eio_mock.Flow.trace_reads "src"
+  in
   let dst = Eio_mock.Flow.make "dst" in
-  Eio_mock.Flow.set_copy_method dst `Read_source_buffer;
-  Eio_mock.Flow.on_copy_bytes dst [`Return 3; `Return 5];
   Eio.Flow.copy src dst;;
-+dst: wrote (rsb) ["foo"]
-+dst: wrote (rsb) ["bar"]
++dst: wrote "foo"
++src: shift rsb 3
++dst: wrote "bar"
++src: shift rsb 3
 - : unit = ()
 ```
 
@@ -129,7 +116,6 @@ Copying from src using `Read_source_buffer`:
 ```ocaml
 # run @@ fun () ->
   let dst = Eio_mock.Flow.make "dst" in
-  Eio_mock.Flow.on_copy_bytes dst [`Return 6];
   Eio.Flow.write dst [Cstruct.of_string "foobar"];;
 +dst: wrote "foobar"
 - : unit = ()
