@@ -81,12 +81,17 @@ Copying from src using `Read_source_buffer`:
 
 ```ocaml
 # run @@ fun () ->
-  let src = Eio.Flow.cstruct_source [Cstruct.of_string "foobar"] |> Eio_mock.Flow.limit_reads [3; 5] in
+  let src =
+    Eio.Flow.cstruct_source [Cstruct.of_string "foobar"]
+    |> Eio_mock.Flow.limit_reads [3; 5]
+    |> Eio_mock.Flow.trace_reads "src"
+  in
   let dst = Eio_mock.Flow.make "dst" in
-  Eio_mock.Flow.set_copy_method dst `Read_source_buffer;
   Eio.Flow.copy src dst;;
-+dst: wrote (rsb) ["foo"]
-+dst: wrote (rsb) ["bar"]
++dst: wrote "foo"
++src: shift rsb 3
++dst: wrote "bar"
++src: shift rsb 3
 - : unit = ()
 ```
 

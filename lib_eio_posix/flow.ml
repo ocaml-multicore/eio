@@ -66,22 +66,7 @@ module Impl = struct
     with Unix.Unix_error (code, name, arg) ->
       raise (Err.v code name arg)
 
-  (* Copy using the [Read_source_buffer] optimisation.
-     Avoids a copy if the source already has the data. *)
-  let copy_with_rsb rsb dst =
-    try
-      while true do rsb (single_write dst) done
-    with End_of_file -> ()
-
-  let copy t ~src =
-    let Eio.Resource.T (src_t, ops) = src in
-    let module Src = (val (Eio.Resource.get ops Eio.Flow.Pi.Source)) in
-    let rec aux = function
-      | Eio.Flow.Read_source_buffer rsb :: _ -> copy_with_rsb (rsb src_t) t
-      | _ :: xs -> aux xs
-      | [] -> Eio.Flow.Pi.simple_copy ~single_write t ~src
-    in
-    aux Src.read_methods
+  let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
 
   let single_read t buf =
     match Low_level.readv t [| buf |] with

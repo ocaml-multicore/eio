@@ -1,10 +1,5 @@
 open Eio.Std
 
-type copy_method = [
-  | `Read_into
-  | `Read_source_buffer
-]
-
 let rec takev len = function
   | [] -> []
   | x :: _ when Cstruct.length x >= len ->
@@ -21,7 +16,6 @@ module Mock_flow = struct
     on_close : (unit -> unit) Queue.t;
     on_read : string Handler.t;
     on_copy_bytes : int Handler.t;
-    mutable copy_method : copy_method;
   }
 
   let pp_default f s =
@@ -53,26 +47,6 @@ module Mock_flow = struct
     in
     write ~pp t bufs
 
-  let copy_rsb_iovec t bufs =
-    let pp f bufs = Fmt.pf f "(rsb) @[<v>%a@]" (Fmt.Dump.list (Fmt.using Cstruct.to_string t.pp)) bufs in
-    write ~pp t bufs
-
-  (* Test optimised copying using Read_source_buffer *)
-  let copy_rsb t rsb =
-    try while true do rsb (copy_rsb_iovec t) done
-    with End_of_file -> ()
-
-  (* Test fallback copy using buffer. *)
-  let copy_via_buffer t src =
-    try
-      while true do
-        let size = Handler.run t.on_copy_bytes in
-        let buf = Cstruct.create size in
-        let n = Eio.Flow.single_read src buf in
-        traceln "%s: wrote @[<v>%a@]" t.label t.pp (Cstruct.to_string (Cstruct.sub buf 0 n))
-      done
-    with End_of_file -> ()
-
   let read_methods = []
 
   let single_read t buf =
@@ -84,18 +58,7 @@ module Mock_flow = struct
     traceln "%s: read @[<v>%a@]" t.label t.pp data;
     len
 
-  let copy t ~src =
-    match t.copy_method with
-    | `Read_into -> copy_via_buffer t src
-    | `Read_source_buffer ->
-      let Eio.Resource.T (src, ops) = src in
-      let module Src = (val (Eio.Resource.get ops Eio.Flow.Pi.Source)) in
-      let try_rsb = function
-        | Eio.Flow.Read_source_buffer rsb -> copy_rsb t (rsb src); true
-        | _ -> false
-      in
-      if not (List.exists try_rsb Src.read_methods) then
-        Fmt.failwith "Source does not offer Read_source_buffer optimisation"
+  let copy t ~src = Eio.Flow.Pi.simple_copy t ~src ~single_write
 
   let shutdown t cmd =
     traceln "%s: shutdown %s" t.label @@
@@ -120,7 +83,6 @@ module Mock_flow = struct
       on_close = Queue.create ();
       on_read = Handler.make (`Raise End_of_file);
       on_copy_bytes = Handler.make (`Return 4096);
-      copy_method = `Read_into;
     }
 end
 
@@ -138,7 +100,6 @@ let attach_to_switch t sw =
 
 let on_read t = Handler.seq (raw t).on_read
 let on_copy_bytes t = Handler.seq (raw t).on_copy_bytes
-let set_copy_method t v = (raw t).copy_method <- v
 
 let handler = Eio.Resource.handler (
     H (Type, Fun.id) ::
