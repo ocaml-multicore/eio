@@ -5,6 +5,13 @@ type copy_method = [
   | `Read_source_buffer
 ]
 
+let rec takev len = function
+  | [] -> []
+  | x :: _ when Cstruct.length x >= len ->
+    let len = min len (Cstruct.length x) in
+    if len = 0 then [] else [Cstruct.sub x 0 len]
+  | x :: xs -> x :: takev (len - Cstruct.length x) xs
+
 module Mock_flow = struct
   type tag = [`Generic | `Mock]
 
@@ -31,11 +38,6 @@ module Mock_flow = struct
       )
     in
     aux 0
-
-  let rec takev len = function
-    | [] -> []
-    | x :: _ when Cstruct.length x >= len -> [Cstruct.sub x 0 len]
-    | x :: xs -> x :: takev (len - Cstruct.length x) xs
 
   let write ~pp t bufs =
     let size = Handler.run t.on_copy_bytes in
@@ -145,3 +147,34 @@ let handler = Eio.Resource.handler (
 
 let make ?pp label : t =
   Eio.Resource.T (Mock_flow.make ?pp label, handler)
+
+let limit_reads sizes src =
+  let next_limit = Seq.to_dispenser (List.to_seq sizes) in
+  let Eio.Resource.T (t, ops) = src in
+  let module X = (val (Eio.Resource.get ops Eio.Flow.Pi.Source)) in
+  let module Impl = struct
+    include X
+
+    let limitv bufs =
+      match next_limit () with
+      | None -> bufs
+      | Some n -> takev n bufs
+
+    let limit_size buf =
+      match next_limit () with
+      | None -> buf
+      | Some x -> Cstruct.sub buf 0 (min x (Cstruct.length buf))
+
+    let limit_rsb rsb t fn =
+      rsb t (fun bufs -> fn (limitv bufs))
+
+    let read_methods =
+      X.read_methods |> List.map (function
+        | Eio.Flow.Read_source_buffer fn -> Eio.Flow.Read_source_buffer (limit_rsb fn)
+        | x -> x)
+
+    let single_read t dst =
+      X.single_read t (limit_size dst)
+  end in
+  let ops = Eio.Flow.Pi.source (module Impl) in
+  Eio.Resource.T (t, ops)

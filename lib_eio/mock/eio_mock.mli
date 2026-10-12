@@ -108,6 +108,12 @@ module Flow : sig
   val set_copy_method : t -> copy_method -> unit
   (** [set_copy_method t m] configures [t] to use the given method to read from
       a source during a copy operation. *)
+
+  val limit_reads : int list -> _ Eio.Flow.source -> Eio.Flow.source_ty r
+  (** [limit_reads sizes s] wraps [s] to make a new source that limits the buffers
+      passed to [single_read] or to the [Read_source_buffer] callback to the given sizes.
+      e.g. [limit_reads [3; 2] s] ensures that the first read will get no more than 3 bytes.
+      Once [sizes] is exhausted, reads are unlimited. *)
 end
 
 (** Mock {!Eio.Net} networks and sockets. *)
