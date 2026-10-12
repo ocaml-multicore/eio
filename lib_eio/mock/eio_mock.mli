@@ -109,6 +109,10 @@ module Flow : sig
   (** [set_copy_method t m] configures [t] to use the given method to read from
       a source during a copy operation. *)
 
+  val trace_reads : string -> _ Eio.Flow.source -> Eio.Flow.source_ty r
+  (** [trace_reads label s] wraps [s] to make a new source that traces reads
+      (including via [Read_source_buffer]). *)
+
   val limit_reads : int list -> _ Eio.Flow.source -> Eio.Flow.source_ty r
   (** [limit_reads sizes s] wraps [s] to make a new source that limits the buffers
       passed to [single_read] or to the [Read_source_buffer] callback to the given sizes.

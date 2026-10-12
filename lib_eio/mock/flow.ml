@@ -148,6 +148,36 @@ let handler = Eio.Resource.handler (
 let make ?pp label : t =
   Eio.Resource.T (Mock_flow.make ?pp label, handler)
 
+let trace_reads label src =
+  let Eio.Resource.T (t, ops) = src in
+  let module X = (val (Eio.Resource.get ops Eio.Flow.Pi.Source)) in
+  let module Impl = struct
+    include X
+
+    let trace_rsb rsb t fn =
+      rsb t (fun bufs ->
+        let n = fn bufs in
+        traceln "%s: shift rsb %d" label n;
+        n
+      )
+
+    let read_methods =
+      X.read_methods |> List.map (function
+        | Eio.Flow.Read_source_buffer fn -> Eio.Flow.Read_source_buffer (trace_rsb fn)
+        | x -> x)
+
+    let single_read t dst =
+      match X.single_read t dst with
+      | len ->
+        traceln "%s: read %d -> %S" label (Cstruct.length dst) (Cstruct.to_string dst ~len);
+        len
+      | exception End_of_file ->
+        traceln "%s: read -> End_of_file" label;
+        raise End_of_file
+  end in
+  let ops = Eio.Flow.Pi.source (module Impl) in
+  Eio.Resource.T (t, ops)
+
 let limit_reads sizes src =
   let next_limit = Seq.to_dispenser (List.to_seq sizes) in
   let Eio.Resource.T (t, ops) = src in
