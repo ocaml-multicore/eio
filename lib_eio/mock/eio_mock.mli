@@ -145,6 +145,69 @@ module Net : sig
   (** [on_accept socket actions] configures how to respond when the server calls "accept". *)
 end
 
+(** Mock {!Eio.Fs} directories. *)
+module Dir : sig
+  type ty = [ Eio.Fs.dir_ty | `Close | `Mock ]
+  type t = ty r
+
+  val make : ?syntax:[`Posix | `Windows] -> string -> t
+  (** [make label] is a new mock directory.
+      @param syntax The path syntax to use when joining and splitting paths (default [`Posix]). *)
+
+  val on_open_in : t -> _ Eio.File.ro Handler.actions -> unit
+  (** [on_open_in t actions] configures what to return when opening a file for reading. *)
+
+  val on_open_out : t -> _ Eio.File.rw Handler.actions -> unit
+  (** [on_open_out t actions] configures what to return when opening a file for writing. *)
+
+  val on_open_subtree : t -> [> `Close | Eio.Fs.dir_ty] r Handler.actions -> unit
+  (** [on_open_subtree t actions] configures what to return when opening a sub-directory.
+      Typically the actions return further mock directories. *)
+
+  val on_read_dir : t -> string list Handler.actions -> unit
+  (** [on_read_dir t actions] configures the entries to report when listing a directory.
+      This is used by {!Eio.Path.read_dir} and by default also by {!on_dir_entries}. *)
+
+  val on_dir_entries : t -> (Eio.File.Stat.kind * string) list Handler.actions -> unit
+  (** [on_dir_entries t actions] configures the entries to report from directory
+      list operations. By defaul, this runs the {!on_read_dir} handler and reports
+      every entry's kind as [`Unknown]. *)
+
+  val on_stat : t -> Eio.File.Stat.t Handler.actions -> unit
+  (** [on_stat t actions] configures the results of {!Eio.Path.stat}. *)
+
+  val on_read_link : t -> string Handler.actions -> unit
+  (** [on_read_link t actions] configures the results of {!Eio.Path.read_link}. *)
+
+  val on_mkdir : t -> unit Handler.actions -> unit
+  (** [on_mkdir t actions] configures what to do when {!Eio.Path.mkdir} is called.
+      By default it just returns unit; use this to simulate faults. *)
+
+  val on_unlink : t -> unit Handler.actions -> unit
+  (** [on_unlink t actions] configures what to do when {!Eio.Path.unlink} is called.
+      By default it just returns unit; use this to simulate faults. *)
+
+  val on_rmdir : t -> unit Handler.actions -> unit
+  (** [on_rmdir t actions] configures what to do when {!Eio.Path.rmdir} is called.
+      By default it just returns unit; use this to simulate faults. *)
+
+  val on_rename : t -> unit Handler.actions -> unit
+  (** [on_rename t actions] configures what to do when {!Eio.Path.rename} is called.
+      By default it just returns unit; use this to simulate faults. *)
+
+  val on_symlink : t -> unit Handler.actions -> unit
+  (** [on_symlink t actions] configures what to do when {!Eio.Path.symlink} is called.
+      By default it just returns unit; use this to simulate faults. *)
+
+  val on_chmod : t -> unit Handler.actions -> unit
+  (** [on_chmod t actions] configures what to do when {!Eio.Path.chmod} is called.
+      By default it just returns unit; use this to simulate faults. *)
+
+  val on_chown : t -> unit Handler.actions -> unit
+  (** [on_chown t actions] configures what to do when {!Eio.Path.chown} is called.
+      By default it just returns unit; use this to simulate faults. *)
+end
+
 (** A mock {!Eio.Time} clock for testing timeouts. *)
 module Clock = Clock
 
