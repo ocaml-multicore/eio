@@ -11,13 +11,12 @@
 module Int63 = Optint.Int63
 module Path = Eio.Path
 
-let () = Eio.Exn.Backend.show := false
-
 open Eio.Std
 
 let ( / ) = Path.( / )
 
 let run ?clear:(paths = []) fn =
+  Eio.Exn.Backend.show := false;
   Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p)) paths;
@@ -1126,9 +1125,6 @@ Create a sandbox, write a file with it, then read it from outside:
 +Eio.Io Fs Permission_denied _, opening directory <cwd:foo/root/..>
 +Eio.Io Fs Not_found _, opening directory <cwd:missing>
 - : unit = ()
-
-# Eio.Exn.Backend.show := false
-- : unit = ()
 ```
 
 # Unconfined FS access
@@ -1605,7 +1601,11 @@ useful, so run it occasionally either as root or as a user with multiple groups.
   match target with
   | None -> ()
   | Some gid ->
-      Eio.Path.chown ~follow:false ~uid:uid0 ~gid path;
+      begin
+        try Eio.Path.chown ~follow:false ~uid:uid0 ~gid path
+        with Eio.Io (Eio.Exn.X Eio_unix.Unix_error (EINVAL, "fchownat", ""), _) ->
+          mdx_skip "sandbox prevents testing chown"
+      end;
       let uid1, gid1 = stat_uid_gid path in
       assert (uid1 = uid0);
       assert (gid1 = gid);
@@ -1656,6 +1656,8 @@ Check that chown sandboxing works:
   in
   let try_chown ~follow path =
     match Eio.Path.chown ~gid:other_gid ~follow path with
+    | exception Eio.Io (Eio.Exn.X Eio_unix.Unix_error (EINVAL, "fchownat", ""), _) ->
+      mdx_skip "sandbox prevents testing chown"
     | exception ex -> traceln "chown %a (follow=%b) -> @[<h>%a@]" Path.pp path follow Eio.Exn.pp ex
     | () ->
       traceln "chown %a (follow=%b) -> ok" Path.pp path follow;
