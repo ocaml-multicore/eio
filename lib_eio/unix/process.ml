@@ -171,4 +171,4 @@ let spawn_unix ~sw (Eio.Resource.T (v, ops)) ?cwd ?pgid ?uid ?gid ?login_tty ~fd
 let sigchld = Eio.Condition.create ()
 
 let install_sigchld_handler () =
-  Sys.(set_signal sigchld) (Signal_handle (fun (_:int) -> Eio.Condition.broadcast sigchld))
+  Private.Signal_fd.set_signal Sys.sigchld (Signal_handle (fun (_:int) -> Eio.Condition.broadcast sigchld))

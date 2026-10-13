@@ -36,7 +36,40 @@ Prove we can catch sigint:
         in
         wait ()
     );
-  Sys.set_signal Sys.sigint old;;
+  Eio_unix.set_signal Sys.sigint old;;
 +interrupted!
+- : unit = ()
+```
+
+Check that the FD wake-up mechanism works:
+
+```ocaml
+module Signal_fd = Eio_unix.Private.Signal_fd
+
+(* Check whether the signal FD says a signal needs handling. *)
+let signal_ready () =
+  let fd = (Eio_unix.Private.Signal_fd.get_singleton () :> Unix.file_descr) in
+  let r, _, _ = Unix.select [fd] [] [] 0.0 in
+  r <> []
+
+let rec await_signal_ready fd =
+  match Unix.select [fd] [] [] 120.0 with
+  | exception Unix.Unix_error (EINTR, _, _) -> await_signal_ready fd
+  | [_], _, _ -> () 
+  | _ -> failwith "Timeout waiting for signal"
+```
+
+```ocaml
+# Eio_unix.set_signal Sys.sigint (Signal_handle ignore);
+  let fd = Signal_fd.get_singleton () in
+  Signal_fd.ack fd;     (* Ensure clear to start *)
+  let thread = Thread.create (fun () -> Unix.kill (Unix.getpid ()) Sys.sigint) () in
+  await_signal_ready (fd :> Unix.file_descr);
+  traceln "Signal FD is ready for reading";
+  Thread.join thread;
+  while signal_ready () do Signal_fd.ack fd done;
+  traceln "Signal FD cleared";;
++Signal FD is ready for reading
++Signal FD cleared
 - : unit = ()
 ```

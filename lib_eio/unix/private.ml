@@ -1,6 +1,32 @@
 open Eio.Std
 open Types
 
+module Signal_fd = struct
+  type t = Unix.file_descr
+
+  external eio_init_signals : unit -> Unix.file_descr = "eio_unix_init_signals"
+  external eio_override_signal_handler : int -> unit = "eio_unix_override_signal_handler"
+
+  let get_singleton =
+    let lock = Mutex.create () in
+    let fd = lazy (eio_init_signals ()) in
+    fun () -> Mutex.protect lock (fun () -> Lazy.force fd)
+
+  let ack fd =
+    let buf = Bytes.create 8 in   (* Read up to 8 events at a time *)
+    try
+      ignore (Unix.read fd buf 0 (Bytes.length buf) : int)
+    with Unix.Unix_error ((EAGAIN | EWOULDBLOCK), _, _) -> ()
+
+  let set_signal sig_num sig_beh =
+    Sys.set_signal sig_num sig_beh;
+    match sig_beh with
+    | Signal_handle _ ->
+      ignore (get_singleton () : t);
+      eio_override_signal_handler sig_num
+    | _ -> ()
+end
+
 type _ Effect.t +=
   | Await_readable : Unix.file_descr -> unit Effect.t
   | Await_writable : Unix.file_descr -> unit Effect.t
