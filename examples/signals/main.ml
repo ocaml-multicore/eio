@@ -24,5 +24,6 @@ let () =
        Most operations are unsafe here, except for Eio.Condition.broadcast! *)
     Eio.Condition.broadcast config_changed
   in
-  Sys.set_signal Sys.sighup (Signal_handle handle_signal);
+  (* Note: don't use [Sys.set_signal]; it's buggy. *)
+  Eio_unix.set_signal Sys.sighup (Signal_handle handle_signal);
   main ~config_changed

@@ -82,6 +82,14 @@ val pipe : Switch.t -> [< source_ty] r * [< sink_ty] r
     can be read from [src].
     Note that, like all FDs created by Eio, they are both marked as close-on-exec by default. *)
 
+val set_signal : Sys.signal -> Sys.signal_behavior -> unit
+(** Like {!Sys.set_signal} but avoids a bug in OCaml's version that can prevent signals from being handled.
+
+    Specifically, it also notifies {!Private.Signal_fd} when a signal arrives,
+    which backends should monitor.
+
+    See {{:https://github.com/ocaml/ocaml/issues/13189}} for details. *)
+
 module System_info = System_info
 
 module Process = Process
@@ -164,6 +172,23 @@ module Private : sig
 
   val setsockopt : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a -> unit
   val getsockopt : Fd.t -> 'a Eio.Net.Sockopt.t -> 'a
+
+  module Signal_fd : sig
+    type t = private Unix.file_descr
+
+    val get_singleton : unit -> t
+    (** [get_singleton ()] returns a file descriptor that becomes readable when a signal is received
+        (for a [Signal_handle] handler installed by {!Eio_unix.set_signal}).
+
+        Backends should monitor this FD so that they wake up and take the runtime lock when it is
+        readable. This enables the signal to be processed promptly.
+
+        The FD is created lazily the first time the function is called and never closed. *)
+
+    val ack : t -> unit
+    (** [ack t] reads one or more pending events from the FD.
+        Call this when [t] becomes readable. *)
+  end
 end
 
 module Pi = Pi

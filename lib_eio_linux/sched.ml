@@ -40,6 +40,8 @@ type t = {
      In that case, [need_wakeup = true] and you must signal using [eventfd]. *)
   eventfd : Eio_unix.Private.Rcfd.t;
 
+  signal_r : Eio_unix.Private.Signal_fd.t;
+
   (* If [false], the main thread will check [run_q] before sleeping again
      (possibly because an event has been or will be sent to [eventfd]).
      It can therefore be set to [false] in either of these cases:
@@ -314,6 +316,20 @@ let monitor_event_fd t =
   done;
   assert false
 
+let monitor_signal_fd t =
+  let buf = Cstruct.create 8 in
+  let fd = t.signal_r in
+  while true do
+    try
+      ignore(read_eventfd (fd :> Unix.file_descr) buf : int);
+      (* We can just go back to sleep now; OCaml will have already run any
+         pending signal handlers. *)
+    with Unix.Unix_error (EAGAIN, _, _) ->
+      (* Presumably an io_uring bug. Seen while running stress/stress_signal.exe. *)
+      ()
+  done;
+  assert false
+
 let run ~extra_effects st main arg =
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
@@ -395,6 +411,7 @@ let run ~extra_effects st main arg =
         fork ~new_fiber (fun () ->
             Switch.run_protected ~name:"eio_linux" (fun sw ->
                 Fiber.fork_daemon ~sw (fun () -> monitor_event_fd st);
+                Fiber.fork_daemon ~sw (fun () -> monitor_signal_fd st);
                 match Eio_unix.Private.Thread_pool.run st.thread_pool (fun () -> main arg) with
                 | x -> result := Some (Ok x)
                 | exception ex ->
@@ -481,8 +498,9 @@ let with_sched ?(fallback=no_fallback) config fn =
         let io_q = Queue.create () in
         let mem_q = Lwt_dllist.create () in
         with_eventfd @@ fun eventfd ->
+        let signal_r = Eio_unix.Private.Signal_fd.get_singleton () in
         let thread_pool = Eio_unix.Private.Thread_pool.create ~sleep_q in
-        fn { mem; uring; run_q; io_q; mem_q; eventfd; need_wakeup = Atomic.make false; sleep_q; thread_pool }
+        fn { mem; uring; run_q; io_q; mem_q; eventfd; signal_r; need_wakeup = Atomic.make false; sleep_q; thread_pool }
       with
       | x -> Uring.exit uring; x
       | exception ex ->

@@ -50,6 +50,7 @@ type t = {
      In that case, [need_wakeup = true] and you must signal using [eventfd]. *)
   eventfd : Rcfd.t;                     (* For sending events. *)
   eventfd_r : Unix.file_descr;          (* For reading events. *)
+  signal_r : Eio_unix.Private.Signal_fd.t;
 
   mutable active_ops : int;             (* Exit when this is zero and [run_q] and [sleep_q] are empty. *)
 
@@ -163,6 +164,8 @@ let ready t _index fd revents =
   if fd == t.eventfd_r then (
     clear_event_fd t
     (* The scheduler will now look at the run queue again and notice any new items. *)
+  ) else if fd == (t.signal_r :> Unix.file_descr) then (
+    Eio_unix.Private.Signal_fd.ack t.signal_r
   ) else if Poll.Flags.(mem revents pollnval) then (
     let waiters = Hashtbl.find t.fd_map fd in
     let pending = Lwt_dllist.create () in
@@ -255,6 +258,7 @@ let with_sched fn =
   Unix.set_nonblock eventfd_r;
   Unix.set_nonblock eventfd_w;
   let eventfd = Rcfd.make eventfd_w in
+  let signal_r = Eio_unix.Private.Signal_fd.get_singleton () in
   let cleanup () =
     Unix.close eventfd_r;
     let was_open = Rcfd.close eventfd in
@@ -263,12 +267,16 @@ let with_sched fn =
   let poll = Poll.create () in
   let fd_map = Hashtbl.create 10 in
   let thread_pool = Eio_unix.Private.Thread_pool.create ~sleep_q in
-  let t = { run_q; poll; poll_maxi = (-1); fd_map; eventfd; eventfd_r;
+  let t = { run_q; poll; poll_maxi = (-1); fd_map; eventfd; eventfd_r; signal_r;
             active_ops = 0; need_wakeup = Atomic.make false; sleep_q; thread_pool } in
-  let eventfd_ri = Iomux.Util.fd_of_unix eventfd_r in
-  Poll.set_index t.poll eventfd_ri eventfd_r Poll.Flags.pollin;
-  if eventfd_ri > t.poll_maxi then
-    t.poll_maxi <- eventfd_ri;
+  let monitor fd =
+    let i = Iomux.Util.fd_of_unix fd in
+    Poll.set_index t.poll i fd Poll.Flags.pollin;
+    if i > t.poll_maxi then
+      t.poll_maxi <- i
+  in
+  monitor eventfd_r;
+  monitor (signal_r :> Unix.file_descr);
   match fn t with
   | x -> cleanup (); x
   | exception ex ->

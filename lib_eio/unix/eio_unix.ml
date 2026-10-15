@@ -18,6 +18,8 @@ let sleep d =
 
 let run_in_systhread = Thread_pool.run_in_systhread
 
+let set_signal = Private.Signal_fd.set_signal
+
 module Ipaddr = Net.Ipaddr
 
 module System_info = System_info

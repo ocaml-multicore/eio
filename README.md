@@ -1537,13 +1537,16 @@ However, you can safely call `Eio.Condition.broadcast`:
        Most operations are unsafe here, except for Eio.Condition.broadcast! *)
     Eio.Condition.broadcast interrupted
   in
-  Sys.set_signal Sys.sigint (Signal_handle handle_signal);
+  Eio_unix.set_signal Sys.sigint (Signal_handle handle_signal);
   run_op ~interrupted;;
 +Running operation (Ctrl-C to cancel)...
 [ user presses Ctrl-C here ]
 +Cancelled at user's request.
 - : unit = ()
 ```
+
+Note: Use `Eio_unix.set_signal` instead of `Sys.set_signal`, which
+has a [known race](https://github.com/ocaml/ocaml/issues/13189).
 
 Another common pattern when using signals is using `SIGHUP`
 to tell an application to reload its configuration file:
