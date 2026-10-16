@@ -43,13 +43,28 @@ let create ~sw ~domain_count domain_mgr =
   let queue = Sync.create () in
   let t = { queue } in
   Switch.on_release sw (fun () -> Sync.close queue);
+  (* Workers that are running or might still start. *)
+  let usable = ref domain_count in
   for _ = 1 to domain_count do
     (* Workers run as daemons to not hold the user's switch from completing.
        It's up to the user to hold the switch open (and thus, the executor pool)
        by blocking on the jobs issued to the pool. *)
     Fiber.fork_daemon ~sw (fun () ->
-        Domain_manager.run domain_mgr (fun () ->
-            run_worker t))
+        let started = Atomic.make false in
+        try
+          Domain_manager.run domain_mgr (fun () ->
+              Atomic.set started true;
+              run_worker t)
+        with
+        | Cancel.Cancelled _ as ex -> raise ex
+        | ex when not (Atomic.get started) && !usable > 1 ->
+          (* The domain couldn't start (e.g. its scheduler couldn't be created
+             because io_uring ran out of locked memory).
+             Carry on with the other workers. Only the last one fails the pool. *)
+          decr usable;
+          Trace.log (Fmt.str "Executor_pool: worker domain failed to start: %a" Fmt.exn ex);
+          `Stop_daemon
+      )
   done;
   t
 
