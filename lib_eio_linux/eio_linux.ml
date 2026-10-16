@@ -155,7 +155,11 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
 
 let run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
   let config = Sched.config ?queue_depth ?n_blocks ?block_size ?polling_timeout () in
-  let stdenv = stdenv ~run_event_loop:(run_event_loop ?fallback:None config) in
+  (* Fixed buffers count against RLIMIT_MEMLOCK, as do the rings themselves.
+     Don't give one to each new domain, or a few domains can use up the limit
+     and the next ring can't be created. *)
+  let domain_config = { config with n_blocks = 0 } in
+  let stdenv = stdenv ~run_event_loop:(run_event_loop ?fallback:None domain_config) in
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
   run_event_loop ?fallback config main stdenv

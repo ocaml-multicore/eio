@@ -484,6 +484,7 @@ let with_sched ?(fallback=no_fallback) config fn =
     ) else (
       match
         let mem =
+          if n_blocks = 0 then None else
           let fixed_buf_len = block_size * n_blocks in
           let buf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
           match Uring.set_fixed_buffer uring buf with
