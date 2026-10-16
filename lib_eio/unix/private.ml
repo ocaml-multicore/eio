@@ -12,11 +12,13 @@ module Signal_fd = struct
     let fd = lazy (eio_init_signals ()) in
     fun () -> Mutex.protect lock (fun () -> Lazy.force fd)
 
-  let ack fd =
+  let rec ack fd =
     let buf = Bytes.create 8 in   (* Read up to 8 events at a time *)
     try
       ignore (Unix.read fd buf 0 (Bytes.length buf) : int)
-    with Unix.Unix_error ((EAGAIN | EWOULDBLOCK), _, _) -> ()
+    with
+    | Unix.Unix_error ((EAGAIN | EWOULDBLOCK), _, _) -> ()
+    | Unix.Unix_error (EINTR, _, _) -> ack fd   (* Interrupted before reading; try again *)
 
   let set_signal sig_num sig_beh =
     Sys.set_signal sig_num sig_beh;
