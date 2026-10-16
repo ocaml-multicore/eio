@@ -157,6 +157,15 @@ let test_read_exact () =
     );
   Alcotest.(check int) "Available again" 1 (Eio_linux.Low_level.Fixed.avail ())
 
+(* Only the main domain registers a fixed buffer. The others would use up
+   RLIMIT_MEMLOCK, which the rings need too. *)
+let test_domain_no_fixed_buffer () =
+  run @@ fun env ->
+  if Eio_linux.Low_level.Fixed.avail () = 0 then Alcotest.skip ();
+  Eio.Domain_manager.run env#domain_mgr (fun () ->
+      Alcotest.(check int) "No fixed buffer" 0 (Eio_linux.Low_level.Fixed.avail ())
+    )
+
 let test_expose_backend () =
   run @@ fun env ->
   let backend = Eio.Stdenv.backend_id env in
@@ -328,5 +337,6 @@ let () =
       test_case "ftruncate"            `Quick test_ftruncate;
       test_case "signal_race"          `Quick test_signal_race;
       test_case "alloc-fixed-or-wait"  `Quick test_alloc_fixed_or_wait;
+      test_case "domain-no-fixed-buffer" `Quick test_domain_no_fixed_buffer;
     ];
   ]

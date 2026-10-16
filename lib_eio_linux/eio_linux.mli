@@ -36,6 +36,8 @@ val run :
 
     Uses {!Uring.create} to create the io_uring,
     and {!Uring.set_fixed_buffer} to set a [block_size * n_blocks] fixed buffer.
+    Domains started with [env#domain_mgr] get their own io_uring, but no fixed buffer,
+    as fixed buffers count against [RLIMIT_MEMLOCK].
 
     Note that if Linux resource limits prevent the requested fixed buffer from being allocated
     then [run] will continue without one (and log a warning).

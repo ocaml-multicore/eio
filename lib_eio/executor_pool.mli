@@ -37,6 +37,10 @@ val create :
     The executor pool will not block switch [sw] from completing;
     when the switch finishes, all domain workers and running jobs are cancelled.
 
+    If a worker's domain fails to start (for example, because the backend cannot create
+    a scheduler for it), the pool continues with the other workers.
+    The error is only raised (failing [sw]) if no worker could be started.
+
     @param domain_count The number of domain workers to create.
                         The total number of domains should not exceed {!Domain.recommended_domain_count} or the number of cores on your system.
                         Additionally, consider reducing this number by 1 if your original domain will be performing CPU intensive work at the same time as the Executor_pool.
