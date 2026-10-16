@@ -76,15 +76,22 @@ let wakeup t =
   Rcfd.use t.eventfd
     ~if_closed:ignore       (* Domain has shut down (presumably after handling the event) *)
     (fun fd ->
-       try
-         ignore (Unix.single_write fd wake_buffer 0 1 : int)
-       with
-       | Unix.Unix_error ((Unix.EAGAIN | EWOULDBLOCK), _, _) ->
-         (* If the pipe is full then a wake up is pending anyway. *)
-         ()
-       | Unix.Unix_error (Unix.EPIPE, _, _) ->
-         (* We're shutting down; the event has already been processed. *)
-         ()
+       let rec send () =
+         try
+           ignore (Unix.single_write fd wake_buffer 0 1 : int)
+         with
+         | Unix.Unix_error ((Unix.EAGAIN | EWOULDBLOCK), _, _) ->
+           (* If the pipe is full then a wake up is pending anyway. *)
+           ()
+         | Unix.Unix_error (Unix.EPIPE, _, _) ->
+           (* We're shutting down; the event has already been processed. *)
+           ()
+         | Unix.Unix_error (Unix.EINTR, _, _) ->
+           (* A signal arrived before anything was written. Losing the wake up
+              could leave the domain asleep with work in [run_q], so try again. *)
+           send ()
+       in
+       send ()
     )
 
 (* Safe to call from anywhere (other systhreads, domains, signal handlers, GC finalizers) *)
@@ -110,10 +117,13 @@ let get_waiters t fd =
     x
 
 (* The OS told us that the event pipe is ready. Remove events. *)
-let clear_event_fd t =
+let rec clear_event_fd t =
   let buf = Bytes.create 8 in   (* Read up to 8 events at a time *)
-  let got = Unix.read t.eventfd_r buf 0 (Bytes.length buf) in
-  assert (got > 0)
+  match Unix.read t.eventfd_r buf 0 (Bytes.length buf) with
+  | got -> assert (got > 0)
+  | exception Unix.Unix_error (Unix.EINTR, _, _) ->
+    (* Interrupted by a signal before anything was read; the event is still there. *)
+    clear_event_fd t
 
 (* Update [t.poll]'s entry for [fd] to match [waiters]. *)
 let update t waiters fd =
