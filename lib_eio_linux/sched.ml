@@ -432,7 +432,7 @@ type config = {
 }
 
 let default_config =
-  { queue_depth = 64; fixed_buffer = Some { n_blocks = 64; block_size = 4096 }; polling_timeout = None }
+  { queue_depth = 64; fixed_buffer = None; polling_timeout = None }
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
