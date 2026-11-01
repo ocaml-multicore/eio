@@ -153,8 +153,36 @@ let run_event_loop (type a) ?fallback config (main : _ -> a) arg : a =
   } in
   Sched.run ~extra_effects st main arg
 
-let run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
-  let config = Sched.config ?queue_depth ?n_blocks ?block_size ?polling_timeout () in
+let build_config =
+  Sched.default_config
+  |> List.fold_left (fun (acc : Sched.config) setting ->
+      match (setting : Eio_unix.Backend_config.setting) with
+      | `Uring_queue_depth queue_depth -> { acc with queue_depth }
+      | `Uring_fixed_buffer fixed_buffer -> { acc with fixed_buffer }
+      | `Uring_polling_timeout polling_timeout -> { acc with polling_timeout }
+    )
+
+let opt x fn (acc : Sched.config) =
+  match x with
+  | None -> acc
+  | Some x -> fn acc x
+
+let run ?(config=[]) ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
+  let fixed_buffer =
+    if n_blocks = None && block_size = None then None
+    else (
+      let n_blocks = Option.value ~default:64 n_blocks in
+      let block_size = Option.value ~default:4096 block_size in
+      Some (Eio_unix.Backend_config.{ n_blocks; block_size })
+    )
+  in
+  let config =
+    build_config config
+    (* Apply deprecated options too: *)
+    |> opt queue_depth (fun acc queue_depth -> {acc with queue_depth})
+    |> opt fixed_buffer (fun acc x -> {acc with fixed_buffer = Some x})
+    |> opt polling_timeout (fun acc x -> {acc with polling_timeout = Some x})
+  in
   let stdenv = stdenv ~run_event_loop:(run_event_loop ?fallback:None config) in
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);

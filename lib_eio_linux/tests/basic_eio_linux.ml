@@ -4,6 +4,10 @@ open Eio_linux.Low_level
 open Eio.Std
 module Int63 = Optint.Int63
 
+let config : Eio_unix.Backend_config.t = [
+  `Uring_fixed_buffer (Some { n_blocks = 64; block_size = 4096 });
+]
+
 let setup_log level =
   Fmt_tty.setup_std_outputs ();
   Logs.set_level level;
@@ -11,7 +15,7 @@ let setup_log level =
 
 let () =
   setup_log (Some Logs.Debug);
-  Eio_linux.run @@ fun _stdenv ->
+  Eio_linux.run ~config @@ fun _stdenv ->
   Switch.run @@ fun sw ->
   let fd =
     openat2 "test.txt"
@@ -20,16 +24,16 @@ let () =
       ~perm:0
       ~flags:Uring.Open_flags.empty
       ~resolve:Uring.Resolve.empty
-in
+  in
   let buf = Fixed.alloc_or_wait () in
-  let _ = read_exactly fd buf 5 in
+  read_exactly fd buf 5;
   print_endline (Fixed.to_string ~len:5 buf);
-  let _ = read_exactly fd ~file_offset:(Int63.of_int 3) buf 3 in
+  read_exactly fd ~file_offset:(Int63.of_int 3) buf 3;
   print_endline (Fixed.to_string ~len:3 buf);
   Fixed.free buf;
   (* With a sleep: *)
   let buf = Fixed.alloc_or_wait () in
-  let _ = read_exactly fd buf 5 in
+  read_exactly fd buf 5;
   Logs.debug (fun l -> l "sleeping at %f" (Unix.gettimeofday ()));
   sleep_until (Mtime.add_span (Mtime_clock.now ()) Mtime.Span.s |> Option.get);
   print_endline (Fixed.to_string ~len:5 buf);

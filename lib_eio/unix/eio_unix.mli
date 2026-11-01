@@ -145,6 +145,8 @@ module Stdenv : sig
       @since 1.4 *)
 end
 
+module Backend_config = Backend_config
+
 (** API for Eio backends only. *)
 module Private : sig
   type _ Effect.t +=

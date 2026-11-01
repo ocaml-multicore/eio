@@ -427,19 +427,12 @@ let run ~extra_effects st main arg =
 
 type config = {
   queue_depth : int;
-  n_blocks : int;
-  block_size : int;
+  fixed_buffer : Eio_unix.Backend_config.fixed_buffer option;
   polling_timeout : int option;
 }
 
-let config ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout () =
-  let n_blocks = Option.value n_blocks ~default:queue_depth in
-  {
-    queue_depth;
-    n_blocks;
-    block_size;
-    polling_timeout;
-  }
+let default_config =
+  { queue_depth = 64; fixed_buffer = None; polling_timeout = None }
 
 external eio_eventfd : int -> Unix.file_descr = "caml_eio_eventfd"
 
@@ -464,7 +457,7 @@ let uring_create ~queue_depth ?polling_timeout () =
   | x -> x
 
 let with_sched ?(fallback=no_fallback) config fn =
-  let { queue_depth; n_blocks; block_size; polling_timeout } = config in
+  let { queue_depth; fixed_buffer; polling_timeout } = config in
   match uring_create ~queue_depth ?polling_timeout () with
   | exception Unix.Unix_error(ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
   | exception Unix.Unix_error(EPERM, _, _) -> fallback (`Msg "io_uring is not available (permission denied)")
@@ -484,13 +477,16 @@ let with_sched ?(fallback=no_fallback) config fn =
     ) else (
       match
         let mem =
-          let fixed_buf_len = block_size * n_blocks in
-          let buf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
-          match Uring.set_fixed_buffer uring buf with
-          | Ok () ->
-            Some (Fixed.init ~block_size buf)
-          | Error `ENOMEM ->
-            None
+          match fixed_buffer with
+          | None -> None
+          | Some { block_size; n_blocks } ->
+            let fixed_buf_len = block_size * n_blocks in
+            let buf = Bigarray.(Array1.create char c_layout fixed_buf_len) in
+            match Uring.set_fixed_buffer uring buf with
+            | Ok () ->
+              Some (Fixed.init ~block_size buf)
+            | Error `ENOMEM ->
+              None
         in
         let run_q = Lf_queue.create () in
         Lf_queue.push run_q IO;

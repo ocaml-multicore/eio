@@ -26,6 +26,7 @@
 type stdenv = Eio_unix.Stdenv.base
 
 val run :
+  ?config:Eio_unix.Backend_config.t ->
   ?queue_depth:int ->
   ?n_blocks:int ->
   ?block_size:int ->
@@ -34,8 +35,7 @@ val run :
   (stdenv -> 'a) -> 'a
 (** Run an event loop using io_uring.
 
-    Uses {!Uring.create} to create the io_uring,
-    and {!Uring.set_fixed_buffer} to set a [block_size * n_blocks] fixed buffer.
+    Uses {!Uring.create} to create the io_uring.
 
     Note that if Linux resource limits prevent the requested fixed buffer from being allocated
     then [run] will continue without one (and log a warning).
@@ -43,8 +43,14 @@ val run :
     For portable code, you should use {!Eio_main.run} instead, which will use this automatically
     if running on Linux with a recent-enough kernel version.
 
+    @param config   Configuration settings to use.
     @param fallback Call this instead if io_uring is not available for some reason.
                     The argument is a message describing the problem (for logging).
-                    The default simply raises an exception. *)
+                    The default simply raises an exception.
+
+    @param queue_depth          Deprecated; use [config] instead.
+    @param n_blocks             Deprecated; use [config] instead.
+    @param block_size           Deprecated; use [config] instead.
+    @param polling_timeout      Deprecated; use [config] instead. *)
 
 module Low_level = Low_level

@@ -29,6 +29,7 @@ module File = File
 module Pty = Pty
 module Cap = Cap
 module Pi = Pi
+module Backend_config = Backend_config
 
 module Stdenv = struct
   type base = <
