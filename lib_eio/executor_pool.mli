@@ -29,6 +29,7 @@ type t
 
 val create :
   sw:Switch.t ->
+  ?on_error:(exn -> unit) ->
   domain_count:int ->
   _ Domain_manager.t ->
   t
@@ -36,6 +37,12 @@ val create :
 
     The executor pool will not block switch [sw] from completing;
     when the switch finishes, all domain workers and running jobs are cancelled.
+
+    @param on_error Called if a worker fails, e.g. because its domain could not be started.
+                    The pool then continues with the remaining workers.
+                    If no workers are left, submitted jobs will not run.
+                    By default, the exception is raised, failing [sw].
+                    [on_error] is not called for {!Cancel.Cancelled} exceptions.
 
     @param domain_count The number of domain workers to create.
                         The total number of domains should not exceed {!Domain.recommended_domain_count} or the number of cores on your system.
