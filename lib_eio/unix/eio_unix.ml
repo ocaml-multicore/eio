@@ -4,6 +4,7 @@ module Fd = Fd
 module Resource = Resource
 module Private = Private
 module Err = Err
+module Dev = Dev
 
 include Types
 
