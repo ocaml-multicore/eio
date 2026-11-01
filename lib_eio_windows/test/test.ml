@@ -82,7 +82,7 @@ end
 
 let () =
   Eio_windows.run @@ fun env ->
-  Alcotest.run ~bail:true "eio_windows" [
+  Alcotest.run "eio_windows" [
     "net", Test_net.tests env;
     "fs", Test_fs.tests env;
     "process", Test_process.tests env;
