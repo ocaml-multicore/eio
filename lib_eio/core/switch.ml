@@ -67,26 +67,37 @@ let inc_fibers t =
   check t;
   t.fibers <- t.fibers + 1
 
-let dec_fibers t =
+let dec_fibers t ex =
   t.fibers <- t.fibers - 1;
   if t.daemon_fibers > 0 && t.fibers = t.daemon_fibers then
-    Cancel.cancel t.cancel Exit;
+    Cancel.cancel t.cancel ex;
   if t.fibers = 0 then
     Single_waiter.wake_if_sleeping t.waiter
 
 let with_op t fn =
   inc_fibers t;
-  Fun.protect fn
-    ~finally:(fun () -> dec_fibers t)
+  match fn () with
+  | r ->
+    dec_fibers t Exit;
+    r
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    dec_fibers t ex;
+    Printexc.raise_with_backtrace ex bt
 
 let with_daemon t fn =
   inc_fibers t;
   t.daemon_fibers <- t.daemon_fibers + 1;
-  Fun.protect fn
-    ~finally:(fun () ->
-        t.daemon_fibers <- t.daemon_fibers - 1;
-        dec_fibers t
-      )
+  match fn () with
+  | r ->
+    t.daemon_fibers <- t.daemon_fibers - 1;
+    dec_fibers t Exit;
+    r
+  | exception ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    t.daemon_fibers <- t.daemon_fibers - 1;
+    dec_fibers t ex;
+    Printexc.raise_with_backtrace ex bt
 
 let rec await_idle t =
   (* Wait for fibers to finish: *)
@@ -128,7 +139,7 @@ let create cancel =
 let run_internal t fn =
   match fn t with
   | v ->
-    dec_fibers t;
+    dec_fibers t Exit;
     await_idle t;
     Trace.get t.cancel.id;
     maybe_raise_exs t;        (* Check for failure while finishing *)
@@ -138,7 +149,7 @@ let run_internal t fn =
     let bt = Printexc.get_raw_backtrace () in
     (* Main function failed.
        Turn the switch off to cancel any running fibers, if it's not off already. *)
-    dec_fibers t;
+    dec_fibers t ex;
     fail ~bt t ex;
     await_idle t;
     Trace.get t.cancel.id;
