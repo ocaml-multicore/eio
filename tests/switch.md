@@ -484,8 +484,8 @@ Exception: Failure "simulated error in daemon-forked fiber".
     Fiber.fork_daemon ~sw (fun () -> await_cancel_and_log sw);
     failwith "simulated error in main fiber"
   );;
-+ex = Cancelled: Stdlib.Exit
-+Switch.get_error = Some Cancelled: Stdlib.Exit
++ex = Cancelled: Failure("simulated error in main fiber")
++Switch.get_error = Some Cancelled: Failure("simulated error in main fiber")
 Exception: Failure "simulated error in main fiber".
 ```
 
