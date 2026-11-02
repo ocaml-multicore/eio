@@ -449,3 +449,93 @@ Multiple exceptions:
 +Switch finished
 - : unit = ()
 ```
+
+# Errors are propagated to all types of cancelled fibers
+
+```ocaml
+let await_cancel_and_log sw =
+  try Fiber.await_cancel ()
+  with ex ->
+    let bt = Printexc.get_raw_backtrace () in
+    traceln "ex = %a" Eio.Exn.pp ex;
+    begin match Switch.get_error sw with
+    | None -> traceln "Switch.get_error = None"
+    | Some ex -> traceln "Switch.get_error = Some %a" Eio.Exn.pp ex
+    end;
+    Printexc.raise_with_backtrace ex bt
+```
+
+```ocaml
+# run (fun sw ->
+    Fiber.fork ~sw (fun () -> await_cancel_and_log sw);
+    failwith "simulated error in main fiber"
+  );;
++ex = Cancelled: Failure("simulated error in main fiber")
++Switch.get_error = Some Cancelled: Failure("simulated error in main fiber")
+Exception: Failure "simulated error in main fiber".
+```
+
+```ocaml
+# run (fun sw ->
+    Fiber.fork ~sw (fun () -> await_cancel_and_log sw);
+    Fiber.fork ~sw (fun () ->
+      failwith "simulated error in forked fiber")
+  );;
++ex = Cancelled: Failure("simulated error in forked fiber")
++Switch.get_error = Some Cancelled: Failure("simulated error in forked fiber")
+Exception: Failure "simulated error in forked fiber".
+```
+
+```ocaml
+# run (fun sw ->
+    Fiber.fork ~sw (fun () -> await_cancel_and_log sw);
+    Fiber.fork_daemon ~sw (fun () ->
+      failwith "simulated error in daemon-forked fiber")
+  );;
++ex = Cancelled: Failure("simulated error in daemon-forked fiber")
++Switch.get_error = Some Cancelled: Failure("simulated error in daemon-forked fiber")
+Exception: Failure "simulated error in daemon-forked fiber".
+```
+
+```ocaml
+# run (fun sw ->
+    Fiber.fork_daemon ~sw (fun () -> await_cancel_and_log sw);
+    traceln "Successful exit of main fiber"
+  );;
++Successful exit of main fiber
++ex = Cancelled: Stdlib.Exit
++Switch.get_error = Some Cancelled: Stdlib.Exit
+- : unit = ()
+```
+
+```ocaml
+# run (fun sw ->
+    Fiber.fork_daemon ~sw (fun () -> await_cancel_and_log sw);
+    failwith "simulated error in main fiber"
+  );;
++ex = Cancelled: Stdlib.Exit
++Switch.get_error = Some Cancelled: Stdlib.Exit
+Exception: Failure "simulated error in main fiber".
+```
+
+```ocaml
+# run (fun sw ->
+    Fiber.fork_daemon ~sw (fun () -> await_cancel_and_log sw);
+    Fiber.fork ~sw (fun () ->
+      failwith "simulated error in forked fiber")
+  );;
++ex = Cancelled: Failure("simulated error in forked fiber")
++Switch.get_error = Some Cancelled: Failure("simulated error in forked fiber")
+Exception: Failure "simulated error in forked fiber".
+```
+
+```ocaml
+# run (fun sw ->
+    Fiber.fork_daemon ~sw (fun () -> await_cancel_and_log sw);
+    Fiber.fork_daemon ~sw (fun () ->
+      failwith "simulated error in daemon-forked fiber")
+  );;
++ex = Cancelled: Failure("simulated error in daemon-forked fiber")
++Switch.get_error = Some Cancelled: Failure("simulated error in daemon-forked fiber")
+Exception: Failure "simulated error in daemon-forked fiber".
+```
