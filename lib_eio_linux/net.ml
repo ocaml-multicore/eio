@@ -34,7 +34,7 @@ module Datagram_socket = struct
 
   let recv t buf =
     let addr, recv = Low_level.recv_msg t [buf] in
-    Eio_unix.Net.sockaddr_of_unix_datagram (Uring.Sockaddr.get addr), recv
+    Eio_unix.Net.sockaddr_of_unix_datagram addr, recv
 
   let shutdown t cmd =
     Low_level.shutdown t @@ match cmd with

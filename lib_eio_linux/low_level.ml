@@ -310,25 +310,29 @@ let send_msg fd ?(fds=[]) ?dst buf =
   | Ok x -> x
   | Error e -> raise @@ Err.v e "send_msg" ""
 
+(* Work-around for https://github.com/ocaml-multicore/ocaml-uring/pull/167 *)
+let get_msg_name msghdr =
+  let x = Uring.Msghdr.get_msg_name msghdr in
+  ignore (Sys.opaque_identity msghdr);
+  x
+
 let recv_msg fd buf =
   Fd.use_exn "recv_msg" fd @@ fun fd ->
-  let addr = Uring.Sockaddr.create () in
-  let msghdr = Uring.Msghdr.create ~addr buf in
+  let msghdr = Uring.Msghdr.create_recv ~msg_name:true buf in
   let res = Sched.enter "recv_msg" (enqueue_recv_msg fd msghdr) in
   match Uring.Res.int_result res with
   | Error e -> raise @@ Err.v e "recv_msg" ""
-  | Ok res -> addr, res
+  | Ok res -> get_msg_name msghdr, res
 
 let recv_msg_with_fds ~sw ~max_fds fd buf =
   Fd.use_exn "recv_msg_with_fds" fd @@ fun fd ->
-  let addr = Uring.Sockaddr.create () in
-  let msghdr = Uring.Msghdr.create ~n_fds:max_fds ~addr buf in
+  let msghdr = Uring.Msghdr.create_recv ~msg_name:true ~n_fds:max_fds buf in
   let res = Sched.enter "recv_msg_with_fds" (enqueue_recv_msg fd msghdr) in
   match Uring.Res.int_result res with
   | Error e -> raise @@ Err.v e "recv_msg" ""
   | Ok res ->
     let fds = Uring.Msghdr.get_fds msghdr |> Fd.of_unix_list ~sw in
-    addr, res, fds
+    get_msg_name msghdr, res, fds
 
 let rec openat2 ~sw ?seekable ~access ~flags ~perm ~resolve ?dir path =
   let use dir_opt =
