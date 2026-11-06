@@ -285,10 +285,10 @@ val send_msg : fd -> ?fds:fd list -> ?dst:Unix.sockaddr -> Cstruct.t list -> int
 (** [send_msg socket bufs] is like [writev socket bufs], but also allows setting the destination address
     (for unconnected sockets) and attaching FDs (for Unix-domain sockets). *)
 
-val recv_msg : fd -> Cstruct.t list -> Uring.Sockaddr.t * int
+val recv_msg : fd -> Cstruct.t list -> Unix.sockaddr * int
 (** [recv_msg socket bufs] is like [readv socket bufs] but also returns the address of the sender. *)
 
-val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> fd -> Cstruct.t list -> Uring.Sockaddr.t * int * fd list
+val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> fd -> Cstruct.t list -> Unix.sockaddr * int * fd list
 (** [recv_msg_with_fds] is like [recv_msg] but also allows receiving up to [max_fds] file descriptors
     (sent using SCM_RIGHTS over a Unix domain socket). *)
 

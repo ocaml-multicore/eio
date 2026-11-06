@@ -201,3 +201,22 @@ Test that invalid values are rejected properly:
 +IP_LOCAL_PORT_RANGE reset
 - : unit = ()
 ```
+
+## Unix-domain addresses
+
+```ocaml
+# run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let a = `Unix "\000eio-test-a.sock" in
+  let b = `Unix "\000eio-test-b.sock" in
+  let sa = Eio.Net.datagram_socket ~sw env#net a in
+  let sb = Eio.Net.datagram_socket ~sw env#net b in
+  Eio.Net.send sa ~dst:b [ Cstruct.of_string "ping" ];
+  let buf = Cstruct.create 16 in
+  let addr, n = Eio.Net.recv sb buf in
+  traceln "Got %S from %a"
+    (Cstruct.to_string ~len:n buf)
+    Eio.Net.Sockaddr.pp addr;;
++Got "ping" from unix:"\000eio-test-a.sock"
+- : unit = ()
+```
