@@ -205,9 +205,19 @@ module Sockaddr = struct
 
   type t = [ stream | datagram ]
 
+  let bad_char = function
+    | ' ' | '"' | '\'' | '\\' -> true
+    | c ->
+      let c = Char.code c in
+      c <= 32 || c >= 127
+
+  let pp_path f x =
+    if x = "" || String.exists bad_char x then Fmt.pf f "%S" x
+    else Fmt.string f x
+
   let pp f = function
     | `Unix path ->
-      Format.fprintf f "unix:%s" path
+      Format.fprintf f "unix:%a" pp_path path
     | `Tcp (addr, port) ->
       Format.fprintf f "tcp:%a:%d" Ipaddr.pp_for_uri addr port
     | `Udp (addr, port) ->
