@@ -1063,6 +1063,71 @@ let test_literal_symlink_parent env () =
       Alcotest.(check string) "sandbox directory link" "data" (Path.load (sub / "link" / "keep"))
     ) ["parent."; "parent "]
 
+let test_trailing_link ~junction env () =
+  with_symlinks @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  let base = "trailing-link" in
+  let native p = base ^ "\\" ^ p in
+  let links = ["ok"; "up"; "up2"; "up3"; "out"; "renamed"; "drop"] in
+  with_cleanup (List.map (fun p -> native ("jail\\" ^ p)) links @
+                List.map native ["jail\\sub\\keep"; "jail\\sub\\new"; "outside\\secret";
+                                 "jail\\sub"; "jail"; "outside"; ""] ) @@ fun () ->
+  List.iter (fun p -> Unix.mkdir (native p) 0o700) [""; "jail"; "jail\\sub"; "outside"];
+  write_file (native "outside\\secret") "secret";
+  write_file (native "jail\\sub\\keep") "inside";
+  let link name target =
+    let path = native ("jail\\" ^ name) in
+    if junction then (
+      Unix.mkdir path 0o700;
+      set_junction path (Some (Eio_utils.Nt_path.to_win32
+          (Eio_utils.Nt_path.to_nt ~cwd:(Sys.getcwd () ^ "\\" ^ native "jail") target)))
+    ) else Unix.symlink ~to_dir:true target path
+  in
+  List.iter (fun (name, target) -> link name target)
+    ["ok", "sub"; "up", ".."; "up2", "up/"; "up3", "up\\"; "out", "..\\outside"];
+  Path.with_open_dir (cwd / base / "jail") @@ fun jail ->
+  let denied name fn = check_permission_denied name fn in
+  List.iter (fun suffix ->
+      Alcotest.(check (list string)) "safe directory link" ["keep"] (Path.read_dir (jail / ("ok" ^ suffix)));
+      Path.mkdir ~perm:0o700 (jail / ("sub/new" ^ suffix));
+      Path.rmdir (jail / ("sub/new" ^ suffix));
+      List.iter (fun name ->
+          let path = jail / (name ^ suffix) in
+          denied "read_dir" (fun () -> Path.read_dir path);
+          denied "read_dir_entries" (fun () -> Path.read_dir_entries path);
+          denied "stat target" (fun () -> Path.stat ~follow:true path);
+          denied "open directory" (fun () -> Path.with_open_dir path (fun _ -> ()));
+          denied "open file" (fun () -> Path.load path);
+          denied "read child" (fun () -> Path.load (path / "secret"));
+          denied "truncate child" (fun () -> Path.save ~create:(`Or_truncate 0o600) (path / "secret") "wrong");
+          denied "mkdir child" (fun () -> Path.mkdir ~perm:0o700 (path / "created"));
+          denied "symlink child" (fun () -> Path.symlink ~link_to:"missing" (path / "created"))
+        ) ["up"; "up2"; "up3"; "out"];
+      let entry = jail / ("out" ^ suffix) in
+      check_kind ~follow:false entry `Symbolic_link;
+      Alcotest.(check string) "read link entry" (Path.read_link (jail / "out")) (Path.read_link entry);
+      (match Path.mkdir ~perm:0o700 entry with
+       | () -> Alcotest.fail "mkdir replaced a link"
+       | exception Eio.Io (Eio.Fs.E (Already_exists _), _) -> ());
+      List.iter (fun follow ->
+          List.iter (fun fn ->
+              match fn () with
+              | () -> Alcotest.fail "sandbox permission operation unexpectedly succeeded"
+              | exception Eio.Io _ -> ())
+            [(fun () -> Path.chmod ~follow ~perm:0o700 entry);
+             (fun () -> Path.chown ~follow ~uid:0L entry)]
+        ) [false; true];
+      Path.rename entry (jail / ("renamed" ^ suffix));
+      Path.rename (jail / ("renamed" ^ suffix)) (jail / "out");
+      List.iter (fun remove ->
+          link "drop" "..\\outside";
+          remove (jail / ("drop" ^ suffix));
+          Alcotest.(check bool) "link entry removed" false (Sys.file_exists (native "jail\\drop"));
+          Alcotest.(check (array string)) "outside contents preserved" [|"secret"|] (Sys.readdir (native "outside"));
+          Alcotest.(check string) "outside file unchanged" "secret" (read_file (native "outside\\secret"))
+        ) [Path.unlink; Path.rmdir; Path.rmtree]
+    ) ["/"; "\\"; "//"; "\\\\"; "/."; "\\."; "/\\"]
+
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
   "absolute-join", `Quick, test_absolute_join env;
@@ -1104,6 +1169,8 @@ let tests env = [
   "subtree-symlinks", `Quick, test_subtree_symlinks env;
   "no-follow-truncate", `Quick, test_no_follow_truncate env;
   "junction", `Quick, test_junction env;
+  "trailing-symlink", `Quick, test_trailing_link ~junction:false env;
+  "trailing-junction", `Quick, test_trailing_link ~junction:true env;
   "exclusive-symlink", `Quick, test_exclusive_symlink env;
   "absolute-directory-symlink", `Quick, test_absolute_directory_symlink env;
   "symlink-parent", `Quick, test_symlink_parent env;
