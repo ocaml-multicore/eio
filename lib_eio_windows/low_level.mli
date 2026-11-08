@@ -44,8 +44,23 @@ type follow = Follow | Nofollow | Open_link
 val fstat : fd -> Unix.LargeFile.stats
 val lstat : string -> Unix.LargeFile.stats
 
+val full_path : string -> string
+(** Make a path absolute using Windows' current directories, without accessing its target. *)
+
 val realpath : string -> string
+
+val realpath_fd : fd -> string
+(** The current absolute path of the open object. This is for display and
+    containment comparisons, not for reopening it: the path can acquire reparse points. *)
+
 val read_link : ?dirfd:fd -> string -> string
+(** [read_link ?dirfd path] is the target of the symlink or junction [path]. *)
+
+val reparse_target : fd -> Eio_utils.Nt_path.link_target option
+(** [reparse_target fd] is the raw NT target and relative/absolute flag of the
+    symlink or junction open on [fd], or [None] if it is not one.
+    Unlike {!read_link}, this does not convert the target to a display path. *)
+
 val chown : ?dirfd:fd -> follow:bool -> ?uid:int64 -> ?gid:int64 -> string -> unit
 
 val mkdir : ?dirfd:fd -> ?follow:follow -> mode:int -> string -> unit
@@ -56,15 +71,28 @@ val rename : ?old_dir:fd -> string -> ?new_dir:fd -> string -> unit
     existing file or empty directory. Some volumes such as FAT cannot
     replace a directory and will fail. *)
 
-val symlink : link_to:string -> fd option -> string -> unit
+val symlink_target : string -> Eio_utils.Nt_path.link_target
+(** Convert a Win32 target once, for both type detection and creation. *)
+
+val symlink_raw : to_dir:bool -> target:Eio_utils.Nt_path.link_target -> fd option -> string -> unit
+(** Create a link with an already converted target. *)
+
+val symlink : ?to_dir:bool -> link_to:string -> fd option -> string -> unit
 (** [symlink ~link_to dir path] will create a new symlink at [dir / path]
-    linking to [link_to]. *)
+    linking to [link_to]. With [dir], creation uses the directory handle throughout.
+
+    @param to_dir Windows links are either to files or to directories.
+                  If [true] this is a link to a directory (default [false]). *)
 
 val chmod : mode:int -> fd option -> string -> unit
 (** [chmod ~mode path] is just a non-blocking call to {! Unix.chmod} when
     [fd = None], otherwise it is unsupported. *)
 
 val readdir : string -> string array
+
+val readdir_fd : fd -> string array
+(** List the open directory itself, even if it has since become a reparse point.
+    The handle must have read access. Each call restarts the enumeration. *)
 
 val readv : fd -> Cstruct.t array -> int
 val writev : fd -> Cstruct.t list -> unit
@@ -139,8 +167,14 @@ module Flags : sig
   end
 end
 
-val openat : ?dirfd:fd -> ?follow:follow -> sw:Switch.t -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> fd
+val openat : ?dirfd:fd -> ?beneath:bool -> ?follow:follow -> sw:Switch.t -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> fd
 (** [openat ?dirfd ~sw path ...] opens [path], relative to [dirfd] if given
     and otherwise a Win32 path, relative to the current directory.
+
+    @param beneath If [true], fail with [ELOOP] rather than follow any link on
+                   the way to [path], including at the leaf unless [follow = Open_link].
+                   [path] cannot use [".."] relative to [dirfd], so this keeps it beneath [dirfd].
+
+    @param follow [Nofollow] fails with [ELOOP] if the leaf is a link, but follows links before it.
 
     Note: the returned FD is always non-blocking and close-on-exec. *)

@@ -14,20 +14,6 @@
 #include <winternl.h>
 #include <ntdef.h>
 
-typedef ULONG (__stdcall *pNtCreateFile)(
-   PHANDLE FileHandle,
-   ULONG DesiredAccess,
-   PVOID ObjectAttributes,
-   PVOID IoStatusBlock,
-   PLARGE_INTEGER AllocationSize,
-   ULONG FileAttributes,
-   ULONG ShareAccess,
-   ULONG CreateDisposition,
-   ULONG CreateOptions,
-   PVOID EaBuffer,
-   ULONG EaLength
- );
-
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/alloc.h>
@@ -40,13 +26,6 @@ typedef ULONG (__stdcall *pNtCreateFile)(
 #else
 #define Int63_val(v) (Int64_val(v)) >> 1
 #endif
-
-static void caml_stat_free_preserving_errno(void *ptr)
-{
-  int saved = errno;
-  caml_stat_free(ptr);
-  errno = saved;
-}
 
 CAMLprim value caml_eio_windows_getrandom(value v_ba, value v_off, value v_len)
 {
@@ -83,26 +62,7 @@ CAMLprim value caml_eio_windows_pwritev(value v_fd, value v_bufs, value v_offset
 
 // File-system operations
 
-// No follow
-void no_follow(HANDLE h) {
-  BY_HANDLE_FILE_INFORMATION b;
-
-  if (!GetFileInformationByHandle(h, &b)) {
-    DWORD err = GetLastError();
-    CloseHandle(h);
-    caml_win32_maperr(err);
-    uerror("nofollow", Nothing);
-  }
-
-  if (b.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
-    CloseHandle(h);
-    caml_unix_error(-WSAELOOP, "nofollow", Nothing);
-  }
-}
-
-// We recreate an openat like function using NtCreateFile.
-// [v_follow] is a [Low_level.follow]: 0 opens a symlink's target, 1 raises ELOOP on one and 2 opens the symlink itself.
-CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_follow, value v_pathname, value v_desired_access, value v_create_disposition, value v_create_options)
+CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_beneath, value v_open_link, value v_pathname, value v_desired_access, value v_create_disposition, value v_create_options)
 {
   CAMLparam2(v_dirfd, v_pathname);
   HANDLE h, dir;
@@ -111,34 +71,22 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_follow, value v_pa
   wchar_t *pathname;
   UNICODE_STRING relative;
   NTSTATUS r;
-  int follow = Int_val(v_follow);
 
-  // Not sure what the overhead of this is, but it allows us to have low-level control
-  // over file creation. In particular, we can specify the HANDLE to the parent directory
-  // of a relative path a la openat.
-  pNtCreateFile NtCreatefile = (pNtCreateFile)GetProcAddress(GetModuleHandle("ntdll.dll"), "NtCreateFile");
   caml_unix_check_path(v_pathname, "openat");
   pathname = caml_stat_strdup_to_utf16(String_val(v_pathname));
   RtlInitUnicodeString(&relative, pathname);
 
-  // If NULL the filepath has to be absolute
-  if (Is_some(v_dirfd)) {
-    dir = Handle_val(Field(v_dirfd, 0));
-  } else {
-    dir = NULL;
-  }
+  dir = Is_some(v_dirfd) ? Handle_val(Some_val(v_dirfd)) : NULL;
 
-  // Initialise object attributes, passing in the root directory FD
   InitializeObjectAttributes(
     &obj_attr,
     &relative,
-    OBJ_CASE_INSENSITIVE, // TODO: Double-check what flags need to be passed at this point.
+    OBJ_CASE_INSENSITIVE | (Bool_val(v_beneath) ? OBJ_DONT_REPARSE : 0),
     dir,
     NULL
   );
 
-  // Create the file
-  r = NtCreatefile(
+  r = NtCreateFile(
     &h,
     Int_val(v_desired_access) | FILE_READ_ATTRIBUTES,
     &obj_attr,
@@ -151,62 +99,238 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_follow, value v_pa
        FILE_SYNCHRONOUS_IO_NONALERT
       | FILE_OPEN_FOR_BACKUP_INTENT
       | Int_val(v_create_options)
-      | (follow != 0 ? FILE_OPEN_REPARSE_POINT : 0)),
+      | (Bool_val(v_open_link) ? FILE_OPEN_REPARSE_POINT : 0)),
     NULL, // Extended attribute buffer
     0     // Extended attribute buffer length
   );
 
-  // Free the allocated pathname
   caml_stat_free(pathname);
 
   if (!NT_SUCCESS(r)) {
-    caml_win32_maperr(RtlNtStatusToDosError(r));
+    DWORD err = RtlNtStatusToDosError(r);
+    if (err == ERROR_REPARSE_POINT_ENCOUNTERED)
+      caml_unix_error(-WSAELOOP, "openat", v_pathname);
+    caml_win32_maperr(err);
     uerror("openat", v_pathname);
-  }
-
-  // No follow check -- Windows doesn't actually have that ability
-  // so we have to do it after the fact. This will raise if a symbolic
-  // link is encountered and will close the handle.
-  if (follow == 1) {
-    no_follow(h);
   }
 
   CAMLreturn(caml_win32_alloc_handle(h));
 }
 
 value caml_eio_windows_openat_bytes(value* values, int argc) {
-    return caml_eio_windows_openat(values[0], values[1], values[2], values[3], values[4], values[5]);
+    return caml_eio_windows_openat(values[0], values[1], values[2], values[3], values[4], values[5], values[6]);
 }
 
-// The size in bytes of the target path of the symlink open on [v_fd], or None if it is not a symlink
-CAMLprim value caml_eio_windows_symlink_size(value v_fd)
+CAMLprim value caml_eio_windows_reparse_point(value v_fd)
 {
   CAMLparam1(v_fd);
+  CAMLlocal2(target, result);
   HANDLE h = Handle_val(v_fd);
   BY_HANDLE_FILE_INFORMATION info;
   union {
     REPARSE_DATA_BUFFER point;
-    char raw[MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
+    char bytes[MAXIMUM_REPARSE_DATA_BUFFER_SIZE + sizeof(wchar_t)];
   } buffer;
   DWORD len;
+  size_t header, offset, length;
+  BOOL relative = FALSE;
 
   if (!GetFileInformationByHandle(h, &info) || !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
     CAMLreturn(Val_none);
 
-  if (!DeviceIoControl(h, FSCTL_GET_REPARSE_POINT, NULL, 0, &buffer, sizeof(buffer), &len, NULL)) {
+  if (!DeviceIoControl(h, FSCTL_GET_REPARSE_POINT, NULL, 0, buffer.bytes,
+                       MAXIMUM_REPARSE_DATA_BUFFER_SIZE, &len, NULL)) {
     caml_win32_maperr(GetLastError());
-    uerror("fstat", Nothing);
+    uerror("readlink", Nothing);
   }
+  if (len < FIELD_OFFSET(REPARSE_DATA_BUFFER, GenericReparseBuffer.DataBuffer))
+    caml_unix_error(EINVAL, "readlink", Nothing);
 
-  if (buffer.point.ReparseTag != IO_REPARSE_TAG_SYMLINK)
+  switch (buffer.point.ReparseTag) {
+  case IO_REPARSE_TAG_SYMLINK:
+    header = FIELD_OFFSET(REPARSE_DATA_BUFFER, SymbolicLinkReparseBuffer.PathBuffer);
+    if (len < header) caml_unix_error(EINVAL, "readlink", Nothing);
+    offset = buffer.point.SymbolicLinkReparseBuffer.SubstituteNameOffset;
+    length = buffer.point.SymbolicLinkReparseBuffer.SubstituteNameLength;
+    relative = (buffer.point.SymbolicLinkReparseBuffer.Flags & SYMLINK_FLAG_RELATIVE) != 0;
+    break;
+  case IO_REPARSE_TAG_MOUNT_POINT:
+    header = FIELD_OFFSET(REPARSE_DATA_BUFFER, MountPointReparseBuffer.PathBuffer);
+    if (len < header) caml_unix_error(EINVAL, "readlink", Nothing);
+    offset = buffer.point.MountPointReparseBuffer.SubstituteNameOffset;
+    length = buffer.point.MountPointReparseBuffer.SubstituteNameLength;
+    break;
+  default:
     CAMLreturn(Val_none);
+  }
+  if (offset % sizeof(wchar_t) || length % sizeof(wchar_t) || header + offset + length > len)
+    caml_unix_error(EINVAL, "readlink", Nothing);
+  /* The counted name need not be terminated; the buffer has one spare WCHAR. */
+  wchar_t *name = (wchar_t *)(buffer.bytes + header + offset);
+  name[length / sizeof(wchar_t)] = 0;
+  target = caml_copy_string_of_utf16(name);
+  result = caml_alloc_small(3, 0);
+  Field(result, 0) = target;
+  Field(result, 1) = Val_bool(relative);
+  Field(result, 2) = Val_long(length);
+  CAMLreturn(caml_alloc_some(result));
+}
 
-  CAMLreturn(caml_alloc_some(Val_int(buffer.point.SymbolicLinkReparseBuffer.SubstituteNameLength)));
+/* GetFullPathNameW is lexical: the target need not exist and no links are followed. */
+CAMLprim value caml_eio_windows_full_path(value v_path)
+{
+  CAMLparam1(v_path);
+  wchar_t path[32768];
+  caml_unix_check_path(v_path, "full_path");
+  wchar_t *input = caml_stat_strdup_to_utf16(String_val(v_path));
+  DWORD len = GetFullPathNameW(input, 32768, path, NULL);
+  DWORD err = GetLastError();
+  caml_stat_free(input);
+  if (len == 0) {
+    caml_win32_maperr(err);
+    uerror("full_path", v_path);
+  }
+  if (len >= 32768) caml_unix_error(ENAMETOOLONG, "full_path", v_path);
+  CAMLreturn(caml_copy_string_of_utf16(path));
+}
+
+CAMLprim value caml_eio_windows_realpath_fd(value v_fd)
+{
+  CAMLparam1(v_fd);
+  wchar_t path[32768];
+  HANDLE h = Handle_val(v_fd);
+  DWORD len, err;
+  caml_enter_blocking_section();
+  len = GetFinalPathNameByHandleW(h, path, 32768, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+  err = GetLastError();
+  caml_leave_blocking_section();
+  if (len == 0) {
+    caml_win32_maperr(err);
+    uerror("realpath", Nothing);
+  }
+  if (len >= 32768) caml_unix_error(ENAMETOOLONG, "realpath", Nothing);
+  CAMLreturn(caml_copy_string_of_utf16(path));
+}
+
+CAMLprim value caml_eio_windows_readdir_batch(value v_fd, value v_restart)
+{
+  CAMLparam2(v_fd, v_restart);
+  CAMLlocal3(result, name, cell);
+  HANDLE h = Handle_val(v_fd);
+  union {
+    FILE_ID_BOTH_DIR_INFO align;
+    char bytes[65536 + sizeof(wchar_t)];
+  } buffer;
+  FILE_INFO_BY_HANDLE_CLASS cls = Bool_val(v_restart) ? FileIdBothDirectoryRestartInfo : FileIdBothDirectoryInfo;
+  caml_enter_blocking_section();
+  BOOL ok = GetFileInformationByHandleEx(h, cls, buffer.bytes, 65536);
+  DWORD err = GetLastError();
+  caml_leave_blocking_section();
+  if (!ok) {
+    if (err == ERROR_NO_MORE_FILES || (Bool_val(v_restart) && err == ERROR_FILE_NOT_FOUND))
+      CAMLreturn(Val_emptylist);
+    caml_win32_maperr(err);
+    uerror("readdir", Nothing);
+  }
+  result = Val_emptylist;
+  FILE_ID_BOTH_DIR_INFO *entry = (FILE_ID_BOTH_DIR_INFO *)buffer.bytes;
+  for (;;) {
+    DWORD next = entry->NextEntryOffset;
+    size_t len = entry->FileNameLength / sizeof(wchar_t);
+    /* Leave room for a terminator even when the last name fills the buffer. */
+    wchar_t saved = next ? entry->FileName[len] : 0;
+    entry->FileName[len] = 0;
+    name = caml_copy_string_of_utf16(entry->FileName);
+    entry->FileName[len] = saved;
+    cell = caml_alloc_small(2, 0);
+    Field(cell, 0) = name;
+    Field(cell, 1) = result;
+    result = cell;
+    if (next == 0) break;
+    entry = (FILE_ID_BOTH_DIR_INFO *)((char *)entry + next);
+  }
+  CAMLreturn(result);
+}
+
+/* Privilege acquisition is thread-local; Developer Mode may allow creation without it. */
+typedef NTSTATUS (NTAPI *pRtlAcquirePrivilege)(PULONG, ULONG, ULONG, PVOID *);
+typedef VOID (NTAPI *pRtlReleasePrivilege)(PVOID);
+
+CAMLprim value caml_eio_windows_symlinkat(value v_dir, value v_path, value v_to_dir, value v_data)
+{
+  CAMLparam4(v_dir, v_path, v_to_dir, v_data);
+  union {
+    REPARSE_DATA_BUFFER point;
+    char bytes[MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
+  } buffer;
+  size_t header = FIELD_OFFSET(REPARSE_DATA_BUFFER, SymbolicLinkReparseBuffer.PathBuffer);
+  caml_unix_check_path(v_path, "symlink");
+  caml_unix_check_path(Field(v_data, 0), "symlink");
+  caml_unix_check_path(Field(v_data, 1), "symlink");
+  wchar_t *target = caml_stat_strdup_to_utf16(String_val(Field(v_data, 0)));
+  wchar_t *print = caml_stat_strdup_to_utf16(String_val(Field(v_data, 1)));
+  size_t target_len = wcslen(target) * sizeof(wchar_t);
+  size_t print_len = wcslen(print) * sizeof(wchar_t);
+  size_t size = header + target_len + print_len;
+  if (size > sizeof(buffer.bytes)) {
+    caml_stat_free(target);
+    caml_stat_free(print);
+    caml_unix_error(ENAMETOOLONG, "symlink", v_path);
+  }
+  memset(&buffer, 0, header);
+  buffer.point.ReparseTag = IO_REPARSE_TAG_SYMLINK;
+  buffer.point.ReparseDataLength = (USHORT)(size - FIELD_OFFSET(REPARSE_DATA_BUFFER, GenericReparseBuffer.DataBuffer));
+  buffer.point.SymbolicLinkReparseBuffer.SubstituteNameLength = (USHORT)target_len;
+  buffer.point.SymbolicLinkReparseBuffer.PrintNameOffset = (USHORT)target_len;
+  buffer.point.SymbolicLinkReparseBuffer.PrintNameLength = (USHORT)print_len;
+  buffer.point.SymbolicLinkReparseBuffer.Flags = Bool_val(Field(v_data, 2)) ? SYMLINK_FLAG_RELATIVE : 0;
+  memcpy(buffer.bytes + header, target, target_len);
+  memcpy(buffer.bytes + header + target_len, print, print_len);
+  caml_stat_free(target);
+  caml_stat_free(print);
+  HANDLE dir = Handle_val(v_dir), h;
+  OBJECT_ATTRIBUTES attr;
+  IO_STATUS_BLOCK io;
+  UNICODE_STRING name;
+  DWORD err = 0, returned;
+  NTSTATUS status;
+  PVOID privilege_state = NULL;
+  ULONG privilege = 35;  /* SE_CREATE_SYMBOLIC_LINK_PRIVILEGE */
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  pRtlAcquirePrivilege acquire = (pRtlAcquirePrivilege)GetProcAddress(ntdll, "RtlAcquirePrivilege");
+  pRtlReleasePrivilege release = (pRtlReleasePrivilege)GetProcAddress(ntdll, "RtlReleasePrivilege");
+  wchar_t *path = caml_stat_strdup_to_utf16(String_val(v_path));
+  RtlInitUnicodeString(&name, path);
+  InitializeObjectAttributes(&attr, &name, OBJ_CASE_INSENSITIVE, dir, NULL);
+  ULONG options = FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT |
+    (Bool_val(v_to_dir) ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE);
+  caml_enter_blocking_section();
+  if (acquire && release) acquire(&privilege, 1, 0, &privilege_state);
+  status = NtCreateFile(&h, SYNCHRONIZE | FILE_WRITE_ATTRIBUTES | DELETE, &attr, &io,
+                  NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_CREATE, options, NULL, 0);
+  if (!NT_SUCCESS(status)) err = RtlNtStatusToDosError(status);
+  else {
+    if (!DeviceIoControl(h, FSCTL_SET_REPARSE_POINT, buffer.bytes, (DWORD)size, NULL, 0, &returned, NULL)) {
+      err = GetLastError();
+      /* Roll back the object we created, using its handle rather than its name. */
+      FILE_DISPOSITION_INFO disposition = { TRUE };
+      SetFileInformationByHandle(h, FileDispositionInfo, &disposition, sizeof(disposition));
+    }
+    CloseHandle(h);
+  }
+  if (privilege_state) release(privilege_state);
+  caml_leave_blocking_section();
+  caml_stat_free(path);
+  if (err) {
+    caml_win32_maperr(err);
+    uerror("symlink", v_path);
+  }
+  CAMLreturn(Val_unit);
 }
 
 CAMLprim value caml_eio_windows_unlinkat(value v_dirfd, value v_pathname, value v_dir)
 {
-  CAMLparam2(v_dirfd, v_pathname);
+  CAMLparam3(v_dirfd, v_pathname, v_dir);
   HANDLE h, dir;
   OBJECT_ATTRIBUTES obj_attr;
   IO_STATUS_BLOCK io_status;
@@ -214,46 +338,44 @@ CAMLprim value caml_eio_windows_unlinkat(value v_dirfd, value v_pathname, value 
   UNICODE_STRING relative;
   NTSTATUS r;
 
-  // Not sure what the overhead of this is, but it allows us to have low-level control
-  // over file creation. In particular, we can specify the HANDLE to the parent directory
-  // of a relative path a la openat.
-  pNtCreateFile NtCreatefile = (pNtCreateFile)GetProcAddress(GetModuleHandle("ntdll.dll"), "NtCreateFile");
   caml_unix_check_path(v_pathname, "unlinkat");
   pathname = caml_stat_strdup_to_utf16(String_val(v_pathname));
   RtlInitUnicodeString(&relative, pathname);
 
-  // If NULL the filepath has to be absolute
-  if (Is_some(v_dirfd)) {
-    dir = Handle_val(Field(v_dirfd, 0));
-  } else {
-    dir = NULL;
-  }
+  dir = Is_some(v_dirfd) ? Handle_val(Some_val(v_dirfd)) : NULL;
 
-  // Initialise object attributes, passing in the root directory FD
   InitializeObjectAttributes(
     &obj_attr,
     &relative,
-    OBJ_CASE_INSENSITIVE, // TODO: Double-check what flags need to be passed at this point.
+    OBJ_CASE_INSENSITIVE,
     dir,
     NULL
   );
 
-  // Create the file
-  r = NtCreatefile(
+  /* Ordinary files and rmdir need only DELETE access. Only directory links
+     need an attribute query, to distinguish them from ordinary directories. */
+  BOOL check_link = FALSE;
+retry_open:
+  r = NtCreateFile(
     &h,
-    (SYNCHRONIZE | DELETE),
+    (SYNCHRONIZE | DELETE | (check_link ? FILE_READ_ATTRIBUTES : 0)),
     &obj_attr,
     &io_status,
     0, // Allocation size
     FILE_ATTRIBUTE_NORMAL, // TODO: Could check flags to see if we can do READONLY here a la OCaml
     (FILE_SHARE_DELETE),
     FILE_OPEN,
-    ((Bool_val(v_dir) ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE) | FILE_SYNCHRONOUS_IO_NONALERT | FILE_DELETE_ON_CLOSE),
+    (((Bool_val(v_dir) || check_link) ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE) | FILE_SYNCHRONOUS_IO_NONALERT
+     | FILE_OPEN_REPARSE_POINT),
     NULL, // Extended attribute buffer
     0     // Extended attribute buffer length
   );
 
-  // Free the allocated pathname
+  if (r == STATUS_FILE_IS_A_DIRECTORY && !Bool_val(v_dir) && !check_link) {
+    check_link = TRUE;
+    goto retry_open;
+  }
+
   caml_stat_free(pathname);
 
   if (!NT_SUCCESS(r)) {
@@ -261,8 +383,24 @@ CAMLprim value caml_eio_windows_unlinkat(value v_dirfd, value v_pathname, value 
     uerror("unlinkat", v_pathname);
   }
 
-  // Now close the file to delete it
+  /* Check and delete the same handle to prevent replacement between operations. */
+  DWORD err = 0;
+  if (check_link) {
+    FILE_ATTRIBUTE_TAG_INFO info;
+    if (!GetFileInformationByHandleEx(h, FileAttributeTagInfo, &info, sizeof(info)))
+      err = GetLastError();
+    else if (!(info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+             (info.ReparseTag != IO_REPARSE_TAG_SYMLINK && info.ReparseTag != IO_REPARSE_TAG_MOUNT_POINT))
+      err = ERROR_ACCESS_DENIED;
+  }
+  FILE_DISPOSITION_INFO disposition = { TRUE };
+  if (!err && !SetFileInformationByHandle(h, FileDispositionInfo, &disposition, sizeof(disposition)))
+    err = GetLastError();
   CloseHandle(h);
+  if (err) {
+    caml_win32_maperr(err);
+    uerror("unlinkat", v_pathname);
+  }
 
   CAMLreturn(Val_unit);
 }
@@ -282,7 +420,6 @@ CAMLprim value caml_eio_windows_renameat(value v_old_fd, value v_old_path, value
   size_t name_len, info_size;
   NTSTATUS r;
 
-  pNtCreateFile NtCreatefile = (pNtCreateFile)GetProcAddress(GetModuleHandle("ntdll.dll"), "NtCreateFile");
   caml_unix_check_path(v_old_path, "renameat");
   caml_unix_check_path(v_new_path, "renameat");
   old_dir = Is_some(v_old_fd) ? Handle_val(Some_val(v_old_fd)) : NULL;
@@ -292,7 +429,7 @@ CAMLprim value caml_eio_windows_renameat(value v_old_fd, value v_old_path, value
   RtlInitUnicodeString(&relative, old_path);
   InitializeObjectAttributes(&obj_attr, &relative, OBJ_CASE_INSENSITIVE, old_dir, NULL);
   caml_enter_blocking_section();
-  r = NtCreatefile(
+  r = NtCreateFile(
     &h,
     DELETE | SYNCHRONIZE,
     &obj_attr,
@@ -339,11 +476,6 @@ CAMLprim value caml_eio_windows_renameat(value v_old_fd, value v_old_path, value
   }
 
   CAMLreturn(Val_unit);
-}
-
-CAMLprim value caml_eio_windows_symlinkat(value v_old_path, value v_new_fd, value v_new_path)
-{
-  uerror("symlinkat is not supported on windows yet", Nothing);
 }
 
 CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
