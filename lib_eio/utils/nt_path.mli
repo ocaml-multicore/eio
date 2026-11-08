@@ -81,10 +81,30 @@ val to_nt : cwd:string -> string -> string
 val to_win32 : string -> string
 (** [to_win32 p] is the verbatim path [p] without its prefix. *)
 
-val beneath : root:string -> string -> string list option
-(** [beneath ~root p] is the components of [p] below the absolute directory
-    [root], or [None] if [p] is not within [root].
+val relative : string -> string option
+(** Normalise a handle-relative path, preserving literal names (including dots
+    and spaces). Resolve [.] and [..], but reject absolute paths and any [..]
+    that would leave the starting directory, even temporarily. *)
 
-    A relative [p] is normalised via {!to_nt}, except that [".."] may not
-    leave [root], even temporarily. Otherwise, [p] and [root] are compared in
-    NT form. *)
+type link_target = Relative of string | Absolute of string
+(** A raw reparse target, distinguished by its relative flag, not its spelling. *)
+
+val link_target : cwd:string -> string -> link_target
+(** Convert a caller's Win32 link target to NT form, preserving relative and
+    rooted names literally. Other paths are converted using {!to_nt}. *)
+
+val resolve_link : ?root:string -> parent:string -> link_target -> string option
+(** Resolve a raw link target against its parent. Relative targets preserve
+    literal names and resolve dot navigation; invalid targets return [None].
+    A relative [parent] also prevents climbing above its starting directory.
+    With [root], return a relative path beneath that real directory, checking
+    absolute targets with {!beneath}. A rooted target uses [root]'s volume when
+    [parent] is relative. Without [root], absolute NT targets are unchanged.
+    Relative targets ending in names made only of dots and spaces (other than
+    [.] and [..]) are refused, as Windows
+    interprets them differently for file and directory links. *)
+
+val beneath : root:string -> string -> string option
+(** [beneath ~root p] compares absolute NT paths and returns the literal suffix
+    below [root], or [None] if it is outside or contains dot navigation.
+    This does no Win32 normalisation. [root] must be the directory's real path. *)

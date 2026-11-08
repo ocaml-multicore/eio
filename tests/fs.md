@@ -792,58 +792,137 @@ Paths in the NT namespace, but not the Win32 one, are kept verbatim too:
 
 # Paths beneath a directory
 
-`beneath ~root` gives the components of a path within `root`:
+`relative` processes separators, `.` and `..` in handle-relative paths. All
+other names are literal, including those returned by directory enumeration.
+A path may not leave the starting directory, even to come back:
 
 ```ocaml
-let beneath = Eio_utils.Nt_path.beneath ~root:"\\\\?\\C:\\sb"
+# let relative = Eio_utils.Nt_path.relative;;
+val relative : string -> string option = <fun>
+# relative "a\\b";;
+- : string option = Some "a\\b"
+# relative "a/./b.\\..\\c. ";;
+- : string option = Some "a\\c. "
+# relative "";;
+- : string option = Some ""
+# relative "...";;
+- : string option = Some "..."
+# relative "a\\..\\..\\sb\\c";;
+- : string option = None
+# relative "..";;
+- : string option = None
+# relative "a\\..\\C:";;
+- : string option = None
+# relative "C:\\sb\\x";;
+- : string option = None
 ```
 
-A relative path is normalised as for `to_nt`, but may not leave `root`, even
-to come back:
+`beneath` compares absolute NT paths, without normalising them. Dot navigation
+in an absolute target is invalid, not an instruction to open a different file:
 
 ```ocaml
-# beneath "a\\b";;
-- : string list option = Some ["a"; "b"]
-
-# beneath "a/./b.\\..\\c. ";;
-- : string list option = Some ["a"; "c"]
-
-# beneath "";;
-- : string list option = Some []
-
-# beneath "a\\..\\..\\sb\\c";;
-- : string list option = None
-
-# beneath "..";;
-- : string list option = None
-```
-
-Other paths must name something within `root`:
-
-```ocaml
-# beneath "C:\\sb\\x";;
-- : string list option = Some ["x"]
-
-# beneath "c:\\SB\\x\\..\\y";;
-- : string list option = Some ["y"]
-
+# let beneath = Eio_utils.Nt_path.beneath ~root:"\\\\?\\C:\\sb";;
+val beneath : string -> string option = <fun>
+# beneath "\\??\\c:\\SB\\file. ";;
+- : string option = Some "file. "
+# beneath "\\\\?\\C:\\sb\\x\\..\\y";;
+- : string option = None
+# beneath "\\\\?\\C:\\sb\\.\\y";;
+- : string option = None
 # beneath "\\\\?\\C:\\sb\\x";;
-- : string list option = Some ["x"]
-
-# beneath "C:\\sb";;
-- : string list option = Some []
-
-# beneath "C:\\sbx";;
-- : string list option = None
-
-# beneath "C:\\x";;
-- : string list option = None
-
+- : string option = Some "x"
+# beneath "\\\\?\\C:\\sb";;
+- : string option = Some ""
+# beneath "\\\\?\\C:\\sbx";;
+- : string option = None
+# beneath "\\\\?\\C:\\x";;
+- : string option = None
 # beneath "\\x";;
-- : string list option = None
+- : string option = None
+# beneath "\\\\?\\D:\\sb\\x";;
+- : string option = None
+# beneath "\\\\?\\C:\\sb\\dir//file";;
+- : string option = None
+# Eio_utils.Nt_path.beneath ~root:"\\\\?\\C:\\" "\\??\\C:\\file.";;
+- : string option = Some "file."
+# Eio_utils.Nt_path.beneath ~root:"\\\\?\\UNC\\server\\share\\dir." "\\??\\UNC\\server\\share\\dir.\\file ";;
+- : string option = Some "file "
+```
 
-# beneath "D:\\sb\\x";;
-- : string list option = None
+Reparse targets retain their relative flag. Relative targets resolve dot
+navigation while preserving literal names. Absolute targets are unchanged;
+`beneath` checks their containment before they are opened in a sandbox:
+
+```ocaml
+# open Eio_utils.Nt_path;;
+# let resolve_link = resolve_link ~parent:"\\\\?\\C:\\sb.\\dir ";;
+val resolve_link : ?root:string -> link_target -> string option = <fun>
+# resolve_link (Relative "..\\file.");;
+- : string option = Some "\\??\\C:\\sb.\\file."
+# resolve_link (Relative "\\sb.\\file ");;
+- : string option = Some "\\??\\C:\\sb.\\file "
+# resolve_link (Relative "...");;
+- : string option = None
+# resolve_link (Relative ".. ");;
+- : string option = None
+# resolve_link (Relative "...\\..\\file");;
+- : string option = Some "\\??\\C:\\sb.\\dir \\file"
+# resolve_link (Absolute "relative-name");;
+- : string option = None
+# resolve_link (Absolute "\\??\\C:\\sb.\\dir\\..\\file");;
+- : string option = Some "\\??\\C:\\sb.\\dir\\..\\file"
+# Eio_utils.Nt_path.resolve_link ~parent:"\\\\?\\UNC\\server\\share\\dir." (Relative "file.");;
+- : string option = Some "\\??\\UNC\\server\\share\\dir.\\file."
+# Eio_utils.Nt_path.resolve_link ~parent:"dir" (Relative "..\\file.");;
+- : string option = Some "file."
+# Eio_utils.Nt_path.resolve_link ~parent:"dir" (Relative "..\\..\\dir\\file");;
+- : string option = None
+```
+
+Caller-supplied targets are converted once, preserving relative names and
+using Win32 rules only for non-relative, non-rooted paths:
+
+```ocaml
+# let target = Eio_utils.Nt_path.link_target ~cwd:"C:\\cwd";;
+val target : string -> link_target = <fun>
+# target "dir/file. ";;
+- : link_target = Relative "dir\\file. "
+# target "/dir/file.";;
+- : link_target = Relative "\\dir\\file."
+# target "C:/dir/file. ";;
+- : link_target = Absolute "\\??\\C:\\dir\\file"
+# target "\\\\?\\C:\\dir\\file. ";;
+- : link_target = Absolute "\\??\\C:\\dir\\file. "
+# target "C:dir/file.";;
+- : link_target = Absolute "\\??\\C:\\cwd\\dir\\file"
+```
+
+With `~root`, link resolution also checks containment. A relative parent is
+already relative to the sandbox; a rooted target uses the sandbox's volume:
+
+```ocaml
+# let resolve_beneath = Eio_utils.Nt_path.resolve_link ~root:"\\\\?\\C:\\sb." ~parent:"dir ";;
+val resolve_beneath : link_target -> string option = <fun>
+# resolve_beneath (Relative "..\\file.");;
+- : string option = Some "file."
+# resolve_beneath (Relative "\\sb.\\file.");;
+- : string option = Some "file."
+# resolve_beneath (Absolute "\\??\\C:\\sb.\\file.");;
+- : string option = Some "file."
+# resolve_beneath (Relative ".");;
+- : string option = Some "dir "
+# resolve_beneath (Relative "..\\..\\sb.\\file.");;
+- : string option = None
+# resolve_beneath (Relative "\\outside");;
+- : string option = None
+# resolve_beneath (Absolute "\\??\\C:\\sb.x\\file.");;
+- : string option = None
+# resolve_beneath (Absolute "\\??\\C:\\sb.\\dir\\..\\file");;
+- : string option = None
+# Eio_utils.Nt_path.resolve_link ~root:"\\\\?\\C:\\sb." ~parent:"\\\\?\\C:\\sb.\\dir " (Relative "..\\file.");;
+- : string option = Some "file."
+# Eio_utils.Nt_path.resolve_link ~root:"\\\\?\\UNC\\server\\share\\dir." ~parent:"child" (Relative "\\dir.\\file ");;
+- : string option = Some "file "
 ```
 
 # Mkdirs
