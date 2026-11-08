@@ -251,9 +251,15 @@ module Resolve = struct
     | Base b -> b
     | Tmp (x, _) -> Some x
 
-  let parse_rel s =
+  let rec dir_leaf : Path.Rel.t -> Path.Rel.t = function
+    | Leaf { basename; trailing_slash = true } -> Child (basename, Self)
+    | Child (x, xs) -> Child (x, dir_leaf xs)
+    | Parent xs -> Parent (dir_leaf xs)
+    | Leaf _ | Self as x -> x
+
+  let parse_rel ?(follow_trailing_slash=true) s =
     match Path.parse s with
-    | Relative r -> r
+    | Relative r -> if follow_trailing_slash then dir_leaf r else r
     | Absolute _ -> raise @@ Eio.Fs.err (Eio.Fs.Permission_denied (Err.Absolute_path))
 
   let decr_max_follows state x =
@@ -266,7 +272,7 @@ module Resolve = struct
   let rec resolve state (path : Path.Rel.t) =
     (* traceln "Consider %a" Path.Rel.dump path; *)
     match path with
-    | Leaf { basename; trailing_slash } -> if trailing_slash then basename ^ "/" else basename
+    | Leaf { basename; trailing_slash = _ } -> basename
     | Self -> "."
     | Parent xs ->
       begin match state.dir_stack with
@@ -318,7 +324,6 @@ module Resolve = struct
        If it's a symlink, retry with the target. *)
     let rec aux leaf =
       let base = current_dir state in
-      let flags = if trailing_slash leaf then Open_flags.(flags + directory) else flags in
       match eio_openat base leaf Open_flags.(flags + nofollow + nonblock) mode with
       | fd -> Fd.of_unix fd ~sw ~blocking:false ~close_unix:true
       | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e)
@@ -335,8 +340,8 @@ module Resolve = struct
   (* Resolve until the last component and call [fn dir leaf].
      That returns [Error `Symlink] if [leaf] is a symlink, in
      which case we read its target and continue. *)
-  let with_parent_loop ?dirfd:base path fn =
-    let path = parse_rel path in
+  let with_parent_loop ?dirfd:base ?follow_trailing_slash path fn =
+    let path = parse_rel ?follow_trailing_slash path in
     with_state base @@ fun state ->
     let rec aux leaf =
       let base = current_dir state in
@@ -359,10 +364,10 @@ module Resolve = struct
     | Fs ->
       let path = if path = "" then "." else path in
       fn None path
-    | Cwd -> with_parent_loop path (fun x y -> Ok (fn x y))
+    | Cwd -> with_parent_loop ~follow_trailing_slash:false path (fun x y -> Ok (fn x y))
     | Fd dirfd ->
       Fd.use_exn op dirfd @@ fun dirfd ->
-      with_parent_loop ~dirfd path (fun x y -> Ok (fn x y))
+      with_parent_loop ~dirfd ~follow_trailing_slash:false path (fun x y -> Ok (fn x y))
 
   let open_unconfined ~sw ~mode dirfd path flags =
     let flags = if trailing_slash path then Open_flags.(flags + directory) else flags in
@@ -523,7 +528,8 @@ let fstat ~buf fd =
   eio_fstat buf fd
 
 let fstatat_confined ~buf ~follow dirfd path =
-  Resolve.with_parent_loop ?dirfd path @@ fun dirfd path ->
+  (* Like eio_linux, [stat ~follow:false "foo/"] gives the type of "foo" itself. *)
+  Resolve.with_parent_loop ?dirfd ~follow_trailing_slash:follow path @@ fun dirfd path ->
   let dirfd = Option.value dirfd ~default:at_fdcwd in
   eio_fstatat buf dirfd path Config.at_symlink_nofollow;
   if follow && kind buf = `Symbolic_link then Error (`Symlink None) else Ok ()
