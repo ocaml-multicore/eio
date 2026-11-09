@@ -1279,6 +1279,71 @@ Symlinking and sandboxing:
 - : unit = ()
 ```
 
+A trailing slash on the last component means it must be a directory.
+If it is a symlink, it gets followed, but still only within the sandbox:
+
+```ocaml
+# run ~clear:["trailing"] @@ fun env ->
+  let cwd = Eio.Stdenv.cwd env in
+  try_mkdirs (cwd / "trailing/jail/sub");
+  try_mkdir (cwd / "trailing/outside");
+  try_chmod ~follow:true ~perm:0o755 (cwd / "trailing/outside");
+  Path.save ~create:(`Exclusive 0o600) (cwd / "trailing/outside/secret") "secret";
+  Switch.run @@ fun sw ->
+  let jail = Path.open_subtree ~sw (cwd / "trailing/jail") in
+  try_symlink ~link_to:"sub" (jail / "ok");
+  try_symlink ~link_to:".." (jail / "up");
+  try_symlink ~link_to:"up/" (jail / "up2");
+  try_symlink ~link_to:"../outside" (jail / "dl");
+  (* Within the sandbox: *)
+  try_read_dir (jail / "ok/");
+  try_mkdir (jail / "sub/new/");
+  try_rmdir (jail / "sub/new/");
+  (* Escaping: *)
+  try_read_dir (jail / "up/");
+  try_read_dir (jail / "up/.");
+  try_read_dir (jail / "up2");
+  try_read_dir (jail / "up//");
+  try_read_file (jail / "up/");
+  begin match Path.open_subtree ~sw (jail / "up/") with
+    | parent -> try_read_file (parent / "outside/secret")
+    | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+  end;
+  try_stat (jail / "ok/");
+  try_stat (jail / "dl/");
+  try_read_link (jail / "dl/");
+  try_mkdir (jail / "dl/");
+  try_chmod ~follow:false ~perm:0o700 (jail / "dl/");
+  try_rmtree (jail / "dl/");
+  try_read_dir (cwd / "trailing/outside");
+  try_stat ~info_type:`Perm (cwd / "trailing/outside");;
++mkdirs <cwd:trailing/jail/sub> -> ok
++mkdir <cwd:trailing/outside> -> ok
++chmod <cwd:trailing/outside> to 755 -> ok
++symlink <jail:ok> -> "sub"
++symlink <jail:up> -> ".."
++symlink <jail:up2> -> "up/"
++symlink <jail:dl> -> "../outside"
++read_dir <jail:ok/> -> []
++mkdir <jail:sub/new/> -> ok
++rmdir <jail:sub/new/> -> ok
++Eio.Io Fs Permission_denied _, reading directory <jail:up/>
++Eio.Io Fs Permission_denied _, reading directory <jail:up/.>
++Eio.Io Fs Permission_denied _, reading directory <jail:up2>
++Eio.Io Fs Permission_denied _, reading directory <jail:up//>
++Eio.Io Fs Permission_denied _, opening <jail:up/>
++Eio.Io Fs Permission_denied _, opening directory <jail:up/>
++<jail:ok/> -> symbolic link / directory
++<jail:dl/> -> symbolic link / Fs Permission_denied _
++read_link <jail:dl/> -> "../outside"
++Eio.Io Fs Already_exists _, creating directory <jail:dl/>
++Eio.Io Fs Permission_denied _, chmoding file <jail:dl/>
++rmtree <jail:dl/> -> ok
++read_dir <cwd:trailing/outside> -> ["secret"]
++<cwd:trailing/outside> -> 755
+- : unit = ()
+```
+
 ## Streamling lines
 
 ```ocaml
