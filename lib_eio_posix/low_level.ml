@@ -251,15 +251,9 @@ module Resolve = struct
     | Base b -> b
     | Tmp (x, _) -> Some x
 
-  let rec dir_leaf : Path.Rel.t -> Path.Rel.t = function
-    | Leaf { basename; trailing_slash = true } -> Child (basename, Self)
-    | Child (x, xs) -> Child (x, dir_leaf xs)
-    | Parent xs -> Parent (dir_leaf xs)
-    | Leaf _ | Self as x -> x
-
-  let parse_rel ?(follow_trailing_slash=true) s =
+  let parse_rel s =
     match Path.parse s with
-    | Relative r -> if follow_trailing_slash then dir_leaf r else r
+    | Relative r -> r
     | Absolute _ -> raise @@ Eio.Fs.err (Eio.Fs.Permission_denied (Err.Absolute_path))
 
   let decr_max_follows state x =
@@ -269,9 +263,11 @@ module Resolve = struct
       raise (Unix.Unix_error (ELOOP, "resolve", x))
 
   (* Fallback for systems without O_RESOLVE_BENEATH: *)
-  let rec resolve state (path : Path.Rel.t) =
+  let rec resolve ~follow_trailing_slash state (path : Path.Rel.t) =
     (* traceln "Consider %a" Path.Rel.dump path; *)
     match path with
+    | Leaf { basename; trailing_slash = true } when follow_trailing_slash ->
+      resolve ~follow_trailing_slash state (Child (basename, Self))
     | Leaf { basename; trailing_slash = _ } -> basename
     | Self -> "."
     | Parent xs ->
@@ -281,20 +277,20 @@ module Resolve = struct
         | Tmp (p, ps) ->
           Unix.close p;
           state.dir_stack <- ps;
-          resolve state xs
+          resolve ~follow_trailing_slash state xs
       end
     | Child (x, xs) ->
       let base = current_dir state in
       match eio_openat base x Open_flags.(nofollow + directory +? path) 0 with
       | new_base ->
         state.dir_stack <- Tmp (new_base, state.dir_stack);
-        resolve state xs
+        resolve ~follow_trailing_slash state xs
       | exception (Unix.Unix_error ((ELOOP | ENOTDIR | EMLINK | EUNKNOWNERR _), _, _) as e) ->
         (* Note: Linux uses ELOOP or ENOTDIR. FreeBSD uses EMLINK. NetBSD uses EFTYPE. *)
         match Eio_unix.Private.read_link_unix base x with
         | target ->
           decr_max_follows state x;
-          resolve state (Path.Rel.concat (parse_rel target) xs)
+          resolve ~follow_trailing_slash state (Path.Rel.concat (parse_rel target) xs)
         | exception Unix.Unix_error _ -> raise e (* Not a symlink; report original error instead *)
 
   let close_tmp state =
@@ -332,16 +328,16 @@ module Resolve = struct
         match Eio_unix.Private.read_link_unix base leaf with
         | target ->
           decr_max_follows state leaf;
-          aux (resolve state (parse_rel target))
+          aux (resolve ~follow_trailing_slash:true state (parse_rel target))
         | exception Unix.Unix_error _ -> raise e
     in
-    aux (resolve state path)
+    aux (resolve ~follow_trailing_slash:true state path)
 
   (* Resolve until the last component and call [fn dir leaf].
      That returns [Error `Symlink] if [leaf] is a symlink, in
      which case we read its target and continue. *)
-  let with_parent_loop ?dirfd:base ?follow_trailing_slash path fn =
-    let path = parse_rel ?follow_trailing_slash path in
+  let with_parent_loop ?dirfd:base ?(follow_trailing_slash=true) path fn =
+    let path = parse_rel path in
     with_state base @@ fun state ->
     let rec aux leaf =
       let base = current_dir state in
@@ -350,10 +346,10 @@ module Resolve = struct
       | Error (`Symlink e) ->
         decr_max_follows state leaf;
         match Eio_unix.Private.read_link_unix base leaf with
-        | target -> aux (resolve state (parse_rel target))
+        | target -> aux (resolve ~follow_trailing_slash state (parse_rel target))
         | exception Unix.Unix_error _ when Option.is_some e -> raise (Option.get e)
     in
-    aux (resolve state path)
+    aux (resolve ~follow_trailing_slash state path)
 
   (* If confined, resolve until the last component and call [fn dir leaf].
      If unconfined, just call [fn None path].
