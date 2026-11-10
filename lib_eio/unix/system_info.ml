@@ -5,9 +5,7 @@ type t = {
   machine : string;
 }
 
-external eio_uname : unit -> t = "eio_unix_uname"
-
-let v = eio_uname ()
+external get : unit -> t = "eio_unix_uname"
 
 let dump =
   Fmt.Dump.(record [

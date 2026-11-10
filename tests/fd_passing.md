@@ -9,6 +9,8 @@ open Eio.Std
 
 let ( / ) = Eio.Path.( / )
 
+let sys_info = Eio_unix.System_info.get ()
+
 let run ?clear:(paths = []) fn =
   Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
@@ -91,7 +93,7 @@ When sharing an open file with another process, there is the risk that it may ch
 Check that socket operations are always non-blocking (because they use `MSG_DONTWAIT`), even if the mode gets changed:
 
 ```ocaml
-# if Eio_unix.System_info.v.sysname = "Darwin" then
+# if sys_info.sysname = "Darwin" then
     mdx_skip "MSG_DONTWAIT isn't supported on macos for sendmsg";;
 - : unit = ()
 

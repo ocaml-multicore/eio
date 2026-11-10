@@ -37,7 +37,7 @@ type t = {
     ]}
 *)
 
-val v : t
-(** Information about the host system. *)
+val get : unit -> t
+(** Get information about the host system. *)
 
 val dump : t Fmt.t
