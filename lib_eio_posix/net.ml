@@ -53,24 +53,31 @@ let listening_socket ~hook fd =
 module Datagram_socket = struct
   type tag = [`Generic | `Unix]
 
-  type t = Eio_unix.Fd.t
+  type t = {
+    hook : Switch.hook;
+    fd : Fd.t;
+  }
 
-  let close = Fd.close
+  let make ~hook fd = { hook; fd }
 
-  let fd t = t
+  let close t =
+    Switch.remove_hook t.hook;
+    Fd.close t.fd
+
+  let fd t = t.fd
 
   let send t ?dst buf =
     let dst = Option.map Eio_unix.Net.sockaddr_to_unix dst in
-    let sent = Err.run (Low_level.send_msg t ?dst) (Array.of_list buf) in
+    let sent = Err.run (Low_level.send_msg t.fd ?dst) (Array.of_list buf) in
     assert (sent = Cstruct.lenv buf)
 
   let recv t buf =
-    let addr, recv = Err.run (Low_level.recv_msg t) [| buf |] in
+    let addr, recv = Err.run (Low_level.recv_msg t.fd) [| buf |] in
     Eio_unix.Net.sockaddr_of_unix_datagram addr, recv
 
   let shutdown t cmd =
     try
-      Low_level.shutdown t @@ match cmd with
+      Low_level.shutdown t.fd @@ match cmd with
       | `Receive -> Unix.SHUTDOWN_RECEIVE
       | `Send -> Unix.SHUTDOWN_SEND
       | `All -> Unix.SHUTDOWN_ALL
@@ -78,18 +85,26 @@ module Datagram_socket = struct
     | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
     | Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
 
-  let setsockopt t opt v = Eio_unix.Private.setsockopt t opt v
-  let getsockopt t opt = Eio_unix.Private.getsockopt t opt
+  let setsockopt t opt v = Eio_unix.Private.setsockopt t.fd opt v
+  let getsockopt t opt = Eio_unix.Private.getsockopt t.fd opt
 end
 
 let datagram_handler = Eio_unix.Pi.datagram_handler (module Datagram_socket)
 
-let datagram_socket fd =
-  Eio.Resource.T (fd, datagram_handler)
+let datagram_socket ?(hook=Switch.null_hook) fd =
+  Eio.Resource.T (Datagram_socket.make ~hook fd, datagram_handler)
 
 let getaddrinfo ~service node =
   Eio_unix.run_in_systhread ~label:"getaddrinfo" @@ fun () ->
   Err.run (Eio_unix.Private.getaddrinfo ~service) node
+
+let remove_on_release ~sw listen_addr =
+  (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
+  match listen_addr with
+  | `Unix path when String.length path > 0 && path.[0] <> Char.chr 0 ->
+    Switch.on_release_cancellable sw (fun () -> Unix.unlink path)
+  | _ ->
+    Switch.null_hook
 
 let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.stream) =
   let socket_type, addr =
@@ -108,22 +123,21 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
       Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
   in
   let sock = Low_level.socket ~sw (socket_domain_of listen_addr) socket_type 0 in
-  (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
   let hook =
-    match listen_addr with
-    | `Unix path when String.length path > 0 && path.[0] <> Char.chr 0 ->
-      Switch.on_release_cancellable sw (fun () -> Unix.unlink path)
-    | `Unix _ | `Tcp _ ->
-      Switch.null_hook
+    Fd.use_exn "listen" sock (fun fd ->
+        try
+          if reuse_addr then
+            Unix.setsockopt fd Unix.SO_REUSEADDR true;
+          if reuse_port then
+            Unix.setsockopt fd Unix.SO_REUSEPORT true;
+          Unix.bind fd addr;
+          let hook = remove_on_release ~sw listen_addr in
+          Unix.listen fd backlog;
+          hook
+        with Unix.Unix_error (code, name, arg) ->
+          raise (Eio_unix.Err.v code name arg)
+      )
   in
-  Fd.use_exn "listen" sock (fun fd ->
-      if reuse_addr then
-        Unix.setsockopt fd Unix.SO_REUSEADDR true;
-      if reuse_port then
-        Unix.setsockopt fd Unix.SO_REUSEPORT true;
-      Unix.bind fd addr;
-      Unix.listen fd backlog;
-    );
   (listening_socket ~hook sock :> _ Eio.Net.listening_socket_ty r)
 
 let connect ~bind_to ~options ~sw connect_addr =
@@ -148,19 +162,24 @@ let connect ~bind_to ~options ~sw connect_addr =
 
 let create_datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
   let sock = Low_level.socket ~sw (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
-  begin match saddr with
+  let hook =
+    match saddr with
     | `Udp _ | `Unix _ as saddr ->
       let addr = Eio_unix.Net.sockaddr_to_unix saddr in
       Fd.use_exn "datagram_socket" sock (fun fd ->
-          if reuse_addr then
-            Unix.setsockopt fd Unix.SO_REUSEADDR true;
-          if reuse_port then
-            Unix.setsockopt fd Unix.SO_REUSEPORT true;
-          Unix.bind fd addr
+          try
+            if reuse_addr then
+              Unix.setsockopt fd Unix.SO_REUSEADDR true;
+            if reuse_port then
+              Unix.setsockopt fd Unix.SO_REUSEPORT true;
+            Unix.bind fd addr;
+            remove_on_release ~sw saddr;
+          with Unix.Unix_error (code, name, arg) ->
+            raise (Eio_unix.Err.v code name arg)
         )
-    | `UdpV4 | `UdpV6 -> ()
-  end;
-  datagram_socket sock
+    | `UdpV4 | `UdpV6 -> Switch.null_hook
+  in
+  datagram_socket ~hook sock
 
 module Impl = struct
   type t = unit

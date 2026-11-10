@@ -25,6 +25,8 @@ let read_all flow =
 exception Graceful_shutdown
 
 let () = Eio.Exn.Backend.show := false
+
+let ( / ) = Eio.Path.( / )
 ```
 
 ## Test cases
@@ -1165,4 +1167,60 @@ let _check_types ~(net:Eio_unix.Net.t) =
     (fun (_flow : [`Generic | `Unix] Eio.Net.stream_socket_ty r) _addr -> assert false);
   let _client : [`Generic | `Unix] Eio.Net.stream_socket_ty r = Eio.Net.connect ~sw net addr in
   ();;
+```
+
+## Cleaning up Unix-domain sockets
+
+Streams:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let path = "reused.sock" in
+  let addr = `Unix path in
+  Eio.Switch.run (fun sw ->
+    (* Start the first server *)
+    let _server = Eio.Net.listen ~sw ~backlog:5 net addr in
+    (* Try to start a second server on the same address (fails) *)
+    Eio.Switch.run (fun sw ->
+       try ignore (Eio.Net.listen ~sw ~backlog:5 net addr)
+       with Eio.Io _ as ex -> traceln "Second server can't start (good): %a" Fmt.exn ex
+    );
+    let sock = Eio.Net.connect ~sw net addr in
+    traceln "The first server is still usable";
+    Eio.Flow.shutdown sock `Send
+  );
+  traceln "Cleaned up: %b" (Eio.Path.kind ~follow:false (env#cwd / path) = `Not_found);;
++Second server can't start (good): Eio.Io _
++The first server is still usable
++Cleaned up: true
+- : unit = ()
+```
+
+Datagrams:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let path = "reused.sock" in
+  let addr = `Unix path in
+  Eio.Switch.run (fun sw ->
+    (* Start the first server *)
+    let server = Eio.Net.datagram_socket ~sw net addr in
+    (* Try to start a second server on the same address (fails) *)
+    Eio.Switch.run (fun sw ->
+       try ignore (Eio.Net.datagram_socket ~sw net addr)
+       with Eio.Io _ as ex -> traceln "Second server can't start (good): %a" Fmt.exn ex
+    );
+    let sock = Eio.Net.datagram_socket ~sw net (`Unix "client.sock") in
+    Eio.Net.send sock ~dst:addr [Cstruct.of_string "hi"];
+    let buf = Cstruct.create 4 in
+    let sender, got = Eio.Net.recv server buf in
+    traceln "The first server got %d bytes from %a" got Eio.Net.Sockaddr.pp sender
+  );
+  traceln "Cleaned up: %b" (Eio.Path.kind ~follow:false (env#cwd / path) = `Not_found);;
++Second server can't start (good): Eio.Io _
++The first server got 2 bytes from unix:client.sock
++Cleaned up: true
+- : unit = ()
 ```
