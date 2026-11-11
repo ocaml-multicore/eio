@@ -109,6 +109,14 @@ module Impl = struct
   type t = unit
   type tag = [`Unix | `Generic]
 
+  let remove_on_release ~sw listen_addr =
+    (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
+    match listen_addr with
+    | `Unix path ->
+      if String.length path > 0 && path.[0] <> Char.chr 0 then
+        Switch.on_release sw (fun () -> Unix.unlink path)
+    | _ -> ()
+
   let listen () ~reuse_addr ~reuse_port ~backlog ~sw listen_addr =
     if reuse_addr then (
       match listen_addr with
@@ -122,19 +130,13 @@ module Impl = struct
     );
     let addr = Eio_unix.Net.sockaddr_to_unix listen_addr in
     let sock = Low_level.socket ~sw (socket_domain_of listen_addr) Unix.SOCK_STREAM 0 in
-    (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
-    begin match listen_addr with
-      | `Unix path ->
-        if String.length path > 0 && path.[0] <> Char.chr 0 then
-          Switch.on_release sw (fun () -> Unix.unlink path)
-      | `Tcp _ -> ()
-    end;
     if reuse_addr || reuse_port then (
       Fd.use_exn "setsockopt" sock (fun sock_unix ->
           if reuse_addr then Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
           if reuse_port then Unix.setsockopt sock_unix Unix.SO_REUSEPORT true);
     );
     Low_level.bind sock addr;
+    remove_on_release ~sw listen_addr;
     Low_level.listen sock backlog;
     (listening_socket sock :> _ Eio.Net.listening_socket_ty r)
 
@@ -161,7 +163,8 @@ module Impl = struct
             if reuse_addr then Unix.setsockopt sock_unix Unix.SO_REUSEADDR true;
             if reuse_port then Unix.setsockopt sock_unix Unix.SO_REUSEPORT true);
       );
-      Low_level.bind sock addr
+      Low_level.bind sock addr;
+      remove_on_release ~sw saddr
     | `UdpV4 | `UdpV6 -> ()
     end;
     (datagram_socket sock :> [`Generic | `Unix] Eio.Net.datagram_socket_ty r)
