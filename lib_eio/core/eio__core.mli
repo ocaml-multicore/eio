@@ -109,14 +109,17 @@ module Switch : sig
 
       This function is thread-safe (but not signal-safe). *)
 
-  val try_remove_hook : hook -> bool
+  val try_remove_hook : ?run:bool -> hook -> bool
   (** [try_remove_hook h] removes a previously-added hook.
       Returns [true] if the hook was successfully removed, or [false] if another
       domain ran it or removed it first.
 
-      This function is thread-safe (but not signal-safe). *)
+      This function is thread-safe (but not signal-safe).
 
-  val remove_hook : hook -> unit
+      @param run If [true], and the hook was successfully removed, also run it
+                 (in the current fiber). The default is [false]. *)
+
+  val remove_hook : ?run:bool -> hook -> unit
   (** [remove_hook h] is [ignore (try_remove_hook h)].
 
       For multi-domain code, consider using {!try_remove_hook} instead

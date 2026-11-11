@@ -421,3 +421,31 @@ Multiple exceptions:
 - Failure("simulated error")
 - Failure("cleanup failed")
 ```
+
+# Cancellable release hooks
+
+```ocaml
+# Eio_mock.Backend.run @@ fun () ->
+  Switch.run (fun sw ->
+     let hook1 = Switch.on_release_cancellable sw (fun () -> traceln "hook1 ran") in
+     let hook2 = Switch.on_release_cancellable sw (fun () -> traceln "hook2 ran") in
+     let hook3 = Switch.on_release_cancellable sw (fun () -> traceln "hook3 ran") in
+     traceln "Manually running hook1 early:";
+     Switch.remove_hook ~run:true hook1;
+     traceln "A second time does nothing.";
+     Switch.remove_hook ~run:true hook1;
+     traceln "Removing hook2 without running it.";
+     Switch.remove_hook ~run:false hook2;
+     traceln "When the switch finishes, only hook3 runs:";
+     ignore hook3;
+  );
+  traceln "Switch finished"
++Manually running hook1 early:
++hook1 ran
++A second time does nothing.
++Removing hook2 without running it.
++When the switch finishes, only hook3 runs:
++hook3 ran
++Switch finished
+- : unit = ()
+```
