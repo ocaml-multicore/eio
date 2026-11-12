@@ -1253,3 +1253,23 @@ No error if the socket gets closed first:
 +Datagram cleaned up: true
 - : unit = ()
 ```
+
+No error if socket is removed while we're running:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Exn.Backend.show := true;
+  let net = Eio.Stdenv.net env in
+  let name = "test.sock" in
+  let path = env#cwd / name in
+  let addr = `Unix name in
+  Eio.Switch.run (fun sw ->
+     let _server = Eio.Net.listen ~sw ~backlog:5 net addr in
+     Eio.Path.unlink path
+  );
+  Eio.Switch.run (fun sw ->
+     let _server = Eio.Net.datagram_socket ~sw net addr in
+     Eio.Path.unlink path
+  );;
+- : unit = ()
+```

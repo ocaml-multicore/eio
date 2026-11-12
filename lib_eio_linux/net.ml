@@ -128,7 +128,12 @@ module Impl = struct
     match listen_addr with
     | `Unix path ->
       if String.length path > 0 && path.[0] <> Char.chr 0 then
-        Switch.on_release_cancellable sw (fun () -> Unix.unlink path)
+        Switch.on_release_cancellable sw (fun () ->
+            try Unix.unlink path
+            with Unix.Unix_error _ ->
+              (* Ignore error: cleaning up the socket isn't essential, and maybe someone deleted it. *)
+              ()
+          )
       else Switch.null_hook
     | _ -> Switch.null_hook
 

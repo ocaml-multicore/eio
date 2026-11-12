@@ -121,7 +121,12 @@ let remove_on_release ~sw listen_addr =
   (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
   match listen_addr with
   | `Unix path when String.length path > 0 && path.[0] <> Char.chr 0 ->
-    Switch.on_release_cancellable sw (fun () -> Unix.unlink path)
+    Switch.on_release_cancellable sw (fun () ->
+        try Unix.unlink path
+        with Unix.Unix_error _ ->
+          (* Ignore error: cleaning up the socket isn't essential, and maybe someone deleted it. *)
+          ()
+      )
   | _ ->
     Switch.null_hook
 
