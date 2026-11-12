@@ -12,6 +12,7 @@ depends: [
   "dune" {>= "3.9"}
   "eio" {= version}
   "iomux" {>= "0.2"}
+  "alcotest" {>= "1.7.0" & with-test}
   "mdx" {>= "2.4.1" & with-test}
   "lintcstubs-arity" {with-test}
   "conf-bash" {with-test}
