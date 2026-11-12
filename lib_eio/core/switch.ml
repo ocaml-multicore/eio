@@ -16,7 +16,7 @@ let null_hook = Null
 
 let cancelled () = assert false
 
-let try_remove_hook = function
+let try_remove_hook ?(run=false) = function
   | Null -> false
   | Hook (on_release_lock, n) ->
     Mutex.lock on_release_lock;
@@ -24,9 +24,11 @@ let try_remove_hook = function
     let fn = Lwt_dllist.get n in
     Lwt_dllist.set n cancelled;
     Mutex.unlock on_release_lock;
-    fn != cancelled
+    let valid = fn != cancelled in
+    if valid && run then fn ();
+    valid
 
-let remove_hook x = ignore (try_remove_hook x : bool)
+let remove_hook ?run x = ignore (try_remove_hook ?run x : bool)
 
 let dump f t =
   Fmt.pf f "@[<v2>Switch %d (%d extra fibers):@,%a@]"
