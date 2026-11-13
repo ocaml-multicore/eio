@@ -152,20 +152,16 @@ let rec trim_end s =
   if String.ends_with ~suffix:"." s || String.ends_with ~suffix:" " s then trim_end (chop s) else s
 
 (* https://learn.microsoft.com/en-us/dotnet/standard/io/file-path-formats#path-normalization *)
-let normalise_components path =
-  let rec go ~above acc = function
-    | [] -> let acc = List.rev acc in if above then `Escaped acc else `Within acc
-    | ("" | ".") :: xs -> go ~above acc xs
-    | ".." :: xs -> (match acc with _ :: acc -> go ~above acc xs | [] -> go ~above:true [] xs)
-    | [x] -> go ~above (match trim_end x with "" -> acc | x -> x :: acc) []
-    | x :: xs when String.ends_with ~suffix:"." x && not (String.ends_with ~suffix:".." x) -> go ~above (chop x :: acc) xs
-    | x :: xs -> go ~above (x :: acc) xs
-  in
-  go ~above:false [] (String.split_on_char '\\' path)
-
 let normalise path =
-  match normalise_components path with
-  | `Within cs | `Escaped cs -> "\\" ^ String.concat "\\" cs
+  let rec go acc = function
+    | [] -> "\\" ^ String.concat "\\" (List.rev acc)
+    | ("" | ".") :: xs -> go acc xs
+    | ".." :: xs -> go (match acc with _ :: acc -> acc | [] -> []) xs
+    | [x] -> go (match trim_end x with "" -> acc | x -> x :: acc) []
+    | x :: xs when String.ends_with ~suffix:"." x && not (String.ends_with ~suffix:".." x) -> go (chop x :: acc) xs
+    | x :: xs -> go (x :: acc) xs
+  in
+  go [] (String.split_on_char '\\' path)
 
 let after r p = Option.map (fun i -> drop i p) (r p 0)
 
@@ -213,17 +209,73 @@ let to_win32 p =
     then win32
     else "\\\\?\\" ^ rest
 
+(* Preserve literal names and reject traversal above the starting directory. *)
+let relative_components path =
+  let rec go acc = function
+    | [] -> Some (String.concat "\\" (List.rev acc))
+    | ("" | ".") :: xs -> go acc xs
+    | ".." :: xs -> (match acc with _ :: acc -> go acc xs | [] -> None)
+    | x :: xs -> go (x :: acc) xs
+  in
+  go [] (String.split_on_char '\\' path)
+
+let relative path =
+  if not (is_relative path) then None
+  else match relative_components (backslashes path) with
+    | Some p when is_relative p -> Some p
+    | _ -> None
+
+(* Normalising absolute NT targets could change which object they name. *)
 let beneath ~root p =
+  let absolute p = match classify p with `Absolute | `Unc | `Verbatim -> true | _ -> false in
+  let valid p =
+    not (String.contains p '/') &&
+    not (List.exists (fun c -> c = "." || c = "..") (String.split_on_char '\\' p))
+  in
+  if not (absolute root && absolute p && valid root && valid p) then None
+  else
+    let rec trim p = if String.ends_with ~suffix:"\\" p then trim (chop p) else p in
+    let root = trim (qualify root) in
+    let p = qualify p in
+    let lower = String.lowercase_ascii in
+    if lower p = lower root then Some ""
+    else if String.starts_with ~prefix:(lower root ^ "\\") (lower p) then
+      let rest = drop (String.length root + 1) p in
+      if is_relative rest then Some rest else None
+    else None
+
+type link_target = Relative of string | Absolute of string
+
+let link_target ~cwd p =
   match classify p with
-  | `Relative ->
-    (match normalise_components (backslashes p) with
-     | `Within components -> Some components
-     | `Escaped _ -> None)
-  | _ ->
-    let components p = String.split_on_char '\\' (to_nt ~cwd:root p) |> List.filter (( <> ) "") in
-    let rec strip = function
-      | [], rest -> Some rest
-      | r :: root, x :: rest when String.lowercase_ascii r = String.lowercase_ascii x -> strip (root, rest)
-      | _ -> None
+  | `Relative | `Rooted -> Relative (backslashes p)
+  | _ -> Absolute (to_nt ~cwd p)
+
+let resolve_link ?root ~parent target =
+  let parent =
+    match root, target with
+    | Some root, Relative p when is_relative parent && classify p = `Rooted -> root
+    | _ -> parent
+  in
+  let resolved = match target with
+  | Absolute p -> if matches nt_prefix p then Some p else None
+  | Relative p ->
+    (* Windows interprets dot-and-space-only leaves differently for file and
+       directory links. Refuse these ambiguous targets, except dot navigation. *)
+    let leaf = basename p in
+    let ambiguous =
+      leaf <> "." && leaf <> ".." && String.contains leaf '.' &&
+      String.for_all (fun c -> c = '.' || c = ' ') leaf
     in
-    strip (components root, components p)
+    if p = "" || String.contains p '/' || ambiguous then None
+    else match classify p with
+      | `Relative when is_relative parent -> relative (join parent p)
+      | (`Relative | `Rooted as kind) when not (is_relative parent) ->
+        let vol, base = split_volume (to_win32 parent) in
+        let base = if kind = `Rooted then "" else base in
+        Option.map (fun rest -> qualify (vol ^ "\\" ^ rest)) (relative_components (base ^ "\\" ^ p))
+      | _ -> None
+  in
+  match root, resolved with
+  | Some root, Some p when not (is_relative p) -> beneath ~root p
+  | _, result -> result

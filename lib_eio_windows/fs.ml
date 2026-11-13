@@ -14,14 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-(* This module provides (optional) sandboxing, allowing operations to be restricted to a subtree.
-
-   For now, sandboxed directories use realpath and [O_NOFOLLOW], which is probably quite slow,
-   and requires duplicating a load of path lookup logic from the kernel.
-   It might be better to hold a directory FD rather than a path.
-   On FreeBSD we could use O_RESOLVE_BENEATH and let the OS handle everything for us.
-   On other systems we would have to resolve one path component at a time. *)
-
 open Eio.Std
 
 module Fd = Eio_unix.Fd
@@ -29,112 +21,149 @@ module Nt_path = Eio_utils.Nt_path
 
 module rec Dir : sig
   include Eio.Fs.Pi.DIR
-
   val v : label:string -> sandbox:bool -> string -> t
-
   val resolve : t -> string -> string
-  (** [resolve t path] returns the real path that should be used to access [path].
-      For sandboxes, this is [realpath path] (and it checks that it is within the sandbox).
-      For unrestricted access, this returns [path] unchanged.
-      @raise Eio.Fs.Permission_denied if sandboxed and [path] is outside of [dir_path]. *)
-
   val with_parent_dir : t -> string -> (Fd.t option -> string -> 'a) -> 'a
-  (** [with_parent_dir t path fn] runs [fn dir_fd rel_path],
-      where [rel_path] accessed relative to [dir_fd] gives access to [path].
-      For unrestricted access, this just runs [fn None path].
-      For sandboxes, it opens the parent of [path] as [dir_fd] and runs [fn (Some dir_fd) (basename path)]. *)
 end = struct
   type t = {
     dir_path : string;
     sandbox : bool;
     label : string;
+    root : Fd.t option;
     mutable closed : bool;
   }
 
+  let max_follows = 40  (* As Linux *)
+
+  let checked t path = function
+    | Some p -> p
+    | None -> raise @@ Eio.Fs.err (Permission_denied (Err.Outside_sandbox (path, t.dir_path)))
+
+  let relative t path =
+    if not (Nt_path.is_relative path) then raise @@ Eio.Fs.err (Permission_denied Err.Absolute_path);
+    checked t path (Nt_path.relative path)
+
+  (* Opened subtrees retain their authority as a handle. Reopening [dir_path]
+     would follow a junction installed on the sandbox itself. *)
+  let with_root t fn =
+    if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
+    match t.root with
+    | Some root -> fn root
+    | None ->
+      Switch.run @@ fun sw ->
+      let open Low_level in
+      (* [cwd] tracks chdir, but acquiring it must not follow a junction
+         installed on it or one of its ancestors. *)
+      let root = openat ~sw ~beneath:true t.dir_path Flags.Open.(generic_read + synchronise) Flags.Disposition.open_ Flags.Create.directory in
+      fn root
+
+  let open_at root ~sw ~follow path =
+    Low_level.openat ~sw ~dirfd:root ~beneath:true ~follow path
+
+  let link_target root path =
+    Switch.run @@ fun sw ->
+    let open Low_level in
+    reparse_target (open_at root ~sw ~follow:Open_link path Flags.Open.synchronise Flags.Disposition.open_ Flags.Create.empty)
+
+  (* Walking up from the leaf, the first prefix that opens has no link above it.
+     Skip the leaf when opening the link itself. *)
+  let find_link root ~follow path =
+    let rec go p rest =
+      match link_target root p with
+      | Some target -> Some (p, target, rest)
+      | None -> None
+      | exception Unix.Unix_error _ -> up p rest
+    and up p rest =
+      match Nt_path.split p with
+      | Some (parent, leaf) -> go parent (if rest = "" then leaf else Nt_path.join leaf rest)
+      | None -> None
+    in
+    if follow = Low_level.Open_link then up path "" else go path ""
+
+  (* Refuse kernel link traversal; resolve each link within the root and retry. *)
+  let open_beneath t ~sw ~follow path flags disp create =
+    with_root t @@ fun root ->
+    let root_path = lazy (Low_level.realpath_fd root) in
+    let rec go follows path =
+      match open_at root ~sw ~follow path flags disp create with
+      | fd -> fd
+      | exception (Unix.Unix_error _ as ex) ->
+        (* A file/directory mismatch can mask ELOOP at the leaf. *)
+        match find_link root ~follow path with
+        | Some (link, _, _) when link = path && disp = Low_level.Flags.Disposition.create ->
+          raise (Unix.Unix_error (EEXIST, "openat", path))
+        | Some (link, _, _) when link = path && follow = Low_level.Nofollow ->
+          raise (Unix.Unix_error (ELOOP, "openat", path))
+        | Some (link, target, rest) when follows > 0 ->
+          let target = checked t link (
+              Nt_path.resolve_link ~root:(Lazy.force root_path) ~parent:(Nt_path.dirname link) target
+            ) in
+          go (follows - 1) (if rest = "" then target else Nt_path.join target rest)
+        | _ -> raise ex
+    in
+    go max_follows path
+
+  let parent_and_leaf t path =
+    match Nt_path.split (relative t path) with
+    | Some parts -> parts
+    | None -> raise (Eio.Fs.err (Permission_denied (Err.Invalid_leaf path)))
+
+  let open_path t ~sw ~follow path flags disp create =
+    Err.run (fun () ->
+        if t.sandbox then open_beneath t ~sw ~follow (relative t path) flags disp create
+        else Low_level.openat ~sw ~follow path flags disp create
+      ) ()
+
+  let open_dir_fd t ~sw path =
+    let open Low_level in
+    open_path t ~sw ~follow:Follow path Flags.Open.(generic_read + synchronise) Flags.Disposition.open_ Flags.Create.directory
+
   let resolve t path =
     if t.sandbox then (
-      if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
-      if Nt_path.is_relative path then (
-        let dir_path = Err.run Low_level.realpath t.dir_path in
-        let full = Err.run Low_level.realpath (Nt_path.join dir_path path) in
-        let prefix = Nt_path.join dir_path "" in    (* [dir_path] and a trailing separator *)
-        if String.starts_with ~prefix full || full = dir_path then
-          full
-        else
-          raise @@ Eio.Fs.err (Permission_denied (Err.Outside_sandbox (full, dir_path)))
-      ) else (
-        raise @@ Eio.Fs.err (Permission_denied Err.Absolute_path)
-      )
-    ) else path
+      Switch.run @@ fun sw ->
+      let open Low_level in
+      let fd = open_path t ~sw ~follow:Follow path Flags.Open.synchronise Flags.Disposition.open_ Flags.Create.empty in
+      Err.run realpath_fd fd
+    )
+    else path
 
   let with_parent_dir t path fn =
     if t.sandbox then (
-      if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
-      let dir, leaf = Nt_path.dirname path, Nt_path.basename path in
-      if leaf = ".." then (
-        (* We could be smarter here and normalise the path first, but '..'
-           doesn't make sense for any of the current uses of [with_parent_dir]
-           anyway. *)
-        raise (Eio.Fs.err (Permission_denied (Err.Invalid_leaf leaf)))
-      ) else (
-        let dir = resolve t dir in
-        Switch.run @@ fun sw ->
-        let open Low_level in
-        let dirfd = Err.run (Low_level.openat ~sw ~follow:Nofollow dir Flags.Open.(generic_read + synchronise) Flags.Disposition.(open_)) Flags.Create.(directory) in
-        fn (Some dirfd) leaf
-      )
+      let parent, leaf = parent_and_leaf t path in
+      Switch.run @@ fun sw ->
+      let dirfd = open_dir_fd t ~sw parent in
+      fn (Some dirfd) leaf
     ) else fn None path
 
-  let v ~label ~sandbox dir_path = { dir_path; sandbox; label; closed = false }
-
-  (* Sandboxes use [O_NOFOLLOW] when opening files ([resolve] already removed any symlinks).
-     This avoids a race where symlink might be added after [realpath] returns.
-     TODO: Emulate [O_NOFOLLOW] here. *)
-  let opt_follow ~follow t = if not follow || t.sandbox then Low_level.Nofollow else Low_level.Follow
-
-  let rec open_generic t ~sw ~follow ~flags ~disp ~create path =
-    match
-      with_parent_dir t path @@ fun dirfd path ->
-      Low_level.openat ?dirfd ~follow:(opt_follow ~follow t) ~sw path flags disp create
-    with
-    | fd -> Flow.of_fd fd
-    (* This is the result of raising [caml_unix_error(ELOOP,...)] *)
-    | exception Unix.Unix_error ((ELOOP | EUNKNOWNERR 114), _, _) when follow ->
-      (* The leaf was a symlink (or we're unconfined and the main path changed, but ignore that).
-         A leaf symlink might be OK, but we need to check it's still in the sandbox.
-         todo: possibly we should limit the number of redirections here, like the kernel does. *)
-      let target = Unix.readlink (Nt_path.join t.dir_path path) in
-      let full_target = Nt_path.join (Nt_path.dirname path) target in
-      open_generic t ~sw ~follow ~flags ~disp ~create full_target
-    | exception Unix.Unix_error (code, name, arg) ->
-      raise (Err.v code name arg)
+  let v ~label ~sandbox dir_path = { dir_path; sandbox; label; root = None; closed = false }
 
   let open_in t ~sw ~follow path =
-    let flow =
-      open_generic ~sw ~follow t path
-        ~flags:(Low_level.Flags.Open.(generic_read + synchronise))
-        ~disp:Low_level.Flags.Disposition.(open_)
-        ~create:Low_level.Flags.Create.(non_directory)
+    let fd =
+      open_path t ~sw path
+        ~follow:(if follow then Low_level.Follow else Nofollow)
+        Low_level.Flags.Open.(generic_read + synchronise)
+        Low_level.Flags.Disposition.open_
+        Low_level.Flags.Create.non_directory
     in
-    (flow :> Eio.File.ro_ty Eio.Resource.t)
+    (Flow.of_fd fd :> Eio.File.ro_ty Eio.Resource.t)
 
   let open_out t ~sw ~follow ~append ~create path =
-    let _mode, disp =
+    let disp =
       match create with
-      | `Never            -> 0,    Low_level.Flags.Disposition.open_
-      | `If_missing  perm -> perm, Low_level.Flags.Disposition.open_if
-      | `Or_truncate perm -> perm, Low_level.Flags.Disposition.overwrite_if
-      | `Exclusive   perm -> perm, Low_level.Flags.Disposition.create
+      | `Never         -> Low_level.Flags.Disposition.open_
+      | `If_missing  _ -> Low_level.Flags.Disposition.open_if
+      | `Or_truncate _ -> Low_level.Flags.Disposition.overwrite_if
+      | `Exclusive   _ -> Low_level.Flags.Disposition.create
     in
     let flags =
       if append then Low_level.Flags.Open.(synchronise + append)
       else Low_level.Flags.Open.(generic_write + synchronise)
     in
-    let flow =
-      open_generic t ~sw ~follow ~flags ~disp path
-        ~create:Low_level.Flags.Create.(non_directory)
+    let fd =
+      open_path t ~sw path flags disp Low_level.Flags.Create.non_directory
+        ~follow:(if follow then Low_level.Follow else Nofollow)
     in
-    (flow :> Eio.File.rw_ty r)
+    (Flow.of_fd fd :> Eio.File.rw_ty r)
 
   let mkdir t ~perm path =
     with_parent_dir t path @@ fun dirfd path ->
@@ -148,39 +177,46 @@ end = struct
     with_parent_dir t path @@ fun dirfd path ->
     Err.run (Low_level.unlink ?dirfd ~dir:true) path
 
+  let close t =
+    t.closed <- true;
+    Option.iter Fd.close t.root
+
+  let open_dir t ~sw path =
+    Switch.check sw;
+    let label = Nt_path.basename path in
+    let root = open_dir_fd t ~sw path in
+    let dir_path = Err.run Low_level.realpath_fd root in
+    let d = { dir_path; sandbox = true; label; root = Some root; closed = false } in
+    Switch.on_release sw (fun () -> close d);
+    d
+
   let stat t ~follow path =
     Switch.run @@ fun sw ->
-    let open Low_level in
-    let flags = Low_level.Flags.Open.(generic_read + synchronise) in
-    let dis = Flags.Disposition.open_ in
-    let create = Flags.Create.empty in
-    let leaf = Nt_path.basename path in
     let fd =
-      (* "." and ".." are never symlinks, and [with_parent_dir] rejects ".." *)
-      if follow || leaf = "." || leaf = ".." then
-        Err.run (openat ~sw (resolve t path) flags dis) create
-      else
-        with_parent_dir t path @@ fun dirfd path ->
-        Err.run (openat ?dirfd ~follow:Open_link ~sw path flags dis) create
+      open_path t ~sw path
+        ~follow:(if follow then Low_level.Follow else Open_link)
+        Low_level.Flags.Open.(generic_read + synchronise)
+        Low_level.Flags.Disposition.open_
+        Low_level.Flags.Create.empty
     in
     Flow.Impl.stat fd
 
   let read_dir t path =
-    (* todo: need fdopendir here to avoid races *)
-    let path = resolve t path in
-    Err.run Low_level.readdir path
-    |> Array.to_list
+    Switch.run @@ fun sw ->
+    Err.run Low_level.readdir_fd (open_dir_fd t ~sw path) |> Array.to_list
 
   let with_dir_entries t path fn =
+    Switch.run @@ fun sw ->
+    let dir = open_dir t ~sw path in
     let entries =
-      read_dir t path
-      |> List.map (fun name ->
-          match stat ~follow:false t (Nt_path.join path name) with
+      with_root dir (Err.run Low_level.readdir_fd)
+      |> Array.map (fun name ->
+          match stat ~follow:false dir name with
           | info -> (info.kind, name)
           | exception Eio.Exn.Io _ -> (`Unknown, name)
         )
     in
-    fn (List.to_seq entries)
+    fn (Array.to_seq entries)
 
   let read_link t path =
     with_parent_dir t path @@ fun dirfd path ->
@@ -198,18 +234,31 @@ end = struct
       with_parent_dir new_dir new_path @@ fun new_dir new_path ->
       Err.run (Low_level.rename ?old_dir old_path ?new_dir) new_path
 
+  (* The link's file/directory type is fixed at creation. *)
   let symlink ~link_to t path =
+    let target = Err.run Low_level.symlink_target link_to in
     with_parent_dir t path @@ fun dirfd path ->
-    Err.run (Low_level.symlink ~link_to dirfd) path
+    let to_dir =
+      match (
+        (* Resolve from the physical parent, keeping type detection inside the sandbox. *)
+        let parent =
+          match dirfd with
+          | Some fd -> Err.run Low_level.realpath_fd fd
+          | None -> Err.run Low_level.realpath (Nt_path.dirname path)
+        in
+        let root =
+          if t.sandbox then Some (Err.run (fun () -> with_root t Low_level.realpath_fd) ())
+          else None
+        in
+        let target = checked t path (Nt_path.resolve_link ?root ~parent target) in
+        (stat t ~follow:true target).kind
+      ) with
+      | `Directory -> true
+      | _ | exception Eio.Io _ -> false
+    in
+    Err.run (Low_level.symlink_raw ~to_dir ~target dirfd) path
 
-  let close t = t.closed <- true
-
-  let open_subtree t ~sw path =
-    Switch.check sw;
-    let label = Nt_path.basename path in
-    let d = v ~label (resolve t path) ~sandbox:true in
-    Switch.on_release sw (fun () -> close d);
-    Eio.Resource.T (d, Handler.v)
+  let open_subtree t ~sw path = Eio.Resource.T (open_dir t ~sw path, Handler.v)
 
   let chmod t ~follow:_ ~perm path =
     with_parent_dir t path @@ fun dirfd path ->
