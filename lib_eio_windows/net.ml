@@ -14,7 +14,7 @@ let socket_domain_of = function
 
 module Listening_socket = struct
   type t = {
-    hook : Switch.hook;
+    hook : Switch.hook;                 (* Deletes the path, for Unix-domain sockets *)
     fd : Fd.t;
   }
 
@@ -25,7 +25,7 @@ module Listening_socket = struct
   let fd t = t.fd
 
   let close t =
-    Switch.remove_hook t.hook;
+    Switch.remove_hook ~run:true t.hook;
     Fd.close t.fd
 
   let accept t ~sw =
@@ -54,14 +54,14 @@ module Datagram_socket = struct
   type tag = [`Generic | `Unix]
 
   type t = {
-    hook : Switch.hook;
+    hook : Switch.hook;                 (* Deletes the path, for Unix-domain sockets *)
     fd : Fd.t;
   }
 
   let make ~hook fd = { hook; fd }
 
   let close t =
-    Switch.remove_hook t.hook;
+    Switch.remove_hook ~run:true t.hook;
     Fd.close t.fd
 
   let fd t = t.fd
@@ -121,7 +121,12 @@ let remove_on_release ~sw listen_addr =
   (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)
   match listen_addr with
   | `Unix path when String.length path > 0 && path.[0] <> Char.chr 0 ->
-    Switch.on_release_cancellable sw (fun () -> Unix.unlink path)
+    Switch.on_release_cancellable sw (fun () ->
+        try Unix.unlink path
+        with Unix.Unix_error _ ->
+          (* Ignore error: cleaning up the socket isn't essential, and maybe someone deleted it. *)
+          ()
+      )
   | _ ->
     Switch.null_hook
 

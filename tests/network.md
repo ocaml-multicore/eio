@@ -1224,3 +1224,52 @@ Datagrams:
 +Cleaned up: true
 - : unit = ()
 ```
+
+No error if the socket gets closed first:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Exn.Backend.show := true;
+  let net = Eio.Stdenv.net env in
+  let name = "test.sock" in
+  let path = env#cwd / name in
+  let addr = `Unix name in
+  let touch x = Eio.Path.save ~create:(`Exclusive 0o600) x "" in
+  Eio.Switch.run (fun sw ->
+     let server = Eio.Net.listen ~sw ~backlog:5 net addr in
+     Eio.Resource.close server;
+     traceln "Stream cleaned up: %b" (Eio.Path.kind ~follow:false path = `Not_found);
+     touch path;    (* Check we don't try to remove it now on switch end *)
+  );
+  Eio.Path.unlink path;
+  Eio.Switch.run (fun sw ->
+     let server = Eio.Net.datagram_socket ~sw net addr in
+     Eio.Resource.close server;
+     traceln "Datagram cleaned up: %b" (Eio.Path.kind ~follow:false path = `Not_found);
+     touch path;
+  );
+  Eio.Path.unlink path;;
++Stream cleaned up: true
++Datagram cleaned up: true
+- : unit = ()
+```
+
+No error if socket is removed while we're running:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  Eio.Exn.Backend.show := true;
+  let net = Eio.Stdenv.net env in
+  let name = "test.sock" in
+  let path = env#cwd / name in
+  let addr = `Unix name in
+  Eio.Switch.run (fun sw ->
+     let _server = Eio.Net.listen ~sw ~backlog:5 net addr in
+     Eio.Path.unlink path
+  );
+  Eio.Switch.run (fun sw ->
+     let _server = Eio.Net.datagram_socket ~sw net addr in
+     Eio.Path.unlink path
+  );;
+- : unit = ()
+```
