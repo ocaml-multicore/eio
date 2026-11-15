@@ -220,28 +220,28 @@ let test_argument_list_too_long env () =
       String.concat "" (List.init 17000 (Fun.const "\u{1f600}"));
     ]
 
-let tests env = [
-  "exit-status", `Quick, test_exit_status env;
-  "stdout", `Quick, test_stdout env;
-  "stderr", `Quick, test_stderr env;
-  "stdin", `Quick, test_stdin env;
-  "env", `Quick, test_env env;
-  "cwd", `Quick, test_cwd env;
-  "quoting", `Quick, test_quoting env;
-  "explicit-executable", `Quick, test_explicit_executable env;
-  "fds-above-2-rejected", `Quick, test_fds_above_2_rejected env;
-  "missing-std-fd-inherited", `Quick, test_missing_std_fd_inherited env;
-  "missing-cwd", `Quick, test_missing_cwd env;
-  "terminate", `Quick, test_terminate env;
-  "any-signal-terminates", `Quick, test_any_signal_terminates env;
-  "await-timeout", `Quick, test_await_timeout env;
-  "cwd-escape", `Quick, test_cwd_escape env;
-  "env-empty-entry", `Quick, test_env_empty_entry env;
-  "signal-after-exit", `Quick, test_signal_after_exit env;
-  "stop-on-switch-release", `Quick, test_stop_on_switch_release env;
-  "stop-on-cancel", `Quick, test_stop_on_cancel env;
-  "cancel-during-spawn", `Quick, test_cancel_during_spawn env;
-  "spawn-failure", `Quick, test_spawn_failure env;
-  "argument-list-too-long", `Quick, test_argument_list_too_long env;
-  "stress", `Slow, test_stress env;
+let tests () = [
+  "exit-status", `Quick, test_exit_status;
+  "stdout", `Quick, test_stdout;
+  "stderr", `Quick, test_stderr;
+  "stdin", `Quick, test_stdin;
+  "env", `Quick, test_env;
+  "cwd", `Quick, test_cwd;
+  "quoting", `Quick, test_quoting;
+  "explicit-executable", `Quick, test_explicit_executable;
+  "fds-above-2-rejected", `Quick, test_fds_above_2_rejected;
+  "missing-std-fd-inherited", `Quick, test_missing_std_fd_inherited;
+  "missing-cwd", `Quick, test_missing_cwd;
+  "terminate", `Quick, test_terminate;
+  "any-signal-terminates", `Quick, test_any_signal_terminates;
+  "await-timeout", `Quick, test_await_timeout;
+  "cwd-escape", `Quick, test_cwd_escape;
+  "env-empty-entry", `Quick, test_env_empty_entry;
+  "signal-after-exit", `Quick, test_signal_after_exit;
+  "stop-on-switch-release", `Quick, test_stop_on_switch_release;
+  "stop-on-cancel", `Quick, test_stop_on_cancel;
+  "cancel-during-spawn", `Quick, test_cancel_during_spawn;
+  "spawn-failure", `Quick, test_spawn_failure;
+  "argument-list-too-long", `Quick, test_argument_list_too_long;
+  "stress", `Slow, test_stress;
 ]

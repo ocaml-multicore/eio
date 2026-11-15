@@ -145,17 +145,17 @@ let test_unsupported_datagram env () =
   | _ -> Alcotest.fail "created an AF_UNIX datagram socket"
   | exception Eio.Io (_, _) -> ()
 
-let tests env = [
-  "unsupported datagram socket", `Quick, test_unsupported_datagram env;
-  "resolver service and error codes", `Quick, test_resolve env;
-  "tcp-ip4", `Quick, test_client_server env (`Tcp (Eio.Net.Ipaddr.V4.loopback, 8081));
-  "tcp-ip6", `Quick, test_client_server env (`Tcp (Eio.Net.Ipaddr.V6.loopback, 8081));
-  "unix", `Quick, test_client_server env (`Unix "eio-test.sock");
-  "abstract Unix addresses", `Quick, test_abstract_socket env;
-  "udp-ip4", `Quick, test_udp env Eio.Net.Ipaddr.V4.loopback;
-  "udp-ip6", `Quick, test_udp env Eio.Net.Ipaddr.V6.loopback;
-  "fds", `Quick, test_fd env Eio.Net.Ipaddr.V4.loopback;
-  "wrap-pipe", `Quick, test_wrap_socket `Pipe;
-  "wrap-socketpair", `Quick, test_wrap_socket `Socketpair;
-  "eio-socketpair", `Quick, test_eio_socketpair
+let tests () = [
+  "unsupported datagram socket", `Quick, test_unsupported_datagram;
+  "resolver service and error codes", `Quick, test_resolve;
+  "tcp-ip4", `Quick, (fun env -> test_client_server env (`Tcp (Eio.Net.Ipaddr.V4.loopback, 8081)));
+  "tcp-ip6", `Quick, (fun env -> test_client_server env (`Tcp (Eio.Net.Ipaddr.V6.loopback, 8081)));
+  "unix", `Quick, (fun env -> test_client_server env (`Unix "eio-test.sock"));
+  "abstract Unix addresses", `Quick, test_abstract_socket;
+  "udp-ip4", `Quick, (fun env -> test_udp env Eio.Net.Ipaddr.V4.loopback);
+  "udp-ip6", `Quick, (fun env -> test_udp env Eio.Net.Ipaddr.V6.loopback);
+  "fds", `Quick, (fun env -> test_fd env Eio.Net.Ipaddr.V4.loopback);
+  "wrap-pipe", `Quick, (fun _ -> test_wrap_socket `Pipe);
+  "wrap-socketpair", `Quick, (fun _ -> test_wrap_socket `Socketpair);
+  "eio-socketpair", `Quick, (fun _ -> test_eio_socketpair)
 ]
