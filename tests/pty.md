@@ -12,6 +12,7 @@ module Pty = Eio_unix.Pty
 let () = Eio.Exn.Backend.show := false
 
 let run fn =
+  if Sys.win32 then mdx_skip "POSIX pseudoterminals are not supported on Windows";
   Eio_main.run @@ fun env ->
   fn env
 ```

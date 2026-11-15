@@ -69,7 +69,7 @@
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
  (description "Selects an appropriate Eio backend for the current platform.")
  (depends
-  (mdx (and (>= 2.4.1) :with-test))
+  (mdx (and (>= 2.7.0) :with-test))
   (kcas (and (>= 0.3.0) :with-test))
   (yojson (and (>= 2.0.2) :with-test))
   (eio_linux (and

@@ -19,6 +19,7 @@ let () = Eio.Exn.Backend.show := false
 let ( / ) = Eio.Path.( / )
 
 let run ?clear:(paths = []) fn =
+  if Sys.win32 then mdx_skip "These examples require POSIX commands and process semantics";
   Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p)) paths;
@@ -252,7 +253,8 @@ let rec waitpid_with_retry flags pid =
 ```
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "This example requires /usr/bin/env";
+  Eio_main.run @@ fun env ->
   let p = Unix.(create_process "/usr/bin/env" [|"env"; "echo"; "hi"|] stdin stdout stderr) in
   Eio.Time.Mono.sleep env#mono_clock 0.01;
   waitpid_with_retry [] p |> snd;;

@@ -128,7 +128,8 @@ Exception: Eio__Time.Timeout.
     let t = Eio.Time.Timeout.seconds clock d in
     traceln "%g -> %a" d Eio.Time.Timeout.pp t
   in
-  show 0.000000001;
+  let tiny = Eio.Time.Timeout.seconds clock 0.000000001 in
+  assert (List.mem (Fmt.to_to_string Eio.Time.Timeout.pp tiny) ["1e-09s"; "1e-009s"]);
   show 0.01;
   show 0.1;
   show 2.;
@@ -137,7 +138,6 @@ Exception: Eio__Time.Timeout.
   show 120.;
   show (30. *. 60.);
   ;;
-+1e-09 -> 1e-09s
 +0.01 -> 10ms
 +0.1 -> 0.1s
 +2 -> 2s
