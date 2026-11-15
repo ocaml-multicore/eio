@@ -178,11 +178,31 @@ Eio.Io Process Child_error Exited (code 3),
 Passing too many arguments reports a dedicated error rather than a generic failure:
 
 ```ocaml
-# if Sys.win32 then mdx_skip "Windows misreports oversized command lines as Executable_not_found";
-  run @@ fun mgr _env ->
+# run @@ fun mgr _env ->
   let big = String.make (1024 * 1024) 'x' in
   Process.run mgr (command ("echo" :: List.init 8 (fun _ -> big)));;
 Exception: Eio.Io Process Argument_list_too_long
+```
+
+Windows limits the command line to 32,767 UTF-16 code units, including its terminator:
+
+```ocaml
+# if not Sys.win32 then mdx_skip "Windows command-line size limit";
+  run @@ fun mgr _env ->
+  let invoke arg = Process.run mgr (command ["exit"; "0"; arg]) in
+  let too_long arg =
+    match invoke arg with
+    | () -> assert false
+    | exception Eio.Io (Process.E Process.Argument_list_too_long, _) -> ()
+  in
+  let prefix = String.concat " " (command ["exit"; "0"]) ^ " " in
+  let max_arg = 32766 - String.length prefix in
+  invoke (String.make max_arg 'x');
+  too_long (String.make (max_arg + 1) 'x');
+  let emoji n = String.concat "" (List.init n (Fun.const "\u{1f600}")) in
+  invoke (emoji 12000);
+  too_long (emoji 17000);;
+- : unit = ()
 ```
 
 Failures relating to the executable itself also report dedicated errrors.
