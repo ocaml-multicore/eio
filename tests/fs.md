@@ -1922,7 +1922,7 @@ Exception: Failure "Simulated error".
 # Seek, truncate and sync
 
 ```ocaml
-# if Sys.win32 then mdx_skip "OCaml Windows Unix.LargeFile.lseek misreads boxed int64 offsets";
+# if Sys.win32 then mdx_skip "Windows Unix.LargeFile.lseek bug; fixed in OCaml trunk by ocaml/ocaml#15186";
   run @@ fun env ->
   Eio.Path.with_open_out (env#cwd / "seek-test") ~create:(`If_missing 0o700) @@ fun file ->
   Eio.File.truncate file (Int63.of_int 10);
