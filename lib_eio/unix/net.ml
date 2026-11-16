@@ -52,8 +52,10 @@ let getnameinfo (sockaddr : Eio.Net.Sockaddr.t) =
   in
   let sockaddr = sockaddr_to_unix sockaddr in
   Thread_pool.run_in_systhread ~label:"getnameinfo" (fun () ->
-    let Unix.{ni_hostname; ni_service} = Unix.getnameinfo sockaddr options in
-    (ni_hostname, ni_service))
+      match Unix.getnameinfo sockaddr options with
+      | {ni_hostname; ni_service} -> (ni_hostname, ni_service)
+      | exception Not_found -> raise (Eio.Net.err (Address_lookup_failed UNKNOWN))
+    )
 
 type t = [`Generic | `Unix] Eio.Net.ty r
 
