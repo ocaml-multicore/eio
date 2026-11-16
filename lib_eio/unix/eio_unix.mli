@@ -88,7 +88,9 @@ val set_signal : Sys.signal -> Sys.signal_behavior -> unit
     Specifically, it also notifies {!Private.Signal_fd} when a signal arrives,
     which backends should monitor.
 
-    See {{:https://github.com/ocaml/ocaml/issues/13189}} for details. *)
+    See {{:https://github.com/ocaml/ocaml/issues/13189}} for details.
+
+    @since 1.7 *)
 
 module System_info = System_info
 

@@ -1,4 +1,6 @@
-(** Provides information about the system from e.g. uname(2). *)
+(** Provides information about the system from e.g. uname(2).
+
+    @since 1.7 *)
 
 type t = {
   sysname : string;

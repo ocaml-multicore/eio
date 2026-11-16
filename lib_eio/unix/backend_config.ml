@@ -1,7 +1,9 @@
 (** Configuration settings to pass to {!Eio_main.run}.
 
     Unknown settings are ignored, so you can pass options for e.g. [Eio_linux.run] and they will
-    be ignored if [Eio_posix] is used instead. *)
+    be ignored if [Eio_posix] is used instead.
+
+    @since 1.7 *)
 
 (** {2 eio_linux} *)
 

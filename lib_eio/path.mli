@@ -297,4 +297,6 @@ val sync_dir : _ t -> unit
 (** [sync_dir t] transfers (flushes) all changes to directory [t] to the physical device,
     so that they will persist even if the computer crashes.
 
-    For files, use {!File.sync} instead. *)
+    For files, use {!File.sync} instead.
+
+    @since 1.7 *)

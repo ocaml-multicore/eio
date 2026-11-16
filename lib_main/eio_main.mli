@@ -20,4 +20,6 @@ val run : ?config:Eio_unix.Backend_config.t -> (Eio_unix.Stdenv.base -> 'a) -> '
 
     On recent-enough versions of Linux, it will use {!Eio_linux.run}.
     You can override this by setting the $EIO_BACKEND environment variable to
-    either "linux", "posix" or "windows". *)
+    either "linux", "posix" or "windows".
+
+    @param config Configuration settings to pass to the selected backend. Since 1.7. *)
