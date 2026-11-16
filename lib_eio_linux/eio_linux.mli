@@ -43,7 +43,7 @@ val run :
     For portable code, you should use {!Eio_main.run} instead, which will use this automatically
     if running on Linux with a recent-enough kernel version.
 
-    @param config   Configuration settings to use.
+    @param config   Configuration settings to use. Since 1.7.
     @param fallback Call this instead if io_uring is not available for some reason.
                     The argument is a message describing the problem (for logging).
                     The default simply raises an exception.

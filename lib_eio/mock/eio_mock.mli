@@ -102,13 +102,17 @@ module Flow : sig
 
   val trace_reads : string -> _ Eio.Flow.source -> Eio.Flow.source_ty r
   (** [trace_reads label s] wraps [s] to make a new source that traces reads
-      (including via [Read_source_buffer]). *)
+      (including via [Read_source_buffer]).
+
+      @since 1.7 *)
 
   val limit_reads : int list -> _ Eio.Flow.source -> Eio.Flow.source_ty r
   (** [limit_reads sizes s] wraps [s] to make a new source that limits the buffers
       passed to [single_read] or to the [Read_source_buffer] callback to the given sizes.
       e.g. [limit_reads [3; 2] s] ensures that the first read will get no more than 3 bytes.
-      Once [sizes] is exhausted, reads are unlimited. *)
+      Once [sizes] is exhausted, reads are unlimited.
+
+      @since 1.7 *)
 end
 
 (** Mock {!Eio.Net} networks and sockets. *)

@@ -63,7 +63,9 @@ module Fixed : sig
   val free : chunk -> unit
 
   val avail : unit -> int
-  (** [avail ()] returns the current number of free chunks. *)
+  (** [avail ()] returns the current number of free chunks.
+
+      @since 1.7 *)
 
   val use : fallback:(unit -> 'a) -> (chunk -> 'a) -> 'a
   (** [use ~fallback fn] runs [fn chunk] with a freshly allocated chunk and then frees it.
@@ -286,11 +288,15 @@ val send_msg : fd -> ?fds:fd list -> ?dst:Unix.sockaddr -> Cstruct.t list -> int
     (for unconnected sockets) and attaching FDs (for Unix-domain sockets). *)
 
 val recv_msg : fd -> Cstruct.t list -> Unix.sockaddr * int
-(** [recv_msg socket bufs] is like [readv socket bufs] but also returns the address of the sender. *)
+(** [recv_msg socket bufs] is like [readv socket bufs] but also returns the address of the sender.
+
+    @since 1.7 *)
 
 val recv_msg_with_fds : sw:Switch.t -> max_fds:int -> fd -> Cstruct.t list -> Unix.sockaddr * int * fd list
 (** [recv_msg_with_fds] is like [recv_msg] but also allows receiving up to [max_fds] file descriptors
-    (sent using SCM_RIGHTS over a Unix domain socket). *)
+    (sent using SCM_RIGHTS over a Unix domain socket).
+
+    @since 1.7 *)
 
 val setsockopt : fd -> 'a Eio.Net.Sockopt.t -> 'a -> unit
 (** [setsockopt fd opt v] sets socket option [opt] to value [v] on file descriptor [fd]. *)

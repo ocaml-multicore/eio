@@ -1,3 +1,97 @@
+## v1.7
+
+Breaking changes:
+
+- Before Eio 1.6, there was no `Eio_unix.File` and so
+  users might have used `Eio_unix.Net.import_socket_stream` on e.g. files and pipes as a work-around.
+  That no longer works and will result in an error, e.g.
+  `Eio.Io Unix_error (Socket operation on non-socket, "send_msg", "")`.
+
+New features:
+
+- Add `Eio.Fiber.List.partition_map` (@kentookura @avsm #927).  
+  Concurrent version of `List.partition_map`.
+
+- Add `Eio.Switch.remove_hook ~run:true` (@talex5 #972).  
+  Removing a hook and running it at the same time simplifies some clean-up code.
+
+- Add `Eio_unix.System_info` (@talex5 @avsm #952 #969).  
+  Provides access to OS name, version, etc.
+
+- Add `Eio_unix.Backend_config` and disable fixed buffers by default (@talex5 #960, reported by @avsm and @GongYuanCaiJi).  
+  Fixed buffers are a minor optimisation on eio_linux, but they consume locked memory
+  and can trigger a bug in old versions of ZFS. You can use `Backend_config` to turn them
+  back on if desired.
+
+- Add `Eio_unix.set_signal` (@talex5 @samoht #956).  
+  This is a work-around for [ocaml/ocaml#13189](https://github.com/ocaml/ocaml/issues/13189),
+  which can cause OCaml programs to miss signals.
+
+- Add `Path.sync_dir` (@talex5 #943, requested by @samoht).  
+  Ensures changes to directories will survive a crash.
+
+Bugs:
+
+- eio_posix: don't let a trailing slash follow symlinks out of the sandbox (@avsm @talex5 #967, reported by @samoht).
+
+- Fix cleanup when closing Unix-domain sockets (@talex5 @avsm #971 #977, reported by @samoht).
+
+- `Eio.Switch.run`: record error before cancelling daemon fibers (@vog @talex5 #978).  
+  When a daemon fiber was cancelled it was supposed to get a `Cancelled cause` exception,
+  but `cause` could be `Exit` rather than the actual cause of the cancellation.
+
+- Wrap `Not_found` exception from `Unix.getnameinfo` (@talex5 #980, reported by @samoht, reviewed by @avsm).
+
+Windows:
+
+- Support symlinks and junctions without sandbox escapes (@avsm #968).
+
+- Process spawning support (@avsm #936, reviewed by @talex5).
+
+- nt_path: follow Win32 normalisation and add `to_win32` and `beneath` (@avsm #947, reviewed by @talex5).
+
+Linux:
+
+- Update to new uring API to fix Unix socket problem (@talex5 #966, reported by @samoht, reviewed by @avsm).  
+  Fixes problems with Unix-domain datagram sockets.
+
+- Add `Eio_linux.Low_level.Fixed.avail` (@talex5 #940).
+
+Generic POSIX:
+
+- eio_posix: use `MSG_DONTWAIT` for sockets (@talex5 #951).  
+  Always use `recvmsg` and `sendmsg` on sockets, and always set the `MSG_DONTWAIT` flag when doing so.
+  This is useful for sockets shared with another process,
+  where the other process could change the blocking behaviour of the socket while we're using it.
+
+- eio_posix: retry the wake-up pipe on `EINTR` (@jeong-sik #957, reviewed by @talex5).  
+  On Darwin, reading from a non-blocking pipe with data can still return `EINTR`.
+
+Build/test fixes:
+
+- Skip `chown` tests if opam sandbox blocks them (@talex5 #955).
+
+- Bump minimum OCaml version to 5.4 and identify thread pool (@talex5 #949).  
+  Eio thread pools are now named, for debugging.
+
+- Skip uring tests if uring isn't available (@talex5 #945, reviewed by @avsm).
+
+- Split up file and socket flows (@talex5 #950, reviewed by @avsm).  
+  Backends now use `file_handler` or `stream_handler` as appropriate.
+
+Performance:
+
+- Use `Read_source_buffer` optimisation in `Flow.Pi.simple_copy` (@talex5 #954).  
+  Before, we always allocated a buffer, read from the source into the buffer, and then wrote it to the destination.
+  But if the source supports `Read_source_buffer` then we can copy from the source directly, which is more efficient.
+  eio_posix already did this optimisation, but it makes more sense to have it in the main flow copy logic.
+  This also adds `Eio_mock.Flow.trace_reads` and`limit_reads` for testing flows,
+  and removes `Eio_mock.Flow.set_copy_method`.
+
+Documentation:
+
+- `Eio.Net.run_server`: add note about running public servers (@talex5 #944, suggested by @vog).
+
 ## v1.6
 
 New features:

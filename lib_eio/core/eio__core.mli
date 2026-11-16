@@ -117,7 +117,7 @@ module Switch : sig
       This function is thread-safe (but not signal-safe).
 
       @param run If [true], and the hook was successfully removed, also run it
-                 (in the current fiber). The default is [false]. *)
+                 (in the current fiber). The default is [false]. Since 1.7. *)
 
   val remove_hook : ?run:bool -> hook -> unit
   (** [remove_hook h] is [ignore (try_remove_hook h)].
