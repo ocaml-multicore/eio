@@ -88,7 +88,10 @@ let connect fd addr =
   try
     Fd.use_exn "connect" fd (fun fd -> Unix.connect fd addr)
   with
-  | Unix.Unix_error ((EINTR | EAGAIN | EWOULDBLOCK | EINPROGRESS), _, _) ->
+  | Unix.Unix_error ((EINTR | EINPROGRESS), _, _) ->
+    (* Note: don't match EAGAIN here; that means that the backlog is full (for
+       Unix-domain sockets) or "insufficient entries in the routing cache", not
+       that we're in the process of connecting. *)
     await_writable "connect" fd;
     match Fd.use_exn "connect" fd Unix.getsockopt_error with
     | None -> ()
