@@ -166,8 +166,13 @@ end = struct
     (Flow.of_fd fd :> Eio.File.rw_ty r)
 
   let mkdir t ~perm path =
-    with_parent_dir t path @@ fun dirfd path ->
-    Err.run (Low_level.mkdir ?dirfd ~mode:perm) path
+    if t.sandbox && relative t path = "" then (
+      with_root t @@ fun root ->
+      Fd.use_exn "mkdir" root (fun _ -> raise (Err.v Unix.EEXIST "mkdir" path))
+    ) else (
+      with_parent_dir t path @@ fun dirfd path ->
+      Err.run (Low_level.mkdir ?dirfd ~mode:perm) path
+    )
 
   let unlink t path =
     with_parent_dir t path @@ fun dirfd path ->

@@ -228,6 +228,45 @@ let test_mkdirs env () =
     try_mkdirs (cwd / ".." / "outside")
   with Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ()
 
+let test_mkdir_dot env () =
+  let cwd = Eio.Stdenv.cwd env in
+  let check dir =
+    List.iter (fun leaf ->
+        let path = dir / leaf in
+        List.iter (fun create ->
+            match create ~perm:0o700 path with
+            | () -> Alcotest.fail "mkdir of an existing directory succeeded"
+            | exception Eio.Io (Eio.Fs.E (Already_exists _), _) -> ()
+          ) [Path.mkdir; Path.mkdirs ~exists_ok:false];
+        Path.mkdirs ~exists_ok:true ~perm:0o700 path
+      ) [""; "."; "././"; ".\\."];
+    List.iter (fun fn ->
+        match fn () with
+        | () -> Alcotest.fail "invalid leaf or sandbox escape was accepted"
+        | exception Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ()
+      ) [
+      (fun () -> Path.mkdir ~perm:0o700 (dir / ".."));
+      (fun () -> Path.mkdirs ~exists_ok:true ~perm:0o700 (dir / ".."));
+      (fun () -> Path.unlink (dir / "."));
+      (fun () -> Path.rmdir (dir / "."));
+      (fun () -> Path.rename (dir / ".") (dir / "moved"));
+    ]
+  in
+  check cwd;
+  let root = cwd / "mkdir-dot" in
+  Path.mkdir ~perm:0o700 root;
+  Fun.protect ~finally:(fun () -> Path.rmtree root) @@ fun () ->
+  let closed = Switch.run (fun sw ->
+      let dir = Path.open_subtree ~sw root in
+      check dir;
+      Path.mkdirs ~perm:0o700 (dir / "./nested////child");
+      Alcotest.(check bool) "nested directory" true (Path.is_directory (dir / "nested/child"));
+      dir
+    ) in
+  match Path.mkdir ~perm:0o700 (closed / ".") with
+  | () -> Alcotest.fail "closed directory was accepted"
+  | exception Invalid_argument _ -> ()
+
 let test_symlink env () =
   (*
     Important note: assuming that neither "another" nor
@@ -1145,6 +1184,7 @@ let tests env = [
   "failing-unlink", `Quick, try_failing_unlink env;
   "rmdir", `Quick, test_remove_dir env;
   "mkdirs", `Quick, test_mkdirs env;
+  "mkdir-dot", `Quick, test_mkdir_dot env;
   "fs-absolute-read", `Quick, test_fs_absolute_read env;
   "fs-absolute-write", `Quick, test_fs_absolute_write env;
   "fs-absolute-unlink", `Quick, test_fs_absolute_unlink env;
