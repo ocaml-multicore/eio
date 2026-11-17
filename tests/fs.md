@@ -1326,22 +1326,24 @@ An error from the underlying directory, not the sandbox:
 - : unit = ()
 ```
 
-Can use `fs` to access absolute paths:
+Can use `fs` to access absolute paths, but `cwd` rejects them even for files
+inside the current directory:
 
 ```ocaml
-# if Sys.win32 then mdx_skip "The Windows null device is not an absolute filesystem path";
-  run @@ fun env ->
+# run ~clear:["absolute-path.txt"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let fs = Eio.Stdenv.fs env in
-  let b = Buffer.create 10 in
-  Path.with_open_in (fs / Filename.null) (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));
-  traceln "Read %S and got %S" Filename.null (Buffer.contents b);
-  traceln "Trying with cwd instead fails:";
-  Path.with_open_in (cwd / Filename.null) (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));;;
-+Read "/dev/null" and got ""
-+Trying with cwd instead fails:
-Exception: Eio.Io Fs Permission_denied _,
-  opening <cwd:/dev/null>
+  let path = Filename.concat (Sys.getcwd ()) "absolute-path.txt" in
+  Path.save ~create:(`Exclusive 0o600) (cwd / "absolute-path.txt") "hello";
+  Fun.protect ~finally:(fun () -> Path.unlink (cwd / "absolute-path.txt")) @@ fun () ->
+  traceln "Read %S through fs" (Path.load (fs / path));
+  match Path.load (cwd / path) with
+  | _ -> failwith "cwd accepted an absolute path"
+  | exception Eio.Io (Eio.Fs.E (Eio.Fs.Permission_denied _), _) ->
+    traceln "cwd rejected the absolute path";;
++Read "hello" through fs
++cwd rejected the absolute path
+- : unit = ()
 ```
 
 Symlinking and sandboxing:
