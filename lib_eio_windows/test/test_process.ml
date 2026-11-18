@@ -189,6 +189,17 @@ let test_spawn_failure env () =
   | _ -> Alcotest.fail "spawn of a nonexistent executable should fail"
   | exception Eio.Io (Process.E (Process.Executable_not_found _), _) -> ()
 
+let test_argument_list_too_long env () =
+  Switch.run @@ fun sw ->
+  List.iter (fun arg ->
+      match Process.spawn ~sw (process env) ["cmd"; "/c"; "exit"; "0"; arg] with
+      | _ -> Alcotest.fail "oversized command line should fail"
+      | exception Eio.Io (Process.E Process.Argument_list_too_long, _) -> ()
+    ) [
+      String.make 32768 'x';
+      String.concat "" (List.init 17000 (Fun.const "\u{1f600}"));
+    ]
+
 let tests env = [
   "exit-status", `Quick, test_exit_status env;
   "stdout", `Quick, test_stdout env;
@@ -210,5 +221,6 @@ let tests env = [
   "stop-on-switch-release", `Quick, test_stop_on_switch_release env;
   "stop-on-cancel", `Quick, test_stop_on_cancel env;
   "spawn-failure", `Quick, test_spawn_failure env;
+  "argument-list-too-long", `Quick, test_argument_list_too_long env;
   "stress", `Slow, test_stress env;
 ]

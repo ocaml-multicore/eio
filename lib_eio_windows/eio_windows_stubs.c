@@ -503,6 +503,11 @@ CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
   caml_unix_check_path(v_cmdline, "execve");
   if (Is_some(v_cwd)) caml_unix_check_path(Field(v_cwd, 0), "execve");
   cmdline = caml_stat_strdup_to_utf16(String_val(v_cmdline));
+  /* CreateProcessW's limit includes the terminating UTF-16 NUL. */
+  if (wcslen(cmdline) >= 32767) {
+    caml_stat_free(cmdline);
+    caml_unix_error(E2BIG, "execve", v_cmdline);
+  }
   if (Is_some(v_cwd)) cwd = caml_stat_strdup_to_utf16(String_val(Field(v_cwd, 0)));
   env_block = caml_stat_char_array_to_utf16(String_val(v_env), caml_string_length(v_env), NULL);
 
