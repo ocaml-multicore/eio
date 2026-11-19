@@ -126,7 +126,8 @@ Copying from src using `Read_source_buffer`:
 Writing to and reading from a pipe.
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "Anonymous pipes are not supported yet on Windows (eio#929)";
+  Eio_main.run @@ fun env ->
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   let msg = "Hello, world" in
@@ -147,7 +148,8 @@ Writing to and reading from a pipe.
 Make sure we don't crash on SIGPIPE:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "Anonymous pipes are not supported yet on Windows (eio#929)";
+  Eio_main.run @@ fun env ->
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   Eio.Flow.close r;
@@ -164,7 +166,8 @@ Opening a FIFO with no writer should not block,
 but reading from it will wait for the writer:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "POSIX FIFOs are not supported on Windows";
+  Eio_main.run @@ fun env ->
   let ( / ) = Eio.Path.( / ) in
   let path = env#cwd / "fifo" in
   Eio.Path.unlink ~missing_ok:true path;
@@ -197,7 +200,8 @@ but reading from it will wait for the writer:
 Sending a very long vector over a flow should just send it in chunks, not fail:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "Anonymous pipes are not supported yet on Windows (eio#929)";
+  Eio_main.run @@ fun env ->
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   let a = Cstruct.of_string "abc" in
@@ -221,7 +225,8 @@ Sending a very long vector over a flow should just send it in chunks, not fail:
 Even if a fiber is already ready to run, we still perform IO from time to time:
 
 ```ocaml
-# run @@ fun _ ->
+# if Sys.win32 then mdx_skip "Anonymous pipes are not supported yet on Windows (eio#929)";
+  run @@ fun _ ->
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
   let rec spin () = Fiber.yield (); spin () in

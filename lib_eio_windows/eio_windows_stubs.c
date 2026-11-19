@@ -21,6 +21,13 @@
 #include <caml/bigarray.h>
 #include <caml/osdeps.h>
 
+/* unixsupport.h uses plain extern; cross-DLL calls need indirect imports. */
+CAMLextern value caml_win32_alloc_handle(HANDLE);
+CAMLextern void caml_win32_maperr(DWORD);
+CAMLextern void caml_unix_check_path(value, const char *);
+CAMLnoret CAMLextern void caml_unix_error(int, const char *, value);
+CAMLnoret CAMLextern void caml_uerror(const char *, value);
+
 #ifdef ARCH_SIXTYFOUR
 #define Int63_val(v) Long_val(v)
 #else

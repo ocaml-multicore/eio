@@ -9,7 +9,8 @@
 
 Prove we can catch sigint:
 ```ocaml
-# Eio_main.run @@ fun _stdenv ->
+# if Sys.win32 then mdx_skip "Unix.fork is not supported on Windows";
+  Eio_main.run @@ fun _stdenv ->
   let interrupted = Eio.Condition.create () in
   let old = Sys.signal Sys.sigint
       (Signal_handle (fun num -> if num = Sys.sigint then Eio.Condition.broadcast interrupted))
@@ -60,7 +61,8 @@ let rec await_signal_ready fd =
 ```
 
 ```ocaml
-# Eio_unix.set_signal Sys.sigint (Signal_handle ignore);
+# if Sys.win32 then mdx_skip "Signal FDs are not supported on Windows";
+  Eio_unix.set_signal Sys.sigint (Signal_handle ignore);
   let fd = Signal_fd.get_singleton () in
   Signal_fd.ack fd;     (* Ensure clear to start *)
   let thread = Thread.create (fun () -> Unix.kill (Unix.getpid ()) Sys.sigint) () in
