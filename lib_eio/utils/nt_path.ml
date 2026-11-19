@@ -179,6 +179,7 @@ let to_nt ~cwd p =
   let resolve vol base = qualify (vol ^ normalise (base ^ "\\" ^ rest)) in
   match classify p with
   | `Verbatim -> qualify p
+  | `Device when rest = "" -> qualify vol
   | `Relative -> resolve cwd_vol cwd_rest
   | `Rooted -> resolve cwd_vol ""
   | `Drive_relative when String.uppercase_ascii vol = String.uppercase_ascii cwd_vol -> resolve cwd_vol cwd_rest

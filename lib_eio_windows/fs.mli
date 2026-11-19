@@ -3,9 +3,9 @@
     {2 Paths}
 
     Programs normally use Win32 paths ([C:\a\b], [\\server\share\a]), which Eio
-    converts to the NT paths that the kernel uses ([\??\C:\a\b]) itself, so that it
-    can open files relative to a directory handle. See {!Eio_utils.Nt_path} for the
-    details, including verbatim ([\\?\...]) paths and reserved names such as [NUL].
+    resolves using Win32 rules for unrestricted [fs] access, including DOS devices
+    such as [NUL]. Verbatim paths ([\\?\...]) and names relative to sandbox
+    directory handles are literal. See {!Eio_utils.Nt_path} for the path syntax.
 
     {2 Sandboxes}
 
