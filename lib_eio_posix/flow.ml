@@ -70,6 +70,7 @@ module File = struct
     match Low_level.readv t [| buf |] with
     | 0 -> raise End_of_file
     | got -> got
+    | exception (Unix.Unix_error (EIO,_,_)) when Eio_unix.Fd.use_exn "isatty" t Unix.isatty -> raise End_of_file
     | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.v code name arg)
 
   let read_methods = []
