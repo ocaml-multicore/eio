@@ -13,6 +13,32 @@ module Unix_perm : sig
   (** This is the same as {!Unix.file_perm}, but avoids a dependency on [Unix]. *)
 end
 
+(** Device numbers. *)
+module Dev : sig
+  type t = private int64
+  (** An opaque identifier for a device, as the OS reports it.
+      On Unix, {!Eio_unix.Dev} can split it into major and minor numbers.
+      On Windows, it is the volume serial number which has no such structure.
+
+      @since 1.5 *)
+
+  val of_int64 : int64 -> t
+  (** [of_int64 x] is the device with raw value [x]. *)
+
+  val to_int64 : t -> int64
+  (** [to_int64 t] is the raw value of [t], as the OS represents it. *)
+
+  val equal : t -> t -> bool
+  (** [equal a b] is [true] if [a] and [b] identify the same device. *)
+
+  val compare : t -> t -> int
+  (** [compare a b] orders device numbers arbitrarily but consistently. *)
+
+  val pp : t Fmt.t
+  (** [pp] formats the raw value in hex.
+      Use {!Eio_unix.Dev.pp} to get the Unix [major:minor] form. *)
+end
+
 (** Portable file stats. *)
 module Stat : sig
 
@@ -32,14 +58,15 @@ module Stat : sig
   (** Pretty printer for {!type-kind}. *)
 
   type t = {
-    dev : Int64.t;              (** Device containing the filesystem where the file resides. *)
+    dev : Dev.t;                (** Device containing the filesystem where the file resides. *)
     ino : Int64.t;              (** Inode number. *)
     kind : kind;                (** File type. *)
     perm : Unix_perm.t;         (** Permissions (mode). *)
     nlink : Int64.t;            (** Number of hard links. *)
     uid : Int64.t;              (** User ID of owner. *)
     gid : Int64.t;              (** Group ID of owner. *)
-    rdev : Int64.t;             (** Device's ID (if this is a device). *)
+    rdev : Dev.t option;        (** The device this refers to, if [kind] is [`Character_special]
+                                    or [`Block_device]. Always [None] otherwise or on Windows. *)
     size : Optint.Int63.t;      (** Total size in bytes. *)
     blksize : Int64.t;          (** Preferred block size for efficient filesystem I/O. *)
     blocks : Int64.t;           (** Number of 512-byte blocks allocated (disk usage is [blocks * 512]). *)
