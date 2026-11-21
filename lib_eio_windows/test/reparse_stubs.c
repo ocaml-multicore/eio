@@ -67,3 +67,13 @@ CAMLprim value caml_test_reopen_for_delete(value v_fd)
   Handle_val(fd) = h;
   CAMLreturn(fd);
 }
+
+CAMLprim value caml_eio_test_handle_count(value unit)
+{
+  DWORD count;
+  if (!GetProcessHandleCount(GetCurrentProcess(), &count)) {
+    caml_win32_maperr(GetLastError());
+    uerror("GetProcessHandleCount", Nothing);
+  }
+  return Val_long(count);
+}

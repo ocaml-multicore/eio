@@ -63,6 +63,11 @@ let process_handler = Eio.Process.Pi.process (module Process)
 let process t = Eio.Resource.T (t, process_handler)
 
 module Impl = struct
+  let stdio_compatible raw =
+    match File_io.kind raw with
+    | File_io.Synchronous | File_io.Synchronous_file | File_io.Socket -> true
+    | File_io.File | File_io.Append_file | File_io.Pipe -> false
+
   module T = struct
     type t = unit
 
@@ -97,6 +102,8 @@ module Impl = struct
         Fd.use_exn "stdin" stdin_fd @@ fun h0 ->
         Fd.use_exn "stdout" stdout_fd @@ fun h1 ->
         Fd.use_exn "stderr" stderr_fd @@ fun h2 ->
+        if not (stdio_compatible h0 && stdio_compatible h1 && stdio_compatible h2) then
+          invalid_arg "spawn_unix: standard handles must support synchronous IO";
         Fiber.check ();
         Switch.check sw;
         eio_spawn cwd env h0 h1 h2 cmdline
@@ -119,13 +126,76 @@ module Impl = struct
 
   include Eio_unix.Process.Make_mgr (T)
 
+  let pipe () ~sw =
+    Switch.check sw;
+    let r, w = Unix.pipe ~cloexec:true () in
+    let wrap fd = Flow.of_fd (Fd.of_unix ~sw ~blocking:true ~close_unix:true fd) in
+    wrap r, wrap w
+
+  let copy_stdin source sink =
+    let buf = Cstruct.create 4096 in
+    let rec copy () =
+      match Eio.Flow.single_read source buf with
+      | exception End_of_file -> ()
+      | n ->
+        match Eio.Flow.write sink [Cstruct.sub buf 0 n] with
+        | () -> copy ()
+        | exception Eio.Io (Eio.Net.E (Connection_reset _), _) -> ()
+    in
+    copy ()
+
   let spawn v ~sw ?cwd ?stdin ?stdout ?stderr ?env ?executable args =
     let executable =
       match executable, args with
       | Some x, _ | None, x :: _ -> x
       | None, [] -> invalid_arg "Arguments list is empty and no executable given!"
     in
-    spawn v ~sw ?cwd ?stdin ?stdout ?stderr ?env ~executable args
+    Switch.check sw;
+    Switch.run @@ fun setup ->
+    let forwards = ref [] in
+    let prepare ~input flow forward =
+      let fd = Eio_unix.Resource.fd_opt flow in
+      match fd with
+      | Some fd when Fd.use_exn "spawn" fd stdio_compatible -> flow
+      | _ ->
+        let r, w = Iocp.pipe ~read_async:(not input) ~write_async:input () in
+        let child, parent = if input then r, w else w, r in
+        let child = Fd.of_unix ~sw:setup ~blocking:true ~close_unix:true child in
+        let cleanup = Switch.on_release_cancellable setup (fun () -> Unix.close parent) in
+        let start process =
+          let run borrowed =
+            Switch.run @@ fun sw ->
+            Switch.remove_hook cleanup;
+            let wrap ~close_unix fd = Flow.of_fd (Fd.of_unix ~sw ~blocking:false ~close_unix fd) in
+            let parent = wrap ~close_unix:true parent in
+            let flow = match borrowed with None -> flow | Some fd -> wrap ~close_unix:false fd in
+            forward process flow parent
+          in
+          (* Take the borrow before the caller can close its stream. *)
+          match fd with
+          | None -> run None
+          | Some fd -> Fd.use_exn "stdio forwarding" fd (fun raw -> run (Some raw))
+        in
+        forwards := start :: !forwards;
+        Flow.of_fd child
+    in
+    let input source =
+      prepare ~input:true (source :> Eio.Flow.source_ty r) (fun process source sink ->
+          Fiber.first
+            (fun () -> copy_stdin source sink)
+            (fun () -> ignore (Eio.Process.await process)))
+    in
+    let output sink =
+      prepare ~input:false (sink :> Eio.Flow.sink_ty r) (fun _ sink source -> Eio.Flow.copy source sink)
+    in
+    let stdin = Option.map input stdin in
+    let stdout = Option.map output stdout and stderr = Option.map output stderr in
+    let process = spawn v ~sw ?cwd ?stdin ?stdout ?stderr ?env ~executable args in
+    List.iter (fun start ->
+        Fiber.fork ~sw (fun () -> start process);
+        Switch.check sw
+      ) (List.rev !forwards);
+    process
 end
 
 let mgr : Eio_unix.Process.mgr_ty r =

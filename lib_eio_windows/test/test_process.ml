@@ -9,7 +9,6 @@ let status = Alcotest.of_pp Process.pp_status
 let std_fds =
   Eio_unix.Fd.[ 0, stdin, `Blocking; 1, stdout, `Blocking; 2, stderr, `Blocking ]
 
-(* Anonymous pipes dont work on Windows yet (#929), so the tests pass files to the child *)
 let with_tmp env name fn =
   let path = Eio.Path.(Eio.Stdenv.cwd env / name) in
   Fun.protect ~finally:(fun () -> Eio.Path.unlink path ~missing_ok:true) @@ fun () ->

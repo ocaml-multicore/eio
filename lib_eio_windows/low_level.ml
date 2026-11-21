@@ -347,9 +347,8 @@ let ftruncate fd len =
   Unix.LargeFile.ftruncate fd (Optint.Int63.to_int64 len)
 
 let pipe ~sw =
-  let unix_r, unix_w = Unix.pipe ~cloexec:true () in
+  Switch.check sw;
+  let unix_r, unix_w = Iocp.pipe () in
   let r = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_r in
   let w = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_w in
-  Unix.set_nonblock unix_r;
-  Unix.set_nonblock unix_w;
   r, w

@@ -3,4 +3,4 @@
   (package eio_windows)
   (build_if (= %{os_type} "Win32"))
   (foreign_stubs (language c) (names reparse_stubs))
-  (libraries alcotest kcas eio.mock eio_windows))
+  (libraries alcotest kcas eio.mock eio_windows iocp))
