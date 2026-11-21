@@ -42,13 +42,14 @@ let socketpair ~sw ~domain ~protocol ty wrap () =
 (* Run an event loop in the current domain, using [fn x] as the root fiber. *)
 let run_event_loop fn x =
   let open Effect.Deep in
-  let pipe_wait fd () =
-    Readiness.Pipe.await ~sleep:(Eio.Time.Mono.sleep Time.mono_clock) fd
+  let pipe_wait direction fd () =
+    Readiness.Pipe.await ~sleep:(Eio.Time.Mono.sleep Time.mono_clock) direction fd
   in
   let extra_effects : _ effect_handler = {
     effc = fun (type a) (e : a Effect.t) : ((a, unit) continuation -> unit) option ->
       match e with
-      | Eio_unix.Private.Await_readable fd when Readiness.Pipe.is_pipe fd -> Some (handle (pipe_wait fd))
+      | Eio_unix.Private.Await_readable fd when Readiness.Pipe.is_pipe fd -> Some (handle (pipe_wait `R fd))
+      | Eio_unix.Private.Await_writable fd when Readiness.Pipe.is_pipe fd -> Some (handle (pipe_wait `W fd))
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k Time.mono_clock)
       | Eio_unix.Private.Import_file fd -> Some (fun k ->
           continue k (Flow.of_fd fd :> Eio_unix.File.rw_ty r))

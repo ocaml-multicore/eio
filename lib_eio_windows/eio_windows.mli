@@ -4,7 +4,9 @@
 
     An explicit pipe readiness wait uses a duplicate until the current Windows
     query finishes. A simultaneous synchronous operation can delay its release
-    beyond cancellation.
+    beyond cancellation. [Eio_unix.await_writable] raises [Unix.Unix_error]
+    with [EOPNOTSUPP] when Windows reports zero pipe quota. Both a full buffer
+    and a pending peer read can produce this result.
 
     Cancelling a synchronous pipe write can leave a prefix at the reader.
     Windows does not report the length of that prefix.

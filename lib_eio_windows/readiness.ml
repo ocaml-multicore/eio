@@ -126,13 +126,13 @@ let create ~sockets =
 module Pipe = struct
   type observation
   external is_pipe : Unix.file_descr -> bool = "caml_eio_windows_is_pipe" [@@noalloc]
-  external start : Unix.file_descr -> observation = "caml_eio_windows_start_pipe_probe"
+  external start : Unix.file_descr -> bool -> observation = "caml_eio_windows_start_pipe_probe"
   external result : observation -> int = "caml_eio_windows_pipe_probe_result"
   external release : observation -> unit = "caml_eio_windows_release_pipe_probe"
 
-  let await ~sleep fd =
+  let await ~sleep direction fd =
     let rec poll () =
-      let probe = start fd in
+      let probe = start fd (direction = `W) in
       let rec wait () =
         match result probe with
         | -1 -> sleep 0.001; wait ()

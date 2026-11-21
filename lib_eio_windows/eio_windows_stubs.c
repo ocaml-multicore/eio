@@ -698,7 +698,7 @@ CAMLprim value caml_eio_windows_is_pipe(value fd)
 struct pipe_probe {
   struct pipe_probe *next;
   HANDLE file;
-  BOOL started, ready;
+  BOOL write, started, ready;
   DWORD error;
   LONG refs, done;
 };
@@ -766,14 +766,24 @@ static VOID CALLBACK observe_pipe(PTP_CALLBACK_INSTANCE instance, void *arg)
   p->started = TRUE;
   ReleaseSRWLockExclusive(&pipe_probes_lock);
   if (InterlockedCompareExchange(&p->refs, 0, 0) > 1) {
-    peek_pipe(p);
+    if (p->write) {
+      IO_STATUS_BLOCK io;
+      FILE_PIPE_LOCAL_INFORMATION info;
+      NTSTATUS s = NtQueryInformationFile(p->file, &io, &info, sizeof(info), FilePipeLocalInformation);
+      if (!NT_SUCCESS(s)) p->error = RtlNtStatusToDosError(s);
+      else p->ready = info.NamedPipeState != FILE_PIPE_CONNECTED_STATE || info.WriteQuotaAvailable;
+    } else {
+      peek_pipe(p);
+    }
     /* Winsock can serialize handle classification behind an unrelated pipe
        operation. Only consult it after the pipe query rejects the handle. */
     if (p->error && !pipe_closed(p->error) && is_socket_handle(p->file)) {
-      WSAPOLLFD pollfd = {.fd = (SOCKET)p->file, .events = POLLRDNORM};
+      WSAPOLLFD pollfd = {.fd = (SOCKET)p->file, .events = p->write ? POLLWRNORM : POLLRDNORM};
       int n = WSAPoll(&pollfd, 1, 0);
       p->error = n == SOCKET_ERROR ? WSAGetLastError() : ERROR_SUCCESS;
       p->ready = n > 0;
+    } else if (p->write && !p->error && !p->ready) {
+      p->error = ERROR_NOT_SUPPORTED;  /* A pending peer read can also exhaust the quota. */
     }
   }
   AcquireSRWLockExclusive(&pipe_probes_lock);
@@ -806,9 +816,9 @@ CAMLprim value caml_eio_windows_release_pipe_probe(value v)
   return Val_unit;
 }
 
-CAMLprim value caml_eio_windows_start_pipe_probe(value fd)
+CAMLprim value caml_eio_windows_start_pipe_probe(value fd, value write)
 {
-  CAMLparam1(fd);
+  CAMLparam2(fd, write);
   CAMLlocal1(v);
   v = caml_alloc_custom(&pipe_wait_ops, sizeof(struct pipe_wait), 0, 1);
   struct pipe_wait *w = Data_custom_val(v);
@@ -827,7 +837,7 @@ CAMLprim value caml_eio_windows_start_pipe_probe(value fd)
     if (same_pipe_object(file, p->file)) {
       InterlockedIncrement(&p->refs);
       w->probe = p;
-      w->retry = p->started;
+      w->retry = p->started || p->write != Bool_val(write);
       ReleaseSRWLockExclusive(&pipe_probes_lock);
       CAMLreturn(v);
     }
@@ -837,6 +847,7 @@ CAMLprim value caml_eio_windows_start_pipe_probe(value fd)
     ReleaseSRWLockExclusive(&pipe_probes_lock);
     caml_raise_out_of_memory();
   }
+  p->write = Bool_val(write);
   p->refs = 2;
   if (DuplicateHandle(GetCurrentProcess(), file, GetCurrentProcess(), &p->file, 0, FALSE, DUPLICATE_SAME_ACCESS)
       && TrySubmitThreadpoolCallback(observe_pipe, p, NULL)) {
@@ -865,8 +876,10 @@ CAMLprim value caml_eio_windows_pipe_probe_result(value v)
   if (pipe_closed(p->error))
     return Val_true;
   if (p->error != ERROR_SUCCESS) {
+    const char *op = p->write ? "await_writable" : "await_readable";
+    if (p->error == ERROR_NOT_SUPPORTED) caml_unix_error(-WSAEOPNOTSUPP, op, Nothing);
     caml_win32_maperr(p->error);
-    uerror("await_readable", Nothing);
+    uerror(op, Nothing);
   }
   return Val_bool(p->ready);
 }

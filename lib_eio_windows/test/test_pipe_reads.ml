@@ -47,6 +47,7 @@ let read_stdin ~socket () =
   Eio_windows.run @@ fun env ->
   Eio.Time.with_timeout_exn env#clock 5.0 @@ fun () ->
   let buf = Cstruct.create 2 in
+  if socket then Eio_unix.await_writable Unix.stdin;
   List.iter (fun expected ->
       if socket then Eio_unix.await_readable Unix.stdin;
       Eio.Flow.read_exact env#stdin buf;
