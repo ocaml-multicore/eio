@@ -708,6 +708,18 @@ A failing bind (here, a non-local source address) should be reported as `Eio.Io`
 
 ## Getaddrinfo
 
+A NUL in the node or service name is rejected before lookup:
+
+```ocaml
+# Eio_main.run @@ fun env ->
+  List.iter (fun (node, service) ->
+    match Eio.Net.getaddrinfo env#net ~service node with
+    | _ -> assert false
+    | exception Eio.Io (Eio.Net.E (Address_lookup_failed NONAME), _) -> ()
+  ) ["127.0.0.1\000invalid", "80"; "127.0.0.1", "80\000invalid"];;
+- : unit = ()
+```
+
 ```ocaml
 # Eio_main.run @@ fun env ->
   Eio.Net.getaddrinfo_stream env#net "127.0.0.1";;
