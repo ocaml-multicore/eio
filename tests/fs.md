@@ -1696,6 +1696,24 @@ Check reading and writing vectors at arbitrary offsets:
 - : unit = ()
 ```
 
+Negative offsets are rejected before a positioned read or write starts:
+
+```ocaml
+# run @@ fun env ->
+  Path.with_open_out ~create:(`Or_truncate 0o600) (env#cwd / "test.txt") @@ fun file ->
+  let file_offset = Int63.minus_one in
+  let check f = match f () with
+    | _ -> assert false
+    | exception Invalid_argument _ -> () in
+  List.iter (fun bufs ->
+    check (fun () -> Eio.File.pread file ~file_offset bufs);
+    check (fun () -> Eio.File.pread_exact file ~file_offset bufs);
+    check (fun () -> Eio.File.pwrite_single file ~file_offset bufs);
+    check (fun () -> Eio.File.pwrite_all file ~file_offset bufs)
+  ) [[]; [Cstruct.create 1]];;
+- : unit = ()
+```
+
 Reading at the end of a file:
 
 ```ocaml

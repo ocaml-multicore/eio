@@ -114,13 +114,18 @@ let stat (Resource.T (t, ops)) =
 
 let size t = (stat t).size
 
+let check_offset off =
+  if Optint.Int63.compare off Optint.Int63.zero < 0 then invalid_arg "Negative file offset"
+
 let pread (Resource.T (t, ops)) ~file_offset bufs =
+  check_offset file_offset;
   let module X = (val (Resource.get ops Pi.Read)) in
   let got = X.pread t ~file_offset bufs in
   assert (got > 0 && got <= Cstruct.lenv bufs);
   got
 
 let pread_exact (Resource.T (t, ops)) ~file_offset bufs =
+  check_offset file_offset;
   let module X = (val (Resource.get ops Pi.Read)) in
   let rec aux ~file_offset bufs =
     if Cstruct.lenv bufs > 0 then (
@@ -132,12 +137,14 @@ let pread_exact (Resource.T (t, ops)) ~file_offset bufs =
   aux ~file_offset bufs
 
 let pwrite_single (Resource.T (t, ops)) ~file_offset bufs =
+  check_offset file_offset;
   let module X = (val (Resource.get ops Pi.Write)) in
   let got = X.pwrite t ~file_offset bufs in
   assert (got > 0 && got <= Cstruct.lenv bufs);
   got
 
 let pwrite_all (Resource.T (t, ops)) ~file_offset bufs =
+  check_offset file_offset;
   let module X = (val (Resource.get ops Pi.Write)) in
   let rec aux ~file_offset bufs =
     if Cstruct.lenv bufs > 0 then (
