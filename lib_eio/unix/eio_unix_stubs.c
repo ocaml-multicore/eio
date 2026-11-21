@@ -25,15 +25,18 @@
 #include <caml/fail.h>
 #include <caml/unixsupport.h>
 
-#ifndef _WIN32
-# include <caml/socketaddr.h>
-#endif
+#include <caml/socketaddr.h>
 
 #ifdef _WIN32
+/* unixsupport.h includes wspiapi.h. Use the native Winsock DLL imports. */
+#undef getaddrinfo
+#undef freeaddrinfo
 CAMLnoret CAMLextern
 void caml_unix_error (int errcode, const char * cmdname, value arg);
 CAMLnoret CAMLextern
 void caml_uerror (const char * cmdname, value arg);
+CAMLextern value caml_unix_alloc_inet_addr(struct in_addr *);
+CAMLextern value caml_unix_alloc_inet6_addr(struct in6_addr *);
 #endif
 
 static void caml_stat_free_preserving_errno(void *ptr) {
@@ -194,7 +197,6 @@ CAMLprim value eio_unix_fchownat(value v_fd, value v_path, value v_uid, value v_
 #endif
 }
 
-#ifndef _WIN32
 static int caml_eai_of_unix(int eai) {
   switch (eai) {
     // These numbers must match the order of constructors in Eio.Net.Getaddrinfo_error.t
@@ -209,7 +211,7 @@ static int caml_eai_of_unix(int eai) {
     case EAI_FAIL: return 5;
     case EAI_FAMILY: return 6;
     case EAI_MEMORY: return 7;
-#ifdef EAI_NODATA
+#if defined(EAI_NODATA) && EAI_NODATA != EAI_NONAME
     case EAI_NODATA: return 8;
 #endif
     case EAI_NONAME: return 9;
@@ -224,58 +226,57 @@ static int caml_eai_of_unix(int eai) {
     default: return 0;
   }
 }
-#endif /* !_WIN32 */
+
+static value cons_addr(value tag, value addr, value list) {
+  CAMLparam2(addr, list);
+  CAMLlocal1(item);
+  item = caml_alloc_2(0, tag, addr);
+  CAMLreturn(caml_alloc_2(Tag_cons, item, list));
+}
 
 CAMLprim value eio_unix_getaddrinfo(value v_node, value v_service) {
-#ifdef _WIN32
-  caml_unix_error(EOPNOTSUPP, "getaddrinfo not supported on Windows", Nothing);
-#else
   CAMLparam2(v_node, v_service);
-  CAMLlocal3(v_result, v_list, v_cons);
-  CAMLlocal3(v_host, v_addr, v_item);
+  CAMLlocal4(v_result, v_list, v_host, v_addr);
   struct addrinfo *res = NULL;
   int r;
   int have_node = caml_string_length(v_node) > 0;
   int have_service = caml_string_length(v_service) > 0;
-  int saved_errno = 0;
 
   {
     struct addrinfo hints = {
       .ai_family = AF_UNSPEC,
       .ai_socktype = 0,
       .ai_protocol = 0,
+#ifndef _WIN32
       .ai_flags = AI_ADDRCONFIG,
+#endif
     };
     char *node = have_node ? caml_stat_strdup(String_val(v_node)) : NULL;
     char *service = have_service ? caml_stat_strdup(String_val(v_service)) : NULL;
 
     caml_enter_blocking_section();
     r = getaddrinfo(node, service, &hints, &res);
-    saved_errno = errno;
     caml_leave_blocking_section();
 
-    if (node) caml_stat_free(node);
-    if (service) caml_stat_free(service);
+    if (node) caml_stat_free_preserving_errno(node);
+    if (service) caml_stat_free_preserving_errno(service);
   }
 
   if (r == 0) {
     struct addrinfo *item;
 
     for (item = res; item; item = item->ai_next) {
-      if (item->ai_socktype == SOCK_STREAM || item->ai_socktype == SOCK_DGRAM) {
-        int tag, port;
-
-        switch (item->ai_protocol) {
-          case IPPROTO_TCP:
-            tag = caml_hash_variant("Tcp");
-            break;
-          case IPPROTO_UDP:
-            tag = caml_hash_variant("Udp");
-            break;
-          default:
-            continue;
-        }
-
+      int tcp = item->ai_socktype == SOCK_STREAM && item->ai_protocol == IPPROTO_TCP;
+      int udp = item->ai_socktype == SOCK_DGRAM && item->ai_protocol == IPPROTO_UDP;
+#ifdef _WIN32
+      /* Winsock leaves the protocol unspecified and uses socket type zero for both transports. */
+      if (item->ai_protocol == 0) {
+        tcp = item->ai_socktype == 0 || item->ai_socktype == SOCK_STREAM;
+        udp = item->ai_socktype == 0 || item->ai_socktype == SOCK_DGRAM;
+      }
+#endif
+      if (tcp || udp) {
+        int port;
         switch (item->ai_family) {
           case AF_INET: {
             struct sockaddr_in *ip = (struct sockaddr_in *) item->ai_addr;
@@ -299,14 +300,8 @@ CAMLprim value eio_unix_getaddrinfo(value v_node, value v_service) {
         Store_field(v_addr, 0, v_host);
         Store_field(v_addr, 1, Val_int(ntohs(port)));
 
-        v_item = caml_alloc(2, 0);
-        Store_field(v_item, 0, tag);
-        Store_field(v_item, 1, v_addr);
-
-        v_cons = caml_alloc(2, Tag_cons);
-        Store_field(v_cons, 0, v_item);
-        Store_field(v_cons, 1, v_list);
-        v_list = v_cons;
+        if (tcp) v_list = cons_addr(caml_hash_variant("Tcp"), v_addr, v_list);
+        if (udp) v_list = cons_addr(caml_hash_variant("Udp"), v_addr, v_list);
       }
     }
 
@@ -315,15 +310,15 @@ CAMLprim value eio_unix_getaddrinfo(value v_node, value v_service) {
     v_result = caml_alloc(1, 0);        // Ok res
     Store_field(v_result, 0, v_list);
     CAMLreturn(v_result);
+#ifdef EAI_SYSTEM
   } else if (r == EAI_SYSTEM) {
-    errno = saved_errno;
     caml_uerror("getaddrinfo", v_node);
+#endif
   } else {
     v_result = caml_alloc(1, 1);        // Error r
     Store_field(v_result, 0, Val_int(caml_eai_of_unix(r)));
     CAMLreturn(v_result);
   }
-#endif
 }
 
 typedef struct _sockopt {
