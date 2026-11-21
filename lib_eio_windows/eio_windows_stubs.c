@@ -28,12 +28,6 @@ CAMLextern void caml_unix_check_path(value, const char *);
 CAMLnoret CAMLextern void caml_unix_error(int, const char *, value);
 CAMLnoret CAMLextern void caml_uerror(const char *, value);
 
-#ifdef ARCH_SIXTYFOUR
-#define Int63_val(v) Long_val(v)
-#else
-#define Int63_val(v) (Int64_val(v)) >> 1
-#endif
-
 CAMLprim value caml_eio_windows_getrandom(value v_ba, value v_off, value v_len)
 {
   CAMLparam1(v_ba);
@@ -613,4 +607,69 @@ CAMLprim value caml_eio_windows_process_terminate(value v_handle, value v_code)
   CAMLparam2(v_handle, v_code);
   /* Signalling an already-exited process is a no-op rather than an error. */
   CAMLreturn(Val_bool(TerminateProcess(Handle_val(v_handle), (UINT)Long_val(v_code))));
+}
+
+/* Synchronous imported handles stay on worker threads. */
+CAMLprim value caml_eio_windows_fd_kind(value v_fd)
+{
+  if (Descr_kind_val(v_fd) == KIND_SOCKET)
+    return Val_int(1);
+  HANDLE h = Handle_val(v_fd);
+  DWORD type = GetFileType(h);
+  if (type != FILE_TYPE_DISK && type != FILE_TYPE_PIPE)
+    return Val_int(0);
+  IO_STATUS_BLOCK io;
+  struct { ULONG Mode; } info;
+  NTSTATUS status = NtQueryInformationFile(h, &io, &info, sizeof(info), FileModeInformation);
+  if (!NT_SUCCESS(status))
+    return Val_int(0);
+  if (info.Mode & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT))
+    return Val_int(type == FILE_TYPE_DISK ? 5 : 0);
+  if (type == FILE_TYPE_PIPE)
+    return Val_int(2);
+  struct { ACCESS_MASK AccessFlags; } access;
+  status = NtQueryInformationFile(h, &io, &access, sizeof(access), FileAccessInformation);
+  if (NT_SUCCESS(status) && (access.AccessFlags & FILE_APPEND_DATA) && !(access.AccessFlags & FILE_WRITE_DATA))
+    return Val_int(4);
+  return Val_int(3);
+}
+
+CAMLprim value caml_eio_windows_seek(value v_fd, value v_offset, value v_whence)
+{
+  CAMLparam3(v_fd, v_offset, v_whence);
+  LARGE_INTEGER offset, result;
+  offset.QuadPart = Int64_val(v_offset);
+  if (!SetFilePointerEx(Handle_val(v_fd), offset, &result, Int_val(v_whence))) {
+    caml_win32_maperr(GetLastError());
+    uerror("lseek", Nothing);
+  }
+  CAMLreturn(caml_copy_int64(result.QuadPart));
+}
+
+CAMLprim value caml_eio_windows_reopen(value v_fd, value v_write)
+{
+  CAMLparam2(v_fd, v_write);
+  IO_STATUS_BLOCK io;
+  struct { ACCESS_MASK AccessFlags; } access;
+  HANDLE original = Handle_val(v_fd);
+  NTSTATUS status = NtQueryInformationFile(original, &io, &access, sizeof(access), FileAccessInformation);
+  if (!NT_SUCCESS(status)) {
+    caml_win32_maperr(RtlNtStatusToDosError(status));
+    uerror("FileAccessInformation", Nothing);
+  }
+  /* Reopening must not grant authority absent from the original handle. */
+  DWORD rights = access.AccessFlags & (Bool_val(v_write) ? FILE_WRITE_DATA | FILE_APPEND_DATA : FILE_READ_DATA);
+  if (!rights)
+    caml_unix_error(EBADF, "ReOpenFile", Nothing);
+  caml_enter_blocking_section();
+  HANDLE h = ReOpenFile(original, rights,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      FILE_FLAG_OVERLAPPED | FILE_FLAG_OPEN_REPARSE_POINT);
+  DWORD err = GetLastError();
+  caml_leave_blocking_section();
+  if (h == INVALID_HANDLE_VALUE) {
+    caml_win32_maperr(err);
+    uerror("ReOpenFile", Nothing);
+  }
+  CAMLreturn(caml_win32_alloc_handle(h));
 }

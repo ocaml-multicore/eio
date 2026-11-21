@@ -67,11 +67,11 @@ module Impl = struct
   let read_methods = []
 
   let pread t ~file_offset bufs =
-    let got = Err.run (Low_level.preadv ~file_offset t) (Array.of_list bufs) in
+    let got = Err.run (File_io.positioned ~write:false ~file_offset t List.find_opt) bufs in
     if got = 0 then raise End_of_file
     else got
 
-  let pwrite t ~file_offset bufs = Err.run (Low_level.pwritev ~file_offset t) (Array.of_list bufs)
+  let pwrite t ~file_offset bufs = Err.run (File_io.positioned ~write:true ~file_offset t List.find_opt) bufs
 
   let send_msg _t ~fds:_ _data = failwith "Not implemented on Windows"
 

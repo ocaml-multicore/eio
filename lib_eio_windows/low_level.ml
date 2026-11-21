@@ -181,12 +181,8 @@ let writev fd bufs =
   end in
   List.iter loop bufs
 
-let unsupported_positioned_io op ~file_offset:_ fd _bufs =
-  Fd.use_exn op fd @@ fun _ ->
-  raise (Unix.Unix_error (EOPNOTSUPP, op, ""))
-
-let preadv = unsupported_positioned_io "preadv"
-let pwritev = unsupported_positioned_io "pwritev"
+let preadv ~file_offset fd bufs = File_io.positioned ~write:false ~file_offset fd Array.find_opt bufs
+let pwritev ~file_offset fd bufs = File_io.positioned ~write:true ~file_offset fd Array.find_opt bufs
 
 module Flags = struct
   module Open = struct
@@ -334,14 +330,8 @@ let chmod ~mode new_dir new_path =
     Unix.chmod new_path mode
 
 let lseek fd off cmd =
-  Fd.use_exn "lseek" fd @@ fun fd ->
-  let cmd =
-    match cmd with
-    | `Set -> Unix.SEEK_SET
-    | `Cur -> Unix.SEEK_CUR
-    | `End -> Unix.SEEK_END
-  in
-  Unix.LargeFile.lseek fd (Optint.Int63.to_int64 off) cmd
+  Fd.use_exn "lseek" fd @@ fun raw ->
+  File_io.seek raw (Optint.Int63.to_int64 off) (match cmd with `Set -> 0 | `Cur -> 1 | `End -> 2)
   |> Optint.Int63.of_int64
 
 let fsync fd =
