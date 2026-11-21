@@ -46,11 +46,6 @@ CAMLprim value caml_eio_windows_getrandom(value v_ba, value v_off, value v_len)
   CAMLreturn(Val_long(len));
 }
 
-CAMLprim value caml_eio_windows_readv(value v_fd, value v_bufs)
-{
-  uerror("readv is not supported on windows yet", Nothing);
-}
-
 // File-system operations
 
 CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_beneath, value v_open_link, value v_pathname, value v_desired_access, value v_create_disposition, value v_create_options)

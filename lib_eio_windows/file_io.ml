@@ -3,7 +3,8 @@
 
 (** Adapt file handles to overlapped I/O.
 
-    Positioned operations preserve the file position and reopen synchronous handles by
+    Sequential operations serialize access to each descriptor's file position.
+    Positioned operations leave it unchanged and reopen synchronous handles by
     handle when necessary. *)
 
 type kind = Synchronous | Socket | Pipe | File | Append_file | Synchronous_file
@@ -15,8 +16,50 @@ let kind fd =
   if fd == Unix.stdin || fd == Unix.stdout || fd == Unix.stderr then Synchronous
   else kind_raw fd
 
-external seek : Unix.file_descr -> int64 -> int -> int64 = "caml_eio_windows_seek"
+module Serial = struct
+  let lock = Mutex.create ()
+  let users = ref []
+
+  (* Each entry borrows its descriptor through Fd.use until it leaves the list.
+     Duplicates share the cursor or the interval between readiness and read. *)
+  let with_fd fd fn =
+    let entry = Mutex.protect lock (fun () ->
+        let mutex = match List.find_opt (fun (other, _) ->
+            fd == other || Iocp.same_handle fd other) !users with
+          | Some (_, mutex) -> mutex
+          | None -> Eio.Mutex.create ()
+        in
+        let entry = fd, mutex in
+        users := entry :: !users;
+        entry)
+    in
+    Fun.protect ~finally:(fun () ->
+        Mutex.protect lock (fun () -> users := List.filter ((!=) entry) !users))
+      (fun () -> Eio.Mutex.use_ro (snd entry) fn)
+end
+
+external seek_raw : Unix.file_descr -> int64 -> int -> int64 = "caml_eio_windows_seek"
 external reopen : Unix.file_descr -> bool -> Unix.file_descr = "caml_eio_windows_reopen"
+
+(** Change the file position while excluding sequential I/O on this descriptor. *)
+let seek fd off whence =
+  let move () = seek_raw fd off whence in
+  match kind fd with
+  | File | Append_file | Synchronous_file -> Serial.with_fd fd move
+  | Synchronous | Pipe | Socket -> move ()
+
+(** Transfer data at the current position and advance it by the completed byte
+    count, including when cancellation races with a successful transfer. *)
+let sequential ~write ~append fd buf =
+  Serial.with_fd fd @@ fun () ->
+  let offset = if write && append then -1L else seek_raw fd 0L 1 in
+  let on_complete (c : Iocp.completion) =
+    if c.bytes_transferred > 0 then
+      if offset = -1L then ignore (seek_raw fd 0L 2)
+      else ignore (seek_raw fd (Int64.add offset (Int64.of_int c.bytes_transferred)) 0)
+  in
+  Completion.await ~on_complete (fun port ~data ->
+      (if write then Iocp.Event.write else Iocp.Event.read) port ~data fd buf ~offset)
 
 (** Transfer data at [offset] without changing the descriptor's file position. *)
 let transfer_at ~write fd buf ~offset =

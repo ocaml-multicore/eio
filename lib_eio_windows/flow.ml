@@ -49,10 +49,9 @@ module Impl = struct
   let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
 
   let single_read t buf =
-    match Low_level.read_cstruct t buf with
+    match Err.run (Low_level.read_cstruct t) buf with
     | 0 -> raise End_of_file
     | got -> got
-    | exception (Unix.Unix_error (code, name, arg)) -> raise (Err.v code name arg)
 
   let shutdown t cmd =
     try
