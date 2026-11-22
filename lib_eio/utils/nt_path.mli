@@ -75,8 +75,7 @@ val basename : string -> string
 
 val to_nt : cwd:string -> string -> string
 (** [to_nt ~cwd path] is the NT object-manager form of the Win32 path [path],
-    resolved against [cwd] and normalised as described above.
-    Verbatim paths are passed through unchanged. *)
+    resolved lexically against [cwd]. Bare DOS names such as [NUL] are literal. *)
 
 val to_win32 : string -> string
 (** [to_win32 p] is the verbatim path [p] without its prefix. *)

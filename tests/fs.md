@@ -628,6 +628,9 @@ let to_nt = Eio_utils.Nt_path.to_nt ~cwd:"C:\\cwd\\dir"
 
 # to_nt "\\\\.\\pipe\\x";;
 - : string = "\\??\\pipe\\x"
+
+# to_nt "\\\\.\\NUL";;
+- : string = "\\??\\NUL"
 ```
 
 The NT namespace does no normalisation, so Win32's is applied first:

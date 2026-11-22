@@ -255,7 +255,13 @@ let rec with_dirfd op dirfd fn =
 let nt_path dirfd path =
   match dirfd with
   | Some _ -> path
-  | None -> Eio_utils.Nt_path.to_nt ~cwd:(Sys.getcwd ()) path
+  | None ->
+    let module P = Eio_utils.Nt_path in
+    let path =
+      if P.classify path = `Verbatim then path
+      else full_path (if path = "" then "." else path)
+    in
+    P.to_nt ~cwd:"" path
 
 type follow = Follow | Nofollow | Open_link
 
