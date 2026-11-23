@@ -612,6 +612,42 @@ CAMLprim value caml_eio_windows_process_terminate(value v_handle, value v_code)
   CAMLreturn(Val_bool(TerminateProcess(Handle_val(v_handle), (UINT)Long_val(v_code))));
 }
 
+/* A write larger than the pipe quota can expose a prefix and then report only
+   ERROR_BROKEN_PIPE if the reader closes. Submit at most one buffer at a time. */
+CAMLprim value caml_eio_windows_pipe_write_size(value fd, value len)
+{
+  CAMLparam2(fd, len);
+  HANDLE h = Handle_val(fd);
+  if (Descr_kind_val(fd) == KIND_SOCKET || GetFileType(h) != FILE_TYPE_PIPE) CAMLreturn(len);
+  DWORD flags, out_size, in_size, quota = 0;
+  caml_enter_blocking_section();
+  if (GetNamedPipeInfo(h, &flags, &out_size, &in_size, NULL))
+    quota = (flags & PIPE_SERVER_END) ? out_size : in_size;
+  caml_leave_blocking_section();
+  if (!quota) quota = 1;
+  CAMLreturn((uintnat)Long_val(len) > quota ? Val_long(quota) : len);
+}
+
+CAMLprim value caml_eio_windows_io_thread_id(value unit)
+{
+  return caml_copy_int32(GetCurrentThreadId());
+}
+
+CAMLprim value caml_eio_windows_cancel_sync_io(value id)
+{
+  HANDLE thread = OpenThread(THREAD_TERMINATE, FALSE, Int32_val(id));
+  if (thread != NULL) {
+    DWORD err = CancelSynchronousIo(thread) ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(thread);
+    if (err == ERROR_SUCCESS) return Val_true;
+    if (err == ERROR_NOT_FOUND) return Val_false;
+    caml_win32_maperr(err);
+  } else {
+    caml_win32_maperr(GetLastError());
+  }
+  uerror("CancelSynchronousIo", Nothing);
+}
+
 /* Constructor order of File_io.kind. */
 enum fd_kind { FD_POLLABLE, FD_SOCKET, FD_PIPE, FD_FILE, FD_APPEND_FILE, FD_SYNC };
 

@@ -27,7 +27,8 @@ let write_cstruct fd (buf : Cstruct.t) =
   | File_io.Pipe -> Completion.await (fun port ~data -> Iocp.Event.write port ~data raw buf ~offset:0L)
   | (File_io.File | File_io.Append_file) as kind ->
     File_io.sequential ~write:true ~append:(kind = File_io.Append_file) raw buf
-  | File_io.Pollable | File_io.Synchronous -> in_worker_thread (fun () -> Unix.single_write_bigarray raw buf.buffer buf.off buf.len)
+  | File_io.Pollable -> Sync_io.write raw buf
+  | File_io.Synchronous -> in_worker_thread (fun () -> Unix.single_write_bigarray raw buf.buffer buf.off buf.len)
 
 let read fd buf start len =
   if start < 0 || len < 0 || start > Bytes.length buf - len then invalid_arg "read";

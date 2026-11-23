@@ -1,6 +1,9 @@
 (** Eio backend using Windows completion ports for streams, datagrams, pipes and
     positioned I/O. Synchronous handles use worker threads; explicit readiness
-    waits and Unix-domain connects retain the readiness fallback. *)
+    waits and Unix-domain connects retain the readiness fallback.
+
+    Cancelling a synchronous pipe write can leave a prefix at the reader.
+    Windows does not report the length of that prefix. *)
 
 type stdenv = Eio_unix.Stdenv.base
 (** An extended version of {!Eio.Stdenv.base} with some extra features available on Windows. *)

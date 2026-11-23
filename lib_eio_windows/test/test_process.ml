@@ -34,6 +34,30 @@ let test_exit_status env () =
 let test_stdout env () =
   Alcotest.(check string) "stdout" "hello" (run_out env ["cmd"; "/c"; "echo"; "hello"])
 
+let test_pipe_write_prefix env () =
+  Switch.run @@ fun sw ->
+  let r, w = Process.pipe ~sw (process env) in
+  let _, n = Fiber.pair
+      (fun () -> Eio.Flow.read_exact r (Cstruct.create 1); Eio.Flow.close r)
+      (fun () -> Eio.Flow.single_write w [Cstruct.create (1024 * 1024)])
+  in
+  Alcotest.(check bool) "reported bytes transferred before reader closed" true (n > 0)
+
+let test_cancel_pipe_write env () =
+  Switch.run @@ fun sw ->
+  let r, w = Process.pipe ~sw (process env) in
+  let had_to_close = ref false in
+  Fiber.fork_daemon ~sw (fun () ->
+      Eio.Time.sleep env#clock 3.;
+      had_to_close := true;
+      Eio.Flow.close r;
+      `Stop_daemon);
+  (match Eio.Time.with_timeout_exn env#clock 0.05 (fun () ->
+      Eio.Flow.write w [Cstruct.create (1024 * 1024)]) with
+   | () -> Alcotest.fail "write completed with no reader"
+   | exception Eio.Time.Timeout -> ());
+  Alcotest.(check bool) "write cancelled with reader still open" false !had_to_close
+
 let test_socket_stdout env () =
   Switch.run @@ fun sw ->
   let output, peer = Eio_unix.Net.socketpair_stream ~sw () in
@@ -231,6 +255,8 @@ let tests () = [
   "exit-status", `Quick, test_exit_status;
   "stdout", `Quick, test_stdout;
   "socket-stdout", `Quick, test_socket_stdout;
+  "cancel-pipe-write", `Quick, test_cancel_pipe_write;
+  "pipe-write-prefix", `Quick, test_pipe_write_prefix;
   "stderr", `Quick, test_stderr;
   "stdin", `Quick, test_stdin;
   "env", `Quick, test_env;
