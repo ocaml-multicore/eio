@@ -215,6 +215,23 @@ let test_read_open_out ~append env () =
   Eio.Flow.copy_string "x" file;
   Alcotest.(check string) "write position" (if append then "abx" else "ax") (Path.load path)
 
+let test_unbuffered_pwrite _env () =
+  let module L = Eio_windows.Low_level in
+  with_stdlib_temp_file "eio-unbuffered" @@ fun path ->
+  Switch.run @@ fun sw ->
+  let fd = L.openat ~sw path L.Flags.Open.(generic_read + generic_write + synchronise)
+      L.Flags.Disposition.open_ L.Flags.Create.(non_directory + no_intermediate_buffering + write_through) in
+  (* A mapped page provides a sector-aligned buffer. *)
+  let length = 65536 in
+  let exe = Unix.openfile Sys.executable_name [O_RDONLY; O_CLOEXEC] 0 in
+  let data = Fun.protect ~finally:(fun () -> Unix.close exe) (fun () ->
+      Unix.map_file exe Bigarray.char Bigarray.c_layout false [|length|]
+      |> Bigarray.array1_of_genarray |> Cstruct.of_bigarray) in
+  Alcotest.(check int) "aligned write" length (L.pwritev fd ~file_offset:Int63.zero [|data|]);
+  match L.pwritev fd ~file_offset:(Int63.of_int 1) [|Cstruct.of_string "x"|] with
+  | _ -> Alcotest.fail "unaligned write to an unbuffered file succeeded"
+  | exception Unix.Unix_error (EINVAL, _, _) -> ()
+
 let test_mkdir env () =
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "subdir");
@@ -1226,6 +1243,7 @@ let tests () = [
   "append", `Quick, test_append;
   "read-open-out", `Quick, test_read_open_out ~append:false;
   "read-open-out-append", `Quick, test_read_open_out ~append:true;
+  "unbuffered-pwrite", `Quick, test_unbuffered_pwrite;
   "mkdir", `Quick, test_mkdir;
   "symlinks", `Quick, test_symlink;
   "unlink", `Quick, test_unlink;
