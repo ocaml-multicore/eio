@@ -661,9 +661,12 @@ CAMLprim value caml_eio_windows_seek(value v_fd, value v_offset, value v_whence)
   CAMLreturn(caml_copy_int64(result.QuadPart));
 }
 
-CAMLprim value caml_eio_windows_reopen(value v_fd, value v_write)
+/* Constructor order of File_io.reopen_mode. */
+enum reopen_mode { REOPEN_READ, REOPEN_WRITE, REOPEN_APPEND };
+
+CAMLprim value caml_eio_windows_reopen(value v_fd, value v_mode)
 {
-  CAMLparam2(v_fd, v_write);
+  CAMLparam2(v_fd, v_mode);
   CAMLlocal1(result);
   IO_STATUS_BLOCK io;
   struct { ACCESS_MASK AccessFlags; } access;
@@ -675,8 +678,9 @@ CAMLprim value caml_eio_windows_reopen(value v_fd, value v_write)
     uerror("FileAccessInformation", Nothing);
   }
   /* Reopening must not grant authority absent from the original handle. */
-  DWORD rights = Bool_val(v_write) ? FILE_APPEND_DATA : FILE_READ_DATA;
-  if (Bool_val(v_write) && (access.AccessFlags & FILE_WRITE_DATA)) rights = FILE_WRITE_DATA;
+  enum reopen_mode request = Int_val(v_mode);
+  DWORD rights = request == REOPEN_READ ? FILE_READ_DATA : FILE_APPEND_DATA;
+  if (request == REOPEN_WRITE && (access.AccessFlags & FILE_WRITE_DATA)) rights = FILE_WRITE_DATA;
   if (!(access.AccessFlags & rights))
     caml_unix_error(EBADF, "ReOpenFile", Nothing);
   status = NtQueryInformationFile(original, &io, &mode, sizeof(mode), FileModeInformation);
@@ -684,7 +688,8 @@ CAMLprim value caml_eio_windows_reopen(value v_fd, value v_write)
     caml_win32_maperr(RtlNtStatusToDosError(status));
     uerror("FileModeInformation", Nothing);
   }
-  DWORD flags = FILE_FLAG_OVERLAPPED | FILE_FLAG_OPEN_REPARSE_POINT;
+  DWORD flags = FILE_FLAG_OPEN_REPARSE_POINT;
+  if (request != REOPEN_APPEND) flags |= FILE_FLAG_OVERLAPPED;
   if (mode.Mode & FILE_WRITE_THROUGH) flags |= FILE_FLAG_WRITE_THROUGH;
   if (mode.Mode & FILE_NO_INTERMEDIATE_BUFFERING) flags |= FILE_FLAG_NO_BUFFERING;
   if (mode.Mode & FILE_SEQUENTIAL_ONLY) flags |= FILE_FLAG_SEQUENTIAL_SCAN;
@@ -695,6 +700,9 @@ CAMLprim value caml_eio_windows_reopen(value v_fd, value v_write)
   DWORD err = GetLastError();
   caml_leave_blocking_section();
   if (h == INVALID_HANDLE_VALUE) {
+    /* An exclusive append handle is already the only writer. Its EOF is the
+       end of its own write while Eio holds the cursor lock for its aliases. */
+    if (request == REOPEN_APPEND && err == ERROR_SHARING_VIOLATION) CAMLreturn(v_fd);
     caml_win32_maperr(err);
     uerror("ReOpenFile", Nothing);
   }

@@ -215,6 +215,22 @@ let test_read_open_out ~append env () =
   Eio.Flow.copy_string "x" file;
   Alcotest.(check string) "write position" (if append then "abx" else "ax") (Path.load path)
 
+let test_append_cursors _env () =
+  with_stdlib_temp_file "eio-append" @@ fun path ->
+  Switch.run @@ fun sw ->
+  let open_append () =
+    let fd = Iocp.openfile path [O_RDWR; O_APPEND; O_CLOEXEC] 0 in
+    Eio_unix.File.import_rw ~sw ~close_unix:true fd
+  in
+  let a = open_append () and b = open_append () in
+  Fiber.both (fun () -> Eio.Flow.copy_string "a" a) (fun () -> Eio.Flow.copy_string "b" b);
+  let contents = read_file path in
+  Alcotest.(check int) "appended bytes" 2 (String.length contents);
+  List.iter (fun (fd, byte) ->
+      let pos = Eio.File.seek fd Int63.zero `Cur in
+      Alcotest.(check int) "cursor after own write" (1 + String.index contents byte) (Int63.to_int pos)
+    ) [a, 'a'; b, 'b']
+
 let test_unbuffered_pwrite _env () =
   let module L = Eio_windows.Low_level in
   with_stdlib_temp_file "eio-unbuffered" @@ fun path ->
@@ -1243,6 +1259,7 @@ let tests () = [
   "append", `Quick, test_append;
   "read-open-out", `Quick, test_read_open_out ~append:false;
   "read-open-out-append", `Quick, test_read_open_out ~append:true;
+  "append-cursors", `Quick, test_append_cursors;
   "unbuffered-pwrite", `Quick, test_unbuffered_pwrite;
   "mkdir", `Quick, test_mkdir;
   "symlinks", `Quick, test_symlink;

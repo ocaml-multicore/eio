@@ -38,7 +38,8 @@ module Serial = struct
 end
 
 external seek_raw : Unix.file_descr -> int64 -> int -> int64 = "caml_eio_windows_seek"
-external reopen : Unix.file_descr -> bool -> Unix.file_descr = "caml_eio_windows_reopen"
+type reopen_mode = Read | Write | Append
+external reopen : Unix.file_descr -> reopen_mode -> Unix.file_descr = "caml_eio_windows_reopen"
 
 (** Change the file position while excluding sequential I/O on this descriptor. *)
 let seek fd off whence =
@@ -47,18 +48,32 @@ let seek fd off whence =
   | File | Append_file | Synchronous -> Serial.with_fd fd move
   | Pollable | Pipe | Socket -> move ()
 
+let append_shared fd (buf : Cstruct.t) =
+  Eio_unix.run_in_systhread @@ fun () ->
+  let out = reopen fd Append in
+  if out == fd then None else (
+    (* A synchronous append records its own end position, even if another handle appends next. *)
+    Fun.protect ~finally:(fun () -> Unix.close out) @@ fun () ->
+    let n = Unix.single_write_bigarray out buf.buffer buf.off buf.len in
+    if n > 0 then ignore (seek_raw fd (seek_raw out 0L 1) 0);
+    Some n
+  )
+
 (** Transfer data at the current position and advance it by the completed byte
     count, including when cancellation races with a successful transfer. *)
 let sequential ~write ~append fd buf =
   Serial.with_fd fd @@ fun () ->
-  let offset = if write && append then -1L else seek_raw fd 0L 1 in
-  let on_complete (c : Iocp.completion) =
-    if c.bytes_transferred > 0 then
-      if offset = -1L then ignore (seek_raw fd 0L 2)
-      else ignore (seek_raw fd (Int64.add offset (Int64.of_int c.bytes_transferred)) 0)
-  in
-  Completion.await ~on_complete (fun port ~data ->
-      (if write then Iocp.Event.write else Iocp.Event.read) port ~data fd buf ~offset)
+  match if append then append_shared fd buf else None with
+  | Some n -> n
+  | None ->
+    let offset = if append then -1L else seek_raw fd 0L 1 in
+    let on_complete (c : Iocp.completion) =
+      if c.bytes_transferred > 0 then
+        if append then ignore (seek_raw fd 0L 2)
+        else ignore (seek_raw fd (Int64.add offset (Int64.of_int c.bytes_transferred)) 0)
+    in
+    Completion.await ~on_complete (fun port ~data ->
+        (if write then Iocp.Event.write else Iocp.Event.read) port ~data fd buf ~offset)
 
 (** Transfer data at [offset] without changing the descriptor's file position. *)
 let transfer_at ~write fd buf ~offset =
@@ -68,7 +83,7 @@ let transfer_at ~write fd buf ~offset =
   match kind fd with
   | File | Append_file -> run fd
   | Pollable | Synchronous | Socket | Pipe ->
-    let fd = Eio_unix.run_in_systhread (fun () -> reopen fd write) in
+    let fd = Eio_unix.run_in_systhread (fun () -> reopen fd (if write then Write else Read)) in
     Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> run fd)
 
 let positioned ~write ~file_offset resource find_opt bufs =
