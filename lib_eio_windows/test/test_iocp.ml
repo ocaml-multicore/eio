@@ -375,6 +375,22 @@ let mixed_waits env () =
         Eio_unix.run_in_systhread (fun () -> ())
       done)
 
+let invalid_readiness env () =
+  let r, w = Unix.socketpair ~cloexec:true PF_UNIX SOCK_STREAM 0 in
+  Fun.protect ~finally:(fun () -> Unix.close r; Unix.close w) @@ fun () ->
+  let null = Unix.openfile Filename.null [O_RDONLY; O_CLOEXEC] 0 in
+  Fun.protect ~finally:(fun () -> Unix.close null) @@ fun () ->
+  Eio.Time.with_timeout_exn env#clock 5.0 @@ fun () ->
+  Fiber.both
+    (fun () ->
+       Eio_unix.await_readable r;
+       Alcotest.(check int) "socket became readable" 1 (Unix.read r (Bytes.create 1) 0 1))
+    (fun () ->
+       (match Eio_unix.await_readable null with
+        | () -> Alcotest.fail "select accepted a non-console character device"
+        | exception Unix.Unix_error (EBADF, _, _) -> ());
+       ignore (Unix.write_substring w "x" 0 1))
+
 let sync_read env () =
   Switch.run @@ fun sw ->
   let raw, writer = Unix.pipe ~cloexec:true () in
@@ -555,6 +571,7 @@ let tests () = List.map (fun (name, fn) -> name, `Quick, fn) [
     "unconnected UDP ignores ICMP port unreachable", udp_reset;
     "unconnected UDP receive after shutdown", udp_shutdown;
     "switch between readiness and port waits", mixed_waits;
+    "unsupported readiness leaves socket waiters alone", invalid_readiness;
     "synchronous pipe read cancellation", sync_read;
     "duplicated synchronous pipe readers", (fun _ -> sync_pipe_alias);
     "child exit releases stdin and drains stdout", child_stdio;

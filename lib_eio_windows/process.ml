@@ -65,8 +65,8 @@ let process t = Eio.Resource.T (t, process_handler)
 module Impl = struct
   let stdio_compatible raw =
     match File_io.kind raw with
-    | File_io.Synchronous | File_io.Synchronous_file | File_io.Socket -> true
-    | File_io.File | File_io.Append_file | File_io.Pipe -> false
+    | File_io.Pollable | File_io.Synchronous -> true
+    | File_io.File | File_io.Append_file | File_io.Pipe | File_io.Socket -> false
 
   module T = struct
     type t = unit

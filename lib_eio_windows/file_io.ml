@@ -7,14 +7,13 @@
     Positioned operations leave it unchanged and reopen synchronous handles by
     handle when necessary. *)
 
-type kind = Synchronous | Socket | Pipe | File | Append_file | Synchronous_file
-external kind_raw : Unix.file_descr -> kind = "caml_eio_windows_fd_kind"
+type kind = Pollable | Socket | Pipe | File | Append_file | Synchronous
+external kind_raw : Unix.file_descr -> bool -> kind = "caml_eio_windows_fd_kind"
 
 (** Classify the handle. Standard descriptors always use synchronous I/O. *)
 let kind fd =
   (* Inherited standard handles may belong to the parent's completion port. *)
-  if fd == Unix.stdin || fd == Unix.stdout || fd == Unix.stderr then Synchronous
-  else kind_raw fd
+  kind_raw fd (fd == Unix.stdin || fd == Unix.stdout || fd == Unix.stderr)
 
 module Serial = struct
   let lock = Mutex.create ()
@@ -45,8 +44,8 @@ external reopen : Unix.file_descr -> bool -> Unix.file_descr = "caml_eio_windows
 let seek fd off whence =
   let move () = seek_raw fd off whence in
   match kind fd with
-  | File | Append_file | Synchronous_file -> Serial.with_fd fd move
-  | Synchronous | Pipe | Socket -> move ()
+  | File | Append_file | Synchronous -> Serial.with_fd fd move
+  | Pollable | Pipe | Socket -> move ()
 
 (** Transfer data at the current position and advance it by the completed byte
     count, including when cancellation races with a successful transfer. *)
@@ -68,7 +67,7 @@ let transfer_at ~write fd buf ~offset =
   in
   match kind fd with
   | File | Append_file -> run fd
-  | Synchronous | Synchronous_file | Socket | Pipe ->
+  | Pollable | Synchronous | Socket | Pipe ->
     let fd = Eio_unix.run_in_systhread (fun () -> reopen fd write) in
     Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> run fd)
 

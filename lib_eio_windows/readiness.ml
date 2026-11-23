@@ -78,7 +78,17 @@ let run t =
           ) active in
         poll pending
       | exception Unix.Unix_error (EINTR, _, _) -> poll active
-      | exception ex -> List.iter (fun r -> r.finish (Error ex)) active; poll []
+      | exception ex ->
+        (* A descriptor rejected by select must only fail its own waiters. *)
+        let failed, pending = List.partition (fun r ->
+            let rd, wr = match r.direction with `R -> [r.fd], [] | `W -> [], [r.fd] in
+            match Unix.select rd wr wr 0. with
+            | _ | exception Unix.Unix_error (EINTR, _, _) -> false
+            | exception Unix.Unix_error _ -> true
+          ) active in
+        let failed, pending = if failed = [] then active, [] else failed, pending in
+        List.iter (fun r -> r.finish (Error ex)) failed;
+        poll pending
     )
   in
   poll []

@@ -45,7 +45,7 @@ let run_event_loop fn x =
       | Eio_unix.Net.Import_socket_stream (sw, close_unix, unix_fd) -> Some (fun k ->
           let blocking = match File_io.kind unix_fd with
             | File_io.Socket -> Unix.set_nonblock unix_fd; false
-            | File_io.Synchronous | File_io.Synchronous_file -> true
+            | File_io.Pollable | File_io.Synchronous -> true
             | File_io.Pipe | File_io.File | File_io.Append_file -> false
           in
           let fd = Fd.of_unix ~sw ~blocking ~close_unix unix_fd in

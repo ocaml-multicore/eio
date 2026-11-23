@@ -446,11 +446,9 @@ let test_dos_device env () =
   with_cleanup [literal] @@ fun () ->
   write_file literal "literal";
   let null = fs / Filename.null in
-  Path.with_open_in null (fun flow ->
-      let fd = Option.get (Eio_unix.Resource.fd_opt flow) in
-      Eio_unix.Fd.use_exn "read" fd @@ fun fd ->
-      Alcotest.(check int) "Filename.null reads as EOF" 0 (Unix.read fd (Bytes.create 1) 0 1)
-    );
+  List.iter (fun name ->
+      Alcotest.(check string) "null device reads as EOF" "" (Path.load (fs / name))
+    ) [Filename.null; Filename.concat (Sys.getcwd ()) Filename.null; {|\\.\NUL|}];
   Path.with_open_out ~create:`Never null (fun out ->
       Eio.Process.run ~stdout:out (Eio.Stdenv.process_mgr env) ["cmd.exe"; "/d"; "/c"; "echo discarded"]
     );

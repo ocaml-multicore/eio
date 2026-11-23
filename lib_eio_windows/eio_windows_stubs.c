@@ -609,29 +609,36 @@ CAMLprim value caml_eio_windows_process_terminate(value v_handle, value v_code)
   CAMLreturn(Val_bool(TerminateProcess(Handle_val(v_handle), (UINT)Long_val(v_code))));
 }
 
-/* Synchronous imported handles stay on worker threads. */
-CAMLprim value caml_eio_windows_fd_kind(value v_fd)
+/* Constructor order of File_io.kind. */
+enum fd_kind { FD_POLLABLE, FD_SOCKET, FD_PIPE, FD_FILE, FD_APPEND_FILE, FD_SYNC };
+
+CAMLprim value caml_eio_windows_fd_kind(value v_fd, value v_stdio)
 {
   if (Descr_kind_val(v_fd) == KIND_SOCKET)
-    return Val_int(1);
+    return Val_int(Bool_val(v_stdio) ? FD_POLLABLE : FD_SOCKET);
   HANDLE h = Handle_val(v_fd);
   DWORD type = GetFileType(h);
+  if (type == FILE_TYPE_CHAR) {
+    DWORD mode;
+    return Val_int(GetConsoleMode(h, &mode) ? FD_POLLABLE : FD_SYNC);
+  }
   if (type != FILE_TYPE_DISK && type != FILE_TYPE_PIPE)
-    return Val_int(0);
+    return Val_int(FD_SYNC);
+  enum fd_kind sync_kind = type == FILE_TYPE_PIPE ? FD_POLLABLE : FD_SYNC;
+  if (Bool_val(v_stdio))
+    return Val_int(sync_kind);
   IO_STATUS_BLOCK io;
   struct { ULONG Mode; } info;
   NTSTATUS status = NtQueryInformationFile(h, &io, &info, sizeof(info), FileModeInformation);
-  if (!NT_SUCCESS(status))
-    return Val_int(0);
-  if (info.Mode & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT))
-    return Val_int(type == FILE_TYPE_DISK ? 5 : 0);
+  if (!NT_SUCCESS(status) || (info.Mode & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT)))
+    return Val_int(sync_kind);
   if (type == FILE_TYPE_PIPE)
-    return Val_int(2);
+    return Val_int(FD_PIPE);
   struct { ACCESS_MASK AccessFlags; } access;
   status = NtQueryInformationFile(h, &io, &access, sizeof(access), FileAccessInformation);
   if (NT_SUCCESS(status) && (access.AccessFlags & FILE_APPEND_DATA) && !(access.AccessFlags & FILE_WRITE_DATA))
-    return Val_int(4);
-  return Val_int(3);
+    return Val_int(FD_APPEND_FILE);
+  return Val_int(FD_FILE);
 }
 
 CAMLprim value caml_eio_windows_seek(value v_fd, value v_offset, value v_whence)

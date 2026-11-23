@@ -13,10 +13,10 @@ let read_cstruct fd (buf : Cstruct.t) =
   | File_io.Socket -> Completion.await (fun port ~data -> Iocp.Event.recv port ~data raw buf)
   | File_io.Pipe -> Completion.await (fun port ~data -> Iocp.Event.read port ~data raw buf ~offset:0L)
   | File_io.File | File_io.Append_file -> File_io.sequential ~write:false ~append:false raw buf
-  | (File_io.Synchronous | File_io.Synchronous_file) as kind ->
+  | (File_io.Pollable | File_io.Synchronous) as kind ->
     let read () = in_worker_thread (fun () -> Unix.read_bigarray raw buf.buffer buf.off buf.len) in
     File_io.Serial.with_fd raw (fun () ->
-        if kind = File_io.Synchronous then Eio_unix.await_readable raw;
+        if kind = File_io.Pollable then Eio_unix.await_readable raw;
         read ())
 
 let write_cstruct fd (buf : Cstruct.t) =
@@ -27,7 +27,7 @@ let write_cstruct fd (buf : Cstruct.t) =
   | File_io.Pipe -> Completion.await (fun port ~data -> Iocp.Event.write port ~data raw buf ~offset:0L)
   | (File_io.File | File_io.Append_file) as kind ->
     File_io.sequential ~write:true ~append:(kind = File_io.Append_file) raw buf
-  | File_io.Synchronous | File_io.Synchronous_file -> in_worker_thread (fun () -> Unix.single_write_bigarray raw buf.buffer buf.off buf.len)
+  | File_io.Pollable | File_io.Synchronous -> in_worker_thread (fun () -> Unix.single_write_bigarray raw buf.buffer buf.off buf.len)
 
 let read fd buf start len =
   if start < 0 || len < 0 || start > Bytes.length buf - len then invalid_arg "read";

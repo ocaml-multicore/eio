@@ -34,6 +34,14 @@ let test_exit_status env () =
 let test_stdout env () =
   Alcotest.(check string) "stdout" "hello" (run_out env ["cmd"; "/c"; "echo"; "hello"])
 
+let test_socket_stdout env () =
+  Switch.run @@ fun sw ->
+  let output, peer = Eio_unix.Net.socketpair_stream ~sw () in
+  Process.run ~stdout:output (process env) [Sys.executable_name; "list"];
+  Eio.Flow.close output;
+  let text = Eio.Buf_read.(parse_exn take_all) peer ~max_size:65536 in
+  Alcotest.(check bool) "child wrote to the socket" true (text <> "")
+
 let test_stderr env () =
   with_tmp env "proc-err.txt" @@ fun path ->
   Switch.run (fun sw ->
@@ -222,6 +230,7 @@ let test_argument_list_too_long env () =
 let tests () = [
   "exit-status", `Quick, test_exit_status;
   "stdout", `Quick, test_stdout;
+  "socket-stdout", `Quick, test_socket_stdout;
   "stderr", `Quick, test_stderr;
   "stdin", `Quick, test_stdin;
   "env", `Quick, test_env;
