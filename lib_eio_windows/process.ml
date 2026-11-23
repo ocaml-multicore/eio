@@ -129,7 +129,7 @@ module Impl = struct
   let pipe () ~sw =
     Switch.check sw;
     let r, w = Unix.pipe ~cloexec:true () in
-    let wrap fd = Flow.of_fd (Fd.of_unix ~sw ~blocking:true ~close_unix:true fd) in
+    let wrap fd = Flow.of_fd ~kind:File_io.Pollable (Fd.of_unix ~sw ~blocking:true ~close_unix:true fd) in
     wrap r, wrap w
 
   let copy_stdin source sink =
@@ -166,9 +166,9 @@ module Impl = struct
           let run borrowed =
             Switch.run @@ fun sw ->
             Switch.remove_hook cleanup;
-            let wrap ~close_unix fd = Flow.of_fd (Fd.of_unix ~sw ~blocking:false ~close_unix fd) in
-            let parent = wrap ~close_unix:true parent in
-            let flow = match borrowed with None -> flow | Some fd -> wrap ~close_unix:false fd in
+            let wrap ~close_unix fd = Fd.of_unix ~sw ~blocking:false ~close_unix fd in
+            let parent = Flow.of_fd ~kind:File_io.Pipe (wrap ~close_unix:true parent) in
+            let flow = match borrowed with None -> flow | Some fd -> Flow.of_fd (wrap ~close_unix:false fd) in
             forward process flow parent
           in
           (* Take the borrow before the caller can close its stream. *)
@@ -177,7 +177,7 @@ module Impl = struct
           | Some fd -> Fd.use_exn "stdio forwarding" fd (fun raw -> run (Some raw))
         in
         forwards := start :: !forwards;
-        Flow.of_fd child
+        Flow.of_fd ~kind:File_io.Pollable child
     in
     let input source =
       prepare ~input:true (source :> Eio.Flow.source_ty r) (fun process source sink ->

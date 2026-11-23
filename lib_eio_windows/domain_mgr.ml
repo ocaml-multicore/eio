@@ -36,20 +36,27 @@ let socketpair k ~sw ~domain ~ty ~protocol wrap_a wrap_b =
 let run_event_loop fn x =
   let open Effect.Deep in
   let extra_effects : _ effect_handler = {
-    effc = fun (type a) (e : a Effect.t) : ((a, Sched.exit) continuation -> Sched.exit) option ->
+    effc = fun (type a) (e : a Effect.t) : ((a, unit) continuation -> unit) option ->
       match e with
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k Time.mono_clock)
       | Eio_unix.Private.Import_file fd -> Some (fun k ->
-          continue k (Flow.of_fd fd :> Eio_unix.File.rw_ty r)
+          match Fd.use_exn "import" fd File_io.kind with
+          | kind -> continue k (Flow.of_fd ~kind fd :> Eio_unix.File.rw_ty r)
+          | exception ex -> discontinue_with_backtrace k ex (Printexc.get_raw_backtrace ())
         )
       | Eio_unix.Net.Import_socket_stream (sw, close_unix, unix_fd) -> Some (fun k ->
-          let blocking = match File_io.kind unix_fd with
-            | File_io.Socket -> Unix.set_nonblock unix_fd; false
-            | File_io.Pollable | File_io.Synchronous -> true
-            | File_io.Pipe | File_io.File | File_io.Append_file -> false
-          in
-          let fd = Fd.of_unix ~sw ~blocking ~close_unix unix_fd in
-          continue k (Flow.stream fd :> _ Eio_unix.Net.stream_socket)
+          match
+            let kind = File_io.kind unix_fd in
+            let blocking = match kind with
+              | File_io.Socket -> Unix.set_nonblock unix_fd; false
+              | File_io.Pollable | File_io.Synchronous -> true
+              | File_io.Pipe | File_io.File | File_io.Append_file -> false
+            in
+            let fd = Fd.of_unix ~sw ~blocking ~close_unix unix_fd in
+            (Flow.stream ~kind fd :> _ Eio_unix.Net.stream_socket)
+          with
+          | stream -> continue k stream
+          | exception ex -> discontinue_with_backtrace k ex (Printexc.get_raw_backtrace ())
         )
       | Eio_unix.Net.Import_socket_listening (sw, close_unix, unix_fd) -> Some (fun k ->
           let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
@@ -72,8 +79,8 @@ let run_event_loop fn x =
       | Eio_unix.Private.Pipe sw -> Some (fun k ->
           match
             let r, w = Low_level.pipe ~sw in
-            let source = Flow.of_fd r in
-            let sink = Flow.of_fd w in
+            let source = Flow.of_fd ~kind:File_io.Pipe r in
+            let sink = Flow.of_fd ~kind:File_io.Pipe w in
             (source, sink)
           with
           | r -> continue k r

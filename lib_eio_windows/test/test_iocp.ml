@@ -471,6 +471,33 @@ let sync_read env () =
   Eio.Flow.read_exact r buf;
   Alcotest.(check string) "cancelled read left data for the next reader" "x" (Cstruct.to_string buf)
 
+let busy_pipe_mode env () =
+  Switch.run @@ fun sw ->
+  let r, w = Eio.Process.pipe ~sw env#process_mgr in
+  let raw_read = Eio_unix.Resource.fd_opt r |> Option.get |> Eio_unix.Fd.remove |> Option.get in
+  let raw_write = Eio_unix.Resource.fd_opt w |> Option.get in
+  let notify, wait = Unix.socketpair ~cloexec:true PF_UNIX SOCK_STREAM 0 in
+  Fun.protect ~finally:(fun () -> Unix.close notify; Unix.close wait) @@ fun () ->
+  let watchdog = Domain.spawn (fun () ->
+      let ready, _, _ = Unix.select [wait] [] [] 2.0 in
+      Unix.close raw_read;
+      ready <> []) in
+  let write fn = try fn () with Eio.Io _ | Unix.Unix_error _ -> () in
+  Fiber.fork ~sw (fun () -> write (fun () -> Eio.Flow.write w [Cstruct.create (1024 * 1024)]));
+  Eio_unix.await_readable raw_read;
+  let timed_out write =
+    match Eio.Time.with_timeout_exn env#clock 0.05 write with
+    | () -> false
+    | exception Eio.Time.Timeout -> true
+    | exception (Eio.Io _ | Unix.Unix_error _) -> false
+  in
+  let managed, raw = Fiber.pair
+      (fun () -> timed_out (fun () -> Eio.Flow.copy_string "x" w))
+      (fun () -> timed_out (fun () -> ignore (Eio_windows.Low_level.write raw_write (Bytes.of_string "x") 0 1))) in
+  ignore (Unix.single_write_substring notify "!" 0 1);
+  let before_close = Domain.join watchdog in
+  Alcotest.(check bool) "both writers cancelled before the watchdog" true (managed && raw && before_close)
+
 let sync_pipe_alias () =
   Switch.run @@ fun sw ->
   let r, w = Unix.pipe ~cloexec:true () in
@@ -639,6 +666,7 @@ let tests () = List.map (fun (name, fn) -> name, `Quick, fn) [
     "TCP urgent data leaves write waiters alone", urgent_readiness;
     "synchronous pipe read cancellation", sync_read;
     "duplicated synchronous pipe readers", (fun _ -> sync_pipe_alias);
+    "concurrent pipe writers can cancel independently", busy_pipe_mode;
     "child exit releases stdin and drains stdout", child_stdio;
     "single write reports its prefix", (fun _ -> write_prefix);
     "completed write racing cancellation", (fun _ -> completed_write);

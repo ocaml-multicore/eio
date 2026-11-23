@@ -9,19 +9,16 @@
 
 type kind = Pollable | Socket | Pipe | File | Append_file | Synchronous
 external kind_raw : Unix.file_descr -> bool -> kind = "caml_eio_windows_fd_kind"
-
-(** Classify the handle. Standard descriptors always use synchronous I/O. *)
-let kind fd =
-  (* Inherited standard handles may belong to the parent's completion port. *)
-  kind_raw fd (fd == Unix.stdin || fd == Unix.stdout || fd == Unix.stderr)
+external pipe_kind : Unix.file_descr -> kind = "caml_eio_windows_pipe_kind"
 
 module Serial = struct
   let lock = Mutex.create ()
-  let users = ref []
+  let cursors = ref []
+  let writers = ref []
 
   (* Each entry borrows its descriptor through Fd.use until it leaves the list.
-     Duplicates share the cursor or the interval between readiness and read. *)
-  let with_fd fd fn =
+     Duplicates of the same handle share the mutex for each kind of operation. *)
+  let with_fd ?(users = cursors) fd fn =
     let entry = Mutex.protect lock (fun () ->
         let mutex = match List.find_opt (fun (other, _) ->
             fd == other || Iocp.same_handle fd other) !users with
@@ -35,7 +32,19 @@ module Serial = struct
     Fun.protect ~finally:(fun () ->
         Mutex.protect lock (fun () -> users := List.filter ((!=) entry) !users))
       (fun () -> Eio.Mutex.use_ro (snd entry) fn)
+
+  let with_writer fd fn = with_fd ~users:writers fd fn
 end
+
+(** Classify the handle. Standard descriptors always use synchronous I/O. *)
+let kind fd =
+  (* Inherited standard handles may belong to the parent's completion port. *)
+  match kind_raw fd (fd == Unix.stdin || fd == Unix.stdout || fd == Unix.stderr) with
+  | Pipe ->
+    (* A mode query waits behind a synchronous write in the kernel. Queue it
+       here first so the wait can be cancelled. *)
+    Serial.with_writer fd (fun () -> Eio_unix.run_in_systhread (fun () -> pipe_kind fd))
+  | kind -> kind
 
 external seek_raw : Unix.file_descr -> int64 -> int -> int64 = "caml_eio_windows_seek"
 type reopen_mode = Read | Write | Append
@@ -93,3 +102,28 @@ let positioned ~write ~file_offset resource find_opt bufs =
   match find_opt (fun buf -> not (Cstruct.is_empty buf)) bufs with
   | None -> 0
   | Some buf -> transfer_at ~write fd buf ~offset
+
+let handle_kind known raw = match known with Some k -> k | None -> kind raw
+
+let read_cstruct known fd (buf : Cstruct.t) =
+  Eio_unix.Fd.use_exn "read" fd @@ fun raw ->
+  match handle_kind known raw with
+  | Socket -> Completion.await (fun port ~data -> Iocp.Event.recv port ~data raw buf)
+  | Pipe -> Completion.await (fun port ~data -> Iocp.Event.read port ~data raw buf ~offset:0L)
+  | File | Append_file -> sequential ~write:false ~append:false raw buf
+  | (Pollable | Synchronous) as kind ->
+    let read () = Eio_unix.run_in_systhread (fun () -> Unix.read_bigarray raw buf.buffer buf.off buf.len) in
+    Serial.with_fd raw (fun () ->
+        if kind = Pollable then Eio_unix.await_readable raw;
+        read ())
+
+let write_cstruct known fd (buf : Cstruct.t) =
+  Eio_unix.Fd.use_exn "write" fd @@ fun raw ->
+  match handle_kind known raw with
+  | Socket -> Completion.await (fun port ~data -> Iocp.Event.send port ~data raw buf)
+  | _ when Cstruct.is_empty buf -> 0
+  | Pipe -> Completion.await (fun port ~data -> Iocp.Event.write port ~data raw buf ~offset:0L)
+  | (File | Append_file) as kind ->
+    sequential ~write:true ~append:(kind = Append_file) raw buf
+  | Pollable -> Serial.with_writer raw (fun () -> Sync_io.write raw buf)
+  | Synchronous -> Eio_unix.run_in_systhread (fun () -> Unix.single_write_bigarray raw buf.buffer buf.off buf.len)

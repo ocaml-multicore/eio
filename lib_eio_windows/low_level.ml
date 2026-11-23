@@ -7,28 +7,8 @@ module Fd = Eio_unix.Fd
 let await_readable fd = Fd.use_exn "await_readable" fd Eio_unix.await_readable
 let await_writable fd = Fd.use_exn "await_writable" fd Eio_unix.await_writable
 
-let read_cstruct fd (buf : Cstruct.t) =
-  Fd.use_exn "read" fd @@ fun raw ->
-  match File_io.kind raw with
-  | File_io.Socket -> Completion.await (fun port ~data -> Iocp.Event.recv port ~data raw buf)
-  | File_io.Pipe -> Completion.await (fun port ~data -> Iocp.Event.read port ~data raw buf ~offset:0L)
-  | File_io.File | File_io.Append_file -> File_io.sequential ~write:false ~append:false raw buf
-  | (File_io.Pollable | File_io.Synchronous) as kind ->
-    let read () = in_worker_thread (fun () -> Unix.read_bigarray raw buf.buffer buf.off buf.len) in
-    File_io.Serial.with_fd raw (fun () ->
-        if kind = File_io.Pollable then Eio_unix.await_readable raw;
-        read ())
-
-let write_cstruct fd (buf : Cstruct.t) =
-  Fd.use_exn "write" fd @@ fun raw ->
-  match File_io.kind raw with
-  | File_io.Socket -> Completion.await (fun port ~data -> Iocp.Event.send port ~data raw buf)
-  | _ when Cstruct.is_empty buf -> 0
-  | File_io.Pipe -> Completion.await (fun port ~data -> Iocp.Event.write port ~data raw buf ~offset:0L)
-  | (File_io.File | File_io.Append_file) as kind ->
-    File_io.sequential ~write:true ~append:(kind = File_io.Append_file) raw buf
-  | File_io.Pollable -> Sync_io.write raw buf
-  | File_io.Synchronous -> in_worker_thread (fun () -> Unix.single_write_bigarray raw buf.buffer buf.off buf.len)
+let read_cstruct = File_io.read_cstruct None
+let write_cstruct = File_io.write_cstruct None
 
 let read fd buf start len =
   if start < 0 || len < 0 || start > Bytes.length buf - len then invalid_arg "read";

@@ -656,6 +656,24 @@ CAMLprim value caml_eio_windows_is_socket(value fd)
   return Val_bool(Descr_kind_val(fd) == KIND_SOCKET);
 }
 
+static int is_overlapped(HANDLE h)
+{
+  IO_STATUS_BLOCK io;
+  struct { ULONG Mode; } info;
+  NTSTATUS status = NtQueryInformationFile(h, &io, &info, sizeof(info), FileModeInformation);
+  return NT_SUCCESS(status) && !(info.Mode & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT));
+}
+
+CAMLprim value caml_eio_windows_pipe_kind(value v_fd)
+{
+  CAMLparam1(v_fd);
+  HANDLE h = Handle_val(v_fd);
+  caml_enter_blocking_section();
+  int async = is_overlapped(h);
+  caml_leave_blocking_section();
+  CAMLreturn(Val_int(async ? FD_PIPE : FD_POLLABLE));
+}
+
 CAMLprim value caml_eio_windows_fd_kind(value v_fd, value v_stdio)
 {
   if (Descr_kind_val(v_fd) == KIND_SOCKET)
@@ -666,20 +684,13 @@ CAMLprim value caml_eio_windows_fd_kind(value v_fd, value v_stdio)
     DWORD mode;
     return Val_int(GetConsoleMode(h, &mode) ? FD_POLLABLE : FD_SYNC);
   }
-  if (type != FILE_TYPE_DISK && type != FILE_TYPE_PIPE)
-    return Val_int(FD_SYNC);
-  enum fd_kind sync_kind = type == FILE_TYPE_PIPE ? FD_POLLABLE : FD_SYNC;
-  if (Bool_val(v_stdio))
-    return Val_int(sync_kind);
-  IO_STATUS_BLOCK io;
-  struct { ULONG Mode; } info;
-  NTSTATUS status = NtQueryInformationFile(h, &io, &info, sizeof(info), FileModeInformation);
-  if (!NT_SUCCESS(status) || (info.Mode & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT)))
-    return Val_int(sync_kind);
   if (type == FILE_TYPE_PIPE)
-    return Val_int(FD_PIPE);
+    return Val_int(Bool_val(v_stdio) ? FD_POLLABLE : FD_PIPE);
+  if (type != FILE_TYPE_DISK || Bool_val(v_stdio) || !is_overlapped(h))
+    return Val_int(FD_SYNC);
+  IO_STATUS_BLOCK io;
   struct { ACCESS_MASK AccessFlags; } access;
-  status = NtQueryInformationFile(h, &io, &access, sizeof(access), FileAccessInformation);
+  NTSTATUS status = NtQueryInformationFile(h, &io, &access, sizeof(access), FileAccessInformation);
   if (NT_SUCCESS(status) && (access.AccessFlags & FILE_APPEND_DATA) && !(access.AccessFlags & FILE_WRITE_DATA))
     return Val_int(FD_APPEND_FILE);
   return Val_int(FD_FILE);

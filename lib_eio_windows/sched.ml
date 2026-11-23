@@ -141,7 +141,7 @@ let run ~extra_effects main x =
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
     Trace.fiber (Fiber_context.tid fiber);
-    match_with fn ()
+    match_with (fun () -> try_with fn () extra_effects) ()
       { retc = (fun () -> Fiber_context.destroy fiber; next t);
         exnc = (fun ex ->
             Fiber_context.destroy fiber;
@@ -174,7 +174,7 @@ let run ~extra_effects main x =
               Eio_unix.Private.Thread_pool.submit t.thread_pool ~ctx:fiber ~enqueue:resume fn;
               next t
             )
-          | e -> extra_effects.Effect.Deep.effc e
+          | _ -> None
       }
   in
   let `Exit_scheduler =

@@ -143,7 +143,7 @@ end = struct
         Low_level.Flags.Disposition.open_
         Low_level.Flags.Create.empty
     in
-    Flow.Impl.stat fd
+    Flow.Impl.stat_fd fd
 
   let read_dir t path =
     Switch.run @@ fun sw ->

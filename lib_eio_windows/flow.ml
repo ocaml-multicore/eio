@@ -5,9 +5,9 @@ module Fd = Eio_unix.Fd
 module Impl = struct
   type tag = [`Generic | `Unix]
 
-  type t = Eio_unix.Fd.t
+  type t = { fd : Fd.t; kind : File_io.kind option }
 
-  let stat t =
+  let stat_fd t =
     try
       let ust = Low_level.fstat t in
       let st_kind : Eio.File.Stat.kind =
@@ -38,23 +38,25 @@ module Impl = struct
       }
     with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
+  let stat t = stat_fd t.fd
+
   let rec single_write t = function
     | [] -> 0
     | buf :: (_ :: _ as rest) when Cstruct.is_empty buf -> single_write t rest
     | buf :: _ ->
-      match Err.run (Low_level.write_cstruct t) buf with
+      match Err.run (File_io.write_cstruct t.kind t.fd) buf with
       | 0 when not (Cstruct.is_empty buf) -> raise (Err.v EIO "write" "")
       | n -> n
 
   let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
 
   let single_read t buf =
-    match Err.run (Low_level.read_cstruct t) buf with
+    match Err.run (File_io.read_cstruct t.kind t.fd) buf with
     | 0 -> raise End_of_file
     | got -> got
 
   let shutdown t cmd =
-    Err.run (Low_level.shutdown t) @@ match cmd with
+    Err.run (Low_level.shutdown t.fd) @@ match cmd with
     | `Receive -> Unix.SHUTDOWN_RECEIVE
     | `Send -> Unix.SHUTDOWN_SEND
     | `All -> Unix.SHUTDOWN_ALL
@@ -62,39 +64,39 @@ module Impl = struct
   let read_methods = []
 
   let pread t ~file_offset bufs =
-    let got = Err.run (File_io.positioned ~write:false ~file_offset t List.find_opt) bufs in
+    let got = Err.run (File_io.positioned ~write:false ~file_offset t.fd List.find_opt) bufs in
     if got = 0 then raise End_of_file
     else got
 
-  let pwrite t ~file_offset bufs = Err.run (File_io.positioned ~write:true ~file_offset t List.find_opt) bufs
+  let pwrite t ~file_offset bufs = Err.run (File_io.positioned ~write:true ~file_offset t.fd List.find_opt) bufs
 
   let send_msg _t ~fds:_ _data = failwith "Not implemented on Windows"
 
   let recv_msg_with_fds _t ~sw:_ ~max_fds:_ _data = failwith "Not implemented on Windows"
 
-  let seek = Low_level.lseek
-  let sync = Low_level.fsync
-  let truncate = Low_level.ftruncate
+  let seek t = Low_level.lseek t.fd
+  let sync t = Low_level.fsync t.fd
+  let truncate t = Low_level.ftruncate t.fd
 
-  let fd t = t
+  let fd t = t.fd
 
-  let close = Eio_unix.Fd.close
+  let close t = Fd.close t.fd
 
-  let setsockopt t opt v = Eio_unix.Private.setsockopt t opt v
-  let getsockopt t opt = Eio_unix.Private.getsockopt t opt
+  let setsockopt t opt v = Eio_unix.Private.setsockopt t.fd opt v
+  let getsockopt t opt = Eio_unix.Private.getsockopt t.fd opt
 end
 
 let file_handler = Eio_unix.Pi.file_handler (module Impl)
 
-let of_fd fd =
-  let r = Eio.Resource.T (fd, file_handler) in
+let of_fd ?kind fd =
+  let r = Eio.Resource.T ({ Impl.fd; kind }, file_handler) in
   (r : [`Unix_fd | Eio.File.rw_ty] r :>
      [< `Unix_fd | Eio.File.rw_ty] r)
 
 let stream_handler = Eio_unix.Pi.stream_handler (module Impl)
 
-let stream fd =
-  let r = Eio.Resource.T (fd, stream_handler) in
+let stream ?(kind = File_io.Socket) fd =
+  let r = Eio.Resource.T ({ Impl.fd; kind = Some kind }, stream_handler) in
   (r : [`Unix_fd | Eio_unix.Net.stream_socket_ty] r :>
      [< `Unix_fd | Eio_unix.Net.stream_socket_ty] r)
 

@@ -36,8 +36,6 @@ let run_with_check fn =
     | Ok n -> n
     | Error _ -> raise ex
 
-let run fn = run_with_check (fun _ -> fn ())
-
 external pipe_write_size : Unix.file_descr -> int -> int = "caml_eio_windows_pipe_write_size"
 
 let write fd (buf : Cstruct.t) =
