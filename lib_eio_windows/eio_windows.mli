@@ -3,7 +3,10 @@
     waits and Unix-domain connects retain the readiness fallback.
 
     Cancelling a synchronous pipe write can leave a prefix at the reader.
-    Windows does not report the length of that prefix. *)
+    Windows does not report the length of that prefix.
+
+    On Unix-domain streams, Winsock may accept writes after the peer closes.
+    A subsequent write can report {!Eio.Net.Connection_reset}. *)
 
 type stdenv = Eio_unix.Stdenv.base
 (** An extended version of {!Eio.Stdenv.base} with some extra features available on Windows. *)

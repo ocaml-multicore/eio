@@ -308,6 +308,27 @@ let local_shutdown env () =
       | _ -> Alcotest.fail "read after receive shutdown"
       | exception End_of_file -> ())
 
+let unix_peer_close env () =
+  Switch.run @@ fun sw ->
+  let listener = Eio.Net.listen ~sw ~backlog:1 env#net (`Unix "iocp-peer-close.sock") in
+  let peer = Eio.Net.connect ~sw env#net (Eio.Net.listening_addr listener) in
+  let writer, _ = Eio.Net.accept ~sw listener in
+  Eio.Flow.copy_string "hello" peer;
+  Eio.Flow.close peer;
+  Eio.Time.with_timeout_exn env#clock 5.0 @@ fun () ->
+  let received = Eio.Buf_read.(parse_exn take_all) writer ~max_size:16 in
+  Alcotest.(check string) "data before EOF" "hello" received;
+  let data = [Cstruct.of_string "x"] in
+  let rec await_reset () =
+    match Eio.Flow.single_write writer data with
+    | _ -> await_reset ()
+    | exception Eio.Io (Eio.Net.E (Connection_reset _), _) -> ()
+  in
+  await_reset ();
+  match Eio.Flow.single_write writer [Cstruct.empty] with
+  | _ -> Alcotest.fail "empty write after connection reset"
+  | exception Eio.Io (Eio.Net.E (Connection_reset _), _) -> ()
+
 let positioned_errors env () =
   let path = Eio.Path.(env#cwd / "iocp-positioned-public") in
   Eio.Path.with_open_out ~create:(`Exclusive 0o600) path (fun f ->
@@ -678,6 +699,7 @@ let tests () = List.map (fun (name, fn) -> name, `Quick, fn) [
     "first completion in worker domain", first_completion_in_worker;
     "cancel pipe write", cancel_write;
     "TCP reads and writes after shutdown", local_shutdown;
+    "Unix stream writes after peer close", unix_peer_close;
     "positioned file errors", positioned_errors;
     "unconnected UDP ignores ICMP port unreachable", udp_reset;
     "unconnected UDP receive after shutdown", udp_shutdown;
