@@ -7,17 +7,6 @@ module Fd = Eio_unix.Fd
 let await_readable fd = Fd.use_exn "await_readable" fd Eio_unix.await_readable
 let await_writable fd = Fd.use_exn "await_writable" fd Eio_unix.await_writable
 
-type ty = Read | Write
-
-let rec do_nonblocking ty fn fd =
-  Fiber.yield ();
-  try fn fd with
-  | Unix.Unix_error (EINTR, _, _) -> 
-    do_nonblocking ty fn fd    (* Just in case *)
-  | Unix.Unix_error((EAGAIN | EWOULDBLOCK), _, _) ->
-    (match ty with Read -> Eio_unix.await_readable fd | Write -> Eio_unix.await_writable fd);
-    do_nonblocking ty fn fd
-
 let read_cstruct fd (buf : Cstruct.t) =
   Fd.use_exn "read" fd @@ fun raw ->
   match File_io.kind raw with
@@ -99,17 +88,13 @@ let accept ~sw sock =
 let shutdown sock cmd =
   Fd.use_exn "shutdown" sock (fun raw -> Completion.shutdown raw cmd)
 
-let send_msg fd ?dst buf =
-  Fd.use_exn "send_msg" fd @@ fun fd ->
-  do_nonblocking Write (fun fd ->
-      match dst with
-      | Some dst -> Unix.sendto fd buf 0 (Bytes.length buf) [] dst
-      | None -> Unix.send fd buf 0 (Bytes.length buf) []
-    ) fd
+let send_msg fd ?dst buf = Datagram.send fd ?dst (Cstruct.of_bytes buf)
 
 let recv_msg fd buf =
-  Fd.use_exn "recv_msg" fd @@ fun fd ->
-  do_nonblocking Read (fun fd -> Unix.recvfrom fd buf 0 (Bytes.length buf) []) fd
+  let data = Cstruct.create (Bytes.length buf) in
+  let n, addr = Datagram.recv fd data in
+  Cstruct.blit_to_bytes data 0 buf 0 n;
+  n, addr
 
 external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_windows_getrandom"
 

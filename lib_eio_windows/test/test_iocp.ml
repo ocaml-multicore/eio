@@ -92,6 +92,51 @@ let pipe_eof env () =
            | exception End_of_file -> ())
         (fun () -> Fiber.yield (); Eio.Flow.close w))
 
+let udp env () =
+  Switch.run @@ fun sw ->
+  let socket () =
+    let raw = Unix.socket ~cloexec:true PF_INET SOCK_DGRAM 0 in
+    Unix.bind raw (ADDR_INET (Unix.inet_addr_loopback, 0));
+    Eio_unix.Net.import_socket_datagram ~sw ~close_unix:true raw,
+    Eio_unix.Net.sockaddr_of_unix_datagram (Unix.getsockname raw)
+  in
+  let a, addr_a = socket () and b, addr_b = socket () in
+  Eio.Time.with_timeout_exn env#clock 5.0 (fun () ->
+      Fiber.first
+        (fun () -> ignore (Eio.Net.recv a (Cstruct.create 10)); Alcotest.fail "unexpected datagram")
+        (fun () -> Fiber.yield ());
+      List.iter (fun msg ->
+          Fiber.both
+            (fun () -> Eio.Net.send b ~dst:addr_a [Cstruct.of_string msg])
+            (fun () ->
+               let buf = Cstruct.create 10 in
+               let src, n = Eio.Net.recv a buf in
+               Alcotest.(check bool) "sender address" true (src = addr_b);
+               Alcotest.(check string) "message" msg (Cstruct.to_string (Cstruct.sub buf 0 n)))
+        ) ["hello"; ""];
+      Eio.Net.send b ~dst:addr_a [];
+      let received = ref None in
+      Fiber.first
+        (fun () -> received := Some (Eio.Net.recv a (Cstruct.create 1)))
+        (fun () -> ());
+      Alcotest.(check bool) "completed empty datagram survived cancellation"
+        true (!received = Some (addr_b, 0));
+      let guarded = Cstruct.of_string ".abc." in
+      Eio.Net.send b ~dst:addr_a [Cstruct.sub guarded 1 1; Cstruct.sub guarded 2 2];
+      let dst = Cstruct.of_string "----" in
+      let _, n = Eio.Net.recv a (Cstruct.sub dst 1 2) in
+      Alcotest.(check int) "sliced datagram length" 2 n;
+      Alcotest.(check string) "receive touches only the supplied slice" "-ab-" (Cstruct.to_string dst);
+      Eio.Net.send b ~dst:addr_a [Cstruct.of_string "abc"];
+      Eio.Net.send b ~dst:addr_a [Cstruct.of_string "z"];
+      let buf = Cstruct.create 1 in
+      List.iter (fun expected ->
+          let src, n = Eio.Net.recv a buf in
+          Alcotest.(check bool) "sender of datagram" true (src = addr_b);
+          Alcotest.(check int) "received bytes" 1 n;
+          Alcotest.(check string) "datagram prefix" expected (Cstruct.to_string buf))
+        ["a"; "z"])
+
 let cross_domain_pipe env () =
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
@@ -268,6 +313,47 @@ let positioned_errors env () =
   match Eio.File.pwrite_all file ~file_offset:Optint.Int63.zero [buf] with
   | () -> Alcotest.fail "wrote to a read-only descriptor"
   | exception Eio.Io (_, _) -> ()
+
+let udp_reset env () =
+  Switch.run @@ fun sw ->
+  let socket sw = Eio.Net.datagram_socket ~sw env#net (`Udp (Eio.Net.Ipaddr.V4.loopback, 0)) in
+  let address s = Eio_unix.Fd.use_exn "getsockname" (Option.get (Eio_unix.Resource.fd_opt s))
+      (fun fd -> Eio_unix.Net.sockaddr_of_unix_datagram (Unix.getsockname fd)) in
+  let r = socket sw and w = socket sw in
+  let closed = Switch.run (fun sw -> address (socket sw)) in
+  Eio.Net.send r ~dst:closed [Cstruct.of_string "probe"];
+  Eio.Time.with_timeout_exn env#clock 5.0 (fun () ->
+      Fiber.both
+        (fun () ->
+           let buf = Cstruct.create 1 in
+           let src, n = Eio.Net.recv r buf in
+           Alcotest.(check bool) "sender" true (src = address w);
+           Alcotest.(check string) "received after ICMP" "x" (Cstruct.to_string (Cstruct.sub buf 0 n)))
+        (fun () -> Eio.Time.sleep env#clock 0.1; Eio.Net.send w ~dst:(address r) [Cstruct.of_string "x"]))
+
+let udp_shutdown env () =
+  Switch.run @@ fun sw ->
+  let socket () = Eio.Net.datagram_socket ~sw env#net (`Udp (Eio.Net.Ipaddr.V4.loopback, 0)) in
+  let r = socket () and w = socket () in
+  let addr s = Eio_unix.Fd.use_exn "getsockname" (Option.get (Eio_unix.Resource.fd_opt s))
+      (fun fd -> Eio_unix.Net.sockaddr_of_unix_datagram (Unix.getsockname fd)) in
+  let send msg = Eio.Net.send w ~dst:(addr r) [Cstruct.of_string msg] in
+  let recv expected =
+    let buf = Cstruct.create 16 in
+    let src, n = Eio.Net.recv r buf in
+    Alcotest.(check bool) "sender" true (src = addr w);
+    Alcotest.(check string) "payload" expected (Cstruct.to_string (Cstruct.sub buf 0 n))
+  in
+  let Eio.Resource.T (t, ops) = r in
+  let module S = (val Eio.Resource.get ops Eio.Flow.Pi.Shutdown) in
+  send "queued";
+  S.shutdown t `Receive;
+  Eio.Time.with_timeout_exn env#clock 5.0 @@ fun () ->
+  recv "queued";
+  Fiber.both (fun () -> recv "") (fun () -> S.shutdown t `All; send "");
+  match Eio.Net.send r ~dst:(addr w) [Cstruct.of_string "x"] with
+  | () -> Alcotest.fail "send after datagram send shutdown"
+  | exception Eio.Io (Eio.Net.E (Connection_reset _), _) -> ()
 
 let mixed_waits env () =
   let r, w = Unix.socketpair ~cloexec:true PF_UNIX SOCK_STREAM 0 in
@@ -466,6 +552,8 @@ let tests () = List.map (fun (name, fn) -> name, `Quick, fn) [
     "cancel pipe write", cancel_write;
     "TCP reads and writes after shutdown", local_shutdown;
     "positioned file errors", positioned_errors;
+    "unconnected UDP ignores ICMP port unreachable", udp_reset;
+    "unconnected UDP receive after shutdown", udp_shutdown;
     "switch between readiness and port waits", mixed_waits;
     "synchronous pipe read cancellation", sync_read;
     "duplicated synchronous pipe readers", (fun _ -> sync_pipe_alias);
@@ -474,6 +562,7 @@ let tests () = List.map (fun (name, fn) -> name, `Quick, fn) [
     "completed write racing cancellation", (fun _ -> completed_write);
     "pipe EOF", pipe_eof;
     "idle socket can register on another port", registration_release;
+    "UDP completion and cancellation", udp;
     "pipe across domains", cross_domain_pipe;
     "duplicated pipe readers across domains", duplicated_pipe_readers;
     "cancel pipe read", cancel_read;

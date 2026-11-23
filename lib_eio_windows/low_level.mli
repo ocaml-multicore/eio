@@ -1,41 +1,61 @@
-(** This module provides an effects-based API for calling POSIX functions.
+(** Low-level Windows I/O for Eio fibers.
 
-    Normally it's better to use the cross-platform {!Eio} APIs instead,
-    which uses these functions automatically where appropriate.
+    Prefer the portable {!Eio} APIs. These functions suspend the calling fiber
+    while I/O is pending. They wrap descriptors in {!Fd} to prevent use after
+    close and attach new descriptors to switches.
 
-    These functions mostly copy the POSIX APIs directly, except that:
-
-    + They suspend the calling fiber instead of returning [EAGAIN] or similar.
-    + They handle [EINTR] by automatically restarting the call.
-    + They wrap {!Unix.file_descr} in {!Fd}, to avoid use-after-close bugs.
-    + They attach new FDs to switches, to avoid resource leaks. *)
+    Sockets and overlapped handles use completion ports. Synchronous handles use
+    worker threads. Explicit readiness waits and Unix-domain connects use the
+    scheduler's readiness fallback. *)
 
 open Eio.Std
 
 type fd := Eio_unix.Fd.t
 
 val await_readable : fd -> unit
+(** Wait until the socket is readable. *)
+
 val await_writable : fd -> unit
+(** Wait until the socket is writable. *)
 
 val sleep_until : Mtime.t -> unit
 
 val read : fd -> bytes -> int -> int -> int
+(** Read into the specified byte range. Return the byte count, or zero at end of input. *)
+
 val read_cstruct : fd -> Cstruct.t -> int
+(** Read into the buffer. Return the byte count, or zero at end of input. *)
+
 val write : fd -> bytes -> int -> int -> int
+(** Write from the specified byte range. Return the byte count; writes may be partial. *)
+
 val write_cstruct : fd -> Cstruct.t -> int
+(** Write from the buffer. Return the byte count; writes may be partial. *)
 
 val socket : sw:Switch.t -> Unix.socket_domain -> Unix.socket_type -> int -> fd
 val connect : fd -> Unix.sockaddr -> unit
+(** Connect the socket. Internet sockets are bound automatically when needed. *)
+
 val accept : sw:Switch.t -> fd -> fd * Unix.sockaddr
+(** Accept a connection and attach its socket to [sw]. Return the socket and peer address. *)
 
 val shutdown : fd -> Unix.shutdown_command -> unit
+(** Shut down the socket. Receive shutdown also cancels pending receives. *)
 
 val recv_msg : fd -> bytes -> int * Unix.sockaddr
+(** Receive one datagram and return the number of bytes copied and its source address.
+    Excess bytes are discarded.
+    Raise [Unix.Unix_error (ESHUTDOWN, _, _)] if receive shutdown cancels the operation. *)
+
 val send_msg : fd -> ?dst:Unix.sockaddr -> bytes -> int
+(** Send a message to [dst], or to the connected peer if omitted. Return the byte count. *)
 
 val getrandom : Cstruct.t -> unit
 
 val lseek : fd -> Optint.Int63.t -> [`Set | `Cur | `End] -> Optint.Int63.t
+(** Set the file position relative to the start, current position or end.
+    Return the new position. Serialize with sequential I/O on overlapped files. *)
+
 val fsync : fd -> unit
 val ftruncate : fd -> Optint.Int63.t -> unit
 
@@ -108,12 +128,20 @@ val readdir_fd : fd -> string array
     @since 1.7 *)
 
 val readv : fd -> Cstruct.t array -> int
+(** Read into the first non-empty buffer. Return the byte count. *)
+
 val writev : fd -> Cstruct.t list -> unit
+(** Write all buffers in order, retrying partial writes. *)
 
 val preadv : file_offset:Optint.Int63.t -> fd -> Cstruct.t array -> int
+(** Read at [file_offset] into the first non-empty buffer without changing the file position. *)
+
 val pwritev : file_offset:Optint.Int63.t -> fd -> Cstruct.t array -> int
+(** Write at [file_offset] from the first non-empty buffer without changing the file position.
+    Return the byte count; writes may be partial. *)
 
 val pipe : sw:Switch.t -> fd * fd
+(** Create an overlapped byte pipe attached to [sw]. Return its read and write ends. *)
 
 module Flags : sig
   module Open : sig
@@ -191,4 +219,5 @@ val openat : ?dirfd:fd -> ?beneath:bool -> ?follow:follow -> sw:Switch.t -> stri
 
     @param follow [Nofollow] fails with [ELOOP] if the leaf is a link, but follows links before it.
 
-    Note: the returned FD is always non-blocking and close-on-exec. *)
+    Note: the returned FD is synchronous and close-on-exec. Eio runs blocking
+    operations on worker threads to preserve interoperability with [Unix]. *)

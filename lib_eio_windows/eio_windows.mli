@@ -1,4 +1,6 @@
-(** Fallback Eio backend for Windows using OCaml's [Unix.select]. *)
+(** Eio backend using Windows completion ports for streams, datagrams, pipes and
+    positioned I/O. Synchronous handles use worker threads; explicit readiness
+    waits and Unix-domain connects retain the readiness fallback. *)
 
 type stdenv = Eio_unix.Stdenv.base
 (** An extended version of {!Eio.Stdenv.base} with some extra features available on Windows. *)
