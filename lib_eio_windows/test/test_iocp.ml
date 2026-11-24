@@ -50,6 +50,25 @@ let shutdown () =
        | exception End_of_file -> ())
     (fun () -> Fiber.yield (); Eio.Flow.shutdown a `Receive)
 
+external open_exclusive : unit -> Unix.file_descr = "caml_eio_test_open_exclusive"
+
+let positioned_exclusive () =
+  Switch.run @@ fun sw ->
+  let f = Eio_unix.File.import_rw ~sw ~close_unix:true (open_exclusive ()) in
+  Eio.Flow.copy_string "abc" f;
+  let offset = Optint.Int63.one in
+  ignore (Eio.File.seek f offset `Set);
+  let buf = Cstruct.create 1 in
+  let check io =
+    match io f ~file_offset:Optint.Int63.zero [buf] with
+    | () -> Alcotest.fail "reopened an exclusive file"
+    | exception Eio.Io (Eio.Exn.Not_available _, _) -> ()
+  in
+  check Eio.File.pread_exact;
+  check Eio.File.pwrite_all;
+  Eio.Flow.read_exact f buf;
+  Alcotest.(check string) "shared file position preserved" "b" (Cstruct.to_string buf)
+
 let positioned env () =
   let path = Eio.Path.(env#cwd / "iocp-positioned") in
   Eio.Path.save path "0123456789" ~create:(`Exclusive 0o600);
@@ -722,6 +741,7 @@ let tests () = List.map (fun (name, fn) -> name, `Quick, fn) [
     "connection refusal", refused;
     "receive shutdown", (fun _ -> shutdown);
     "positioned IO preserves cursor and rights", positioned;
+    "positioned IO on an exclusive synchronous file", (fun _ -> positioned_exclusive);
     "process output capture", process_capture;
     "shutdown through an idle TCP duplicate", idle_socket_alias;
     "remove during a cancelled pipe read", remove_during_read;

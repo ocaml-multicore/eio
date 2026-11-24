@@ -134,11 +134,12 @@ val writev : fd -> Cstruct.t list -> unit
 (** Write all buffers in order, retrying partial writes. *)
 
 val preadv : file_offset:Optint.Int63.t -> fd -> Cstruct.t array -> int
-(** Read at [file_offset] into the first non-empty buffer without changing the file position. *)
+(** Read at [file_offset] into the first non-empty buffer without changing the file position.
+    Raise [Unix.Unix_error (EOPNOTSUPP, _, _)] if sharing prevents reopening a synchronous file. *)
 
 val pwritev : file_offset:Optint.Int63.t -> fd -> Cstruct.t array -> int
 (** Write at [file_offset] from the first non-empty buffer without changing the file position.
-    Return the byte count; writes may be partial. *)
+    Return the byte count; writes may be partial. The sharing requirement is the same as for {!preadv}. *)
 
 val pipe : sw:Switch.t -> fd * fd
 (** Create an overlapped byte pipe attached to [sw]. Return its read and write ends. *)

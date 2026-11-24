@@ -747,9 +747,7 @@ CAMLprim value caml_eio_windows_reopen(value v_fd, value v_mode)
   DWORD err = GetLastError();
   caml_leave_blocking_section();
   if (h == INVALID_HANDLE_VALUE) {
-    /* An exclusive append handle is already the only writer. Its EOF is the
-       end of its own write while Eio holds the cursor lock for its aliases. */
-    if (request == REOPEN_APPEND && err == ERROR_SHARING_VIOLATION) CAMLreturn(v_fd);
+    if (err == ERROR_SHARING_VIOLATION) CAMLreturn(v_fd);
     caml_win32_maperr(err);
     uerror("ReOpenFile", Nothing);
   }

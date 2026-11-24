@@ -49,6 +49,7 @@ let kind fd =
 external seek_raw : Unix.file_descr -> int64 -> int -> int64 = "caml_eio_windows_seek"
 type reopen_mode = Read | Write | Append
 external reopen : Unix.file_descr -> reopen_mode -> Unix.file_descr = "caml_eio_windows_reopen"
+(** Return the original descriptor if sharing prevents opening a second handle. *)
 
 (** Change the file position while excluding sequential I/O on this descriptor. *)
 let seek fd off whence =
@@ -92,8 +93,9 @@ let transfer_at ~write fd buf ~offset =
   match kind fd with
   | File | Append_file -> run fd
   | Pollable | Synchronous | Socket | Pipe ->
-    let fd = Eio_unix.run_in_systhread (fun () -> reopen fd (if write then Write else Read)) in
-    Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> run fd)
+    let other = Eio_unix.run_in_systhread (fun () -> reopen fd (if write then Write else Read)) in
+    if other == fd then raise (Unix.Unix_error (EOPNOTSUPP, "ReOpenFile", ""));
+    Fun.protect ~finally:(fun () -> Unix.close other) (fun () -> run other)
 
 let positioned ~write ~file_offset resource find_opt bufs =
   let offset = Optint.Int63.to_int64 file_offset in
