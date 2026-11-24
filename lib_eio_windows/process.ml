@@ -206,7 +206,16 @@ module Impl = struct
       prepare ~input:false (sink :> Eio.Flow.sink_ty r) (fun _ sink source -> Eio.Flow.copy source sink)
     in
     let stdin = Option.map input stdin in
-    let stdout = Option.map output stdout and stderr = Option.map output stderr in
+    let shared = match stdout, stderr with
+      | Some out, Some err -> Flow.shared_sink ~sw:setup (out :> Eio.Flow.sink_ty r) (err :> Eio.Flow.sink_ty r)
+      | _ -> None
+    in
+    let stdout, stderr = match shared with
+      | Some sink ->
+        let sink = Some (output sink) in
+        sink, sink
+      | None -> Option.map output stdout, Option.map output stderr
+    in
     let process = spawn v ~sw ?cwd ?stdin ?stdout ?stderr ?env ~executable args in
     List.iter (fun start ->
         Fiber.fork ~sw (fun () -> start process);

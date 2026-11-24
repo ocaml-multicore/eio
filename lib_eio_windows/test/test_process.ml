@@ -92,6 +92,28 @@ let test_shared_stdout env () =
   Alcotest.check status "writer" (`Exited 0) (Process.await writer);
   Alcotest.check status "other child" (`Exited 0) (Process.await other)
 
+let write_merged_output () =
+  assert (input_char stdin = '!');
+  assert (Iocp.same_handle Unix.stdout Unix.stderr);
+  for _ = 1 to 32 do
+    output_char stdout 'A'; flush stdout;
+    output_char stderr 'B'; flush stderr
+  done
+
+let test_merged_output ~separate env () =
+  with_tmp env "proc-merged.txt" @@ fun path ->
+  Switch.run (fun sw ->
+      let raw = Iocp.openfile (snd path) [O_WRONLY; O_CREAT; O_TRUNC] 0o600 in
+      let stderr = Eio_unix.File.import_rw ~sw ~close_unix:true raw in
+      let stdout = if separate then Eio_unix.File.import_rw ~sw ~close_unix:false raw else stderr in
+      let mgr = process env in
+      let stdin, trigger = Process.pipe ~sw mgr in
+      let child = Process.spawn mgr ~sw ~stdin ~stdout ~stderr [Sys.executable_name; "--merged-output"] in
+      Eio.Flow.close stderr;
+      Eio.Flow.copy_string "!" trigger;
+      Alcotest.check status "child exited" (`Exited 0) (Process.await child));
+  Alcotest.(check string) "child write order" (String.init 64 (fun i -> "AB".[i mod 2])) (Eio.Path.load path)
+
 let test_stderr env () =
   with_tmp env "proc-err.txt" @@ fun path ->
   Switch.run (fun sw ->
@@ -303,6 +325,8 @@ let tests () = [
   "stdout", `Quick, test_stdout;
   "socket-stdout", `Quick, test_socket_stdout;
   "shared-stdout", `Quick, test_shared_stdout;
+  "merged-output", `Quick, test_merged_output ~separate:false;
+  "merged-output-wrappers", `Quick, test_merged_output ~separate:true;
   "cancel-pipe-write", `Quick, test_cancel_pipe_write;
   "pipe-write-prefix", `Quick, test_pipe_write_prefix;
   "stderr", `Quick, test_stderr;

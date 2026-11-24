@@ -94,24 +94,41 @@ module Impl = struct
   let getsockopt t opt = Eio_unix.Private.getsockopt t.fd opt
 end
 
-type (_, _, _) Eio.Resource.pi += Kind : ('t, 't -> Unix.file_descr -> File_io.kind, [> `Windows_flow]) Eio.Resource.pi
+type (_, _, _) Eio.Resource.pi += Windows_flow : ('t, 't -> Impl.t, [> `Windows_flow]) Eio.Resource.pi
 
-let kind (Eio.Resource.T (v, ops)) =
-  match Eio.Resource.get_opt ops Kind with
-  | Some get -> get v
+let get (Eio.Resource.T (v, ops)) =
+  Option.map (fun get -> get v) (Eio.Resource.get_opt ops Windows_flow)
+
+let kind flow =
+  match get flow with
+  | Some t -> Impl.kind t
   | None -> File_io.kind
 
-let with_kind ops =
-  Eio.Resource.handler (H (Kind, Impl.kind) :: Eio.Resource.bindings ops)
+let with_flow ops =
+  Eio.Resource.handler (H (Windows_flow, Fun.id) :: Eio.Resource.bindings ops)
 
-let file_handler = with_kind (Eio_unix.Pi.file_handler (module Impl))
+let file_handler = with_flow (Eio_unix.Pi.file_handler (module Impl))
 
 let of_fd ?kind fd =
   let r = Eio.Resource.T ({ Impl.fd; kind }, file_handler) in
   (r : [`Unix_fd | Eio.File.rw_ty] r :>
      [< `Unix_fd | Eio.File.rw_ty] r)
 
-let stream_handler = with_kind (Eio_unix.Pi.stream_handler (module Impl))
+let shared_sink ~sw a b =
+  if a == b then Some a
+  else match get a, get b with
+    | Some a, Some b ->
+      Fd.use_exn "spawn" a.fd @@ fun x ->
+      Fd.use_exn "spawn" b.fd @@ fun y ->
+      if x != y then None
+      else (
+        (* Either wrapper can close the descriptor while the child is running. *)
+        let fd = Fd.of_unix ~sw ~close_unix:true (Unix.dup ~cloexec:true x) in
+        Some (of_fd ?kind:a.kind fd :> Eio.Flow.sink_ty r)
+      )
+    | _ -> None
+
+let stream_handler = with_flow (Eio_unix.Pi.stream_handler (module Impl))
 
 let stream fd =
   let r = Eio.Resource.T ({ Impl.fd; kind = None }, stream_handler) in

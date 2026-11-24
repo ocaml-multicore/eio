@@ -95,7 +95,7 @@ let write_prefix () =
   in
   Alcotest.(check int) "reported bytes" received sent
 
-let () =
+let run_tests () =
   let run (name, speed, test) =
     name, speed, (fun () -> Eio_windows.run (fun env -> test env ()))
   in
@@ -111,3 +111,8 @@ let () =
     "await", Await_fd.tests;
   ] in
   Alcotest.run "eio_windows" (List.map (fun (name, tests) -> name, List.map run tests) suites)
+
+let () =
+  match Array.to_list Sys.argv with
+  | [_; "--merged-output"] -> Test_process.write_merged_output ()
+  | _ -> run_tests ()
