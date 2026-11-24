@@ -71,7 +71,9 @@ val stat : _ ro -> Stat.t
 val size : _ ro -> Optint.Int63.t
 (** [size t] returns the size of [t]. *)
 
-(** {2 Reading and writing} *)
+(** {2 Reading and writing}
+
+    Positioned reads and writes raise [Invalid_argument] if [file_offset] is negative. *)
 
 val pread : _ ro -> file_offset:Optint.Int63.t -> Cstruct.t list -> int
 (** [pread t ~file_offset bufs] performs a single read of [t] at [file_offset] into [bufs].
