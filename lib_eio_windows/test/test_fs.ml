@@ -1245,7 +1245,28 @@ let test_trailing_link ~junction env () =
         ) [Path.unlink; Path.rmdir; Path.rmtree]
     ) ["/"; "\\"; "//"; "\\\\"; "/."; "\\."; "/\\"]
 
+let test_nonseekable _env () =
+  let check_pair (r, w) =
+    Switch.run @@ fun sw ->
+    let wrap = Eio_unix.Fd.of_unix ~sw ~close_unix:true in
+    let r = wrap r and w = wrap w in
+    let file_offset = Optint.Int63.zero and bufs = [|Cstruct.create 1|] in
+    let check fn =
+      match fn () with
+      | _ -> Alcotest.fail "file operation succeeded on a stream"
+      | exception Unix.Unix_error (ESPIPE, _, _) -> ()
+    in
+    let module L = Eio_windows.Low_level in
+    check (fun () -> L.lseek r file_offset `Cur);
+    check (fun () -> L.preadv ~file_offset r bufs);
+    check (fun () -> L.pwritev ~file_offset w bufs)
+  in
+  check_pair (Unix.pipe ~cloexec:true ());
+  check_pair (Iocp.pipe ());
+  check_pair (Unix.socketpair ~cloexec:true PF_UNIX SOCK_STREAM 0)
+
 let tests () = [
+  "nonseekable streams", `Quick, test_nonseekable;
   "create-write-read", `Quick, test_create_and_read;
   "positioned I/O", `Quick, test_positioned_io;
   "absolute-join", `Quick, test_absolute_join;

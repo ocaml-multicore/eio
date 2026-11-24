@@ -52,9 +52,10 @@ external reopen : Unix.file_descr -> reopen_mode -> Unix.file_descr = "caml_eio_
 (** Change the file position while excluding sequential I/O on this descriptor. *)
 let seek fd off whence =
   let move () = seek_raw fd off whence in
-  match kind fd with
+  match kind_raw fd with
   | File | Append_file | Synchronous -> Serial.with_fd fd move
-  | Pollable | Pipe | Sync_pipe | Socket -> move ()
+  | Pollable -> move ()
+  | Pipe | Sync_pipe | Socket -> raise (Unix.Unix_error (ESPIPE, "lseek", ""))
 
 let append_shared fd (buf : Cstruct.t) =
   Eio_unix.run_in_systhread @@ fun () ->
@@ -88,9 +89,11 @@ let transfer_at ~write fd buf ~offset =
   let run fd = Completion.await (fun port ~data ->
       (if write then Iocp.Event.write else Iocp.Event.read) port ~data fd buf ~offset)
   in
-  match kind fd with
+  match kind_raw fd with
   | File | Append_file -> run fd
-  | Pollable | Synchronous | Socket | Pipe | Sync_pipe ->
+  | Socket | Pipe | Sync_pipe ->
+    raise (Unix.Unix_error (ESPIPE, (if write then "pwrite" else "pread"), ""))
+  | Pollable | Synchronous ->
     let other = Eio_unix.run_in_systhread (fun () -> reopen fd (if write then Write else Read)) in
     if other == fd then raise (Unix.Unix_error (EOPNOTSUPP, "ReOpenFile", ""));
     Fun.protect ~finally:(fun () -> Unix.close other) (fun () -> run other)
