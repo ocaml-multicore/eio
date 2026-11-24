@@ -57,6 +57,33 @@ module Process = struct
   let wait t =
     Fd.use_exn "process_wait" t.handle @@ fun h ->
     Eio_unix.run_in_systhread ~label:"process_wait" (fun () -> eio_process_wait h)
+
+  let start ~sw create =
+    let started, set_started = Promise.create () in
+    Fiber.check ();
+    Switch.check sw;
+    Fiber.fork_daemon ~sw (fun () ->
+        Fiber.check ();
+        match create () with
+        | exception ex -> Promise.resolve_error set_started ex; `Stop_daemon
+        | pid, raw_handle ->
+          match Switch.run (fun sw ->
+              let handle = Fd.of_unix ~sw ~blocking:true ~close_unix:false raw_handle in
+              let exited, set_exited = Promise.create () in
+              let t = { pid; handle; signalled = None; exited } in
+              Fiber.fork_daemon ~sw (fun () ->
+                  try Fiber.await_cancel ()
+                  with ex -> signal t Sys.sigkill; raise ex);
+              Promise.resolve_ok set_started t;
+              Eio.Cancel.protect (fun () ->
+                  Promise.resolve set_exited (try Ok (wait t) with ex -> Error ex))) with
+          | () -> Unix.close raw_handle; `Stop_daemon
+          | exception ex ->
+            ignore (eio_process_terminate raw_handle terminated_exit_code);
+            Unix.close raw_handle;
+            raise ex);
+    Promise.await_exn started
+
 end
 
 let process_handler = Eio.Process.Pi.process (module Process)
@@ -98,30 +125,12 @@ module Impl = struct
       in
       let stdin_fd = get 0 Fd.stdin and stdout_fd = get 1 Fd.stdout and stderr_fd = get 2 Fd.stderr in
       let cwd = Option.map cwd_path cwd in
-      let pid, raw_handle =
-        Fd.use_exn "stdin" stdin_fd @@ fun h0 ->
-        Fd.use_exn "stdout" stdout_fd @@ fun h1 ->
-        Fd.use_exn "stderr" stderr_fd @@ fun h2 ->
-        if not (stdio_compatible h0 && stdio_compatible h1 && stdio_compatible h2) then
-          invalid_arg "spawn_unix: standard handles must support synchronous IO";
-        Fiber.check ();
-        Switch.check sw;
-        eio_spawn cwd env h0 h1 h2 cmdline
-      in
-      let handle = Fd.of_unix ~sw ~blocking:true ~close_unix:true raw_handle in
-      let exited, set_exited = Promise.create () in
-      let t = { Process.pid; handle; signalled = None; exited } in
-      Fiber.fork_daemon ~sw (fun () ->
-          Switch.run @@ fun sw ->
-          Fiber.fork_daemon ~sw (fun () ->
-              try Fiber.await_cancel ()
-              with ex -> Process.signal t Sys.sigkill; raise ex
-            );
-          Eio.Cancel.protect (fun () ->
-              Promise.resolve set_exited (try Ok (Process.wait t) with ex -> Error ex);
-              `Stop_daemon)
-        );
-      process t
+      Fd.use_exn "stdin" stdin_fd @@ fun h0 ->
+      Fd.use_exn "stdout" stdout_fd @@ fun h1 ->
+      Fd.use_exn "stderr" stderr_fd @@ fun h2 ->
+      if not (stdio_compatible h0 && stdio_compatible h1 && stdio_compatible h2) then
+        invalid_arg "spawn_unix: standard handles must support synchronous IO";
+      process (Process.start ~sw (fun () -> eio_spawn cwd env h0 h1 h2 cmdline))
   end
 
   include Eio_unix.Process.Make_mgr (T)

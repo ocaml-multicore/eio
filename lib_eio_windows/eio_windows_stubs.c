@@ -488,7 +488,7 @@ CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
 {
   CAMLparam5(v_cwd, v_env, v_stdin, v_stdout, v_stderr);
   CAMLxparam1(v_cmdline);
-  CAMLlocal1(v_result);
+  CAMLlocal2(v_result, v_handle);
 
   wchar_t *cmdline = NULL, *cwd = NULL, *env_block = NULL;
   HANDLE src[3];
@@ -506,6 +506,9 @@ CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
 
   caml_unix_check_path(v_cmdline, "execve");
   if (Is_some(v_cwd)) caml_unix_check_path(Field(v_cwd, 0), "execve");
+  v_handle = caml_win32_alloc_handle(INVALID_HANDLE_VALUE);
+  v_result = caml_alloc_tuple(2);
+  Store_field(v_result, 1, v_handle);
   cmdline = caml_stat_strdup_to_utf16(String_val(v_cmdline));
   /* CreateProcessW's limit includes the terminating UTF-16 NUL. */
   if (wcslen(cmdline) >= 32767) {
@@ -535,7 +538,11 @@ CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
   if (!GetConsoleWindow()) create_flags |= CREATE_NO_WINDOW;
 
   InitializeProcThreadAttributeList(NULL, 1, 0, &attr_size);
-  si.lpAttributeList = caml_stat_alloc(attr_size);
+  si.lpAttributeList = caml_stat_alloc_noexc(attr_size);
+  if (si.lpAttributeList == NULL) {
+    err = ERROR_NOT_ENOUGH_MEMORY;
+    goto cleanup;
+  }
   if (!InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &attr_size)) {
     err = GetLastError();
     caml_stat_free(si.lpAttributeList);
@@ -548,7 +555,7 @@ CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
     goto cleanup;
   }
 
-  caml_enter_blocking_section();
+  caml_enter_blocking_section_no_pending();
   ok = CreateProcessW(NULL, cmdline, NULL, NULL, TRUE, create_flags, env_block, cwd,
                       &si.StartupInfo, &pi);
   if (!ok) err = GetLastError();
@@ -572,9 +579,8 @@ cleanup:
   }
 
   CloseHandle(pi.hThread);
-  v_result = caml_alloc_tuple(2);
+  Handle_val(v_handle) = pi.hProcess;
   Store_field(v_result, 0, Val_long(pi.dwProcessId));
-  Store_field(v_result, 1, caml_win32_alloc_handle(pi.hProcess));
   CAMLreturn(v_result);
 }
 

@@ -234,6 +234,27 @@ let test_cancel_during_spawn env () =
   Alcotest.check_raises "cancelled caller" (Eio.Cancel.Cancelled Exit)
     (fun () -> ignore (Promise.await_exn pending))
 
+let test_switch_during_spawn env () =
+  Switch.run @@ fun sw ->
+  let input, _ = Process.pipe ~sw (process env) in
+  let fd = Option.get (Eio_unix.Resource.fd_opt input) in
+  let launch target =
+    Fiber.fork_promise ~sw (fun () ->
+        (* Classifying a raw pipe suspends before CreateProcess. *)
+        Eio_unix.Process.spawn_unix ~sw:target (process env) ~fds:[0, fd, `Blocking]
+          ~executable:"nonexistent-executable-eio-test" ["unused"])
+  in
+  let pending = Switch.run launch in
+  Alcotest.check_raises "finished switch" (Invalid_argument "Switch finished!")
+    (fun () -> ignore (Promise.await_exn pending));
+  try Switch.run (fun target ->
+      let pending = launch target in
+      Switch.fail target Exit;
+      Eio.Cancel.protect (fun () ->
+          Alcotest.check_raises "cancelling switch" (Eio.Cancel.Cancelled Exit)
+            (fun () -> ignore (Promise.await_exn pending))))
+  with Exit -> ()
+
 let test_spawn_failure env () =
   Switch.run @@ fun sw ->
   match Process.spawn ~sw (process env) ["nonexistent-executable-eio-test"] with
@@ -275,6 +296,7 @@ let tests () = [
   "stop-on-switch-release", `Quick, test_stop_on_switch_release;
   "stop-on-cancel", `Quick, test_stop_on_cancel;
   "cancel-during-spawn", `Quick, test_cancel_during_spawn;
+  "switch-during-spawn", `Quick, test_switch_during_spawn;
   "spawn-failure", `Quick, test_spawn_failure;
   "argument-list-too-long", `Quick, test_argument_list_too_long;
   "stress", `Slow, test_stress;
