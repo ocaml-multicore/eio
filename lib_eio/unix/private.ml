@@ -87,6 +87,8 @@ external eio_getaddrinfo : string -> string -> (sockaddr list, Eio.Net.Getaddrin
   = "eio_unix_getaddrinfo"
 
 let getaddrinfo ~service node =
+  if String.contains node '\000' || String.contains service '\000' then
+    raise (Eio.Net.err (Address_lookup_failed NONAME));
   match eio_getaddrinfo node service with
   | Ok x -> List.rev (x :> Eio.Net.Sockaddr.t list)
   | Error e -> raise @@ Eio.Net.err @@ Eio.Net.Address_lookup_failed e
