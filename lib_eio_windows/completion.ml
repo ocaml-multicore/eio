@@ -47,11 +47,12 @@ let await_result ?(on_complete=ignore) submit =
         if c.error = None || c.bytes_transferred > 0 || Option.is_some c.source then c
         else Printexc.raise_with_backtrace ex bt)
 
-let await ?on_complete submit =
-  let c = await_result ?on_complete submit in
+let transferred (c : Iocp.completion) =
   match c.error with
   | Some code when c.bytes_transferred = 0 -> raise (Unix.Unix_error (code, "iocp", ""))
   | _ -> c.bytes_transferred
+
+let await ?on_complete submit = transferred (await_result ?on_complete submit)
 
 let shutdown raw cmd =
   Iocp.Event.shutdown raw cmd;

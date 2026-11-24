@@ -634,6 +634,25 @@ CAMLprim value caml_eio_windows_pipe_write_size(value fd, value len)
   CAMLreturn((uintnat)Long_val(len) > quota ? Val_long(quota) : len);
 }
 
+CAMLprim value caml_eio_windows_read_sync_pipe(value fd, value ba, value off, value len)
+{
+  CAMLparam4(fd, ba, off, len);
+  HANDLE h = Handle_val(fd);
+  void *buf = (char *)Caml_ba_data_val(ba) + Long_val(off);
+  uintnat size = Long_val(len);
+  DWORD n = 0;
+  caml_enter_blocking_section();
+  DWORD err = ReadFile(h, buf, size > MAXDWORD ? MAXDWORD : (DWORD)size, &n, NULL)
+    ? ERROR_SUCCESS : GetLastError();
+  caml_leave_blocking_section();
+  if (err == ERROR_BROKEN_PIPE || err == ERROR_HANDLE_EOF) CAMLreturn(Val_int(-1));
+  if (err != ERROR_SUCCESS && err != ERROR_MORE_DATA) {
+    caml_win32_maperr(err);
+    uerror("read", Nothing);
+  }
+  CAMLreturn(Val_long(n));
+}
+
 CAMLprim value caml_eio_windows_io_thread_id(value unit)
 {
   return caml_copy_int32(GetCurrentThreadId());
@@ -655,7 +674,7 @@ CAMLprim value caml_eio_windows_cancel_sync_io(value id)
 }
 
 /* Constructor order of File_io.kind. */
-enum fd_kind { FD_POLLABLE, FD_SOCKET, FD_PIPE, FD_FILE, FD_APPEND_FILE, FD_SYNC };
+enum fd_kind { FD_POLLABLE, FD_SOCKET, FD_PIPE, FD_FILE, FD_APPEND_FILE, FD_SYNC, FD_SYNC_PIPE };
 
 CAMLprim value caml_eio_windows_is_socket(value fd)
 {
@@ -677,7 +696,7 @@ CAMLprim value caml_eio_windows_pipe_kind(value v_fd)
   caml_enter_blocking_section();
   int async = is_overlapped(h);
   caml_leave_blocking_section();
-  CAMLreturn(Val_int(async ? FD_PIPE : FD_POLLABLE));
+  CAMLreturn(Val_int(async ? FD_PIPE : FD_SYNC_PIPE));
 }
 
 CAMLprim value caml_eio_windows_fd_kind(value v_fd, value v_stdio)
@@ -691,7 +710,7 @@ CAMLprim value caml_eio_windows_fd_kind(value v_fd, value v_stdio)
     return Val_int(GetConsoleMode(h, &mode) ? FD_POLLABLE : FD_SYNC);
   }
   if (type == FILE_TYPE_PIPE)
-    return Val_int(Bool_val(v_stdio) ? FD_POLLABLE : FD_PIPE);
+    return Val_int(Bool_val(v_stdio) ? FD_SYNC_PIPE : FD_PIPE);
   if (type != FILE_TYPE_DISK || Bool_val(v_stdio) || !is_overlapped(h))
     return Val_int(FD_SYNC);
   IO_STATUS_BLOCK io;

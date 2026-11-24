@@ -22,7 +22,7 @@ let run_with_check fn =
   | Error ex -> raise ex
   | exception ex ->
     Eio.Cancel.protect @@ fun () ->
-    (* A published worker may still be about to enter WriteFile. Its ID is
+    (* A published worker may still be about to enter the system call. Its ID is
        retired under the same lock before the pool can assign it another job. *)
     let stop () =
       cancelled := Some ex;

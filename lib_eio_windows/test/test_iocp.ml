@@ -552,21 +552,15 @@ let sync_pipe_alias () =
   Fun.protect ~finally:(fun () -> Unix.close w) @@ fun () ->
   let import r = Eio_unix.File.import_ro ~sw ~close_unix:true r in
   let first = import r and second = import (Unix.dup ~cloexec:true r) in
-  let waits = ref 0 in
   let read flow =
     let buf = Cstruct.create 1 in
-    Effect.Deep.try_with (Eio.Flow.read_exact flow) buf {
-      effc = fun (type a) (eff : a Effect.t) -> match eff with
-        | Eio_unix.Private.Await_readable _ -> incr waits; None
-        | _ -> None
-    };
+    Eio.Flow.read_exact flow buf;
     Cstruct.to_string buf
   in
   let result = Fiber.fork_promise ~sw (fun () -> read first) in
   Fiber.first (fun () -> ignore (read second)) (fun () -> ());
   ignore (Unix.single_write w (Bytes.of_string "x") 0 1);
-  Alcotest.(check string) "first read" "x" (Promise.await_exn result);
-  Alcotest.(check int) "only the active reader checked readiness" 1 !waits
+  Alcotest.(check string) "cancelled duplicate left the byte for the first reader" "x" (Promise.await_exn result)
 
 let child_stdio env () =
   Switch.run @@ fun sw ->

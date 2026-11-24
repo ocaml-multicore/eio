@@ -91,7 +91,7 @@ let process t = Eio.Resource.T (t, process_handler)
 
 module Impl = struct
   let stdio_compatible = function
-    | File_io.Pollable | File_io.Synchronous -> true
+    | File_io.Pollable | File_io.Sync_pipe | File_io.Synchronous -> true
     | File_io.File | File_io.Append_file | File_io.Pipe | File_io.Socket -> false
 
   module T = struct
@@ -142,7 +142,7 @@ module Impl = struct
   let pipe () ~sw =
     Switch.check sw;
     let r, w = Unix.pipe ~cloexec:true () in
-    let wrap fd = Flow.of_fd ~kind:File_io.Pollable (Fd.of_unix ~sw ~blocking:true ~close_unix:true fd) in
+    let wrap fd = Flow.of_fd ~kind:File_io.Sync_pipe (Fd.of_unix ~sw ~blocking:true ~close_unix:true fd) in
     wrap r, wrap w
 
   let copy_stdin source sink =
@@ -194,7 +194,7 @@ module Impl = struct
           | Some (fd, kind) -> Fd.use_exn "stdio forwarding" fd (fun raw -> run (Some (raw, kind)))
         in
         forwards := start :: !forwards;
-        Flow.of_fd ~kind:File_io.Pollable child
+        Flow.of_fd ~kind:File_io.Sync_pipe child
     in
     let input source =
       prepare ~input:true (source :> Eio.Flow.source_ty r) (fun process source sink ->
