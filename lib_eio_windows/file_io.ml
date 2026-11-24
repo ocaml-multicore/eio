@@ -105,11 +105,9 @@ let positioned ~write ~file_offset resource find_opt bufs =
   | None -> 0
   | Some buf -> transfer_at ~write fd buf ~offset
 
-let handle_kind known raw = match known with Some k -> k | None -> kind raw
-
-let read_cstruct known fd (buf : Cstruct.t) =
+let read_cstruct kind fd (buf : Cstruct.t) =
   Eio_unix.Fd.use_exn "read" fd @@ fun raw ->
-  match handle_kind known raw with
+  match kind raw with
   | Socket -> Completion.await (fun port ~data -> Iocp.Event.recv port ~data raw buf)
   | Pipe -> Completion.await (fun port ~data -> Iocp.Event.read port ~data raw buf ~offset:0L)
   | File | Append_file -> sequential ~write:false ~append:false raw buf
@@ -119,9 +117,9 @@ let read_cstruct known fd (buf : Cstruct.t) =
         if kind = Pollable then Eio_unix.await_readable raw;
         read ())
 
-let write_cstruct known fd (buf : Cstruct.t) =
+let write_cstruct kind fd (buf : Cstruct.t) =
   Eio_unix.Fd.use_exn "write" fd @@ fun raw ->
-  match handle_kind known raw with
+  match kind raw with
   | Socket -> Completion.await (fun port ~data -> Iocp.Event.send port ~data raw buf)
   | _ when Cstruct.is_empty buf -> 0
   | Pipe -> Completion.await (fun port ~data -> Iocp.Event.write port ~data raw buf ~offset:0L)

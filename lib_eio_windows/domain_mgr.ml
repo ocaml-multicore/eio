@@ -46,17 +46,14 @@ let run_event_loop fn x =
     effc = fun (type a) (e : a Effect.t) : ((a, unit) continuation -> unit) option ->
       match e with
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k Time.mono_clock)
-      | Eio_unix.Private.Import_file fd -> Some (handle (fun () ->
-          let kind = Fd.use_exn "import" fd File_io.kind in
-          (Flow.of_fd ~kind fd :> Eio_unix.File.rw_ty r)))
+      | Eio_unix.Private.Import_file fd -> Some (fun k ->
+          continue k (Flow.of_fd fd :> Eio_unix.File.rw_ty r))
       | Eio_unix.Net.Import_socket_stream (sw, close_unix, raw) -> Some (handle (fun () ->
-          let kind = File_io.kind raw in
-          let fd = match kind with
-            | File_io.Socket -> import_socket ~sw ~close_unix raw
-            | Pollable | Synchronous -> Fd.of_unix ~sw ~blocking:true ~close_unix raw
-            | Pipe | File | Append_file -> Fd.of_unix ~sw ~blocking:false ~close_unix raw
+          let fd =
+            if Readiness.is_socket raw then import_socket ~sw ~close_unix raw
+            else Fd.of_unix ~sw ~blocking:true ~close_unix raw
           in
-          (Flow.stream ~kind fd :> _ Eio_unix.Net.stream_socket)))
+          (Flow.stream fd :> _ Eio_unix.Net.stream_socket)))
       | Eio_unix.Net.Import_socket_listening (sw, close_unix, raw) -> Some (handle (fun () ->
           Net.listening_socket ~hook:Switch.null_hook (import_socket ~sw ~close_unix raw)))
       | Eio_unix.Net.Import_socket_datagram (sw, close_unix, raw) -> Some (handle (fun () ->

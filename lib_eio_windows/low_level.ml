@@ -7,8 +7,8 @@ module Fd = Eio_unix.Fd
 let await_readable fd = Fd.use_exn "await_readable" fd Eio_unix.await_readable
 let await_writable fd = Fd.use_exn "await_writable" fd Eio_unix.await_writable
 
-let read_cstruct = File_io.read_cstruct None
-let write_cstruct = File_io.write_cstruct None
+let read_cstruct = File_io.read_cstruct File_io.kind
+let write_cstruct = File_io.write_cstruct File_io.kind
 
 let read fd buf start len =
   if start < 0 || len < 0 || start > Bytes.length buf - len then invalid_arg "read";

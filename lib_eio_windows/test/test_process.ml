@@ -66,6 +66,32 @@ let test_socket_stdout env () =
   let text = Eio.Buf_read.(parse_exn take_all) peer ~max_size:65536 in
   Alcotest.(check bool) "child wrote to the socket" true (text <> "")
 
+let test_shared_stdout env () =
+  with_tmp env "proc-shared-stdout.txt" @@ fun path ->
+  let data = String.make (1024 * 1024) 'a' in
+  Eio.Path.save ~create:(`Or_truncate 0o600) path data;
+  Switch.run @@ fun sw ->
+  let mgr = process env in
+  let reader, stdout = Process.pipe ~sw mgr in
+  let writer = Process.spawn ~sw ~stdout mgr ["cmd"; "/c"; "type"; snd path] in
+  let fd = Option.get (Eio_unix.Resource.fd_opt reader) in
+  Eio_unix.Fd.use_exn "await output" fd Eio_unix.await_readable;
+  let other = Switch.run (fun guard ->
+      let expired = ref false in
+      Fiber.fork_daemon ~sw:guard (fun () ->
+          Eio.Time.sleep env#clock 5.;
+          expired := true;
+          Eio.Flow.close reader;
+          `Stop_daemon);
+      let other = Process.spawn ~sw ~stdout mgr ["cmd"; "/c"; "exit"; "0"] in
+      Alcotest.(check bool) "spawned before draining stdout" false !expired;
+      other) in
+  Eio.Flow.close stdout;
+  let buf = Cstruct.create (String.length data) in
+  Eio.Flow.read_exact reader buf;
+  Alcotest.check status "writer" (`Exited 0) (Process.await writer);
+  Alcotest.check status "other child" (`Exited 0) (Process.await other)
+
 let test_stderr env () =
   with_tmp env "proc-err.txt" @@ fun path ->
   Switch.run (fun sw ->
@@ -276,6 +302,7 @@ let tests () = [
   "exit-status", `Quick, test_exit_status;
   "stdout", `Quick, test_stdout;
   "socket-stdout", `Quick, test_socket_stdout;
+  "shared-stdout", `Quick, test_shared_stdout;
   "cancel-pipe-write", `Quick, test_cancel_pipe_write;
   "pipe-write-prefix", `Quick, test_pipe_write_prefix;
   "stderr", `Quick, test_stderr;

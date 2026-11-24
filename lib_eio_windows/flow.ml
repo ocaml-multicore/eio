@@ -5,7 +5,15 @@ module Fd = Eio_unix.Fd
 module Impl = struct
   type tag = [`Generic | `Unix]
 
-  type t = { fd : Fd.t; kind : File_io.kind option }
+  type t = { fd : Fd.t; mutable kind : File_io.kind option }
+
+  let kind t raw =
+    match t.kind with
+    | Some k -> k
+    | None ->
+      let k = File_io.kind raw in
+      t.kind <- Some k;
+      k
 
   let stat_fd t =
     try
@@ -44,14 +52,14 @@ module Impl = struct
     | [] -> 0
     | buf :: (_ :: _ as rest) when Cstruct.is_empty buf -> single_write t rest
     | buf :: _ ->
-      match Err.run (File_io.write_cstruct t.kind t.fd) buf with
+      match Err.run (File_io.write_cstruct (kind t) t.fd) buf with
       | 0 when not (Cstruct.is_empty buf) -> raise (Err.v EIO "write" "")
       | n -> n
 
   let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
 
   let single_read t buf =
-    match Err.run (File_io.read_cstruct t.kind t.fd) buf with
+    match Err.run (File_io.read_cstruct (kind t) t.fd) buf with
     | 0 -> raise End_of_file
     | got -> got
 
@@ -86,17 +94,27 @@ module Impl = struct
   let getsockopt t opt = Eio_unix.Private.getsockopt t.fd opt
 end
 
-let file_handler = Eio_unix.Pi.file_handler (module Impl)
+type (_, _, _) Eio.Resource.pi += Kind : ('t, 't -> Unix.file_descr -> File_io.kind, [> `Windows_flow]) Eio.Resource.pi
+
+let kind (Eio.Resource.T (v, ops)) =
+  match Eio.Resource.get_opt ops Kind with
+  | Some get -> get v
+  | None -> File_io.kind
+
+let with_kind ops =
+  Eio.Resource.handler (H (Kind, Impl.kind) :: Eio.Resource.bindings ops)
+
+let file_handler = with_kind (Eio_unix.Pi.file_handler (module Impl))
 
 let of_fd ?kind fd =
   let r = Eio.Resource.T ({ Impl.fd; kind }, file_handler) in
   (r : [`Unix_fd | Eio.File.rw_ty] r :>
      [< `Unix_fd | Eio.File.rw_ty] r)
 
-let stream_handler = Eio_unix.Pi.stream_handler (module Impl)
+let stream_handler = with_kind (Eio_unix.Pi.stream_handler (module Impl))
 
-let stream ?(kind = File_io.Socket) fd =
-  let r = Eio.Resource.T ({ Impl.fd; kind = Some kind }, stream_handler) in
+let stream fd =
+  let r = Eio.Resource.T ({ Impl.fd; kind = None }, stream_handler) in
   (r : [`Unix_fd | Eio_unix.Net.stream_socket_ty] r :>
      [< `Unix_fd | Eio_unix.Net.stream_socket_ty] r)
 

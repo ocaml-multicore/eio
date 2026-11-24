@@ -525,6 +525,14 @@ let busy_pipe_mode env () =
   let write fn = try fn () with Eio.Io _ | Unix.Unix_error _ -> () in
   Fiber.fork ~sw (fun () -> write (fun () -> Eio.Flow.write w [Cstruct.create (1024 * 1024)]));
   Eio_unix.await_readable raw_read;
+  Eio_unix.Fd.use_exn "import" raw_write (fun raw ->
+      Eio.Flow.close (Eio_unix.File.import_rw ~sw ~close_unix:false raw);
+      let alias = Unix.dup ~cloexec:true raw in
+      Switch.run (fun sw ->
+          ignore (Eio_unix.Net.import_socket_stream ~sw ~close_unix:true alias));
+      match Unix.fstat alias with
+      | exception Unix.Unix_error (EBADF, _, _) -> ()
+      | _ -> Alcotest.fail "stream import did not release its descriptor");
   let timed_out write =
     match Eio.Time.with_timeout_exn env#clock 0.05 write with
     | () -> false

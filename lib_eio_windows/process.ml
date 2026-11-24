@@ -90,8 +90,7 @@ let process_handler = Eio.Process.Pi.process (module Process)
 let process t = Eio.Resource.T (t, process_handler)
 
 module Impl = struct
-  let stdio_compatible raw =
-    match File_io.kind raw with
+  let stdio_compatible = function
     | File_io.Pollable | File_io.Synchronous -> true
     | File_io.File | File_io.Append_file | File_io.Pipe | File_io.Socket -> false
 
@@ -106,7 +105,7 @@ module Impl = struct
       | Some d ->
         Eio_utils.Nt_path.to_win32 (Err.run Low_level.realpath (Fs.Dir.resolve d path))
 
-    let spawn_unix () ~sw ?cwd ?pgid ?uid ?gid ?login_tty ~env ~fds ~executable args =
+    let spawn_unix ~validate_stdio () ~sw ?cwd ?pgid ?uid ?gid ?login_tty ~env ~fds ~executable args =
       if pgid <> None || uid <> None || gid <> None then
         Fmt.invalid_arg "spawn: pgid/uid/gid are not supported on Windows";
       if login_tty <> None then
@@ -128,12 +127,17 @@ module Impl = struct
       Fd.use_exn "stdin" stdin_fd @@ fun h0 ->
       Fd.use_exn "stdout" stdout_fd @@ fun h1 ->
       Fd.use_exn "stderr" stderr_fd @@ fun h2 ->
-      if not (stdio_compatible h0 && stdio_compatible h1 && stdio_compatible h2) then
+      if validate_stdio && not (List.for_all (fun fd -> stdio_compatible (File_io.kind fd)) [h0; h1; h2]) then
         invalid_arg "spawn_unix: standard handles must support synchronous IO";
       process (Process.start ~sw (fun () -> eio_spawn cwd env h0 h1 h2 cmdline))
   end
 
-  include Eio_unix.Process.Make_mgr (T)
+  include Eio_unix.Process.Make_mgr (struct
+    include T
+    let spawn_unix = spawn_unix ~validate_stdio:false
+  end)
+
+  let spawn_unix = T.spawn_unix ~validate_stdio:true
 
   let pipe () ~sw =
     Switch.check sw;
@@ -163,9 +167,11 @@ module Impl = struct
     Switch.run @@ fun setup ->
     let forwards = ref [] in
     let prepare ~input flow forward =
-      let fd = Eio_unix.Resource.fd_opt flow in
+      let fd = Option.map (fun fd ->
+          let kind = Fd.use_exn "spawn" fd (Flow.kind flow) in
+          fd, kind) (Eio_unix.Resource.fd_opt flow) in
       match fd with
-      | Some fd when Fd.use_exn "spawn" fd stdio_compatible -> flow
+      | Some (_, kind) when stdio_compatible kind -> flow
       | _ ->
         let r, w = Iocp.pipe ~read_async:(not input) ~write_async:input () in
         let child, parent = if input then r, w else w, r in
@@ -177,13 +183,15 @@ module Impl = struct
             Switch.remove_hook cleanup;
             let wrap ~close_unix fd = Fd.of_unix ~sw ~blocking:false ~close_unix fd in
             let parent = Flow.of_fd ~kind:File_io.Pipe (wrap ~close_unix:true parent) in
-            let flow = match borrowed with None -> flow | Some fd -> Flow.of_fd (wrap ~close_unix:false fd) in
+            let flow = match borrowed with
+              | None -> flow
+              | Some (fd, kind) -> Flow.of_fd ~kind (wrap ~close_unix:false fd) in
             forward process flow parent
           in
           (* Take the borrow before the caller can close its stream. *)
           match fd with
           | None -> run None
-          | Some fd -> Fd.use_exn "stdio forwarding" fd (fun raw -> run (Some raw))
+          | Some (fd, kind) -> Fd.use_exn "stdio forwarding" fd (fun raw -> run (Some (raw, kind)))
         in
         forwards := start :: !forwards;
         Flow.of_fd ~kind:File_io.Pollable child
