@@ -34,6 +34,7 @@ let write_cstruct fd (buf : Cstruct.t) =
   Fd.use_exn "write" fd @@ fun raw ->
   match File_io.kind raw with
   | File_io.Socket -> Completion.await (fun port ~data -> Iocp.Event.send port ~data raw buf)
+  | _ when Cstruct.is_empty buf -> 0
   | File_io.Pipe -> Completion.await (fun port ~data -> Iocp.Event.write port ~data raw buf ~offset:0L)
   | (File_io.File | File_io.Append_file) as kind ->
     File_io.sequential ~write:true ~append:(kind = File_io.Append_file) raw buf
@@ -60,25 +61,43 @@ let socket ~sw socket_domain socket_type protocol =
   | exception ex -> Unix.close sock_unix; raise ex
 
 let connect fd addr =
-  try
-    Fd.use_exn "connect" fd (fun fd -> Unix.connect fd addr)
-  with
-  | Unix.Unix_error ((EINTR | EAGAIN | EWOULDBLOCK | EINPROGRESS), _, _) ->
-    await_writable fd;
-    match Fd.use_exn "connect" fd Unix.getsockopt_error with
-    | None -> ()
-    | Some code -> raise (Err.v code "connect-in-progress" "")
+  Fd.use_exn "connect" fd @@ fun raw ->
+  match addr with
+  | Unix.ADDR_INET _ ->
+    let unbound = match Unix.getsockname raw with
+      | Unix.ADDR_INET (_, 0) -> true
+      | _ -> false
+      | exception Unix.Unix_error (EINVAL, _, _) -> true
+    in
+    if unbound then (
+      let any = if Unix.domain_of_sockaddr addr = PF_INET6 then Unix.inet6_addr_any else Unix.inet_addr_any in
+      Unix.bind raw (Unix.ADDR_INET (any, 0))
+    );
+    ignore (Completion.await (fun port ~data -> Iocp.Event.connect port ~data raw addr))
+  | Unix.ADDR_UNIX _ ->
+    (try Unix.connect raw addr with
+     | Unix.Unix_error ((EINTR | EAGAIN | EWOULDBLOCK | EINPROGRESS), _, _) ->
+       Eio_unix.await_writable raw;
+       match Unix.getsockopt_error raw with
+       | None -> ()
+       | Some code -> raise (Err.v code "connect-in-progress" ""))
 
 let accept ~sw sock =
-  Fd.use_exn "accept" sock @@ fun sock ->
-  let client, addr =
-    do_nonblocking Read (fun fd -> Switch.check sw; Unix.accept ~cloexec:true fd) sock
+  Switch.check sw;
+  Fd.use_exn "accept" sock @@ fun raw ->
+  let domain = Unix.domain_of_sockaddr (Unix.getsockname raw) in
+  let client = Unix.socket ~cloexec:true domain Unix.SOCK_STREAM 0 in
+  let addr =
+    try
+      ignore (Completion.await (fun port ~data -> Iocp.Event.accept port ~data raw ~client));
+      Unix.set_nonblock client;
+      Unix.getpeername client
+    with ex -> Unix.close client; raise ex
   in
-  Unix.set_nonblock client;
   Fd.of_unix ~sw ~blocking:false ~close_unix:true client, addr
 
 let shutdown sock cmd =
-  Fd.use_exn "shutdown" sock (fun fd -> Unix.shutdown fd cmd)
+  Fd.use_exn "shutdown" sock (fun raw -> Completion.shutdown raw cmd)
 
 let send_msg fd ?dst buf =
   Fd.use_exn "send_msg" fd @@ fun fd ->

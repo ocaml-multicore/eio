@@ -37,12 +37,8 @@ module Listening_socket = struct
 
   let accept t ~sw =
     let client, client_addr = Err.run (Low_level.accept ~sw) t.fd in
-    let client_addr = match client_addr with
-      | Unix.ADDR_UNIX path         -> `Unix path
-      | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Net.Ipaddr.of_unix host, port)
-    in
     let flow = (Flow.stream client :> _ Eio.Net.stream_socket) in
-    flow, client_addr
+    flow, Eio_unix.Net.sockaddr_of_unix_stream client_addr
 
   let listening_addr { fd; _ } =
     Eio_unix.Fd.use_exn "listening_addr" fd

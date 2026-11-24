@@ -10,9 +10,17 @@ let dispatch = function
   | Iocp.Completion (resolver, c) -> Eio.Promise.resolve resolver c
   | Iocp.Wake -> ()
 
+let ports : t list ref = ref []
+let ports_lock = Mutex.create ()
+
 let with_port fn =
   let port = Iocp.create ~skip_on_success:true () in
-  Fun.protect ~finally:(fun () -> Iocp.close port) (fun () -> fn port)
+  Fun.protect ~finally:(fun () ->
+      Mutex.protect ports_lock (fun () -> ports := List.filter ((!=) port) !ports);
+      Iocp.close port)
+    (fun () ->
+       Mutex.protect ports_lock (fun () -> ports := port :: !ports);
+       fn port)
 
 (** Submit an operation and wait for its completion. Cancellation drains the
     operation before releasing its resources. Call [on_complete] after draining,
@@ -44,3 +52,10 @@ let await ?on_complete submit =
   match c.error with
   | Some code when c.bytes_transferred = 0 -> raise (Unix.Unix_error (code, "iocp", ""))
   | _ -> c.bytes_transferred
+
+let shutdown raw cmd =
+  Iocp.Event.shutdown raw cmd;
+  if cmd <> Unix.SHUTDOWN_SEND then (
+    let active = Mutex.protect ports_lock (fun () -> !ports) in
+    List.iter (fun port -> Iocp.Event.cancel_receives port raw) active
+  )

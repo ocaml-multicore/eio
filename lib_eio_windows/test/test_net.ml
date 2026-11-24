@@ -145,9 +145,18 @@ let test_unsupported_datagram env () =
   | _ -> Alcotest.fail "created an AF_UNIX datagram socket"
   | exception Eio.Io (_, _) -> ()
 
+let test_unconnected_shutdown _env () =
+  Switch.run @@ fun sw ->
+  let raw = Unix.socket ~cloexec:true PF_INET SOCK_STREAM 0 in
+  let stream = Eio_unix.Net.import_socket_stream ~sw ~close_unix:true raw in
+  match Eio.Flow.shutdown stream `Send with
+  | () -> Alcotest.fail "shutdown succeeded on an unconnected socket"
+  | exception Eio.Io (Eio.Exn.X (Eio_unix.Unix_error (ENOTCONN, _, _)), _) -> ()
+
 let tests () = [
   "unsupported datagram socket", `Quick, test_unsupported_datagram;
   "resolver service and error codes", `Quick, test_resolve;
+  "unconnected stream shutdown", `Quick, test_unconnected_shutdown;
   "tcp-ip4", `Quick, (fun env -> test_client_server env (`Tcp (Eio.Net.Ipaddr.V4.loopback, 8081)));
   "tcp-ip6", `Quick, (fun env -> test_client_server env (`Tcp (Eio.Net.Ipaddr.V6.loopback, 8081)));
   "unix", `Quick, (fun env -> test_client_server env (`Unix "eio-test.sock"));

@@ -40,10 +40,10 @@ module Impl = struct
 
   let rec single_write t = function
     | [] -> 0
-    | buf :: rest when Cstruct.is_empty buf -> single_write t rest
+    | buf :: (_ :: _ as rest) when Cstruct.is_empty buf -> single_write t rest
     | buf :: _ ->
       match Err.run (Low_level.write_cstruct t) buf with
-      | 0 -> raise (Err.v EIO "write" "")
+      | 0 when not (Cstruct.is_empty buf) -> raise (Err.v EIO "write" "")
       | n -> n
 
   let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
@@ -54,14 +54,10 @@ module Impl = struct
     | got -> got
 
   let shutdown t cmd =
-    try
-      Low_level.shutdown t @@ match cmd with
-      | `Receive -> Unix.SHUTDOWN_RECEIVE
-      | `Send -> Unix.SHUTDOWN_SEND
-      | `All -> Unix.SHUTDOWN_ALL
-    with
-    | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
-    | Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
+    Err.run (Low_level.shutdown t) @@ match cmd with
+    | `Receive -> Unix.SHUTDOWN_RECEIVE
+    | `Send -> Unix.SHUTDOWN_SEND
+    | `All -> Unix.SHUTDOWN_ALL
 
   let read_methods = []
 
