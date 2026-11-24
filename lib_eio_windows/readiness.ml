@@ -23,6 +23,7 @@ module Fds = Set.Make(struct
 type request = {
   fd : Unix.file_descr;
   direction : [ `R | `W ];
+  mutable watch_connect : bool;
   finish : (unit, exn) result -> unit;
   cancelled : exn option Atomic.t;
 }
@@ -34,7 +35,16 @@ type state = {
   closed : bool Atomic.t;
 }
 
-type t = (state * Thread.t) Lazy.t
+type worker = {
+  state : state;
+  thread : Thread.t;
+  sockets : bool;
+  requests : int Atomic.t;
+}
+
+type t = worker list ref
+
+external is_socket : Unix.file_descr -> bool = "caml_eio_windows_is_socket" [@@noalloc]
 
 let byte = Bytes.of_string "!"
 
@@ -56,13 +66,16 @@ let run t =
           | None -> true
           | Some ex -> r.finish (Error ex); false
         ) (List.rev_append added active) in
-      let fds direction =
-        List.filter_map (fun r -> if r.direction = direction then Some r.fd else None) active
+      let fds want =
+        List.filter_map (fun r -> if want r then Some r.fd else None) active
         |> List.sort_uniq Stdlib.compare in
-      let write = fds `W in
-      match Unix.select (t.reader :: fds `R) write write (-1.) with
+      let read = t.reader :: fds (fun r -> r.direction = `R) in
+      let write = fds (fun r -> r.direction = `W) in
+      let exceptional = fds (fun r -> r.watch_connect) in
+      match Unix.select read write exceptional (-1.) with
       | readable, writable, errors ->
-        let readable = Fds.of_list readable and writable = Fds.of_list (writable @ errors) in
+        let readable = Fds.of_list readable and writable = Fds.of_list writable in
+        let errors = Fds.of_list errors in
         if Fds.mem t.reader readable then (
           try ignore (Unix.read t.reader control 0 (Bytes.length control))
           with Unix.Unix_error (EINTR, _, _) -> ()
@@ -70,7 +83,13 @@ let run t =
         let pending = List.filter (fun r ->
             let ready = match r.direction with
               | `R -> Fds.mem r.fd readable
-              | `W -> Fds.mem r.fd writable in
+              | `W ->
+                Fds.mem r.fd writable ||
+                (r.watch_connect && Fds.mem r.fd errors &&
+                 (* Winsock also reports urgent data here. Leave SO_ERROR for the caller. *)
+                 match Unix.getpeername r.fd with
+                 | _ -> r.watch_connect <- false; false
+                 | exception Unix.Unix_error _ -> true) in
             if ready then r.finish (match Atomic.get r.cancelled with
                 | None -> Ok ()
                 | Some ex -> Error ex);
@@ -93,35 +112,49 @@ let run t =
   in
   poll []
 
-let create () =
+let create ~sockets =
   let reader, writer = Unix.socketpair ~cloexec:true PF_UNIX SOCK_STREAM 0 in
   match
     Unix.set_nonblock writer;
-    let t = { reader; writer; added = Atomic.make []; closed = Atomic.make false } in
-    t, Thread.create run t
+    let state = { reader; writer; added = Atomic.make []; closed = Atomic.make false } in
+    let requests = Atomic.make 0 in
+    { state; thread = Thread.create run state; sockets; requests }
   with
   | result -> result
   | exception ex -> Unix.close reader; Unix.close writer; raise ex
 
-let await worker direction fd finish =
-  let t, _ = Lazy.force worker in
-  let r = { fd; direction; finish; cancelled = Atomic.make None } in
+let await workers direction fd finish =
+  (* Unix.select uses Winsock select for socket-only sets that fit FD_SETSIZE.
+     Its mixed-handle fallback replaces the event on a socket, which can lose
+     a simultaneous wait on the same socket or a duplicate in another domain. *)
+  let sockets = is_socket fd in
+  let fits w = w.sockets = sockets && (not sockets || Atomic.get w.requests < Config.fd_setsize - 1) in
+  let worker = match List.find_opt fits !workers with
+    | Some w -> w
+    | None ->
+      let w = create ~sockets in
+      workers := w :: !workers;
+      w
+  in
+  let t = worker.state in
+  let finish result = Atomic.decr worker.requests; finish result in
+  let r = { fd; direction; watch_connect = (direction = `W); finish; cancelled = Atomic.make None } in
   let rec add () =
     let old = Atomic.get t.added in
     if not (Atomic.compare_and_set t.added old (r :: old)) then add ()
   in
+  Atomic.incr worker.requests;
   add ();
   notify t;
   fun ex -> Atomic.set r.cancelled (Some ex); notify t
 
-let close (t, worker) =
+let close { state = t; thread; _ } =
   Atomic.set t.closed true;
   notify t;
-  Thread.join worker;
+  Thread.join thread;
   Unix.close t.writer;
   Unix.close t.reader
 
 let with_worker fn =
-  let worker = lazy (create ()) in
-  Fun.protect ~finally:(fun () -> if Lazy.is_val worker then close (Lazy.force worker))
-    (fun () -> fn worker)
+  let workers = ref [] in
+  Fun.protect (fun () -> fn workers) ~finally:(fun () -> List.iter close !workers)

@@ -612,6 +612,11 @@ CAMLprim value caml_eio_windows_process_terminate(value v_handle, value v_code)
 /* Constructor order of File_io.kind. */
 enum fd_kind { FD_POLLABLE, FD_SOCKET, FD_PIPE, FD_FILE, FD_APPEND_FILE, FD_SYNC };
 
+CAMLprim value caml_eio_windows_is_socket(value fd)
+{
+  return Val_bool(Descr_kind_val(fd) == KIND_SOCKET);
+}
+
 CAMLprim value caml_eio_windows_fd_kind(value v_fd, value v_stdio)
 {
   if (Descr_kind_val(v_fd) == KIND_SOCKET)

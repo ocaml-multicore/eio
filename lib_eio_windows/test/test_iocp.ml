@@ -26,6 +26,15 @@ let refused env () =
   Fun.protect ~finally:(fun () -> Unix.close raw) @@ fun () ->
   Unix.bind raw (ADDR_INET (Unix.inet_addr_loopback, 0));
   let port = match Unix.getsockname raw with ADDR_INET (_, p) -> p | _ -> assert false in
+  let client = Unix.socket ~cloexec:true PF_INET SOCK_STREAM 0 in
+  Fun.protect ~finally:(fun () -> Unix.close client) (fun () ->
+      Unix.set_nonblock client;
+      match Unix.connect client (Unix.getsockname raw) with
+      | () -> Alcotest.fail "connected to non-listener"
+      | exception Unix.Unix_error (ECONNREFUSED, _, _) -> ()
+      | exception Unix.Unix_error ((EAGAIN | EWOULDBLOCK | EINPROGRESS), _, _) ->
+        Eio.Time.with_timeout_exn env#clock 5.0 (fun () -> Eio_unix.await_writable client);
+        Alcotest.(check bool) "pending connect error" true (Option.is_some (Unix.getsockopt_error client)));
   match Eio.Time.with_timeout_exn env#clock 10.0 (fun () ->
       Eio.Net.connect ~sw env#net (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))) with
   | _ -> Alcotest.fail "connected to non-listener"
@@ -375,6 +384,35 @@ let mixed_waits env () =
         Eio_unix.run_in_systhread (fun () -> ())
       done)
 
+let shared_readiness env () =
+  let r, w = Unix.socketpair ~cloexec:true PF_UNIX SOCK_STREAM 0 in
+  Fun.protect ~finally:(fun () -> Unix.close r; Unix.close w) @@ fun () ->
+  Unix.set_nonblock r;
+  let alias = Unix.dup ~cloexec:true r in
+  Fun.protect ~finally:(fun () -> Unix.close alias) @@ fun () ->
+  Eio.Time.with_timeout_exn env#clock 5.0 @@ fun () ->
+  Switch.run @@ fun sw ->
+  let start fd =
+    let armed, signal = Promise.create () in
+    let done_ = Fiber.fork_promise ~sw (fun () ->
+        Eio.Domain_manager.run env#domain_mgr @@ fun () ->
+        let pipe, writer = Unix.pipe ~cloexec:true () in
+        Fun.protect ~finally:(fun () -> Unix.close pipe; Unix.close writer) @@ fun () ->
+        Switch.run @@ fun sw ->
+        Fiber.fork_daemon ~sw (fun () -> Eio_unix.await_readable pipe; `Stop_daemon);
+        let ready = Fiber.fork_promise ~sw (fun () -> Eio_unix.await_readable fd) in
+        Eio_unix.await_writable fd;
+        Promise.resolve signal ();
+        Promise.await_exn ready) in
+    Promise.await armed;
+    done_
+  in
+  let first = start r in
+  let second = start alias in
+  ignore (Unix.single_write_substring w "x" 0 1);
+  Promise.await_exn first;
+  Promise.await_exn second
+
 let invalid_readiness env () =
   let r, w = Unix.socketpair ~cloexec:true PF_UNIX SOCK_STREAM 0 in
   Fun.protect ~finally:(fun () -> Unix.close r; Unix.close w) @@ fun () ->
@@ -390,6 +428,31 @@ let invalid_readiness env () =
         | () -> Alcotest.fail "select accepted a non-console character device"
         | exception Unix.Unix_error (EBADF, _, _) -> ());
        ignore (Unix.write_substring w "x" 0 1))
+
+let urgent_readiness env () =
+  Switch.run @@ fun sw ->
+  let with_fd flow fn = Eio_unix.Fd.use_exn "test" (Option.get (Eio_unix.Resource.fd_opt flow)) fn in
+  let listener = Eio.Net.listen ~sw ~backlog:1 env#net (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0)) in
+  with_fd listener (fun fd -> Unix.setsockopt_int fd Unix.SO_RCVBUF 4096);
+  let client, peer = Fiber.pair
+      (fun () -> Eio.Net.connect ~sw env#net (Eio.Net.listening_addr listener))
+      (fun () -> fst (Eio.Net.accept ~sw listener)) in
+  with_fd client @@ fun client ->
+  with_fd peer @@ fun peer ->
+  Unix.setsockopt_int client Unix.SO_SNDBUF 4096;
+  let buf = Bytes.make 4096 'x' in
+  let rec fill () =
+    match Unix.send client buf 0 (Bytes.length buf) [] with
+    | _ -> fill ()
+    | exception Unix.Unix_error ((EAGAIN | EWOULDBLOCK), _, _) ->
+      if Unix.select [] [client] [] 0.1 <> ([], [], []) then fill ()
+  in
+  fill ();
+  ignore (Unix.send peer buf 0 1 [MSG_OOB]);
+  let _, _, urgent = Unix.select [] [] [client] 2.0 in
+  Alcotest.(check bool) "urgent data arrived" true (urgent <> []);
+  let result = Eio.Time.with_timeout env#clock 0.1 (fun () -> Eio_unix.await_writable client; Ok ()) in
+  Alcotest.(check bool) "urgent data leaves write waiting" true (result = Error `Timeout)
 
 let sync_read env () =
   Switch.run @@ fun sw ->
@@ -571,7 +634,9 @@ let tests () = List.map (fun (name, fn) -> name, `Quick, fn) [
     "unconnected UDP ignores ICMP port unreachable", udp_reset;
     "unconnected UDP receive after shutdown", udp_shutdown;
     "switch between readiness and port waits", mixed_waits;
+    "mixed readiness across domains on duplicated sockets", shared_readiness;
     "unsupported readiness leaves socket waiters alone", invalid_readiness;
+    "TCP urgent data leaves write waiters alone", urgent_readiness;
     "synchronous pipe read cancellation", sync_read;
     "duplicated synchronous pipe readers", (fun _ -> sync_pipe_alias);
     "child exit releases stdin and drains stdout", child_stdio;
