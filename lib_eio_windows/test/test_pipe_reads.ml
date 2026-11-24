@@ -36,7 +36,54 @@ let messages ~read_async env () =
   Alcotest.(check string) "remaining bytes" "llo" (read 8);
   Alcotest.check_raises "empty message followed by close" End_of_file (fun () -> ignore (read 1))
 
+let read_stdin () =
+  Eio_windows.run @@ fun env ->
+  Eio.Time.with_timeout_exn env#clock 5.0 @@ fun () ->
+  let buf = Cstruct.create 2 in
+  List.iter (fun expected ->
+      Eio.Flow.read_exact env#stdin buf;
+      if Cstruct.to_string buf <> expected then failwith "unexpected stdin contents")
+    ["bc"; "de"];
+  match Eio.Flow.single_read env#stdin buf with
+  | exception End_of_file -> ()
+  | _ -> failwith "expected stdin EOF"
+
+let run_child fd =
+  let exe = Unix.realpath Sys.executable_name in
+  let pid = Unix.create_process exe [|exe; "--pipe-stdin-child"|] fd
+      (Unix.descr_of_out_channel stdout) (Unix.descr_of_out_channel stderr) in
+  Alcotest.(check bool) "child read stdin" true (snd (Unix.waitpid [] pid) = Unix.WEXITED 0)
+
+let inherited_stdin _env () =
+  let path = Filename.temp_file "eio-stdin" ".txt" in
+  Fun.protect ~finally:(fun () -> Sys.remove path) @@ fun () ->
+  Out_channel.with_open_bin path (fun oc -> output_string oc "abcde");
+  let check fd =
+    ignore (Unix.lseek fd 1 Unix.SEEK_SET);
+    run_child fd;
+    Alcotest.(check int) "inherited file position" 5 (Unix.lseek fd 0 Unix.SEEK_CUR)
+  in
+  let sync = Unix.openfile path [Unix.O_RDONLY] 0 in
+  Fun.protect ~finally:(fun () -> Unix.close sync) (fun () -> check sync);
+  let fd = Iocp.openfile path [Unix.O_RDONLY] 0 in
+  Fun.protect ~finally:(fun () -> Unix.close fd) @@ fun () ->
+  let port = Iocp.create () in
+  Fun.protect ~finally:(fun () -> Iocp.close port) @@ fun () ->
+  let handle = Iocp.register port fd in
+  Fun.protect ~finally:(fun () -> Iocp.close_handle handle) @@ fun () ->
+  check fd;
+  Alcotest.(check bool) "no completion on parent's port" true (Iocp.wait port ~timeout:0 = None)
+
+let inherited_socket _env () =
+  let r, w = Unix.socketpair ~cloexec:true PF_UNIX SOCK_STREAM 0 in
+  Fun.protect ~finally:(fun () -> Unix.close r; Unix.close w) @@ fun () ->
+  Alcotest.(check int) "socket data" 4 (Unix.send_substring w "bcde" 0 4 []);
+  Unix.shutdown w Unix.SHUTDOWN_SEND;
+  run_child r
+
 let tests () = [
   "synchronous message pipe", `Quick, messages ~read_async:false;
   "overlapped message pipe", `Quick, messages ~read_async:true;
+  "inherited overlapped stdin", `Quick, inherited_stdin;
+  "inherited socket stdin", `Quick, inherited_socket;
 ]

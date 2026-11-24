@@ -8,7 +8,7 @@
     handle when necessary. *)
 
 type kind = Pollable | Socket | Pipe | File | Append_file | Synchronous | Sync_pipe
-external kind_raw : Unix.file_descr -> bool -> kind = "caml_eio_windows_fd_kind"
+external kind_raw : Unix.file_descr -> kind = "caml_eio_windows_fd_kind"
 external pipe_kind : Unix.file_descr -> kind = "caml_eio_windows_pipe_kind"
 
 module Serial = struct
@@ -37,7 +37,7 @@ module Serial = struct
 end
 
 let kind fd =
-  match kind_raw fd (fd == Unix.stdin || fd == Unix.stdout || fd == Unix.stderr) with
+  match kind_raw fd with
   | Pipe ->
     (* A mode query waits behind synchronous pipe I/O in the kernel. Queue it
        here first so the wait can be cancelled. *)

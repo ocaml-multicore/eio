@@ -127,8 +127,15 @@ module Impl = struct
       Fd.use_exn "stdin" stdin_fd @@ fun h0 ->
       Fd.use_exn "stdout" stdout_fd @@ fun h1 ->
       Fd.use_exn "stderr" stderr_fd @@ fun h2 ->
-      if validate_stdio && not (List.for_all (fun fd -> stdio_compatible (File_io.kind fd)) [h0; h1; h2]) then
-        invalid_arg "spawn_unix: standard handles must support synchronous IO";
+      if validate_stdio then (
+        let check fd inherited =
+          if fd != inherited && not (stdio_compatible (File_io.kind fd)) then
+            invalid_arg "spawn_unix: standard handles must support synchronous IO"
+        in
+        check h0 Unix.stdin;
+        check h1 Unix.stdout;
+        check h2 Unix.stderr
+      );
       process (Process.start ~sw (fun () -> eio_spawn cwd env h0 h1 h2 cmdline))
   end
 

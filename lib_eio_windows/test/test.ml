@@ -115,5 +115,6 @@ let run_tests () =
 
 let () =
   match Array.to_list Sys.argv with
+  | [_; "--pipe-stdin-child"] -> Test_pipe_reads.read_stdin ()
   | [_; "--merged-output"] -> Test_process.write_merged_output ()
   | _ -> run_tests ()

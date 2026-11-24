@@ -693,16 +693,19 @@ CAMLprim value caml_eio_windows_pipe_kind(value v_fd)
 {
   CAMLparam1(v_fd);
   HANDLE h = Handle_val(v_fd);
+  int type, size = sizeof(type);
   caml_enter_blocking_section();
-  int async = is_overlapped(h);
+  /* Inherited sockets are tagged as handles by the runtime and report FILE_TYPE_PIPE. */
+  int kind = getsockopt((SOCKET)h, SOL_SOCKET, SO_TYPE, (char *)&type, &size) == 0
+    ? FD_SOCKET : is_overlapped(h) ? FD_PIPE : FD_SYNC_PIPE;
   caml_leave_blocking_section();
-  CAMLreturn(Val_int(async ? FD_PIPE : FD_SYNC_PIPE));
+  CAMLreturn(Val_int(kind));
 }
 
-CAMLprim value caml_eio_windows_fd_kind(value v_fd, value v_stdio)
+CAMLprim value caml_eio_windows_fd_kind(value v_fd)
 {
   if (Descr_kind_val(v_fd) == KIND_SOCKET)
-    return Val_int(Bool_val(v_stdio) ? FD_POLLABLE : FD_SOCKET);
+    return Val_int(FD_SOCKET);
   HANDLE h = Handle_val(v_fd);
   DWORD type = GetFileType(h);
   if (type == FILE_TYPE_CHAR) {
@@ -710,8 +713,8 @@ CAMLprim value caml_eio_windows_fd_kind(value v_fd, value v_stdio)
     return Val_int(GetConsoleMode(h, &mode) ? FD_POLLABLE : FD_SYNC);
   }
   if (type == FILE_TYPE_PIPE)
-    return Val_int(Bool_val(v_stdio) ? FD_SYNC_PIPE : FD_PIPE);
-  if (type != FILE_TYPE_DISK || Bool_val(v_stdio) || !is_overlapped(h))
+    return Val_int(FD_PIPE);
+  if (type != FILE_TYPE_DISK || !is_overlapped(h))
     return Val_int(FD_SYNC);
   IO_STATUS_BLOCK io;
   struct { ACCESS_MASK AccessFlags; } access;
