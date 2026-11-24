@@ -13,7 +13,7 @@ let v code name arg =
   match code with
   | EUNKNOWNERR x when Some x = Config.enotcapable -> Eio.Fs.err (Permission_denied e)
   | ECONNREFUSED -> Eio.Net.err (Connection_failure (Refused e))
-  | ECONNRESET | EPIPE | ECONNABORTED -> Eio.Net.err (Connection_reset e)
+  | ECONNRESET | EPIPE | ECONNABORTED | ESHUTDOWN -> Eio.Net.err (Connection_reset e)
   | ENOPROTOOPT -> Eio.Net.err Invalid_option
   | ENOSYS | EOPNOTSUPP -> Eio.Exn.create (Eio.Exn.Not_available e)
   | EEXIST -> Eio.Fs.err (Already_exists e)
