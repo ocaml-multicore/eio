@@ -619,6 +619,26 @@ let accept_finished_switch env () =
   | _ -> Alcotest.fail "accepted on a finished switch"
   | exception Invalid_argument _ -> ()
 
+let finished_switch () =
+  let sw = Switch.run Fun.id in
+  let rejected f =
+    match f () with
+    | _ -> Alcotest.fail "accepted a finished switch"
+    | exception Invalid_argument _ -> ()
+  in
+  rejected (fun () -> Eio_unix.pipe sw);
+  let raw = Unix.socket ~cloexec:true PF_INET SOCK_DGRAM 0 in
+  Fun.protect ~finally:(fun () -> Unix.close raw) @@ fun () ->
+  rejected (fun () -> Eio_unix.Net.import_socket_datagram ~sw ~close_unix:false raw);
+  rejected (fun () -> Eio_unix.Net.import_socket_listening ~sw ~close_unix:false raw);
+  rejected (fun () -> Eio_unix.Net.import_socket_stream ~sw ~close_unix:false raw);
+  let before = handle_count () in
+  for _ = 1 to 3 do
+    rejected (fun () -> Eio_unix.Net.socketpair_stream ~sw ());
+    rejected (fun () -> Eio_unix.Net.socketpair_datagram ~sw ())
+  done;
+  Alcotest.(check bool) "socketpair leaves no handles" true (handle_count () <= before)
+
 let duplicated_pipe_readers env () =
   Switch.run @@ fun sw ->
   let r, w = Eio_unix.pipe sw in
@@ -650,6 +670,7 @@ let tests () = List.map (fun (name, fn) -> name, `Quick, fn) [
     "failed stdio preparation releases handles", failed_stdio;
     "direct pipe between child processes", process_pipe;
     "accept checks the switch before waiting", accept_finished_switch;
+    "pipe and socket setup report a finished switch to the caller", (fun _ -> finished_switch);
     "shutdown across domains and duplicated sockets", shared_socket;
     "overlapping accepts across domains", shared_listener;
     "TCP after first writer domain exits", tcp_after_domain_exit;

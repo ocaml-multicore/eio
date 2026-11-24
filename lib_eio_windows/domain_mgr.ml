@@ -18,19 +18,26 @@ open Eio.Std
 
 module Fd = Eio_unix.Fd
 
-let socketpair k ~sw ~domain ~ty ~protocol wrap_a wrap_b =
-  let open Effect.Deep in
-  match
-    let unix_a, unix_b = Unix.socketpair ~cloexec:true domain ty protocol in
-    let a = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_a in
-    let b = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_b in
-    Unix.set_nonblock unix_a;
-    Unix.set_nonblock unix_b;
-    (wrap_a a, wrap_b b)
-  with
-  | r -> continue k r
-  | exception Unix.Unix_error (code, name, arg) ->
-    discontinue k (Err.v code name arg)
+let handle fn k =
+  match fn () with
+  | x -> Effect.Deep.continue k x
+  | exception ex -> Effect.Deep.discontinue_with_backtrace k ex (Printexc.get_raw_backtrace ())
+
+let handle_io fn = handle (Err.run fn)
+
+let import_socket ~sw ~close_unix raw =
+  let fd = Fd.of_unix ~sw ~blocking:false ~close_unix raw in
+  match Fd.use_exn "import_socket" fd Unix.set_nonblock with
+  | () -> fd
+  | exception ex -> Fd.close fd; raise ex
+
+let socketpair ~sw ~domain ~protocol ty wrap () =
+  Switch.check sw;
+  let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
+  let import = import_socket ~sw ~close_unix:true in
+  let a = try import a with ex -> Unix.close b; raise ex in
+  let b = try import b with ex -> Fd.close a; raise ex in
+  wrap a, wrap b
 
 (* Run an event loop in the current domain, using [fn x] as the root fiber. *)
 let run_event_loop fn x =
@@ -39,54 +46,29 @@ let run_event_loop fn x =
     effc = fun (type a) (e : a Effect.t) : ((a, unit) continuation -> unit) option ->
       match e with
       | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k Time.mono_clock)
-      | Eio_unix.Private.Import_file fd -> Some (fun k ->
-          match Fd.use_exn "import" fd File_io.kind with
-          | kind -> continue k (Flow.of_fd ~kind fd :> Eio_unix.File.rw_ty r)
-          | exception ex -> discontinue_with_backtrace k ex (Printexc.get_raw_backtrace ())
-        )
-      | Eio_unix.Net.Import_socket_stream (sw, close_unix, unix_fd) -> Some (fun k ->
-          match
-            let kind = File_io.kind unix_fd in
-            let blocking = match kind with
-              | File_io.Socket -> Unix.set_nonblock unix_fd; false
-              | File_io.Pollable | File_io.Synchronous -> true
-              | File_io.Pipe | File_io.File | File_io.Append_file -> false
-            in
-            let fd = Fd.of_unix ~sw ~blocking ~close_unix unix_fd in
-            (Flow.stream ~kind fd :> _ Eio_unix.Net.stream_socket)
-          with
-          | stream -> continue k stream
-          | exception ex -> discontinue_with_backtrace k ex (Printexc.get_raw_backtrace ())
-        )
-      | Eio_unix.Net.Import_socket_listening (sw, close_unix, unix_fd) -> Some (fun k ->
-          let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
-          Unix.set_nonblock unix_fd;
-          continue k (Net.listening_socket ~hook:Switch.null_hook fd)
-        )
-      | Eio_unix.Net.Import_socket_datagram (sw, close_unix, unix_fd) -> Some (fun k ->
-          let fd = Fd.of_unix ~sw ~blocking:false ~close_unix unix_fd in
-          Unix.set_nonblock unix_fd;
-          continue k (Net.datagram_socket fd)
-        )
-      | Eio_unix.Net.Socketpair_stream (sw, domain, protocol) -> Some (fun k ->
-          let wrap fd = (Flow.stream fd :> _ Eio_unix.Net.stream_socket) in
-          socketpair k ~sw ~domain ~protocol ~ty:Unix.SOCK_STREAM wrap wrap
-        )
-      | Eio_unix.Net.Socketpair_datagram (sw, domain, protocol) -> Some (fun k ->
-          let wrap fd = Net.datagram_socket fd in
-          socketpair k ~sw ~domain ~protocol ~ty:Unix.SOCK_DGRAM wrap wrap
-        )
-      | Eio_unix.Private.Pipe sw -> Some (fun k ->
-          match
-            let r, w = Low_level.pipe ~sw in
-            let source = Flow.of_fd ~kind:File_io.Pipe r in
-            let sink = Flow.of_fd ~kind:File_io.Pipe w in
-            (source, sink)
-          with
-          | r -> continue k r
-          | exception Unix.Unix_error (code, name, arg) ->
-            discontinue k (Err.v code name arg)
-        )
+      | Eio_unix.Private.Import_file fd -> Some (handle (fun () ->
+          let kind = Fd.use_exn "import" fd File_io.kind in
+          (Flow.of_fd ~kind fd :> Eio_unix.File.rw_ty r)))
+      | Eio_unix.Net.Import_socket_stream (sw, close_unix, raw) -> Some (handle (fun () ->
+          let kind = File_io.kind raw in
+          let fd = match kind with
+            | File_io.Socket -> import_socket ~sw ~close_unix raw
+            | Pollable | Synchronous -> Fd.of_unix ~sw ~blocking:true ~close_unix raw
+            | Pipe | File | Append_file -> Fd.of_unix ~sw ~blocking:false ~close_unix raw
+          in
+          (Flow.stream ~kind fd :> _ Eio_unix.Net.stream_socket)))
+      | Eio_unix.Net.Import_socket_listening (sw, close_unix, raw) -> Some (handle (fun () ->
+          Net.listening_socket ~hook:Switch.null_hook (import_socket ~sw ~close_unix raw)))
+      | Eio_unix.Net.Import_socket_datagram (sw, close_unix, raw) -> Some (handle (fun () ->
+          Net.datagram_socket (import_socket ~sw ~close_unix raw)))
+      | Eio_unix.Net.Socketpair_stream (sw, domain, protocol) ->
+        let wrap fd = (Flow.stream fd :> _ Eio_unix.Net.stream_socket) in
+        Some (handle_io (socketpair ~sw ~domain ~protocol Unix.SOCK_STREAM wrap))
+      | Eio_unix.Net.Socketpair_datagram (sw, domain, protocol) ->
+        Some (handle_io (socketpair ~sw ~domain ~protocol Unix.SOCK_DGRAM Net.datagram_socket))
+      | Eio_unix.Private.Pipe sw -> Some (handle_io (fun () ->
+          let r, w = Low_level.pipe ~sw in
+          Flow.of_fd ~kind:File_io.Pipe r, Flow.of_fd ~kind:File_io.Pipe w))
       | _ -> None
   }
   in
