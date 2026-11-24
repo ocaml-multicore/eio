@@ -19,6 +19,8 @@
 #include <caml/alloc.h>
 #include <caml/unixsupport.h>
 #include <caml/bigarray.h>
+#include <caml/custom.h>
+#include <caml/fail.h>
 #include <caml/osdeps.h>
 
 /* unixsupport.h uses plain extern; cross-DLL calls need indirect imports. */
@@ -681,6 +683,194 @@ CAMLprim value caml_eio_windows_is_socket(value fd)
   return Val_bool(Descr_kind_val(fd) == KIND_SOCKET);
 }
 
+CAMLprim value caml_eio_windows_is_pipe(value fd)
+{
+  return Val_bool(Descr_kind_val(fd) != KIND_SOCKET && GetFileType(Handle_val(fd)) == FILE_TYPE_PIPE);
+}
+
+#ifndef FILE_PIPE_CONNECTED_STATE
+#define FILE_PIPE_CONNECTED_STATE 3
+#endif
+
+/* A synchronous query can wait behind foreign I/O before Windows can cancel
+   it. Keep a single native observation per file object, independent of the
+   lifetime of the OCaml domains waiting for it. */
+struct pipe_probe {
+  struct pipe_probe *next;
+  HANDLE file;
+  BOOL started, ready;
+  DWORD error;
+  LONG refs, done;
+};
+
+struct pipe_wait {
+  struct pipe_probe *probe;
+  BOOL retry;
+};
+
+static SRWLOCK pipe_probes_lock = SRWLOCK_INIT;
+static struct pipe_probe *pipe_probes;
+static BOOL (WINAPI *same_pipe_object)(HANDLE, HANDLE);
+
+static void drop_pipe_probe(struct pipe_probe *p)
+{
+  if (InterlockedDecrement(&p->refs) == 0) free(p);
+}
+
+/* Inherited sockets are tagged as handles by the runtime and report FILE_TYPE_PIPE. */
+static BOOL is_socket_handle(HANDLE h)
+{
+  int type, size = sizeof(type);
+  return getsockopt((SOCKET)h, SOL_SOCKET, SO_TYPE, (char *)&type, &size) == 0;
+}
+
+/* FSCTL_PIPE_PEEK returns the four fixed fields of FILE_PIPE_PEEK_BUFFER
+   even when the payload does not fit. PeekNamedPipe omits the message count. */
+#ifndef FSCTL_PIPE_PEEK
+#define FSCTL_PIPE_PEEK CTL_CODE(FILE_DEVICE_NAMED_PIPE, 3, METHOD_BUFFERED, FILE_READ_DATA)
+#endif
+
+static void peek_pipe(struct pipe_probe *p)
+{
+  struct { ULONG state, bytes, messages, first_message_length; } info = {0};
+  HANDLE event = CreateEventW(NULL, TRUE, FALSE, NULL);
+  if (!event) {
+    p->error = GetLastError();
+    return;
+  }
+  /* A borrowed overlapped handle may already have a completion port. */
+  IO_STATUS_BLOCK io;
+  HANDLE tagged = (HANDLE)((ULONG_PTR)event | 1);
+  NTSTATUS status = NtFsControlFile(p->file, tagged, NULL, NULL, &io, FSCTL_PIPE_PEEK,
+                                    NULL, 0, &info, sizeof(info));
+  if (status == STATUS_PENDING) {
+    WaitForSingleObject(event, INFINITE);
+    status = io.Status;
+  }
+  CloseHandle(event);
+  if (NT_SUCCESS(status) || status == STATUS_BUFFER_OVERFLOW)
+    p->ready = info.bytes != 0 || info.messages != 0 || info.state != FILE_PIPE_CONNECTED_STATE;
+  else p->error = RtlNtStatusToDosError(status);
+}
+
+static BOOL pipe_closed(DWORD error)
+{
+  return error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA || error == ERROR_PIPE_NOT_CONNECTED;
+}
+
+static VOID CALLBACK observe_pipe(PTP_CALLBACK_INSTANCE instance, void *arg)
+{
+  struct pipe_probe *p = arg;
+  CallbackMayRunLong(instance);
+  AcquireSRWLockExclusive(&pipe_probes_lock);
+  p->started = TRUE;
+  ReleaseSRWLockExclusive(&pipe_probes_lock);
+  if (InterlockedCompareExchange(&p->refs, 0, 0) > 1) {
+    peek_pipe(p);
+    /* Winsock can serialize handle classification behind an unrelated pipe
+       operation. Only consult it after the pipe query rejects the handle. */
+    if (p->error && !pipe_closed(p->error) && is_socket_handle(p->file)) {
+      WSAPOLLFD pollfd = {.fd = (SOCKET)p->file, .events = POLLRDNORM};
+      int n = WSAPoll(&pollfd, 1, 0);
+      p->error = n == SOCKET_ERROR ? WSAGetLastError() : ERROR_SUCCESS;
+      p->ready = n > 0;
+    }
+  }
+  AcquireSRWLockExclusive(&pipe_probes_lock);
+  struct pipe_probe **pos = &pipe_probes;
+  while (*pos != p) pos = &(*pos)->next;
+  *pos = p->next;
+  ReleaseSRWLockExclusive(&pipe_probes_lock);
+  CloseHandle(p->file);
+  InterlockedExchange(&p->done, 1);
+  drop_pipe_probe(p);
+}
+
+static void finalize_pipe_wait(value v)
+{
+  struct pipe_wait *w = Data_custom_val(v);
+  if (w->probe) {
+    drop_pipe_probe(w->probe);
+    w->probe = NULL;
+  }
+}
+
+static struct custom_operations pipe_wait_ops = {
+  .identifier = "eio.windows.pipe_wait",
+  .finalize = finalize_pipe_wait
+};
+
+CAMLprim value caml_eio_windows_release_pipe_probe(value v)
+{
+  finalize_pipe_wait(v);
+  return Val_unit;
+}
+
+CAMLprim value caml_eio_windows_start_pipe_probe(value fd)
+{
+  CAMLparam1(fd);
+  CAMLlocal1(v);
+  v = caml_alloc_custom(&pipe_wait_ops, sizeof(struct pipe_wait), 0, 1);
+  struct pipe_wait *w = Data_custom_val(v);
+  w->probe = NULL;
+  HANDLE file = Handle_val(fd);
+  AcquireSRWLockExclusive(&pipe_probes_lock);
+  if (!same_pipe_object) {
+    same_pipe_object = (BOOL (WINAPI *)(HANDLE, HANDLE))GetProcAddress(
+        GetModuleHandleW(L"kernelbase.dll"), "CompareObjectHandles");
+    if (!same_pipe_object) {
+      ReleaseSRWLockExclusive(&pipe_probes_lock);
+      caml_failwith("CompareObjectHandles is unavailable");
+    }
+  }
+  for (struct pipe_probe *p = pipe_probes; p != NULL; p = p->next) {
+    if (same_pipe_object(file, p->file)) {
+      InterlockedIncrement(&p->refs);
+      w->probe = p;
+      w->retry = p->started;
+      ReleaseSRWLockExclusive(&pipe_probes_lock);
+      CAMLreturn(v);
+    }
+  }
+  struct pipe_probe *p = calloc(1, sizeof(*p));
+  if (!p) {
+    ReleaseSRWLockExclusive(&pipe_probes_lock);
+    caml_raise_out_of_memory();
+  }
+  p->refs = 2;
+  if (DuplicateHandle(GetCurrentProcess(), file, GetCurrentProcess(), &p->file, 0, FALSE, DUPLICATE_SAME_ACCESS)
+      && TrySubmitThreadpoolCallback(observe_pipe, p, NULL)) {
+    p->next = pipe_probes;
+    pipe_probes = p;
+    w->probe = p;
+    w->retry = FALSE;
+    ReleaseSRWLockExclusive(&pipe_probes_lock);
+    CAMLreturn(v);
+  }
+  DWORD error = GetLastError();
+  ReleaseSRWLockExclusive(&pipe_probes_lock);
+  if (p->file) CloseHandle(p->file);
+  free(p);
+  caml_win32_maperr(error);
+  uerror("await_pipe", Nothing);
+}
+
+CAMLprim value caml_eio_windows_pipe_probe_result(value v)
+{
+  struct pipe_wait *w = Data_custom_val(v);
+  struct pipe_probe *p = w->probe;
+  if (!InterlockedCompareExchange(&p->done, 0, 0)) return Val_int(-1);
+  /* Waiters arriving after sampling began must make a fresh observation. */
+  if (w->retry) return Val_int(0);
+  if (pipe_closed(p->error))
+    return Val_true;
+  if (p->error != ERROR_SUCCESS) {
+    caml_win32_maperr(p->error);
+    uerror("await_readable", Nothing);
+  }
+  return Val_bool(p->ready);
+}
+
 static int is_overlapped(HANDLE h)
 {
   IO_STATUS_BLOCK io;
@@ -693,11 +883,8 @@ CAMLprim value caml_eio_windows_pipe_kind(value v_fd)
 {
   CAMLparam1(v_fd);
   HANDLE h = Handle_val(v_fd);
-  int type, size = sizeof(type);
   caml_enter_blocking_section();
-  /* Inherited sockets are tagged as handles by the runtime and report FILE_TYPE_PIPE. */
-  int kind = getsockopt((SOCKET)h, SOL_SOCKET, SO_TYPE, (char *)&type, &size) == 0
-    ? FD_SOCKET : is_overlapped(h) ? FD_PIPE : FD_SYNC_PIPE;
+  int kind = is_socket_handle(h) ? FD_SOCKET : is_overlapped(h) ? FD_PIPE : FD_SYNC_PIPE;
   caml_leave_blocking_section();
   CAMLreturn(Val_int(kind));
 }

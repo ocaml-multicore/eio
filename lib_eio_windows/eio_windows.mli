@@ -2,6 +2,10 @@
     positioned I/O. Synchronous handles use worker threads; explicit readiness
     waits and Unix-domain connects retain the readiness fallback.
 
+    An explicit pipe readiness wait uses a duplicate until the current Windows
+    query finishes. A simultaneous synchronous operation can delay its release
+    beyond cancellation.
+
     Cancelling a synchronous pipe write can leave a prefix at the reader.
     Windows does not report the length of that prefix.
 

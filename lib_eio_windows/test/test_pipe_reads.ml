@@ -29,28 +29,38 @@ let messages ~read_async env () =
     Cstruct.to_string (Cstruct.sub buf 0 received)
   in
   Fiber.first (fun () -> ignore (read 2); Alcotest.fail "empty pipe was readable") Fiber.yield;
+  Eio_unix.Fd.use_exn "write" writer (fun fd -> write_message port fd "");
+  let check_readable () = Eio_unix.await_readable r in
+  if read_async then (
+    let registration = Iocp.register port r in
+    Fun.protect ~finally:(fun () -> Iocp.close_handle registration) check_readable;
+    Alcotest.(check bool) "readiness left the port empty" true (Iocp.wait port ~timeout:0 = None)
+  ) else check_readable ();
   Eio_unix.Fd.use_exn "write" writer (fun fd ->
-      List.iter (write_message port fd) [""; "hello"; ""]);
+      List.iter (write_message port fd) ["hello"; ""]);
   Eio_unix.Fd.close writer;
   Alcotest.(check string) "empty message followed by a short read" "he" (read 2);
   Alcotest.(check string) "remaining bytes" "llo" (read 8);
   Alcotest.check_raises "empty message followed by close" End_of_file (fun () -> ignore (read 1))
 
-let read_stdin () =
+let read_stdin ~socket () =
   Eio_windows.run @@ fun env ->
   Eio.Time.with_timeout_exn env#clock 5.0 @@ fun () ->
   let buf = Cstruct.create 2 in
   List.iter (fun expected ->
+      if socket then Eio_unix.await_readable Unix.stdin;
       Eio.Flow.read_exact env#stdin buf;
       if Cstruct.to_string buf <> expected then failwith "unexpected stdin contents")
     ["bc"; "de"];
+  if socket then Eio_unix.await_readable Unix.stdin;
   match Eio.Flow.single_read env#stdin buf with
   | exception End_of_file -> ()
   | _ -> failwith "expected stdin EOF"
 
-let run_child fd =
+let run_child ?(socket=false) fd =
   let exe = Unix.realpath Sys.executable_name in
-  let pid = Unix.create_process exe [|exe; "--pipe-stdin-child"|] fd
+  let arg = if socket then "--socket-stdin-child" else "--pipe-stdin-child" in
+  let pid = Unix.create_process exe [|exe; arg|] fd
       (Unix.descr_of_out_channel stdout) (Unix.descr_of_out_channel stderr) in
   Alcotest.(check bool) "child read stdin" true (snd (Unix.waitpid [] pid) = Unix.WEXITED 0)
 
@@ -79,7 +89,7 @@ let inherited_socket _env () =
   Fun.protect ~finally:(fun () -> Unix.close r; Unix.close w) @@ fun () ->
   Alcotest.(check int) "socket data" 4 (Unix.send_substring w "bcde" 0 4 []);
   Unix.shutdown w Unix.SHUTDOWN_SEND;
-  run_child r
+  run_child ~socket:true r
 
 let tests () = [
   "synchronous message pipe", `Quick, messages ~read_async:false;

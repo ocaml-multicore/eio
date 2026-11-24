@@ -102,6 +102,7 @@ let run_tests () =
   let suites = [
     "flow", ["single_write reports its prefix", `Quick, (fun _ -> write_prefix)];
     "iocp", Test_iocp.tests ();
+    "pipe-readiness", Test_pipe_readiness.tests ();
     "pipe-reads", Test_pipe_reads.tests ();
     "net", Test_net.tests ();
     "fs", Test_fs.tests ();
@@ -115,6 +116,7 @@ let run_tests () =
 
 let () =
   match Array.to_list Sys.argv with
-  | [_; "--pipe-stdin-child"] -> Test_pipe_reads.read_stdin ()
+  | [_; "--pipe-stdin-child"] -> Test_pipe_reads.read_stdin ~socket:false ()
+  | [_; "--socket-stdin-child"] -> Test_pipe_reads.read_stdin ~socket:true ()
   | [_; "--merged-output"] -> Test_process.write_merged_output ()
   | _ -> run_tests ()

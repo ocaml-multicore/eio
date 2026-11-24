@@ -123,6 +123,27 @@ let create ~sockets =
   | result -> result
   | exception ex -> Unix.close reader; Unix.close writer; raise ex
 
+module Pipe = struct
+  type observation
+  external is_pipe : Unix.file_descr -> bool = "caml_eio_windows_is_pipe" [@@noalloc]
+  external start : Unix.file_descr -> observation = "caml_eio_windows_start_pipe_probe"
+  external result : observation -> int = "caml_eio_windows_pipe_probe_result"
+  external release : observation -> unit = "caml_eio_windows_release_pipe_probe"
+
+  let await ~sleep fd =
+    let rec poll () =
+      let probe = start fd in
+      let rec wait () =
+        match result probe with
+        | -1 -> sleep 0.001; wait ()
+        | n -> n <> 0
+      in
+      if not (Fun.protect wait ~finally:(fun () -> release probe)) then (sleep 0.01; poll ())
+    in
+    Eio.Fiber.check ();
+    poll ()
+end
+
 let await workers direction fd finish =
   (* Unix.select uses Winsock select for socket-only sets that fit FD_SETSIZE.
      Its mixed-handle fallback replaces the event on a socket, which can lose
