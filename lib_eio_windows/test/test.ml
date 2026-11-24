@@ -101,6 +101,7 @@ let () =
   in
   let suites = [
     "flow", ["single_write reports its prefix", `Quick, (fun _ -> write_prefix)];
+    "iocp", Test_iocp.tests ();
     "net", Test_net.tests ();
     "fs", Test_fs.tests ();
     "process", Test_process.tests ();

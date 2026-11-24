@@ -57,9 +57,10 @@
 (package
  (name eio_windows)
  (synopsis "Eio implementation for Windows")
- (description "An Eio implementation using OCaml's Unix.select")
+ (description "An Eio implementation using Windows completion ports")
  (allow_empty)  ; Work-around for dune bug #6938
  (depends
+  iocp
   (eio (= :version))
   (fmt (>= 0.8.9))
   (kcas (and (>= 0.3.0) :with-test))

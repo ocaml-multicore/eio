@@ -15,15 +15,8 @@ let in_worker_thread = Eio_unix.run_in_systhread
 
 module Fd = Eio_unix.Fd
 
-let await_readable fd =
-  Fd.use_exn "await_readable" fd @@ fun fd ->
-  Sched.enter @@ fun t k ->
-  Sched.await_readable t k fd
-
-let await_writable fd =
-  Fd.use_exn "await_writable" fd @@ fun fd ->
-  Sched.enter @@ fun t k ->
-  Sched.await_writable t k fd
+let await_readable fd = Fd.use_exn "await_readable" fd Eio_unix.await_readable
+let await_writable fd = Fd.use_exn "await_writable" fd Eio_unix.await_writable
 
 let rec do_nonblocking ty fn fd =
   Fiber.yield ();
@@ -31,11 +24,7 @@ let rec do_nonblocking ty fn fd =
   | Unix.Unix_error (EINTR, _, _) -> 
     do_nonblocking ty fn fd    (* Just in case *)
   | Unix.Unix_error((EAGAIN | EWOULDBLOCK), _, _) ->
-    Sched.enter (fun t k ->
-        match ty with
-        | Read -> Sched.await_readable t k fd
-        | Write -> Sched.await_writable t k fd
-      );
+    (match ty with Read -> Eio_unix.await_readable fd | Write -> Eio_unix.await_writable fd);
     do_nonblocking ty fn fd
 
 let read fd buf start len =
@@ -58,9 +47,7 @@ let write_cstruct fd (buf:Cstruct.t) =
   Fd.use_exn "write_cstruct" fd @@ fun fd ->
   do_nonblocking Write (fun fd -> Unix.write_bigarray fd buf.buffer buf.off buf.len) fd
 
-let sleep_until time =
-  Sched.enter @@ fun t k ->
-  Sched.await_timeout t k time
+let sleep_until = Sched.sleep_until
 
 let socket ~sw socket_domain socket_type protocol =
   Switch.check sw;

@@ -8,7 +8,7 @@
   (include_dirs ../lib_eio/unix/include)
   (names eio_windows_stubs))
  (c_library_flags :standard -lbcrypt -lntdll)
- (libraries eio eio.unix eio.utils fmt))
+ (libraries eio eio.unix eio.utils fmt iocp))
 
 (rule
  (targets config.ml)

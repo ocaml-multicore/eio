@@ -34,7 +34,6 @@ let socketpair k ~sw ~domain ~ty ~protocol wrap_a wrap_b =
 
 (* Run an event loop in the current domain, using [fn x] as the root fiber. *)
 let run_event_loop fn x =
-  Sched.with_sched @@ fun sched ->
   let open Effect.Deep in
   let extra_effects : _ effect_handler = {
     effc = fun (type a) (e : a Effect.t) : ((a, Sched.exit) continuation -> Sched.exit) option ->
@@ -82,7 +81,7 @@ let run_event_loop fn x =
       | _ -> None
   }
   in
-  Sched.run ~extra_effects sched fn x
+  Sched.run ~extra_effects fn x
 
 let wrap_backtrace fn x =
   match fn x with
