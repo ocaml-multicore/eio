@@ -122,7 +122,14 @@ let test_resolve env () =
   | _ -> Alcotest.fail "resolved an unknown service"
   | exception Eio.Io (Eio.Net.E (Address_lookup_failed SERVICE), _) -> ()
 
+let test_unsupported_datagram env () =
+  Switch.run @@ fun sw ->
+  match Eio.Net.datagram_socket ~sw env#net (`Unix "unused.sock") with
+  | _ -> Alcotest.fail "created an AF_UNIX datagram socket"
+  | exception Eio.Io (_, _) -> ()
+
 let tests env = [
+  "unsupported datagram socket", `Quick, test_unsupported_datagram env;
   "resolver service and error codes", `Quick, test_resolve env;
   "tcp-ip4", `Quick, test_client_server env (`Tcp (Eio.Net.Ipaddr.V4.loopback, 8081));
   "tcp-ip6", `Quick, test_client_server env (`Tcp (Eio.Net.Ipaddr.V6.loopback, 8081));
