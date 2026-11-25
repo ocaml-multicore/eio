@@ -97,25 +97,8 @@ let datagram_socket ?(hook=Switch.null_hook) fd =
   Eio.Resource.T (Datagram_socket.make ~hook fd, datagram_handler)
 
 let getaddrinfo ~service node =
-  (* OCaml's [Unix.getaddrinfo] on Windows doesn't set [ai_protocol] to
-     anything useful, so you can't tell which addresses are TCP and which are
-     UDP. So, do two separate queries. *)
-  let get ty k =
-    Unix.getaddrinfo node service [AI_SOCKTYPE ty]
-    |> List.filter_map (function
-        | {Unix.ai_addr = ADDR_INET (host, port); _} ->
-          Some (k (Eio_unix.Net.Ipaddr.of_unix host, port))
-        | _ -> None
-      )
-  in
-  Err.run (Eio_unix.run_in_systhread ~label:"getaddrinfo") @@ fun () ->
-  let rec aux () =
-    try
-      get SOCK_STREAM (fun x -> `Tcp x) @
-      get SOCK_DGRAM (fun x -> `Udp x)
-    with Unix.Unix_error (EINTR, _, _) -> aux ()
-  in
-  aux ()
+  Eio_unix.run_in_systhread ~label:"getaddrinfo" @@ fun () ->
+  Err.run (Eio_unix.Private.getaddrinfo ~service) node
 
 let remove_on_release ~sw listen_addr =
   (* For Unix domain sockets, remove the path when done (except for abstract sockets). *)

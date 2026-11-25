@@ -105,7 +105,25 @@ let test_eio_socketpair () =
   let msg = Eio.Buf_read.of_flow b ~max_size:10 |> Eio.Buf_read.take_all in
   Alcotest.(check string) "same messagw" "foo" msg
 
+(* Copyright (C) 2026 Anil Madhavapeddy <anil@recoil.org>
+   SPDX-License-Identifier: ISC *)
+
+let test_resolve env () =
+  let host = "127.0.0.1" in
+  let lo = Eio.Net.Ipaddr.V4.loopback in
+  let got = Eio.Net.getaddrinfo ~service:"80" env#net host in
+  List.iter (fun addr -> Alcotest.(check bool) "numeric service" true (List.mem addr got))
+    [`Tcp (lo, 80); `Udp (lo, 80)];
+  Alcotest.(check bool) "TCP-only service" true
+    (Eio.Net.getaddrinfo ~service:"http" env#net host = [`Tcp (lo, 80)]);
+  Alcotest.(check bool) "IPv6 literal" true
+    (List.mem (`Tcp (Eio.Net.Ipaddr.V6.loopback, 0)) (Eio.Net.getaddrinfo env#net "::1"));
+  match Eio.Net.getaddrinfo ~service:"nosuchservice" env#net host with
+  | _ -> Alcotest.fail "resolved an unknown service"
+  | exception Eio.Io (Eio.Net.E (Address_lookup_failed SERVICE), _) -> ()
+
 let tests env = [
+  "resolver service and error codes", `Quick, test_resolve env;
   "tcp-ip4", `Quick, test_client_server env (`Tcp (Eio.Net.Ipaddr.V4.loopback, 8081));
   "tcp-ip6", `Quick, test_client_server env (`Tcp (Eio.Net.Ipaddr.V6.loopback, 8081));
   "unix", `Quick, test_client_server env (`Unix "eio-test.sock");
