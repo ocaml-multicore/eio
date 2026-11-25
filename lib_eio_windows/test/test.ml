@@ -80,9 +80,25 @@ module Await_fd = struct
 end
 
 
+let write_prefix () =
+  Switch.run @@ fun sw ->
+  let r, w = Eio_unix.Net.socketpair_stream ~sw () in
+  let byte = Cstruct.of_string "x" in
+  let bufs = Cstruct.empty :: List.init 32 (fun _ -> byte) in
+  let sent, received = Fiber.pair
+      (fun () -> Eio.Flow.single_write w bufs)
+      (fun () ->
+         Eio.Flow.read_exact r (Cstruct.create 1);
+         Eio.Flow.shutdown w `Send;
+         let rest = Eio.Buf_read.(parse_exn take_all) r ~max_size:64 in
+         1 + String.length rest)
+  in
+  Alcotest.(check int) "reported bytes" received sent
+
 let () =
   Eio_windows.run @@ fun env ->
   Alcotest.run "eio_windows" [
+    "flow", ["single_write reports its prefix", `Quick, write_prefix];
     "net", Test_net.tests env;
     "fs", Test_fs.tests env;
     "process", Test_process.tests env;

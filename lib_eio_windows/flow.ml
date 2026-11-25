@@ -38,14 +38,13 @@ module Impl = struct
       }
     with Unix.Unix_error (code, name, arg) -> raise @@ Err.v code name arg
 
-  let write_all t bufs =
-    try Low_level.writev t bufs
-    with Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)
-
-  (* todo: provide a way to do a single write *)
-  let single_write t bufs =
-    write_all t bufs;
-    Cstruct.lenv bufs
+  let rec single_write t = function
+    | [] -> 0
+    | buf :: rest when Cstruct.is_empty buf -> single_write t rest
+    | buf :: _ ->
+      match Err.run (Low_level.write_cstruct t) buf with
+      | 0 -> raise (Err.v EIO "write" "")
+      | n -> n
 
   let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
 
