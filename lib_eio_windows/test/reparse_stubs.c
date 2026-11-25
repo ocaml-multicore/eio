@@ -53,3 +53,17 @@ CAMLprim value caml_test_set_junction(value v_path, value v_target)
   }
   CAMLreturn(Val_unit);
 }
+
+CAMLprim value caml_test_reopen_for_delete(value v_fd)
+{
+  CAMLparam1(v_fd);
+  CAMLlocal1(fd);
+  fd = caml_win32_alloc_handle(INVALID_HANDLE_VALUE);
+  HANDLE h = ReOpenFile(Handle_val(v_fd), DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0);
+  if (h == INVALID_HANDLE_VALUE) {
+    caml_win32_maperr(GetLastError());
+    uerror("ReOpenFile", Nothing);
+  }
+  Handle_val(fd) = h;
+  CAMLreturn(fd);
+}

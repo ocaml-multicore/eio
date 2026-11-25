@@ -114,9 +114,9 @@ end = struct
         else Low_level.openat ~sw ~follow path flags disp create
       ) ()
 
-  let open_dir_fd t ~sw path =
+  let open_dir_fd ?(access=Low_level.Flags.Open.(generic_read + synchronise)) t ~sw path =
     let open Low_level in
-    open_path t ~sw ~follow:Follow path Flags.Open.(generic_read + synchronise) Flags.Disposition.open_ Flags.Create.directory
+    open_path t ~sw ~follow:Follow path access Flags.Disposition.open_ Flags.Create.directory
 
   let resolve t path =
     if t.sandbox then (
@@ -181,10 +181,10 @@ end = struct
     t.closed <- true;
     Option.iter Fd.close t.root
 
-  let open_dir t ~sw path =
+  let open_dir ?access t ~sw path =
     Switch.check sw;
     let label = Nt_path.basename path in
-    let root = open_dir_fd t ~sw path in
+    let root = open_dir_fd ?access t ~sw path in
     let dir_path = Err.run Low_level.realpath_fd root in
     let d = { dir_path; sandbox = true; label; root = Some root; closed = false } in
     Switch.on_release sw (fun () -> close d);
@@ -195,7 +195,7 @@ end = struct
     let fd =
       open_path t ~sw path
         ~follow:(if follow then Low_level.Follow else Open_link)
-        Low_level.Flags.Open.(generic_read + synchronise)
+        Low_level.Flags.Open.synchronise
         Low_level.Flags.Disposition.open_
         Low_level.Flags.Create.empty
     in
@@ -258,7 +258,9 @@ end = struct
     in
     Err.run (Low_level.symlink_raw ~to_dir ~target dirfd) path
 
-  let open_subtree t ~sw path = Eio.Resource.T (open_dir t ~sw path, Handler.v)
+  let open_subtree t ~sw path =
+    (* Relative opens need only a directory handle. Metadata access allows rename. *)
+    Eio.Resource.T (open_dir ~access:Low_level.Flags.Open.synchronise t ~sw path, Handler.v)
 
   let chmod t ~follow:_ ~perm path =
     with_parent_dir t path @@ fun dirfd path ->

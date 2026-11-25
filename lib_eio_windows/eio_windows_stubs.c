@@ -86,6 +86,9 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_beneath, value v_o
     NULL
   );
 
+  /* Keep parent handles opened for directory operations pinned during lookup. */
+  ULONG share = FILE_SHARE_READ | FILE_SHARE_WRITE;
+  if (Int_val(v_create_options) & FILE_NON_DIRECTORY_FILE) share |= FILE_SHARE_DELETE;
   r = NtCreateFile(
     &h,
     Int_val(v_desired_access) | FILE_READ_ATTRIBUTES,
@@ -93,7 +96,7 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_beneath, value v_o
     &io_status,
     0, // Allocation size
     FILE_ATTRIBUTE_NORMAL, // TODO: Could check flags to see if we can do READONLY here a la OCaml
-    (FILE_SHARE_READ | FILE_SHARE_WRITE),
+    share,
     Int_val(v_create_disposition),
     (
        FILE_SYNCHRONOUS_IO_NONALERT
@@ -363,7 +366,7 @@ retry_open:
     &io_status,
     0, // Allocation size
     FILE_ATTRIBUTE_NORMAL, // TODO: Could check flags to see if we can do READONLY here a la OCaml
-    (FILE_SHARE_DELETE),
+    FILE_SHARE_READ | FILE_SHARE_DELETE | (check_link ? 0 : FILE_SHARE_WRITE),
     FILE_OPEN,
     (((Bool_val(v_dir) || check_link) ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE) | FILE_SYNCHRONOUS_IO_NONALERT
      | FILE_OPEN_REPARSE_POINT),
@@ -393,9 +396,16 @@ retry_open:
              (info.ReparseTag != IO_REPARSE_TAG_SYMLINK && info.ReparseTag != IO_REPARSE_TAG_MOUNT_POINT))
       err = ERROR_ACCESS_DENIED;
   }
-  FILE_DISPOSITION_INFO disposition = { TRUE };
-  if (!err && !SetFileInformationByHandle(h, FileDispositionInfo, &disposition, sizeof(disposition)))
-    err = GetLastError();
+  if (!err) {
+    FILE_DISPOSITION_INFO_EX disposition = { FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS };
+    if (!SetFileInformationByHandle(h, FileDispositionInfoEx, &disposition, sizeof(disposition))) {
+      err = GetLastError();
+      if (err == ERROR_INVALID_PARAMETER || err == ERROR_NOT_SUPPORTED || err == ERROR_INVALID_FUNCTION) {
+        FILE_DISPOSITION_INFO legacy = { TRUE };
+        err = SetFileInformationByHandle(h, FileDispositionInfo, &legacy, sizeof(legacy)) ? 0 : GetLastError();
+      }
+    }
+  }
   CloseHandle(h);
   if (err) {
     caml_win32_maperr(err);

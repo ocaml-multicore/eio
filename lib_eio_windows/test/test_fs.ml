@@ -490,11 +490,16 @@ let test_stat_directory env () =
   check_kind ~follow:true (cwd / "stat-dir") `Directory;
   check_kind ~follow:false (cwd / "stat-dir") `Directory
 
+external reopen_for_delete : Unix.file_descr -> Unix.file_descr = "caml_test_reopen_for_delete"
+
 let test_stat_regular_file env () =
   let cwd = Eio.Stdenv.cwd env in
   let fs = Eio.Stdenv.fs env in
   with_cleanup ["stat-file"] @@ fun () ->
   Path.save ~create:(`Exclusive 0o600) (cwd / "stat-file") "data";
+  let fd = Unix.openfile "stat-file" [O_RDONLY; O_SHARE_DELETE] 0 in
+  let h = Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> reopen_for_delete fd) in
+  Fun.protect ~finally:(fun () -> Unix.close h) @@ fun () ->
   let abs = Filename.concat (Sys.getcwd ()) "stat-file" in
   check_kind ~follow:true (cwd / "stat-file") `Regular_file;
   check_kind ~follow:false (cwd / "stat-file") `Regular_file;
@@ -534,14 +539,35 @@ let test_rename env () =
   try_mkdir (cwd / "rn-dir");
   Path.rename (cwd / "rn-c") (cwd / "rn-dir" / "moved");
   Alcotest.(check string) "moved into a directory" "a" (read_file "rn-dir\\moved");
-  Path.rename (cwd / "rn-dir") (cwd / "rn-dir2");
-  Alcotest.(check bool) "directory renamed" true (Sys.is_directory "rn-dir2");
+  Path.with_subtree (cwd / "rn-dir") (fun dir ->
+      Path.rename (cwd / "rn-dir") (cwd / "rn-dir2");
+      Path.mkdir ~perm:0o700 (cwd / "rn-dir");
+      write_file "rn-dir\\moved" "replacement";
+      Alcotest.(check string) "renamed subtree" "a" (Path.load (dir / "moved"))
+    );
   let abs = Filename.concat (Sys.getcwd ()) in
   Path.rename (fs / abs "rn-dir2\\moved") (fs / abs "rn-a");
   Alcotest.(check string) "renamed through fs" "a" (read_file "rn-a");
   match Path.rename (cwd / "rn-a") (cwd / "..\\rn-escaped") with
   | () -> Alcotest.fail "Expected permission denied"
   | exception Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ()
+
+let test_rename_unlink_open env () =
+  let cwd = Eio.Stdenv.cwd env in
+  let a = cwd / "open-a" and b = cwd / "open-b" in
+  with_cleanup ["open-a"; "open-b"] @@ fun () ->
+  let create path = Path.save ~create:(`Exclusive 0o600) path in
+  create a "a";
+  create b "b";
+  Path.with_open_out ~create:`Never a @@ fun src ->
+  Path.with_open_in b @@ fun replaced ->
+  Path.rename a b;
+  Alcotest.(check string) "renamed file" "a" (Path.load b);
+  Path.unlink b;
+  create b "c";
+  Eio.Flow.copy_string "x" src;
+  Alcotest.(check string) "replaced file" "b" (Eio.Flow.read_all replaced);
+  Alcotest.(check string) "reused name" "c" (Path.load b)
 
 let test_rename_over_dir env () =
   let cwd = Eio.Stdenv.cwd env in
@@ -900,7 +926,6 @@ let test_unlink_handle env () =
    | exception Eio.Io _ -> ());
   Alcotest.(check bool) "ordinary directory kept" true (Sys.is_directory "uh-link")
 
-(* Unlike rename, installing reparse data is allowed while a directory is open. *)
 let with_retargeted_subtree env fn =
   let cwd = Eio.Stdenv.cwd env in
   with_cleanup ["rp-inside\\direct"; "rp-outside\\direct"; "rp-inside\\created"; "rp-outside\\created"; "rp-outside\\secret";
@@ -1180,6 +1205,7 @@ let tests env = [
   "stat-regular-file", `Quick, test_stat_regular_file env;
   "stat-symlink", `Quick, test_stat_symlink env;
   "rename", `Quick, test_rename env;
+  "rename-unlink-open", `Quick, test_rename_unlink_open env;
   "rename-over-directory", `Quick, test_rename_over_dir env;
   "open-no-follow", `Quick, test_open_no_follow env;
   "eio-symlink", `Quick, test_eio_symlink env;
