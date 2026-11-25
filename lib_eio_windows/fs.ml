@@ -156,8 +156,8 @@ end = struct
       | `Exclusive   _ -> Low_level.Flags.Disposition.create
     in
     let flags =
-      if append then Low_level.Flags.Open.(synchronise + append)
-      else Low_level.Flags.Open.(generic_write + synchronise)
+      if append then Low_level.Flags.Open.(generic_read + synchronise + append)
+      else Low_level.Flags.Open.(generic_read + generic_write + synchronise)
     in
     let fd =
       open_path t ~sw path flags disp Low_level.Flags.Create.non_directory
