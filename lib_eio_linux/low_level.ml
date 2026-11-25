@@ -199,6 +199,7 @@ let read_upto ?file_offset:off fd buf amount =
   match Uring.Res.int_result res with
   | Ok 0 -> raise End_of_file
   | Ok n -> n
+  | Error Unix.EIO when Unix.isatty fd -> raise End_of_file
   | Error e -> raise @@ Err.v e "read" ""
 
 let rec read_exactly ?file_offset fd buf len =
@@ -227,6 +228,7 @@ let readv ?file_offset fd bufs =
   match Uring.Res.int_result res with
   | Ok 0 -> raise End_of_file
   | Ok n -> n
+  | Error Unix.EIO when Unix.isatty fd -> raise End_of_file
   | Error e -> raise @@ Err.v e "readv" ""
 
 let writev_single ?file_offset fd bufs =

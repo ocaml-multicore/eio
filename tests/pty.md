@@ -100,6 +100,28 @@ output however. The trailing `read` is released when the switch exits.
 - : string list = ["line 1"; "line 2"; "line 3"]
 ```
 
+Reading from the `pty` end raises `End_of_file` once no process holds the
+terminal end open.
+
+```ocaml
+# run @@ fun env ->
+  Switch.run @@ fun sw ->
+  let t = Pty.open_pty ~sw () in
+  let child =
+    Eio_unix.Process.spawn_unix ~sw env#process_mgr
+      ~login_tty:(Pty.tty t)
+      ~fds:[]
+      ["sh"; "-c"; "echo finished"]
+  in
+  let r = Eio.Buf_read.of_flow (Pty.source t) ~max_size:1024 in
+  let line = Eio.Buf_read.line r in
+  ignore (Eio.Process.await child : Eio.Process.exit_status);
+  Eio_unix.Fd.close (Pty.tty t);
+  let rest = Eio.Flow.read_all (Pty.source t) in
+  (line, rest);;
+- : string * string = ("finished", "")
+```
+
 Input can be sent to the child by writing to the `pty` end with {!Pty.sink}.
 Here we turn off the terminal's input echo, send it a line, and read the response:
 
