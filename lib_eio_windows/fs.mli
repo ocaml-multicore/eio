@@ -57,6 +57,9 @@
     {2 Other differences from Unix}
 
     - Names are case-insensitive.
+    - Eio allows open files to be renamed or unlinked and open subtrees to be
+      renamed. Other programs may use stricter sharing. On NTFS a directory
+      rename can fail while a file beneath it is open.
     - Unix permissions are mostly ignored, and [chown] is not supported.
     - A link to a directory is itself a directory, so {!Eio.Path.rmdir} also removes one. *)
 
