@@ -1,6 +1,11 @@
 (mdx
   (package eio_main)
-  (enabled_if (<> %{os_type} "Win32"))
   (deps
+    process_helper.exe
     (env_var "EIO_BACKEND")
     (package eio_main)))
+
+(executable
+ (name process_helper)
+ (modules process_helper)
+ (libraries unix))

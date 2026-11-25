@@ -361,7 +361,8 @@ Printing addresses with ports:
 Wrapping a Unix FD as an Eio stream socket:
 
 ```ocaml
-# Eio_main.run @@ fun _ ->
+# if Sys.win32 then mdx_skip "Anonymous pipes are not supported yet on Windows (eio#929)";
+  Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let r, w = Unix.pipe () in
   let source = (Eio_unix.File.import_ro ~sw ~close_unix:true r :> _ Eio.Flow.source) in
@@ -402,7 +403,8 @@ Exception: Graceful_shutdown.
 Wrapping a Unix FD as an datagram Eio socket:
 
 ```ocaml
-# Eio_main.run @@ fun _ ->
+# if Sys.win32 then mdx_skip "Windows does not support Unix-domain datagrams";
+  Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let a, b = Unix.(socketpair PF_UNIX SOCK_DGRAM 0) in
   let a = Eio_unix.Net.import_socket_datagram ~sw ~close_unix:true a in
@@ -528,7 +530,8 @@ ECONNRESET:
 EPIPE:
 
 ```ocaml
-# Eio_main.run @@ fun _ ->
+# if Sys.win32 then mdx_skip "Windows socketpair does not report a closed peer on the first write";
+  Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let a, b = Eio_unix.Net.socketpair_stream ~sw () in
   Eio.Flow.close b;
@@ -543,7 +546,8 @@ EPIPE:
 Connection refused:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows reports connection refused for a missing Unix socket";
+  Eio_main.run @@ fun env ->
   Switch.run @@ fun sw ->
   Eio.Net.connect ~sw env#net (`Unix "idontexist.sock");;
 Exception: Eio.Io Fs Not_found _,
@@ -553,7 +557,8 @@ Exception: Eio.Io Fs Not_found _,
 ## Shutdown
 
 ```ocaml
-# Eio_main.run @@ fun _ ->
+# if Sys.win32 then mdx_skip "Receive shutdown does not wake Windows select";
+  Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let a, b = Eio_unix.Net.socketpair_stream ~sw () in
   Fiber.both
@@ -803,8 +808,9 @@ Eio.Io Net Address_lookup_failed NONAME (name or service is not known),
   let sockaddr = `Tcp (Eio.Net.Ipaddr.V4.loopback, 80) in
   let (host, service) = Eio.Net.getnameinfo env#net sockaddr in
   let service = if service = "www" then "http" else service in (* OpenBSD *)
-  (host, service)
-- : string * string = ("localhost", "http")
+  assert (host <> "");
+  service
+- : string = "http"
 ```
 
 ## with_tcp_connet
@@ -934,7 +940,8 @@ Eio.Io Net Connection_failure Timeout,
 ## read/write on SOCK_DGRAM
 
 ```ocaml
-# Eio_main.run @@ fun _ ->
+# if Sys.win32 then mdx_skip "Windows does not support Unix-domain datagrams";
+  Eio_main.run @@ fun _ ->
   Switch.run @@ fun sw ->
   let a, b = Eio_unix.Net.socketpair_datagram ~sw ~domain:Unix.PF_UNIX () in
   ignore (Eio_unix.Net.fd a : Eio_unix.Fd.t);
@@ -1212,7 +1219,8 @@ Streams:
 Datagrams:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows does not support Unix-domain datagrams";
+  Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   let path = "reused.sock" in
   let addr = `Unix path in
@@ -1240,7 +1248,8 @@ Datagrams:
 No error if the socket gets closed first:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows does not support Unix-domain datagrams";
+  Eio_main.run @@ fun env ->
   Eio.Exn.Backend.show := true;
   let net = Eio.Stdenv.net env in
   let name = "test.sock" in
@@ -1269,7 +1278,8 @@ No error if the socket gets closed first:
 No error if socket is removed while we're running:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows does not support Unix-domain datagrams";
+  Eio_main.run @@ fun env ->
   Eio.Exn.Backend.show := true;
   let net = Eio.Stdenv.net env in
   let name = "test.sock" in

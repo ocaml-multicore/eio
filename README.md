@@ -684,7 +684,8 @@ it can be annoying to have the full backend-specific error displayed:
 
 <!-- $MDX non-deterministic=command -->
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "Connection refusal does not wake Windows select";
+  Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Switch.run @@ fun sw ->
   Eio.Net.connect ~sw net (`Tcp (Eio.Net.Ipaddr.V4.loopback, 1234));;
@@ -699,8 +700,11 @@ To avoid this problem, you can use `Eio.Exn.Backend.show` to hide the backend-sp
 ```ocaml
 # Eio.Exn.Backend.show := false;;
 - : unit = ()
+```
 
-# Eio_main.run @@ fun env ->
+```ocaml
+# if Sys.win32 then mdx_skip "Connection refusal does not wake Windows select";
+  Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Switch.run @@ fun sw ->
   Eio.Net.connect ~sw net (`Tcp (Eio.Net.Ipaddr.V4.loopback, 1234));;
@@ -794,8 +798,8 @@ let try_mkdir path =
 The checks also apply to following symlinks:
 
 ```ocaml
-# Unix.symlink "dir1" "link-to-dir1";
-  Unix.symlink (Filename.get_temp_dir_name ()) "link-to-tmp";;
+# Unix.symlink ~to_dir:true "dir1" "link-to-dir1";
+  Unix.symlink ~to_dir:true (Filename.get_temp_dir_name ()) "link-to-tmp";;
 - : unit = ()
 
 # Eio_main.run @@ fun env ->
@@ -854,7 +858,8 @@ Fatal error: exception Sys_error("/etc/passwd: Not permitted in capability mode"
 Spawning a child process can be done using the [Eio.Process][] module:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "This example requires POSIX commands";
+  Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
   Eio.Process.run proc_mgr ["echo"; "hello"];;
 hello
@@ -865,7 +870,8 @@ There are various optional arguments for setting the process's current directory
 For example, we can use `tr` to convert some text to upper-case:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "This example requires POSIX commands";
+  Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
   Eio.Process.run proc_mgr ["tr"; "a-z"; "A-Z"]
     ~stdin:(Eio.Flow.string_source "One two three\n");;
@@ -877,7 +883,8 @@ If you want to capture the output of a process, you can provide a suitable `Eio.
 or use the `parse_out` convenience wrapper:
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "This example requires POSIX commands";
+  Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
   Eio.Process.parse_out proc_mgr Eio.Buf_read.line ["echo"; "hello"];;
 - : string = "hello"
@@ -886,7 +893,8 @@ or use the `parse_out` convenience wrapper:
 All process functions either return the exit status or check that it was zero (success):
 
 ```ocaml
-# Eio_main.run @@ fun env ->
+# if Sys.win32 then mdx_skip "This example requires POSIX commands";
+  Eio_main.run @@ fun env ->
   let proc_mgr = Eio.Stdenv.process_mgr env in
   Eio.Process.parse_out proc_mgr Eio.Buf_read.take_all ["sh"; "-c"; "exit 3"];;
 Exception:

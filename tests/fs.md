@@ -2,7 +2,7 @@
 
 ```ocaml
 # #require "eio_main";;
-# ignore @@ Unix.umask 0o022;;
+# if not Sys.win32 then ignore @@ Unix.umask 0o022;;
 - : unit = ()
 ```
 
@@ -13,7 +13,10 @@ module Path = Eio.Path
 
 open Eio.Std
 
-let ( / ) = Path.( / )
+(* Use forward slashes in fixtures to keep diagnostic output portable. *)
+let ( / ) base step =
+  let dir, path = Path.(base / step) in
+  dir, if Sys.win32 then String.map (function '\\' -> '/' | c -> c) path else path
 
 let run ?clear:(paths = []) fn =
   Eio.Exn.Backend.show := false;
@@ -136,7 +139,8 @@ Creating a file and reading it back:
 Check the file got the correct permissions (subject to the umask set above):
 
 ```ocaml
-# Printf.printf "Perm = %o\n" ((Unix.stat "test-file").st_perm);;
+# if Sys.win32 then mdx_skip "Windows does not implement POSIX file permissions";
+  Printf.printf "Perm = %o\n" ((Unix.stat "test-file").st_perm);;
 Perm = 644
 - : unit = ()
 ```
@@ -938,7 +942,7 @@ Recursively creating directories with `mkdirs`.
   let nested = cwd / "subdir1" / "subdir2" / "subdir3" in
   try_mkdirs nested;
   assert (Eio.Path.is_directory nested);
-  let one_more = Path.(nested / "subdir4") in
+  let one_more = nested / "subdir4" in
   try_mkdirs one_more;
   try_mkdirs ~exists_ok:true one_more;
   try_mkdirs one_more;
@@ -955,7 +959,8 @@ Recursively creating directories with `mkdirs`.
 Some edge cases for `mkdirs`.
 
 ```ocaml
-# run ~clear:["test"] @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows rejects dot as a directory creation leaf";
+  run ~clear:["test"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdirs (cwd / ".");
   try_mkdirs (cwd / "././");
@@ -1036,7 +1041,7 @@ Reads and writes follow symlinks, but unlink operates on the symlink itself:
   Path.symlink ~link_to:"dir1/file1" (cwd / "link1");
   Path.symlink ~link_to:"../file2" (cwd / "dir1/link2");
   Path.symlink ~link_to:"dir1" (cwd / "linkdir");
-  Path.symlink ~link_to:"/" (cwd / "linkroot");
+  Unix.symlink ~to_dir:true "/" "linkroot";
   try_read_file file1;
   try_read_file (cwd / "link1");
   try_read_file (cwd / "linkdir" / "file1");
@@ -1170,7 +1175,8 @@ Create a sandbox, write a file with it, then read it from outside:
 ```
 
 ```ocaml
-# run ~clear:["foo"] @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows resolves dot-dot components before following symlinks";
+  run ~clear:["foo"] @@ fun env ->
   let fs = env#fs in
   let cwd = env#cwd in
   Path.mkdirs (cwd / "foo/bar") ~perm:0o700;
@@ -1225,7 +1231,8 @@ Create a sandbox, write a file with it, then read it from outside:
 Check other operations give sensible results when applied directly to `fs`:
 
 ```ocaml
-# run ~clear:["foo"] @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows does not implement POSIX ownership or permissions";
+  run ~clear:["foo"] @@ fun env ->
   let fs = env#fs in
   let tmpdir = fs / "foo" in
   Path.mkdir tmpdir ~perm:0o700;
@@ -1309,7 +1316,8 @@ Reading directory entries under `cwd` and outside of `cwd`.
 An error from the underlying directory, not the sandbox:
 
 ```ocaml
-# run ~clear:["test-no-access"] @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows does not implement POSIX file permissions";
+  run ~clear:["test-no-access"] @@ fun env ->
   Unix.mkdir "test-no-access" 0;;
 - : unit = ()
 # run @@ fun env ->
@@ -1321,21 +1329,24 @@ An error from the underlying directory, not the sandbox:
 - : unit = ()
 ```
 
-Can use `fs` to access absolute paths:
+Can use `fs` to access absolute paths, but `cwd` rejects them even for files
+inside the current directory:
 
 ```ocaml
-# run @@ fun env ->
+# run ~clear:["absolute-path.txt"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let fs = Eio.Stdenv.fs env in
-  let b = Buffer.create 10 in
-  Path.with_open_in (fs / Filename.null) (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));
-  traceln "Read %S and got %S" Filename.null (Buffer.contents b);
-  traceln "Trying with cwd instead fails:";
-  Path.with_open_in (cwd / Filename.null) (fun flow -> Eio.Flow.copy flow (Eio.Flow.buffer_sink b));;;
-+Read "/dev/null" and got ""
-+Trying with cwd instead fails:
-Exception: Eio.Io Fs Permission_denied _,
-  opening <cwd:/dev/null>
+  let path = Filename.concat (Sys.getcwd ()) "absolute-path.txt" in
+  Path.save ~create:(`Exclusive 0o600) (cwd / "absolute-path.txt") "hello";
+  Fun.protect ~finally:(fun () -> Path.unlink (cwd / "absolute-path.txt")) @@ fun () ->
+  traceln "Read %S through fs" (Path.load (fs / path));
+  match Path.load (cwd / path) with
+  | _ -> failwith "cwd accepted an absolute path"
+  | exception Eio.Io (Eio.Fs.E (Eio.Fs.Permission_denied _), _) ->
+    traceln "cwd rejected the absolute path";;
++Read "hello" through fs
++cwd rejected the absolute path
+- : unit = ()
 ```
 
 Symlinking and sandboxing:
@@ -1365,7 +1376,8 @@ A trailing slash on the last component means it must be a directory.
 If it is a symlink, it gets followed, but still only within the sandbox:
 
 ```ocaml
-# run ~clear:["trailing"] @@ fun env ->
+# if Sys.win32 then mdx_skip "These checks require POSIX permissions and trailing-slash semantics";
+  run ~clear:["trailing"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   try_mkdirs (cwd / "trailing/jail/sub");
   try_mkdir (cwd / "trailing/outside");
@@ -1447,16 +1459,17 @@ We can get the Unix FD from the flow and use it directly:
 
 ```ocaml
 # run @@ fun env ->
-  let fs = Eio.Stdenv.fs env in
-  Path.with_open_in (fs / Filename.null) (fun flow ->
+  let path = env#cwd / "empty-file" in
+  Path.save path "" ~create:(`Or_truncate 0o600);
+  Path.with_open_in path (fun flow ->
      match Eio_unix.Resource.fd_opt flow with
      | None -> failwith "No Unix file descriptor!"
      | Some fd ->
         Eio_unix.Fd.use_exn "read" fd @@ fun fd ->
         let got = Unix.read fd (Bytes.create 10) 0 10 in
-        traceln "Read %d bytes from null device" got
+        traceln "Read %d bytes from empty file" got
   );;
-+Read 0 bytes from null device
++Read 0 bytes from empty file
 - : unit = ()
 ```
 
@@ -1465,14 +1478,15 @@ In that case, `with_open_in` will no longer close it on exit:
 
 ```ocaml
 # run @@ fun env ->
-  let fs = Eio.Stdenv.fs env in
-  let fd = Path.with_open_in (fs / Filename.null) (fun flow ->
+  let path = env#cwd / "empty-file" in
+  Path.save path "" ~create:(`Or_truncate 0o600);
+  let fd = Path.with_open_in path (fun flow ->
     Option.get (Eio_unix.Fd.remove (Option.get (Eio_unix.Resource.fd_opt flow)))
   ) in
   let got = Unix.read fd (Bytes.create 10) 0 10 in
-  traceln "Read %d bytes from null device" got;
+  traceln "Read %d bytes from empty file" got;
   Unix.close fd;;
-+Read 0 bytes from null device
++Read 0 bytes from empty file
 - : unit = ()
 ```
 
@@ -1606,7 +1620,8 @@ Unconfined:
 Chmod works.
 
 ```ocaml
-# run ~clear:["test-file"] @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows does not implement POSIX ownership or permissions";
+  run ~clear:["test-file"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let file_path = cwd / "test-file" in
   Path.save ~create:(`Exclusive 0o644) file_path "test data";
@@ -1625,7 +1640,8 @@ Chmod works.
 A leaf symlink pointing out of the sandbox must not be followed:
 
 ```ocaml
-# run ~clear:["sandbox"; "outside.txt"] @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows does not implement POSIX ownership or permissions";
+  run ~clear:["sandbox"; "outside.txt"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   Switch.run @@ fun sw ->
   Path.save ~create:(`Exclusive 0o644) (cwd / "outside.txt") "outside";
@@ -1685,7 +1701,8 @@ Test chmod on a symlink, on platforms that allow it:
 Check reading and writing vectors at arbitrary offsets:
 
 ```ocaml
-# run ~clear:["test.txt"] @@ fun env ->
+# if Sys.win32 then mdx_skip "Positioned IO is not implemented by the Windows backend";
+  run ~clear:["test.txt"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let path = cwd / "test.txt" in
   Path.with_open_out path ~create:(`Exclusive 0o600) @@ fun file ->
@@ -1720,7 +1737,8 @@ Negative offsets are rejected before a positioned read or write starts:
 Reading at the end of a file:
 
 ```ocaml
-# run @@ fun env ->
+# if Sys.win32 then mdx_skip "Positioned IO is not implemented by the Windows backend";
+  run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let path = cwd / "test.txt" in
   Path.with_open_out path ~create:(`Or_truncate 0o600) @@ fun file ->
@@ -1745,7 +1763,8 @@ we pick a group that differs from the file's current one. This won't always do a
 useful, so run it occasionally either as root or as a user with multiple groups.
 
 ```ocaml
-# run ~clear:["owner.txt"; "link.txt"; "symlink.txt"] @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows does not implement POSIX ownership or permissions";
+  run ~clear:["owner.txt"; "link.txt"; "symlink.txt"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   let stat_uid_gid path =
     let stat = Eio.Path.stat ~follow:false path in
@@ -1801,7 +1820,8 @@ useful, so run it occasionally either as root or as a user with multiple groups.
 Check that chown sandboxing works:
 
 ```ocaml
-# run ~clear:["sandbox"; "outside.txt"] @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows does not implement POSIX ownership or permissions";
+  run ~clear:["sandbox"; "outside.txt"] @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   Switch.run @@ fun sw ->
   Path.save ~create:(`Exclusive 0o644) (cwd / "outside.txt") "outside";
@@ -1857,7 +1877,8 @@ Check that chown sandboxing works:
 Ensure reads can be cancelled promptly, even if there is no need to wait:
 
 ```ocaml
-# run @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows has no /dev/zero device";
+  run @@ fun env ->
   Eio.Path.with_open_out (env#fs / "/dev/zero") ~create:`Never @@ fun null ->
   Fiber.both
      (fun () ->
@@ -1871,7 +1892,8 @@ Exception: Failure "Simulated error".
 # Native paths
 
 ```ocaml
-# run ~clear:["native-sub"] @@ fun env ->
+# if Sys.win32 then mdx_skip "These native path examples use POSIX syntax";
+  run ~clear:["native-sub"] @@ fun env ->
   let cwd = Sys.getcwd () ^ "/" in
   let test x =
     let native = Eio.Path.native x in
@@ -1923,7 +1945,8 @@ Exception: Failure "Simulated error".
 # Seek, truncate and sync
 
 ```ocaml
-# run @@ fun env ->
+# if Sys.win32 then mdx_skip "Windows Unix.LargeFile.lseek bug; fixed in OCaml trunk by ocaml/ocaml#15186";
+  run @@ fun env ->
   Eio.Path.with_open_out (env#cwd / "seek-test") ~create:(`If_missing 0o700) @@ fun file ->
   Eio.File.truncate file (Int63.of_int 10);
   assert ((Eio.File.stat file).size = (Int63.of_int 10));
@@ -1943,7 +1966,8 @@ Exception: Failure "Simulated error".
 # Extending paths
 
 ```ocaml
-# run @@ fun env ->
+# if Sys.win32 then mdx_skip "These path joining examples use POSIX syntax";
+  run @@ fun env ->
   let base = fst env#cwd in
   List.iter (fun (a, b) -> traceln "%S / %S = %S" a b (snd ((base, a) / b))) [
     "foo", "bar";
@@ -1969,7 +1993,8 @@ Exception: Failure "Simulated error".
 # Importing files from FDs
 
 ```ocaml
-# run ~clear:["unix-file"] @@ fun env ->
+# if Sys.win32 then mdx_skip "Positioned IO is not implemented by the Windows backend";
+  run ~clear:["unix-file"] @@ fun env ->
   let path = env#cwd / "unix-file" in
   Switch.run (fun sw ->
      Unix.openfile (Eio.Path.native_exn path) [O_CREAT; O_RDWR] 0o600

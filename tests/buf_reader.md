@@ -407,10 +407,10 @@ Exception: Failure "skip_while1".
 - : string = "0x804020100801"
 # R.parse_string_exn R.BE.uint64 "\128\064\032\016\008\004\002\001" |> Printf.sprintf "0x%Lx";;
 - : string = "0x8040201008040201"
-# R.parse_string_exn R.BE.float "\128\064\032\001" |> Printf.sprintf "0x%e";;
-- : string = "0x-5.888953e-39"
-# R.parse_string_exn R.BE.double "\128\064\032\016\008\004\002\001" |> Printf.sprintf "0x%e";;
-- : string = "0x-1.793993e-307"
+# R.parse_string_exn R.BE.float "\128\064\032\001" |> Printf.sprintf "%h";;
+- : string = "-0x1.008004p-127"
+# R.parse_string_exn R.BE.double "\128\064\032\016\008\004\002\001" |> Printf.sprintf "%h";;
+- : string = "-0x1.0201008040201p-1019"
 ```
 
 ## Little Endian
@@ -423,10 +423,10 @@ Exception: Failure "skip_while1".
 - : string = "0x10810204080"
 # R.parse_string_exn R.LE.uint64 "\128\064\032\016\008\004\002\001" |> Printf.sprintf "0x%Lx";;
 - : string = "0x102040810204080"
-# R.parse_string_exn R.LE.float "\128\064\032\001" |> Printf.sprintf "0x%e";;
-- : string = "0x2.943364e-38"
-# R.parse_string_exn R.LE.double "\128\064\032\016\008\004\002\001" |> Printf.sprintf "0x%e";;
-- : string = "0x8.209689e-304"
+# R.parse_string_exn R.LE.float "\128\064\032\001" |> Printf.sprintf "%h";;
+- : string = "0x1.4081p-125"
+# R.parse_string_exn R.LE.double "\128\064\032\016\008\004\002\001" |> Printf.sprintf "%h";;
+- : string = "0x1.204081020408p-1007"
 ```
 
 ## Take all

@@ -12,6 +12,7 @@ let ( / ) = Eio.Path.( / )
 let sys_info = Eio_unix.System_info.get ()
 
 let run ?clear:(paths = []) fn =
+  if Sys.win32 then mdx_skip "File-descriptor passing is not supported on Windows";
   Eio_main.run @@ fun env ->
   let cwd = Eio.Stdenv.cwd env in
   List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p)) paths;
