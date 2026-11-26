@@ -204,6 +204,17 @@ let test_append env () =
   Path.save ~create:`Never ~append:true test_file "2nd-write";
   Alcotest.(check string) "append" "1st-write-original2nd-write" (Path.load test_file)
 
+let test_read_open_out ~append env () =
+  let path = Eio.Stdenv.cwd env / "open-out" in
+  with_cleanup ["open-out"] @@ fun () ->
+  Path.with_open_out ~append ~create:(`Exclusive 0o600) path @@ fun file ->
+  Path.save ~create:`Never path "ab";
+  let byte = Cstruct.create 1 in
+  Eio.Flow.read_exact file byte;
+  Alcotest.(check string) "read from open_out" "a" (Cstruct.to_string byte);
+  Eio.Flow.copy_string "x" file;
+  Alcotest.(check string) "write position" (if append then "abx" else "ax") (Path.load path)
+
 let test_mkdir env () =
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "subdir");
@@ -1157,6 +1168,8 @@ let tests env = [
   "create-trunc", `Quick, test_trunc env;
   "create-empty", `Quick, test_empty env;
   "append", `Quick, test_append env;
+  "read-open-out", `Quick, test_read_open_out ~append:false env;
+  "read-open-out-append", `Quick, test_read_open_out ~append:true env;
   "mkdir", `Quick, test_mkdir env;
   "symlinks", `Quick, test_symlink env;
   "unlink", `Quick, test_unlink env;
