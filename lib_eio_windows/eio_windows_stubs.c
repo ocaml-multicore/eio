@@ -72,26 +72,28 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_beneath, value v_o
     NULL
   );
 
+  ACCESS_MASK access = Int_val(v_desired_access) | FILE_READ_ATTRIBUTES;
+  ULONG disposition = Int_val(v_create_disposition);
+  ULONG options = FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT
+    | Int_val(v_create_options) | (Bool_val(v_open_link) ? FILE_OPEN_REPARSE_POINT : 0);
   /* Keep parent handles opened for directory operations pinned during lookup. */
   ULONG share = FILE_SHARE_READ | FILE_SHARE_WRITE;
-  if (Int_val(v_create_options) & FILE_NON_DIRECTORY_FILE) share |= FILE_SHARE_DELETE;
+  if (options & FILE_NON_DIRECTORY_FILE) share |= FILE_SHARE_DELETE;
+  caml_enter_blocking_section_no_pending();
   r = NtCreateFile(
     &h,
-    Int_val(v_desired_access) | FILE_READ_ATTRIBUTES,
+    access,
     &obj_attr,
     &io_status,
     0, // Allocation size
     FILE_ATTRIBUTE_NORMAL, // TODO: Could check flags to see if we can do READONLY here a la OCaml
     share,
-    Int_val(v_create_disposition),
-    (
-       FILE_SYNCHRONOUS_IO_NONALERT
-      | FILE_OPEN_FOR_BACKUP_INTENT
-      | Int_val(v_create_options)
-      | (Bool_val(v_open_link) ? FILE_OPEN_REPARSE_POINT : 0)),
+    disposition,
+    options,
     NULL, // Extended attribute buffer
     0     // Extended attribute buffer length
   );
+  caml_leave_blocking_section();
 
   caml_stat_free(pathname);
 
@@ -343,8 +345,10 @@ CAMLprim value caml_eio_windows_unlinkat(value v_dirfd, value v_pathname, value 
 
   /* Ordinary files and rmdir need only DELETE access. Only directory links
      need an attribute query, to distinguish them from ordinary directories. */
+  BOOL is_dir = Bool_val(v_dir);
   BOOL check_link = FALSE;
 retry_open:
+  caml_enter_blocking_section_no_pending();
   r = NtCreateFile(
     &h,
     (SYNCHRONIZE | DELETE | (check_link ? FILE_READ_ATTRIBUTES : 0)),
@@ -354,13 +358,14 @@ retry_open:
     FILE_ATTRIBUTE_NORMAL, // TODO: Could check flags to see if we can do READONLY here a la OCaml
     FILE_SHARE_READ | FILE_SHARE_DELETE | (check_link ? 0 : FILE_SHARE_WRITE),
     FILE_OPEN,
-    (((Bool_val(v_dir) || check_link) ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE) | FILE_SYNCHRONOUS_IO_NONALERT
+    (((is_dir || check_link) ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE) | FILE_SYNCHRONOUS_IO_NONALERT
      | FILE_OPEN_REPARSE_POINT),
     NULL, // Extended attribute buffer
     0     // Extended attribute buffer length
   );
 
-  if (r == STATUS_FILE_IS_A_DIRECTORY && !Bool_val(v_dir) && !check_link) {
+  caml_leave_blocking_section();
+  if (r == STATUS_FILE_IS_A_DIRECTORY && !is_dir && !check_link) {
     check_link = TRUE;
     goto retry_open;
   }

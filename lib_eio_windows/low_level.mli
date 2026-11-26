@@ -208,6 +208,14 @@ module Flags : sig
   end
 end
 
+val open_root : sw:Switch.t -> string -> fd
+(** Open a sandbox root without traversing reparse points. *)
+
+val open_beneath : ?dirfd:fd -> root:string -> sw:Switch.t -> follow:follow -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> fd
+(** Open a relative path beneath [dirfd], resolving links within the
+    directory. If [dirfd] is absent, open [root] without traversing links.
+    Keep the root open throughout resolution in a single worker job. *)
+
 val openat : ?dirfd:fd -> ?beneath:bool -> ?follow:follow -> sw:Switch.t -> string -> Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> fd
 (** [openat ?dirfd ~sw path ...] opens [path], relative to [dirfd] if given
     and otherwise a Win32 path, relative to the current directory.

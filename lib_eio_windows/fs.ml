@@ -33,84 +33,27 @@ end = struct
     mutable closed : bool;
   }
 
-  let max_follows = 40  (* As Linux *)
-
-  let checked t path = function
-    | Some p -> p
-    | None -> raise @@ Eio.Fs.err (Permission_denied (Err.Outside_sandbox (path, t.dir_path)))
-
-  let relative t path =
-    if not (Nt_path.is_relative path) then raise @@ Eio.Fs.err (Permission_denied Err.Absolute_path);
-    checked t path (Nt_path.relative path)
-
-  (* Opened subtrees retain their authority as a handle. Reopening [dir_path]
-     would follow a junction installed on the sandbox itself. *)
-  let with_root t fn =
+  let root t =
     if t.closed then Fmt.invalid_arg "Attempt to use closed directory %S" t.dir_path;
-    match t.root with
+    t.root
+
+  let with_root t fn =
+    match root t with
     | Some root -> fn root
     | None ->
       Switch.run @@ fun sw ->
-      let open Low_level in
-      (* [cwd] tracks chdir, but acquiring it must not follow a junction
-         installed on it or one of its ancestors. *)
-      let root = openat ~sw ~beneath:true t.dir_path Flags.Open.(generic_read + synchronise) Flags.Disposition.open_ Flags.Create.directory in
+      let root = Low_level.open_root ~sw t.dir_path in
       fn root
 
-  let open_at root ~sw ~follow path =
-    Low_level.openat ~sw ~dirfd:root ~beneath:true ~follow path
-
-  let link_target root path =
-    Switch.run @@ fun sw ->
-    let open Low_level in
-    reparse_target (open_at root ~sw ~follow:Open_link path Flags.Open.synchronise Flags.Disposition.open_ Flags.Create.empty)
-
-  (* Walking up from the leaf, the first prefix that opens has no link above it.
-     Skip the leaf when opening the link itself. *)
-  let find_link root ~follow path =
-    let rec go p rest =
-      match link_target root p with
-      | Some target -> Some (p, target, rest)
-      | None -> None
-      | exception Unix.Unix_error _ -> up p rest
-    and up p rest =
-      match Nt_path.split p with
-      | Some (parent, leaf) -> go parent (if rest = "" then leaf else Nt_path.join leaf rest)
-      | None -> None
-    in
-    if follow = Low_level.Open_link then up path "" else go path ""
-
-  (* Refuse kernel link traversal; resolve each link within the root and retry. *)
-  let open_beneath t ~sw ~follow path flags disp create =
-    with_root t @@ fun root ->
-    let root_path = lazy (Low_level.realpath_fd root) in
-    let rec go follows path =
-      match open_at root ~sw ~follow path flags disp create with
-      | fd -> fd
-      | exception (Unix.Unix_error _ as ex) ->
-        (* A file/directory mismatch can mask ELOOP at the leaf. *)
-        match find_link root ~follow path with
-        | Some (link, _, _) when link = path && disp = Low_level.Flags.Disposition.create ->
-          raise (Unix.Unix_error (EEXIST, "openat", path))
-        | Some (link, _, _) when link = path && follow = Low_level.Nofollow ->
-          raise (Unix.Unix_error (ELOOP, "openat", path))
-        | Some (link, target, rest) when follows > 0 ->
-          let target = checked t link (
-              Nt_path.resolve_link ~root:(Lazy.force root_path) ~parent:(Nt_path.dirname link) target
-            ) in
-          go (follows - 1) (if rest = "" then target else Nt_path.join target rest)
-        | _ -> raise ex
-    in
-    go max_follows path
-
   let parent_and_leaf t path =
-    match Nt_path.split (relative t path) with
+    match Nt_path.split (Err.relative ~root:t.dir_path path) with
     | Some parts -> parts
     | None -> raise (Eio.Fs.err (Permission_denied (Err.Invalid_leaf path)))
 
   let open_path t ~sw ~follow path flags disp create =
     Err.run (fun () ->
-        if t.sandbox then open_beneath t ~sw ~follow (relative t path) flags disp create
+        if t.sandbox then
+          Low_level.open_beneath ?dirfd:(root t) ~root:t.dir_path ~sw ~follow path flags disp create
         else Low_level.openat ~sw ~follow path flags disp create
       ) ()
 
@@ -251,7 +194,7 @@ end = struct
           if t.sandbox then Some (Err.run (fun () -> with_root t Low_level.realpath_fd) ())
           else None
         in
-        let target = checked t path (Nt_path.resolve_link ?root ~parent target) in
+        let target = Err.beneath ~root:t.dir_path path (Nt_path.resolve_link ?root ~parent target) in
         (stat t ~follow:true target).kind
       ) with
       | `Directory -> true

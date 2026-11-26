@@ -408,6 +408,29 @@ let test_fs_absolute_mkdir_rmdir env () =
   Path.rmdir (fs / path);
   Alcotest.(check bool) "dir gone" false (Sys.file_exists path)
 
+let check_one_open_job path =
+  let jobs = ref 0 in
+  Effect.Deep.try_with (fun () -> Path.with_open_in path ignore) () {
+    effc = fun (type a) (eff : a Effect.t) -> match eff with
+      | Eio_unix.Private.Thread_pool.Run_in_systhread _ ->
+        Some (fun (k : (a, unit) Effect.Deep.continuation) ->
+            incr jobs;
+            Effect.Deep.continue k (Effect.perform eff))
+      | _ -> None
+  };
+  Alcotest.(check int) "worker jobs per sandboxed open" 1 !jobs
+
+let test_sandbox_open_worker env () =
+  let name = Filename.temp_file ~temp_dir:"." "sandbox-open-" "" in
+  let link = name ^ ".link" in
+  with_cleanup [link; name] @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  check_one_open_job (cwd / name);
+  if Unix.has_symlink () then (
+    Unix.symlink (Filename.basename name) link;
+    check_one_open_job (cwd / link)
+  )
+
 let test_fs_relative_read env () =
   let fs = Eio.Stdenv.fs env in
   let name = "fs-rel-test-file" in
@@ -1251,5 +1274,6 @@ let tests () = [
   "unlink-handle", `Quick, test_unlink_handle;
   "subtree-reparse-read", `Quick, test_subtree_reparse_read;
   "subtree-reparse-symlink", `Quick, test_subtree_reparse_symlink;
+  "sandbox open uses one worker", `Quick, test_sandbox_open_worker;
   "readdir-handle", `Quick, test_readdir_handle;
 ]

@@ -110,11 +110,12 @@ let getrandom { Cstruct.buffer; off; len } =
 
 external eio_reparse_point : Unix.file_descr -> (string * bool * int) option = "caml_eio_windows_reparse_point"
 
-let reparse_target fd =
-  Fd.use_exn "read_link" fd @@ fun fd ->
+let reparse_target_raw fd =
   Option.map (fun (target, relative, _) ->
       if relative then Eio_utils.Nt_path.Relative target else Absolute target
     ) (eio_reparse_point fd)
+
+let reparse_target fd = Fd.use_exn "read_link" fd reparse_target_raw
 
 let fstat fd =
   Fd.use_exn "fstat" fd @@ fun fd ->
@@ -233,12 +234,6 @@ module Flags = struct
   end
 end
 
-let rec with_dirfd op dirfd fn =
-  match dirfd with
-  | None -> fn None
-  | Some dirfd -> Fd.use_exn op dirfd (fun fd -> fn (Some fd))
-  | exception Unix.Unix_error(Unix.EINTR, _, "") -> with_dirfd op dirfd fn
-
 let nt_path dirfd path =
   match dirfd with
   | Some _ -> path
@@ -257,26 +252,87 @@ external eio_openat :
   Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> Unix.file_descr
   = "caml_eio_windows_openat_bytes" "caml_eio_windows_openat"
 
-let openat ?dirfd ?(beneath=false) ?(follow=Follow) ~sw path flags dis create =
-  with_dirfd "openat" dirfd @@ fun dirfd ->
-  Switch.check sw;
-  let path = nt_path dirfd path in
+let openat_raw dirfd ~beneath ~follow path flags dis create =
   let flags = Flags.Open.(flags + cloexec) in
   (* FILE_CREATE must test the leaf itself, even if it is a dangling link. *)
   let open_link = follow = Open_link || dis = Flags.Disposition.create in
-  in_worker_thread ~label:"openat" (fun () ->
-      match Eio_utils.Nt_path.split path with
-      | Some (parent, leaf) when follow = Nofollow && not beneath ->
-        (* Refuse a leaf link before any side effect, including truncation. *)
-        let parent =
-          eio_openat dirfd ~beneath:false ~open_link:false parent
-            Flags.Open.synchronise Flags.Disposition.open_ Flags.Create.directory
-        in
-        Fun.protect ~finally:(fun () -> Unix.close parent) @@ fun () ->
-        eio_openat (Some parent) ~beneath:true ~open_link leaf flags dis create
-      | _ -> eio_openat dirfd ~beneath ~open_link path flags dis create
-    )
+  eio_openat dirfd ~beneath ~open_link path flags dis create
+
+let open_on_worker ~sw fn =
+  Switch.check sw;
+  in_worker_thread ~label:"openat" fn
   |> Fd.of_unix ~sw ~blocking:true ~close_unix:true
+
+let openat ?dirfd ?(beneath=false) ?(follow=Follow) ~sw path flags dis create =
+  Fd.use_exn_opt "openat" dirfd @@ fun dirfd ->
+  let path = nt_path dirfd path in
+  open_on_worker ~sw @@ fun () ->
+  match Eio_utils.Nt_path.split path with
+  | Some (parent, leaf) when follow = Nofollow && not beneath ->
+    (* Refuse a leaf link before any side effect, including truncation. *)
+    let parent = eio_openat dirfd ~beneath:false ~open_link:false parent
+        Flags.Open.synchronise Flags.Disposition.open_ Flags.Create.directory in
+    Fun.protect ~finally:(fun () -> Unix.close parent) @@ fun () ->
+    openat_raw (Some parent) ~beneath:true ~follow leaf flags dis create
+  | _ -> openat_raw dirfd ~beneath ~follow path flags dis create
+
+(* A cwd capability tracks chdir, but must never follow a replacement junction. *)
+let open_root_raw root =
+  openat_raw None ~beneath:true ~follow:Follow (nt_path None root)
+    Flags.Open.(generic_read + synchronise) Flags.Disposition.open_ Flags.Create.directory
+
+let open_root ~sw root = open_on_worker ~sw (fun () -> open_root_raw root)
+
+let with_root_fd dirfd root fn =
+  match dirfd with
+  | Some fd -> fn fd
+  | None ->
+    let fd = open_root_raw root in
+    Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> fn fd)
+
+let open_beneath ?dirfd ~root ~sw ~follow path flags disp create =
+  let module Nt_path = Eio_utils.Nt_path in
+  let path = Err.relative ~root path in
+  Fd.use_exn_opt "openat" dirfd @@ fun dirfd ->
+  open_on_worker ~sw @@ fun () ->
+  with_root_fd dirfd root @@ fun root_fd ->
+  let open_at = openat_raw (Some root_fd) ~beneath:true in
+  let root_path = lazy (eio_realpath_fd root_fd) in
+  let link_target path =
+    let fd = open_at ~follow:Open_link path Flags.Open.synchronise Flags.Disposition.open_ Flags.Create.empty in
+    Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> reparse_target_raw fd)
+  in
+  (* Walk up to the first prefix that opens without traversing a link. *)
+  let find_link path =
+    let rec go p rest =
+      match link_target p with
+      | Some target -> Some (p, target, rest)
+      | None -> None
+      | exception Unix.Unix_error _ -> up p rest
+    and up p rest =
+      match Nt_path.split p with
+      | Some (parent, leaf) -> go parent (if rest = "" then leaf else Nt_path.join leaf rest)
+      | None -> None
+    in
+    if follow = Open_link then up path "" else go path ""
+  in
+  let rec go follows path =
+    match open_at ~follow path flags disp create with
+    | fd -> fd
+    | exception (Unix.Unix_error _ as ex) ->
+      match find_link path with
+      | Some (link, _, _) when link = path && disp = Flags.Disposition.create ->
+        raise (Unix.Unix_error (EEXIST, "openat", path))
+      | Some (link, _, _) when link = path && follow = Nofollow ->
+        raise (Unix.Unix_error (ELOOP, "openat", path))
+      | Some (link, target, rest) when follows > 0 ->
+        let target = Err.beneath ~root link (
+            Nt_path.resolve_link ~root:(Lazy.force root_path) ~parent:(Nt_path.dirname link) target
+          ) in
+        go (follows - 1) (if rest = "" then target else Nt_path.join target rest)
+      | _ -> raise ex
+  in
+  go 40 path
 
 let read_link ?dirfd path =
   Switch.run @@ fun sw ->
@@ -294,7 +350,7 @@ let mkdir ?dirfd ?(follow=Follow) ~mode:_ path =
 external eio_unlinkat : Unix.file_descr option -> string -> bool -> unit = "caml_eio_windows_unlinkat"
 
 let unlink ?dirfd ~dir path =
-  with_dirfd "unlink" dirfd @@ fun dirfd ->
+  Fd.use_exn_opt "unlink" dirfd @@ fun dirfd ->
   let path = nt_path dirfd path in
   in_worker_thread ~label:"unlink" @@ fun () ->
   eio_unlinkat dirfd path dir
@@ -302,8 +358,8 @@ let unlink ?dirfd ~dir path =
 external eio_renameat : Unix.file_descr option -> string -> Unix.file_descr option -> string -> unit = "caml_eio_windows_renameat"
 
 let rename ?old_dir old_path ?new_dir new_path =
-  with_dirfd "rename-old" old_dir @@ fun old_dir ->
-  with_dirfd "rename-new" new_dir @@ fun new_dir ->
+  Fd.use_exn_opt "rename-old" old_dir @@ fun old_dir ->
+  Fd.use_exn_opt "rename-new" new_dir @@ fun new_dir ->
   let old_path = nt_path old_dir old_path and new_path = nt_path new_dir new_path in
   in_worker_thread ~label:"rename" @@ fun () ->
   eio_renameat old_dir old_path new_dir new_path
@@ -329,7 +385,7 @@ let symlink ?(to_dir=false) ~link_to new_dir new_path =
   symlink_raw ~to_dir ~target:(symlink_target link_to) new_dir new_path
 
 let chmod ~mode new_dir new_path =
-  with_dirfd "chmod" new_dir @@ fun new_dir ->
+  Fd.use_exn_opt "chmod" new_dir @@ fun new_dir ->
   match new_dir with
   | Some _ -> raise (Unix.Unix_error (Unix.EOPNOTSUPP, "chmod", new_path))
   | None ->
