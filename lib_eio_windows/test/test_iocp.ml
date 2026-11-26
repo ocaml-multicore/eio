@@ -197,6 +197,28 @@ let child_stdio env () =
   run (stdin :> Eio.Flow.source_ty r);
   run (Eio.Flow.string_source (String.make (1024 * 1024) 'x'))
 
+let write_prefix () =
+  Switch.run @@ fun sw ->
+  let r, w = Eio_unix.pipe sw in
+  Fiber.both
+    (fun () ->
+       let byte = Cstruct.create 1 in
+       Eio.Flow.read_exact r byte;
+       Alcotest.(check string) "prefix" "X" (Cstruct.to_string byte);
+       Eio.Flow.close r)
+    (fun () ->
+       let n = Eio.Flow.single_write w [Cstruct.empty; Cstruct.of_string "X"; Cstruct.create (1024 * 1024)] in
+       Alcotest.(check int) "reported bytes" 1 n)
+
+let completed_write () =
+  Switch.run @@ fun sw ->
+  let r, w = Eio_unix.pipe sw in
+  let written = ref 0 in
+  Fiber.first
+    (fun () -> written := Eio.Flow.single_write w [Cstruct.of_string "x"])
+    (fun () -> let buf = Cstruct.create 1 in Eio.Flow.read_exact r buf);
+  Alcotest.(check int) "reported the byte consumed by the reader" 1 !written
+
 let shared_file_cursor () =
   let path = Filename.temp_file "eio-iocp-cursor" ".tmp" in
   Fun.protect ~finally:(fun () -> Sys.remove path) @@ fun () ->
@@ -293,6 +315,8 @@ let tests () = List.map (fun (name, fn) -> name, `Quick, fn) [
     "synchronous pipe read cancellation", sync_read;
     "duplicated synchronous pipe readers", (fun _ -> sync_pipe_alias);
     "child exit releases stdin and drains stdout", child_stdio;
+    "single write reports its prefix", (fun _ -> write_prefix);
+    "completed write racing cancellation", (fun _ -> completed_write);
     "pipe EOF", pipe_eof;
     "pipe across domains", cross_domain_pipe;
     "duplicated pipe readers across domains", duplicated_pipe_readers;
