@@ -97,6 +97,8 @@ module Impl = struct
         Fd.use_exn "stdin" stdin_fd @@ fun h0 ->
         Fd.use_exn "stdout" stdout_fd @@ fun h1 ->
         Fd.use_exn "stderr" stderr_fd @@ fun h2 ->
+        Fiber.check ();
+        Switch.check sw;
         eio_spawn cwd env h0 h1 h2 cmdline
       in
       let handle = Fd.of_unix ~sw ~blocking:true ~close_unix:true raw_handle in
