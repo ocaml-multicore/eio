@@ -2,7 +2,14 @@ open Eio.Std
 
 module Fd = Eio_unix.Fd
 
-let socket_domain_of = function
+let check_address = function
+  | `Unix path when String.starts_with ~prefix:"\000" path ->
+    raise (Err.v EOPNOTSUPP "abstract Unix socket" path)
+  | _ -> ()
+
+let socket_domain_of addr =
+  check_address addr;
+  match addr with
   | `Unix _ -> Unix.PF_UNIX
   | `UdpV4 -> Unix.PF_INET
   | `UdpV6 -> Unix.PF_INET6
@@ -67,6 +74,7 @@ module Datagram_socket = struct
   let fd t = t.fd
 
   let send t ?dst buf =
+    Option.iter check_address dst;
     let dst = Option.map Eio_unix.Net.sockaddr_to_unix dst in
     let sent = Err.run (Low_level.send_msg t.fd ?dst) (Bytes.unsafe_of_string (Cstruct.copyv buf)) in
     assert (sent = Cstruct.lenv buf)
@@ -118,6 +126,7 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
     match listen_addr with
     | `Unix path         ->
       if reuse_addr then (
+        check_address listen_addr;
         match Low_level.lstat path with
         | Unix.{ st_kind = S_SOCK; _ } -> Unix.unlink path
         | _ -> ()
@@ -150,6 +159,7 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
   (listening_socket ~hook sock :> _ Eio.Net.listening_socket_ty r)
 
 let connect ~bind_to ~options ~sw connect_addr =
+  Option.iter check_address bind_to;
   let socket_type, addr =
     match connect_addr with
     | `Unix path         -> Unix.SOCK_STREAM, Unix.ADDR_UNIX path

@@ -108,6 +108,23 @@ let test_eio_socketpair () =
 (* Copyright (C) 2026 Anil Madhavapeddy <anil@recoil.org>
    SPDX-License-Identifier: ISC *)
 
+let test_abstract_socket env () =
+  Switch.run @@ fun sw ->
+  let addr = `Unix "\000eio-test" in
+  let rejected f =
+    match f () with
+    | _ -> Alcotest.fail "accepted an abstract Unix address"
+    | exception Eio.Io (Eio.Exn.Not_available _, _) -> ()
+  in
+  List.iter (fun reuse_addr ->
+      rejected (fun () -> Eio.Net.listen ~sw ~reuse_addr ~backlog:1 env#net addr)
+    ) [false; true];
+  rejected (fun () -> Eio.Net.connect ~sw env#net addr);
+  rejected (fun () -> Eio.Net.connect ~sw ~bind_to:addr env#net (`Unix "no-server.sock"));
+  rejected (fun () -> Eio.Net.datagram_socket ~sw env#net addr);
+  let udp = Eio.Net.datagram_socket ~sw env#net `UdpV4 in
+  rejected (fun () -> Eio.Net.send udp ~dst:addr [])
+
 let test_resolve env () =
   let host = "127.0.0.1" in
   let lo = Eio.Net.Ipaddr.V4.loopback in
@@ -127,6 +144,7 @@ let tests env = [
   "tcp-ip4", `Quick, test_client_server env (`Tcp (Eio.Net.Ipaddr.V4.loopback, 8081));
   "tcp-ip6", `Quick, test_client_server env (`Tcp (Eio.Net.Ipaddr.V6.loopback, 8081));
   "unix", `Quick, test_client_server env (`Unix "eio-test.sock");
+  "abstract Unix addresses", `Quick, test_abstract_socket env;
   "udp-ip4", `Quick, test_udp env Eio.Net.Ipaddr.V4.loopback;
   "udp-ip6", `Quick, test_udp env Eio.Net.Ipaddr.V6.loopback;
   "fds", `Quick, test_fd env Eio.Net.Ipaddr.V4.loopback;
