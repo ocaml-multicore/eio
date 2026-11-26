@@ -363,6 +363,18 @@ let test_remove_dir env () =
   in
   ()
 
+let test_positioned_io_unavailable env () =
+  with_stdlib_temp_file "eio-positioned" @@ fun path ->
+  Path.with_open_out ~create:`Never (Eio.Stdenv.fs env / path) @@ fun file ->
+  let bufs = [Cstruct.create 1] and file_offset = Int63.zero in
+  let check op f =
+    match f () with
+    | () -> Alcotest.failf "%s succeeded" op
+    | exception Eio.Io (Eio.Exn.Not_available _, _) -> ()
+  in
+  check "pread" (fun () -> ignore (Eio.File.pread file ~file_offset bufs));
+  check "pwrite" (fun () -> Eio.File.pwrite_all file ~file_offset bufs)
+
 (* Absolute Win32 paths via the unsandboxed [fs] (#931) *)
 let test_fs_absolute_read env () =
   let fs = Eio.Stdenv.fs env in
@@ -1159,6 +1171,7 @@ let test_trailing_link ~junction env () =
 
 let tests env = [
   "create-write-read", `Quick, test_create_and_read env;
+  "positioned I/O unavailable", `Quick, test_positioned_io_unavailable env;
   "absolute-join", `Quick, test_absolute_join env;
   "split-join", `Quick, test_split_join env;
   "native", `Quick, test_native env;
