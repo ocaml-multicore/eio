@@ -77,7 +77,9 @@ val write : _ sink -> Cstruct.t list -> unit
     - {!copy} for bulk transfers, as it allows some extra optimizations. *)
 
 val single_write : _ sink -> Cstruct.t list -> int
-(** [single_write dst bufs] writes at least one byte from [bufs] and returns the number of bytes written. *)
+(** [single_write dst bufs] returns the number of bytes written from [bufs].
+    If [bufs] contains data, a successful call writes at least one byte.
+    If it raises {!Eio.Io}, it has written nothing. *)
 
 val copy : _ source -> _ sink -> unit
 (** [copy src dst] copies data from [src] to [dst] until end-of-file. *)
@@ -128,6 +130,7 @@ module Pi : sig
     type t
 
     val single_write : t -> Cstruct.t list -> int
+    (** Return the number of bytes written. Raise {!Eio.Io} only if no bytes were written. *)
 
     val copy : t -> src:_ source -> unit
     (** [copy t ~src] allows for optimising copy operations.
