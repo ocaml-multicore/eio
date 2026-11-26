@@ -182,9 +182,6 @@ let chown ?dirfd ~follow:_ ?(uid=(-1L)) ?(gid=(-1L)) path =
 
 external eio_readv : Unix.file_descr -> Cstruct.t array -> int = "caml_eio_windows_readv"
 
-external eio_preadv : Unix.file_descr -> Cstruct.t array -> Optint.Int63.t -> int = "caml_eio_windows_preadv"
-external eio_pwritev : Unix.file_descr -> Cstruct.t array -> Optint.Int63.t -> int = "caml_eio_windows_pwritev"
-
 let readv fd bufs =
   Fd.use_exn "readv" fd @@ fun fd ->
   do_nonblocking Read (fun fd -> eio_readv fd bufs) fd
@@ -196,13 +193,12 @@ let writev fd bufs =
   end in
   List.iter loop bufs
 
-let preadv ~file_offset fd bufs =
-  Fd.use_exn "preadv" fd @@ fun fd ->
-  do_nonblocking Read (fun fd -> eio_preadv fd bufs file_offset) fd
+let unsupported_positioned_io op ~file_offset:_ fd _bufs =
+  Fd.use_exn op fd @@ fun _ ->
+  raise (Unix.Unix_error (EOPNOTSUPP, op, ""))
 
-let pwritev ~file_offset fd bufs =
-  Fd.use_exn "pwritev" fd @@ fun fd ->
-  do_nonblocking Write (fun fd -> eio_pwritev fd bufs file_offset) fd
+let preadv = unsupported_positioned_io "preadv"
+let pwritev = unsupported_positioned_io "pwritev"
 
 module Flags = struct
   module Open = struct
