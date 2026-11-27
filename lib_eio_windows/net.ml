@@ -121,6 +121,8 @@ let remove_on_release ~sw listen_addr =
   | _ ->
     Switch.null_hook
 
+let socket ~sw addr ty = Err.run (Low_level.socket ~sw (socket_domain_of addr) ty) 0
+
 let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.stream) =
   let socket_type, addr, is_unix_socket =
     match listen_addr with
@@ -138,7 +140,7 @@ let listen ~reuse_addr ~reuse_port ~backlog ~sw (listen_addr : Eio.Net.Sockaddr.
       let host = Eio_unix.Net.Ipaddr.to_unix host in
       Unix.SOCK_STREAM, Unix.ADDR_INET (host, port), false
   in
-  let sock = Low_level.socket ~sw (socket_domain_of listen_addr) socket_type 0 in
+  let sock = socket ~sw listen_addr socket_type in
   let hook =
     Fd.use_exn "listen" sock (fun fd ->
         try
@@ -167,7 +169,7 @@ let connect ~bind_to ~options ~sw connect_addr =
       let host = Eio_unix.Net.Ipaddr.to_unix host in
       Unix.SOCK_STREAM, Unix.ADDR_INET (host, port)
   in
-  let sock = Low_level.socket ~sw (socket_domain_of connect_addr) socket_type 0 in
+  let sock = socket ~sw connect_addr socket_type in
   let rec set_options : Eio.Net.Sockopt.settings -> unit = function
     | [] -> ()
     | (o, v) :: tl -> Eio_unix.Private.setsockopt sock o v; set_options tl
@@ -180,7 +182,7 @@ let connect ~bind_to ~options ~sw connect_addr =
   (Flow.stream sock :> _ Eio_unix.Net.stream_socket)
 
 let create_datagram_socket ~reuse_addr ~reuse_port ~sw saddr =
-  let sock = Low_level.socket ~sw (socket_domain_of saddr) Unix.SOCK_DGRAM 0 in
+  let sock = socket ~sw saddr Unix.SOCK_DGRAM in
   let hook =
     match saddr with
     | `Udp _ | `Unix _ as saddr ->

@@ -65,8 +65,9 @@ let sleep_until time =
 let socket ~sw socket_domain socket_type protocol =
   Switch.check sw;
   let sock_unix = Unix.socket ~cloexec:true socket_domain socket_type protocol in
-  Unix.set_nonblock sock_unix;
-  Fd.of_unix ~sw ~blocking:false ~close_unix:true sock_unix
+  match Unix.set_nonblock sock_unix with
+  | () -> Fd.of_unix ~sw ~blocking:false ~close_unix:true sock_unix
+  | exception ex -> Unix.close sock_unix; raise ex
 
 let connect fd addr =
   try
