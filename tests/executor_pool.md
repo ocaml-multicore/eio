@@ -347,3 +347,65 @@ If the worker is cancelled, the client still gets a reply:
 +[0] Simulated error
 Exception: Stdlib.Exit.
 ```
+
+# Workers that fail to start
+
+A domain manager whose first `n` domains fail to start,
+like `eio_linux` when a new domain can't get an io_uring:
+
+```ocaml
+module Failing_mgr = struct
+  type t = { inner : Eio.Domain_manager.ty r; mutable failures : int }
+
+  let fail t =
+    t.failures <- t.failures - 1;
+    traceln "Domain failed to start";
+    failwith "io_uring is not available (ENOMEM)"
+
+  let run t fn =
+    if t.failures > 0 then fail t
+    else Eio.Domain_manager.run t.inner (fun () -> fn ~cancelled:(fst (Promise.create ())))
+
+  let run_raw t fn =
+    if t.failures > 0 then fail t
+    else Eio.Domain_manager.run_raw t.inner fn
+end
+
+let failing_mgr inner failures =
+  let handler = Eio.Domain_manager.Pi.mgr (module Failing_mgr) in
+  Eio.Resource.T ({ Failing_mgr.inner; failures }, handler)
+```
+
+By default, a worker that fails to start fails the pool's switch:
+
+```ocaml
+# run @@ fun mgr sleep duration ->
+  Switch.run @@ fun sw ->
+  let pool = Executor_pool.create ~sw ~domain_count:3 (failing_mgr mgr 1) in
+  Executor_pool.submit_exn pool ~weight:1. (fun () -> sleep 50.; 1);;
++[0] Domain failed to start
+Exception: Failure "io_uring is not available (ENOMEM)".
+```
+
+With `~on_error`, the pool carries on with the workers that did start:
+
+```ocaml
+# run @@ fun mgr sleep duration ->
+  Switch.run @@ fun sw ->
+  let on_error ex = traceln "Worker dropped: %a" Fmt.exn ex in
+  let pool = Executor_pool.create ~sw ~on_error ~domain_count:3 (failing_mgr mgr 2) in
+  duration 100. (fun () ->
+    List.init 2 (fun i -> i + 1)
+    |> Fiber.List.map (fun i -> Executor_pool.submit_exn pool ~weight:1. (fun () -> sleep 50.; i))
+  );;
++[0] Domain failed to start
++[0] Worker dropped: Failure("io_uring is not available (ENOMEM)")
++[0] Domain failed to start
++[0] Worker dropped: Failure("io_uring is not available (ENOMEM)")
++[1] Sleeping 50: 0 -> 50
++mock time is now 50
++[1] Sleeping 50: 50 -> 100
++mock time is now 100
++[0] Duration (valid): 100
+- : int list = [1; 2]
+```

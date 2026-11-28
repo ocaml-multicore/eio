@@ -39,7 +39,7 @@ let run_worker { queue } =
   in
   loop ()
 
-let create ~sw ~domain_count domain_mgr =
+let create ~sw ?on_error ~domain_count domain_mgr =
   let queue = Sync.create () in
   let t = { queue } in
   Switch.on_release sw (fun () -> Sync.close queue);
@@ -48,8 +48,14 @@ let create ~sw ~domain_count domain_mgr =
        It's up to the user to hold the switch open (and thus, the executor pool)
        by blocking on the jobs issued to the pool. *)
     Fiber.fork_daemon ~sw (fun () ->
-        Domain_manager.run domain_mgr (fun () ->
-            run_worker t))
+        match on_error with
+        | None -> Domain_manager.run domain_mgr (fun () -> run_worker t)
+        | Some on_error ->
+          try Domain_manager.run domain_mgr (fun () -> run_worker t)
+          with
+          | Cancel.Cancelled _ as ex -> raise ex
+          | ex -> on_error ex; `Stop_daemon
+      )
   done;
   t
 
