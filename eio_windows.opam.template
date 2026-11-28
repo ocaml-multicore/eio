@@ -2,3 +2,6 @@ available: [os = "win32"]
 x-extra-doc-deps: [
   "eio_main" {= version}
 ]
+pin-depends: [
+  ["iocp.dev" "git+https://github.com/avsm/ocaml-iocp.git#e9cbbe1db86ee93d51a4cd2d2f40ea6c8b05380e"]
+]

@@ -9,7 +9,6 @@ let status = Alcotest.of_pp Process.pp_status
 let std_fds =
   Eio_unix.Fd.[ 0, stdin, `Blocking; 1, stdout, `Blocking; 2, stderr, `Blocking ]
 
-(* Anonymous pipes dont work on Windows yet (#929), so the tests pass files to the child *)
 let with_tmp env name fn =
   let path = Eio.Path.(Eio.Stdenv.cwd env / name) in
   Fun.protect ~finally:(fun () -> Eio.Path.unlink path ~missing_ok:true) @@ fun () ->
@@ -34,6 +33,86 @@ let test_exit_status env () =
 
 let test_stdout env () =
   Alcotest.(check string) "stdout" "hello" (run_out env ["cmd"; "/c"; "echo"; "hello"])
+
+let test_pipe_write_prefix env () =
+  Switch.run @@ fun sw ->
+  let r, w = Process.pipe ~sw (process env) in
+  let _, n = Fiber.pair
+      (fun () -> Eio.Flow.read_exact r (Cstruct.create 1); Eio.Flow.close r)
+      (fun () -> Eio.Flow.single_write w [Cstruct.create (1024 * 1024)])
+  in
+  Alcotest.(check bool) "reported bytes transferred before reader closed" true (n > 0)
+
+let test_cancel_pipe_write env () =
+  Switch.run @@ fun sw ->
+  let r, w = Process.pipe ~sw (process env) in
+  let had_to_close = ref false in
+  Fiber.fork_daemon ~sw (fun () ->
+      Eio.Time.sleep env#clock 3.;
+      had_to_close := true;
+      Eio.Flow.close r;
+      `Stop_daemon);
+  (match Eio.Time.with_timeout_exn env#clock 0.05 (fun () ->
+      Eio.Flow.write w [Cstruct.create (1024 * 1024)]) with
+   | () -> Alcotest.fail "write completed with no reader"
+   | exception Eio.Time.Timeout -> ());
+  Alcotest.(check bool) "write cancelled with reader still open" false !had_to_close
+
+let test_socket_stdout env () =
+  Switch.run @@ fun sw ->
+  let output, peer = Eio_unix.Net.socketpair_stream ~sw () in
+  Process.run ~stdout:output (process env) [Sys.executable_name; "list"];
+  Eio.Flow.close output;
+  let text = Eio.Buf_read.(parse_exn take_all) peer ~max_size:65536 in
+  Alcotest.(check bool) "child wrote to the socket" true (text <> "")
+
+let test_shared_stdout env () =
+  with_tmp env "proc-shared-stdout.txt" @@ fun path ->
+  let data = String.make (1024 * 1024) 'a' in
+  Eio.Path.save ~create:(`Or_truncate 0o600) path data;
+  Switch.run @@ fun sw ->
+  let mgr = process env in
+  let reader, stdout = Process.pipe ~sw mgr in
+  let writer = Process.spawn ~sw ~stdout mgr ["cmd"; "/c"; "type"; snd path] in
+  let fd = Option.get (Eio_unix.Resource.fd_opt reader) in
+  Eio_unix.Fd.use_exn "await output" fd Eio_unix.await_readable;
+  let other = Switch.run (fun guard ->
+      let expired = ref false in
+      Fiber.fork_daemon ~sw:guard (fun () ->
+          Eio.Time.sleep env#clock 5.;
+          expired := true;
+          Eio.Flow.close reader;
+          `Stop_daemon);
+      let other = Process.spawn ~sw ~stdout mgr ["cmd"; "/c"; "exit"; "0"] in
+      Alcotest.(check bool) "spawned before draining stdout" false !expired;
+      other) in
+  Eio.Flow.close stdout;
+  let buf = Cstruct.create (String.length data) in
+  Eio.Flow.read_exact reader buf;
+  Alcotest.check status "writer" (`Exited 0) (Process.await writer);
+  Alcotest.check status "other child" (`Exited 0) (Process.await other)
+
+let write_merged_output () =
+  assert (input_char stdin = '!');
+  assert (Iocp.same_handle Unix.stdout Unix.stderr);
+  for _ = 1 to 32 do
+    output_char stdout 'A'; flush stdout;
+    output_char stderr 'B'; flush stderr
+  done
+
+let test_merged_output ~separate env () =
+  with_tmp env "proc-merged.txt" @@ fun path ->
+  Switch.run (fun sw ->
+      let raw = Iocp.openfile (snd path) [O_WRONLY; O_CREAT; O_TRUNC] 0o600 in
+      let stderr = Eio_unix.File.import_rw ~sw ~close_unix:true raw in
+      let stdout = if separate then Eio_unix.File.import_rw ~sw ~close_unix:false raw else stderr in
+      let mgr = process env in
+      let stdin, trigger = Process.pipe ~sw mgr in
+      let child = Process.spawn mgr ~sw ~stdin ~stdout ~stderr [Sys.executable_name; "--merged-output"] in
+      Eio.Flow.close stderr;
+      Eio.Flow.copy_string "!" trigger;
+      Alcotest.check status "child exited" (`Exited 0) (Process.await child));
+  Alcotest.(check string) "child write order" (String.init 64 (fun i -> "AB".[i mod 2])) (Eio.Path.load path)
 
 let test_stderr env () =
   with_tmp env "proc-err.txt" @@ fun path ->
@@ -67,11 +146,14 @@ let test_env env () =
   Alcotest.(check string) "env var" "bar" line
 
 let test_cwd env () =
+  let cd = ["cmd"; "/c"; "cd"] in
+  Alcotest.(check string) "env#fs as child cwd"
+    (run_out env cd) (run_out env ~cwd:(Eio.Stdenv.fs env) cd);
   let cwd = Eio.Stdenv.cwd env in
   let subdir = Eio.Path.(cwd / "proc-cwd-test") in
   Eio.Path.mkdir subdir ~perm:0o700;
   Fun.protect ~finally:(fun () -> Eio.Path.rmdir subdir) @@ fun () ->
-  let line = run_out env ~cwd:subdir ["cmd"; "/c"; "cd"] in
+  let line = run_out env ~cwd:subdir cd in
   Alcotest.(check string) "child cwd" "proc-cwd-test" (Filename.basename line)
 
 let test_missing_cwd env () =
@@ -200,6 +282,27 @@ let test_cancel_during_spawn env () =
   Alcotest.check_raises "cancelled caller" (Eio.Cancel.Cancelled Exit)
     (fun () -> ignore (Promise.await_exn pending))
 
+let test_switch_during_spawn env () =
+  Switch.run @@ fun sw ->
+  let input, _ = Process.pipe ~sw (process env) in
+  let fd = Option.get (Eio_unix.Resource.fd_opt input) in
+  let launch target =
+    Fiber.fork_promise ~sw (fun () ->
+        (* Classifying a raw pipe suspends before CreateProcess. *)
+        Eio_unix.Process.spawn_unix ~sw:target (process env) ~fds:[0, fd, `Blocking]
+          ~executable:"nonexistent-executable-eio-test" ["unused"])
+  in
+  let pending = Switch.run launch in
+  Alcotest.check_raises "finished switch" (Invalid_argument "Switch finished!")
+    (fun () -> ignore (Promise.await_exn pending));
+  try Switch.run (fun target ->
+      let pending = launch target in
+      Switch.fail target Exit;
+      Eio.Cancel.protect (fun () ->
+          Alcotest.check_raises "cancelling switch" (Eio.Cancel.Cancelled Exit)
+            (fun () -> ignore (Promise.await_exn pending))))
+  with Exit -> ()
+
 let test_spawn_failure env () =
   Switch.run @@ fun sw ->
   match Process.spawn ~sw (process env) ["nonexistent-executable-eio-test"] with
@@ -217,28 +320,35 @@ let test_argument_list_too_long env () =
       String.concat "" (List.init 17000 (Fun.const "\u{1f600}"));
     ]
 
-let tests env = [
-  "exit-status", `Quick, test_exit_status env;
-  "stdout", `Quick, test_stdout env;
-  "stderr", `Quick, test_stderr env;
-  "stdin", `Quick, test_stdin env;
-  "env", `Quick, test_env env;
-  "cwd", `Quick, test_cwd env;
-  "quoting", `Quick, test_quoting env;
-  "explicit-executable", `Quick, test_explicit_executable env;
-  "fds-above-2-rejected", `Quick, test_fds_above_2_rejected env;
-  "missing-std-fd-inherited", `Quick, test_missing_std_fd_inherited env;
-  "missing-cwd", `Quick, test_missing_cwd env;
-  "terminate", `Quick, test_terminate env;
-  "any-signal-terminates", `Quick, test_any_signal_terminates env;
-  "await-timeout", `Quick, test_await_timeout env;
-  "cwd-escape", `Quick, test_cwd_escape env;
-  "env-empty-entry", `Quick, test_env_empty_entry env;
-  "signal-after-exit", `Quick, test_signal_after_exit env;
-  "stop-on-switch-release", `Quick, test_stop_on_switch_release env;
-  "stop-on-cancel", `Quick, test_stop_on_cancel env;
-  "cancel-during-spawn", `Quick, test_cancel_during_spawn env;
-  "spawn-failure", `Quick, test_spawn_failure env;
-  "argument-list-too-long", `Quick, test_argument_list_too_long env;
-  "stress", `Slow, test_stress env;
+let tests () = [
+  "exit-status", `Quick, test_exit_status;
+  "stdout", `Quick, test_stdout;
+  "socket-stdout", `Quick, test_socket_stdout;
+  "shared-stdout", `Quick, test_shared_stdout;
+  "merged-output", `Quick, test_merged_output ~separate:false;
+  "merged-output-wrappers", `Quick, test_merged_output ~separate:true;
+  "cancel-pipe-write", `Quick, test_cancel_pipe_write;
+  "pipe-write-prefix", `Quick, test_pipe_write_prefix;
+  "stderr", `Quick, test_stderr;
+  "stdin", `Quick, test_stdin;
+  "env", `Quick, test_env;
+  "cwd", `Quick, test_cwd;
+  "quoting", `Quick, test_quoting;
+  "explicit-executable", `Quick, test_explicit_executable;
+  "fds-above-2-rejected", `Quick, test_fds_above_2_rejected;
+  "missing-std-fd-inherited", `Quick, test_missing_std_fd_inherited;
+  "missing-cwd", `Quick, test_missing_cwd;
+  "terminate", `Quick, test_terminate;
+  "any-signal-terminates", `Quick, test_any_signal_terminates;
+  "await-timeout", `Quick, test_await_timeout;
+  "cwd-escape", `Quick, test_cwd_escape;
+  "env-empty-entry", `Quick, test_env_empty_entry;
+  "signal-after-exit", `Quick, test_signal_after_exit;
+  "stop-on-switch-release", `Quick, test_stop_on_switch_release;
+  "stop-on-cancel", `Quick, test_stop_on_cancel;
+  "cancel-during-spawn", `Quick, test_cancel_during_spawn;
+  "switch-during-spawn", `Quick, test_switch_during_spawn;
+  "spawn-failure", `Quick, test_spawn_failure;
+  "argument-list-too-long", `Quick, test_argument_list_too_long;
+  "stress", `Slow, test_stress;
 ]

@@ -57,6 +57,9 @@
     {2 Other differences from Unix}
 
     - Names are case-insensitive.
+    - Eio allows open files to be renamed or unlinked and open subtrees to be
+      renamed. Other programs may use stricter sharing. On NTFS a directory
+      rename can fail while a file beneath it is open.
     - Unix permissions are mostly ignored, and [chown] is not supported.
     - A link to a directory is itself a directory, so {!Eio.Path.rmdir} also removes one. *)
 
@@ -72,7 +75,7 @@ module rec Dir : sig
   val resolve : t -> string -> string
   (** [resolve t path] returns the real path that should be used to access [path].
       For sandboxes, this is an absolute path with any links followed (and it checks that it is within the sandbox).
-      For unrestricted access, this returns [path] unchanged.
+      For unrestricted access, an empty [path] denotes [dir_path]. Other paths are returned unchanged.
       The returned name is a snapshot, not a safe way to reopen the object in a sandbox.
       @raise Eio.Fs.Permission_denied if sandboxed and [path] is outside of [dir_path]. *)
 

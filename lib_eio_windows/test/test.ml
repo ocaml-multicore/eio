@@ -9,8 +9,8 @@ module Timeout = struct
     if diff >= 0.01 then () else Alcotest.failf "Expected bigger difference than %f" diff
 
 
-  let tests env = [
-    "timeout", `Quick, test env#clock
+  let tests = [
+    "timeout", `Quick, (fun env -> test env#clock)
   ]
 end
 
@@ -23,8 +23,8 @@ module Random = struct
     Eio.Flow.read_exact src b2;
     Alcotest.(check bool) "different random" (not (Cstruct.equal b1 b2)) true
 
-  let tests env = [
-    "different", `Quick, test_random env
+  let tests = [
+    "different", `Quick, test_random
   ]
 end
 
@@ -46,7 +46,7 @@ module Dla = struct
     Alcotest.(check int) "answer" ans 42
 
   let tests = [
-    "dla", `Quick, test_dla
+    "dla", `Quick, (fun _ -> test_dla)
   ]
 end
 
@@ -75,7 +75,7 @@ module Await_fd = struct
       Unix.close d
 
   let tests = [
-    "cancel", `Quick, test_cancel;
+    "cancel", `Quick, (fun _ -> test_cancel);
   ]
 end
 
@@ -95,15 +95,28 @@ let write_prefix () =
   in
   Alcotest.(check int) "reported bytes" received sent
 
-let () =
-  Eio_windows.run @@ fun env ->
-  Alcotest.run "eio_windows" [
-    "flow", ["single_write reports its prefix", `Quick, write_prefix];
-    "net", Test_net.tests env;
-    "fs", Test_fs.tests env;
-    "process", Test_process.tests env;
-    "timeout", Timeout.tests env;
-    "random", Random.tests env;
+let run_tests () =
+  let run (name, speed, test) =
+    name, speed, (fun () -> Eio_windows.run (fun env -> test env ()))
+  in
+  let suites = [
+    "flow", ["single_write reports its prefix", `Quick, (fun _ -> write_prefix)];
+    "iocp", Test_iocp.tests ();
+    "pipe-readiness", Test_pipe_readiness.tests ();
+    "pipe-reads", Test_pipe_reads.tests ();
+    "net", Test_net.tests ();
+    "fs", Test_fs.tests ();
+    "process", Test_process.tests ();
+    "timeout", Timeout.tests;
+    "random", Random.tests;
     "dla", Dla.tests;
     "await", Await_fd.tests;
-  ]
+  ] in
+  Alcotest.run "eio_windows" (List.map (fun (name, tests) -> name, List.map run tests) suites)
+
+let () =
+  match Array.to_list Sys.argv with
+  | [_; "--pipe-stdin-child"] -> Test_pipe_reads.read_stdin ~socket:false ()
+  | [_; "--socket-stdin-child"] -> Test_pipe_reads.read_stdin ~socket:true ()
+  | [_; "--merged-output"] -> Test_process.write_merged_output ()
+  | _ -> run_tests ()

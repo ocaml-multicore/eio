@@ -1,66 +1,27 @@
 open Eio.Std
 
-(* There are some things that should be improved here:
-
-   - Blocking FDs (e.g. stdout) wait for the FD to become ready and then do a blocking operation.
-     This might not succeed, and will block the whole domain in that case.
-     Ideally, all blocking operations should happen in a sys-thread instead.
-
-   - Various other operations, such as listing a directory, should also be done in a sys-thread
-     to avoid high latencies in the main domain. *)
-
-type ty = Read | Write
-
 let in_worker_thread = Eio_unix.run_in_systhread
 
 module Fd = Eio_unix.Fd
 
-let await_readable fd =
-  Fd.use_exn "await_readable" fd @@ fun fd ->
-  Sched.enter @@ fun t k ->
-  Sched.await_readable t k fd
+let await_readable fd = Fd.use_exn "await_readable" fd Eio_unix.await_readable
+let await_writable fd = Fd.use_exn "await_writable" fd Eio_unix.await_writable
 
-let await_writable fd =
-  Fd.use_exn "await_writable" fd @@ fun fd ->
-  Sched.enter @@ fun t k ->
-  Sched.await_writable t k fd
-
-let rec do_nonblocking ty fn fd =
-  Fiber.yield ();
-  try fn fd with
-  | Unix.Unix_error (EINTR, _, _) -> 
-    do_nonblocking ty fn fd    (* Just in case *)
-  | Unix.Unix_error((EAGAIN | EWOULDBLOCK), _, _) ->
-    Sched.enter (fun t k ->
-        match ty with
-        | Read -> Sched.await_readable t k fd
-        | Write -> Sched.await_writable t k fd
-      );
-    do_nonblocking ty fn fd
+let read_cstruct = File_io.read_cstruct File_io.kind
+let write_cstruct = File_io.write_cstruct File_io.kind
 
 let read fd buf start len =
-  await_readable fd;
-  Fd.use_exn "read" fd @@ fun fd ->
-  do_nonblocking Read (fun fd -> Unix.read fd buf start len) fd
-
-let read_cstruct fd (buf:Cstruct.t) =
-  await_readable fd;
-  Fd.use_exn "read_cstruct" fd @@ fun fd ->
-  do_nonblocking Read (fun fd -> Unix.read_bigarray fd buf.buffer buf.off buf.len) fd
+  if start < 0 || len < 0 || start > Bytes.length buf - len then invalid_arg "read";
+  let tmp = Cstruct.create len in
+  let n = read_cstruct fd tmp in
+  Cstruct.blit_to_bytes tmp 0 buf start n;
+  n
 
 let write fd buf start len =
-  await_writable fd;
-  Fd.use_exn "write" fd @@ fun fd ->
-  do_nonblocking Write (fun fd -> Unix.write fd buf start len) fd
+  if start < 0 || len < 0 || start > Bytes.length buf - len then invalid_arg "write";
+  write_cstruct fd (Cstruct.of_bytes ~off:start ~len buf)
 
-let write_cstruct fd (buf:Cstruct.t) =
-  await_writable fd;
-  Fd.use_exn "write_cstruct" fd @@ fun fd ->
-  do_nonblocking Write (fun fd -> Unix.write_bigarray fd buf.buffer buf.off buf.len) fd
-
-let sleep_until time =
-  Sched.enter @@ fun t k ->
-  Sched.await_timeout t k time
+let sleep_until = Sched.sleep_until
 
 let socket ~sw socket_domain socket_type protocol =
   Switch.check sw;
@@ -70,37 +31,51 @@ let socket ~sw socket_domain socket_type protocol =
   | exception ex -> Unix.close sock_unix; raise ex
 
 let connect fd addr =
-  try
-    Fd.use_exn "connect" fd (fun fd -> Unix.connect fd addr)
-  with
-  | Unix.Unix_error ((EINTR | EAGAIN | EWOULDBLOCK | EINPROGRESS), _, _) ->
-    await_writable fd;
-    match Fd.use_exn "connect" fd Unix.getsockopt_error with
-    | None -> ()
-    | Some code -> raise (Err.v code "connect-in-progress" "")
+  Fd.use_exn "connect" fd @@ fun raw ->
+  match addr with
+  | Unix.ADDR_INET _ ->
+    let unbound = match Unix.getsockname raw with
+      | Unix.ADDR_INET (_, 0) -> true
+      | _ -> false
+      | exception Unix.Unix_error (EINVAL, _, _) -> true
+    in
+    if unbound then (
+      let any = if Unix.domain_of_sockaddr addr = PF_INET6 then Unix.inet6_addr_any else Unix.inet_addr_any in
+      Unix.bind raw (Unix.ADDR_INET (any, 0))
+    );
+    ignore (Completion.await (fun port ~data -> Iocp.Event.connect port ~data raw addr))
+  | Unix.ADDR_UNIX _ ->
+    (try Unix.connect raw addr with
+     | Unix.Unix_error ((EINTR | EAGAIN | EWOULDBLOCK | EINPROGRESS), _, _) ->
+       Eio_unix.await_writable raw;
+       match Unix.getsockopt_error raw with
+       | None -> ()
+       | Some code -> raise (Err.v code "connect-in-progress" ""))
 
 let accept ~sw sock =
-  Fd.use_exn "accept" sock @@ fun sock ->
-  let client, addr =
-    do_nonblocking Read (fun fd -> Switch.check sw; Unix.accept ~cloexec:true fd) sock
+  Switch.check sw;
+  Fd.use_exn "accept" sock @@ fun raw ->
+  let domain = Unix.domain_of_sockaddr (Unix.getsockname raw) in
+  let client = Unix.socket ~cloexec:true domain Unix.SOCK_STREAM 0 in
+  let addr =
+    try
+      ignore (Completion.await (fun port ~data -> Iocp.Event.accept port ~data raw ~client));
+      Unix.set_nonblock client;
+      Unix.getpeername client
+    with ex -> Unix.close client; raise ex
   in
-  Unix.set_nonblock client;
   Fd.of_unix ~sw ~blocking:false ~close_unix:true client, addr
 
 let shutdown sock cmd =
-  Fd.use_exn "shutdown" sock (fun fd -> Unix.shutdown fd cmd)
+  Fd.use_exn "shutdown" sock (fun raw -> Completion.shutdown raw cmd)
 
-let send_msg fd ?dst buf =
-  Fd.use_exn "send_msg" fd @@ fun fd ->
-  do_nonblocking Write (fun fd ->
-      match dst with
-      | Some dst -> Unix.sendto fd buf 0 (Bytes.length buf) [] dst
-      | None -> Unix.send fd buf 0 (Bytes.length buf) []
-    ) fd
+let send_msg fd ?dst buf = Datagram.send fd ?dst (Cstruct.of_bytes buf)
 
 let recv_msg fd buf =
-  Fd.use_exn "recv_msg" fd @@ fun fd ->
-  do_nonblocking Read (fun fd -> Unix.recvfrom fd buf 0 (Bytes.length buf) []) fd
+  let data = Cstruct.create (Bytes.length buf) in
+  let n, addr = Datagram.recv fd data in
+  Cstruct.blit_to_bytes data 0 buf 0 n;
+  n, addr
 
 external eio_getrandom : Cstruct.buffer -> int -> int -> int = "caml_eio_windows_getrandom"
 
@@ -116,11 +91,12 @@ let getrandom { Cstruct.buffer; off; len } =
 
 external eio_reparse_point : Unix.file_descr -> (string * bool * int) option = "caml_eio_windows_reparse_point"
 
-let reparse_target fd =
-  Fd.use_exn "read_link" fd @@ fun fd ->
+let reparse_target_raw fd =
   Option.map (fun (target, relative, _) ->
       if relative then Eio_utils.Nt_path.Relative target else Absolute target
     ) (eio_reparse_point fd)
+
+let reparse_target fd = Fd.use_exn "read_link" fd reparse_target_raw
 
 let fstat fd =
   Fd.use_exn "fstat" fd @@ fun fd ->
@@ -181,25 +157,21 @@ let chown ?dirfd ~follow:_ ?(uid=(-1L)) ?(gid=(-1L)) path =
   | None -> failwith "Chown is unsupported on Windows"
   | Some dirfd -> Eio_unix.Private.chown ~flags:0 ~uid ~gid dirfd path
 
-external eio_readv : Unix.file_descr -> Cstruct.t array -> int = "caml_eio_windows_readv"
-
 let readv fd bufs =
-  Fd.use_exn "readv" fd @@ fun fd ->
-  do_nonblocking Read (fun fd -> eio_readv fd bufs) fd
+  match Array.find_opt (fun b -> Cstruct.length b > 0) bufs with
+  | None -> 0
+  | Some buf -> read_cstruct fd buf
 
 let writev fd bufs =
-  let rec loop buf = if Cstruct.length buf > 0 then begin
+  let rec loop buf = if Cstruct.length buf > 0 then (
     let n = write_cstruct fd buf in
-    loop @@ Cstruct.shift buf n
-  end in
+    if n = 0 then raise (Unix.Unix_error (EIO, "write", ""));
+    loop (Cstruct.shift buf n)
+  ) in
   List.iter loop bufs
 
-let unsupported_positioned_io op ~file_offset:_ fd _bufs =
-  Fd.use_exn op fd @@ fun _ ->
-  raise (Unix.Unix_error (EOPNOTSUPP, op, ""))
-
-let preadv = unsupported_positioned_io "preadv"
-let pwritev = unsupported_positioned_io "pwritev"
+let preadv ~file_offset fd bufs = File_io.positioned ~write:false ~file_offset fd Array.find_opt bufs
+let pwritev ~file_offset fd bufs = File_io.positioned ~write:true ~file_offset fd Array.find_opt bufs
 
 module Flags = struct
   module Open = struct
@@ -243,12 +215,6 @@ module Flags = struct
   end
 end
 
-let rec with_dirfd op dirfd fn =
-  match dirfd with
-  | None -> fn None
-  | Some dirfd -> Fd.use_exn op dirfd (fun fd -> fn (Some fd))
-  | exception Unix.Unix_error(Unix.EINTR, _, "") -> with_dirfd op dirfd fn
-
 let nt_path dirfd path =
   match dirfd with
   | Some _ -> path
@@ -267,26 +233,87 @@ external eio_openat :
   Flags.Open.t -> Flags.Disposition.t -> Flags.Create.t -> Unix.file_descr
   = "caml_eio_windows_openat_bytes" "caml_eio_windows_openat"
 
-let openat ?dirfd ?(beneath=false) ?(follow=Follow) ~sw path flags dis create =
-  with_dirfd "openat" dirfd @@ fun dirfd ->
-  Switch.check sw;
-  let path = nt_path dirfd path in
+let openat_raw dirfd ~beneath ~follow path flags dis create =
   let flags = Flags.Open.(flags + cloexec) in
   (* FILE_CREATE must test the leaf itself, even if it is a dangling link. *)
   let open_link = follow = Open_link || dis = Flags.Disposition.create in
-  in_worker_thread ~label:"openat" (fun () ->
-      match Eio_utils.Nt_path.split path with
-      | Some (parent, leaf) when follow = Nofollow && not beneath ->
-        (* Refuse a leaf link before any side effect, including truncation. *)
-        let parent =
-          eio_openat dirfd ~beneath:false ~open_link:false parent
-            Flags.Open.synchronise Flags.Disposition.open_ Flags.Create.directory
-        in
-        Fun.protect ~finally:(fun () -> Unix.close parent) @@ fun () ->
-        eio_openat (Some parent) ~beneath:true ~open_link leaf flags dis create
-      | _ -> eio_openat dirfd ~beneath ~open_link path flags dis create
-    )
-  |> Fd.of_unix ~sw ~blocking:false ~close_unix:true
+  eio_openat dirfd ~beneath ~open_link path flags dis create
+
+let open_on_worker ~sw fn =
+  Switch.check sw;
+  in_worker_thread ~label:"openat" fn
+  |> Fd.of_unix ~sw ~blocking:true ~close_unix:true
+
+let openat ?dirfd ?(beneath=false) ?(follow=Follow) ~sw path flags dis create =
+  Fd.use_exn_opt "openat" dirfd @@ fun dirfd ->
+  let path = nt_path dirfd path in
+  open_on_worker ~sw @@ fun () ->
+  match Eio_utils.Nt_path.split path with
+  | Some (parent, leaf) when follow = Nofollow && not beneath ->
+    (* Refuse a leaf link before any side effect, including truncation. *)
+    let parent = eio_openat dirfd ~beneath:false ~open_link:false parent
+        Flags.Open.synchronise Flags.Disposition.open_ Flags.Create.directory in
+    Fun.protect ~finally:(fun () -> Unix.close parent) @@ fun () ->
+    openat_raw (Some parent) ~beneath:true ~follow leaf flags dis create
+  | _ -> openat_raw dirfd ~beneath ~follow path flags dis create
+
+(* A cwd capability tracks chdir, but must never follow a replacement junction. *)
+let open_root_raw root =
+  openat_raw None ~beneath:true ~follow:Follow (nt_path None root)
+    Flags.Open.(generic_read + synchronise) Flags.Disposition.open_ Flags.Create.directory
+
+let open_root ~sw root = open_on_worker ~sw (fun () -> open_root_raw root)
+
+let with_root_fd dirfd root fn =
+  match dirfd with
+  | Some fd -> fn fd
+  | None ->
+    let fd = open_root_raw root in
+    Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> fn fd)
+
+let open_beneath ?dirfd ~root ~sw ~follow path flags disp create =
+  let module Nt_path = Eio_utils.Nt_path in
+  let path = Err.relative ~root path in
+  Fd.use_exn_opt "openat" dirfd @@ fun dirfd ->
+  open_on_worker ~sw @@ fun () ->
+  with_root_fd dirfd root @@ fun root_fd ->
+  let open_at = openat_raw (Some root_fd) ~beneath:true in
+  let root_path = lazy (eio_realpath_fd root_fd) in
+  let link_target path =
+    let fd = open_at ~follow:Open_link path Flags.Open.synchronise Flags.Disposition.open_ Flags.Create.empty in
+    Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> reparse_target_raw fd)
+  in
+  (* Walk up to the first prefix that opens without traversing a link. *)
+  let find_link path =
+    let rec go p rest =
+      match link_target p with
+      | Some target -> Some (p, target, rest)
+      | None -> None
+      | exception Unix.Unix_error _ -> up p rest
+    and up p rest =
+      match Nt_path.split p with
+      | Some (parent, leaf) -> go parent (if rest = "" then leaf else Nt_path.join leaf rest)
+      | None -> None
+    in
+    if follow = Open_link then up path "" else go path ""
+  in
+  let rec go follows path =
+    match open_at ~follow path flags disp create with
+    | fd -> fd
+    | exception (Unix.Unix_error _ as ex) ->
+      match find_link path with
+      | Some (link, _, _) when link = path && disp = Flags.Disposition.create ->
+        raise (Unix.Unix_error (EEXIST, "openat", path))
+      | Some (link, _, _) when link = path && follow = Nofollow ->
+        raise (Unix.Unix_error (ELOOP, "openat", path))
+      | Some (link, target, rest) when follows > 0 ->
+        let target = Err.beneath ~root link (
+            Nt_path.resolve_link ~root:(Lazy.force root_path) ~parent:(Nt_path.dirname link) target
+          ) in
+        go (follows - 1) (if rest = "" then target else Nt_path.join target rest)
+      | _ -> raise ex
+  in
+  go 40 path
 
 let read_link ?dirfd path =
   Switch.run @@ fun sw ->
@@ -304,7 +331,7 @@ let mkdir ?dirfd ?(follow=Follow) ~mode:_ path =
 external eio_unlinkat : Unix.file_descr option -> string -> bool -> unit = "caml_eio_windows_unlinkat"
 
 let unlink ?dirfd ~dir path =
-  with_dirfd "unlink" dirfd @@ fun dirfd ->
+  Fd.use_exn_opt "unlink" dirfd @@ fun dirfd ->
   let path = nt_path dirfd path in
   in_worker_thread ~label:"unlink" @@ fun () ->
   eio_unlinkat dirfd path dir
@@ -312,8 +339,8 @@ let unlink ?dirfd ~dir path =
 external eio_renameat : Unix.file_descr option -> string -> Unix.file_descr option -> string -> unit = "caml_eio_windows_renameat"
 
 let rename ?old_dir old_path ?new_dir new_path =
-  with_dirfd "rename-old" old_dir @@ fun old_dir ->
-  with_dirfd "rename-new" new_dir @@ fun new_dir ->
+  Fd.use_exn_opt "rename-old" old_dir @@ fun old_dir ->
+  Fd.use_exn_opt "rename-new" new_dir @@ fun new_dir ->
   let old_path = nt_path old_dir old_path and new_path = nt_path new_dir new_path in
   in_worker_thread ~label:"rename" @@ fun () ->
   eio_renameat old_dir old_path new_dir new_path
@@ -339,7 +366,7 @@ let symlink ?(to_dir=false) ~link_to new_dir new_path =
   symlink_raw ~to_dir ~target:(symlink_target link_to) new_dir new_path
 
 let chmod ~mode new_dir new_path =
-  with_dirfd "chmod" new_dir @@ fun new_dir ->
+  Fd.use_exn_opt "chmod" new_dir @@ fun new_dir ->
   match new_dir with
   | Some _ -> raise (Unix.Unix_error (Unix.EOPNOTSUPP, "chmod", new_path))
   | None ->
@@ -347,14 +374,8 @@ let chmod ~mode new_dir new_path =
     Unix.chmod new_path mode
 
 let lseek fd off cmd =
-  Fd.use_exn "lseek" fd @@ fun fd ->
-  let cmd =
-    match cmd with
-    | `Set -> Unix.SEEK_SET
-    | `Cur -> Unix.SEEK_CUR
-    | `End -> Unix.SEEK_END
-  in
-  Unix.LargeFile.lseek fd (Optint.Int63.to_int64 off) cmd
+  Fd.use_exn "lseek" fd @@ fun raw ->
+  File_io.seek raw (Optint.Int63.to_int64 off) (match cmd with `Set -> 0 | `Cur -> 1 | `End -> 2)
   |> Optint.Int63.of_int64
 
 let fsync fd =
@@ -367,9 +388,8 @@ let ftruncate fd len =
   Unix.LargeFile.ftruncate fd (Optint.Int63.to_int64 len)
 
 let pipe ~sw =
-  let unix_r, unix_w = Unix.pipe ~cloexec:true () in
+  Switch.check sw;
+  let unix_r, unix_w = Iocp.pipe () in
   let r = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_r in
   let w = Fd.of_unix ~sw ~blocking:false ~close_unix:true unix_w in
-  Unix.set_nonblock unix_r;
-  Unix.set_nonblock unix_w;
   r, w

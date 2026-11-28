@@ -4,8 +4,9 @@ let () =
   C.main ~name:"discover" (fun c ->
       let defs =
         C.C_define.import c ~c_flags:["-D_LARGEFILE64_SOURCE"]
-          ~includes:["sys/types.h"; "sys/stat.h"; "fcntl.h"; "winternl.h"; "ntdef.h"]
+          ~includes:["sys/types.h"; "sys/stat.h"; "fcntl.h"; "winsock2.h"; "winternl.h"; "ntdef.h"]
           C.C_define.Type.[
+            "FD_SETSIZE", Int;
             "_O_RDONLY", Int;
             "_O_RDWR", Int;
             "_O_WRONLY", Int;

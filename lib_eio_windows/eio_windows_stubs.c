@@ -19,13 +19,16 @@
 #include <caml/alloc.h>
 #include <caml/unixsupport.h>
 #include <caml/bigarray.h>
+#include <caml/custom.h>
+#include <caml/fail.h>
 #include <caml/osdeps.h>
 
-#ifdef ARCH_SIXTYFOUR
-#define Int63_val(v) Long_val(v)
-#else
-#define Int63_val(v) (Int64_val(v)) >> 1
-#endif
+/* unixsupport.h uses plain extern; cross-DLL calls need indirect imports. */
+CAMLextern value caml_win32_alloc_handle(HANDLE);
+CAMLextern void caml_win32_maperr(DWORD);
+CAMLextern void caml_unix_check_path(value, const char *);
+CAMLnoret CAMLextern void caml_unix_error(int, const char *, value);
+CAMLnoret CAMLextern void caml_uerror(const char *, value);
 
 CAMLprim value caml_eio_windows_getrandom(value v_ba, value v_off, value v_len)
 {
@@ -45,16 +48,12 @@ CAMLprim value caml_eio_windows_getrandom(value v_ba, value v_off, value v_len)
   CAMLreturn(Val_long(len));
 }
 
-CAMLprim value caml_eio_windows_readv(value v_fd, value v_bufs)
-{
-  uerror("readv is not supported on windows yet", Nothing);
-}
-
 // File-system operations
 
 CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_beneath, value v_open_link, value v_pathname, value v_desired_access, value v_create_disposition, value v_create_options)
 {
   CAMLparam2(v_dirfd, v_pathname);
+  CAMLlocal1(result);
   HANDLE h, dir;
   OBJECT_ATTRIBUTES obj_attr;
   IO_STATUS_BLOCK io_status;
@@ -63,6 +62,7 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_beneath, value v_o
   NTSTATUS r;
 
   caml_unix_check_path(v_pathname, "openat");
+  result = caml_win32_alloc_handle(INVALID_HANDLE_VALUE);
   pathname = caml_stat_strdup_to_utf16(String_val(v_pathname));
   RtlInitUnicodeString(&relative, pathname);
 
@@ -76,23 +76,28 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_beneath, value v_o
     NULL
   );
 
+  ACCESS_MASK access = Int_val(v_desired_access) | FILE_READ_ATTRIBUTES;
+  ULONG disposition = Int_val(v_create_disposition);
+  ULONG options = FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT
+    | Int_val(v_create_options) | (Bool_val(v_open_link) ? FILE_OPEN_REPARSE_POINT : 0);
+  /* Keep parent handles opened for directory operations pinned during lookup. */
+  ULONG share = FILE_SHARE_READ | FILE_SHARE_WRITE;
+  if (options & FILE_NON_DIRECTORY_FILE) share |= FILE_SHARE_DELETE;
+  caml_enter_blocking_section_no_pending();
   r = NtCreateFile(
     &h,
-    Int_val(v_desired_access) | FILE_READ_ATTRIBUTES,
+    access,
     &obj_attr,
     &io_status,
     0, // Allocation size
     FILE_ATTRIBUTE_NORMAL, // TODO: Could check flags to see if we can do READONLY here a la OCaml
-    (FILE_SHARE_READ | FILE_SHARE_WRITE),
-    Int_val(v_create_disposition),
-    (
-       FILE_SYNCHRONOUS_IO_NONALERT
-      | FILE_OPEN_FOR_BACKUP_INTENT
-      | Int_val(v_create_options)
-      | (Bool_val(v_open_link) ? FILE_OPEN_REPARSE_POINT : 0)),
+    share,
+    disposition,
+    options,
     NULL, // Extended attribute buffer
     0     // Extended attribute buffer length
   );
+  caml_leave_blocking_section();
 
   caml_stat_free(pathname);
 
@@ -104,7 +109,8 @@ CAMLprim value caml_eio_windows_openat(value v_dirfd, value v_beneath, value v_o
     uerror("openat", v_pathname);
   }
 
-  CAMLreturn(caml_win32_alloc_handle(h));
+  Handle_val(result) = h;
+  CAMLreturn(result);
 }
 
 value caml_eio_windows_openat_bytes(value* values, int argc) {
@@ -344,8 +350,10 @@ CAMLprim value caml_eio_windows_unlinkat(value v_dirfd, value v_pathname, value 
 
   /* Ordinary files and rmdir need only DELETE access. Only directory links
      need an attribute query, to distinguish them from ordinary directories. */
+  BOOL is_dir = Bool_val(v_dir);
   BOOL check_link = FALSE;
 retry_open:
+  caml_enter_blocking_section_no_pending();
   r = NtCreateFile(
     &h,
     (SYNCHRONIZE | DELETE | (check_link ? FILE_READ_ATTRIBUTES : 0)),
@@ -353,15 +361,16 @@ retry_open:
     &io_status,
     0, // Allocation size
     FILE_ATTRIBUTE_NORMAL, // TODO: Could check flags to see if we can do READONLY here a la OCaml
-    (FILE_SHARE_DELETE),
+    FILE_SHARE_READ | FILE_SHARE_DELETE | (check_link ? 0 : FILE_SHARE_WRITE),
     FILE_OPEN,
-    (((Bool_val(v_dir) || check_link) ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE) | FILE_SYNCHRONOUS_IO_NONALERT
+    (((is_dir || check_link) ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE) | FILE_SYNCHRONOUS_IO_NONALERT
      | FILE_OPEN_REPARSE_POINT),
     NULL, // Extended attribute buffer
     0     // Extended attribute buffer length
   );
 
-  if (r == STATUS_FILE_IS_A_DIRECTORY && !Bool_val(v_dir) && !check_link) {
+  caml_leave_blocking_section();
+  if (r == STATUS_FILE_IS_A_DIRECTORY && !is_dir && !check_link) {
     check_link = TRUE;
     goto retry_open;
   }
@@ -383,9 +392,16 @@ retry_open:
              (info.ReparseTag != IO_REPARSE_TAG_SYMLINK && info.ReparseTag != IO_REPARSE_TAG_MOUNT_POINT))
       err = ERROR_ACCESS_DENIED;
   }
-  FILE_DISPOSITION_INFO disposition = { TRUE };
-  if (!err && !SetFileInformationByHandle(h, FileDispositionInfo, &disposition, sizeof(disposition)))
-    err = GetLastError();
+  if (!err) {
+    FILE_DISPOSITION_INFO_EX disposition = { FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS };
+    if (!SetFileInformationByHandle(h, FileDispositionInfoEx, &disposition, sizeof(disposition))) {
+      err = GetLastError();
+      if (err == ERROR_INVALID_PARAMETER || err == ERROR_NOT_SUPPORTED || err == ERROR_INVALID_FUNCTION) {
+        FILE_DISPOSITION_INFO legacy = { TRUE };
+        err = SetFileInformationByHandle(h, FileDispositionInfo, &legacy, sizeof(legacy)) ? 0 : GetLastError();
+      }
+    }
+  }
   CloseHandle(h);
   if (err) {
     caml_win32_maperr(err);
@@ -474,7 +490,7 @@ CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
 {
   CAMLparam5(v_cwd, v_env, v_stdin, v_stdout, v_stderr);
   CAMLxparam1(v_cmdline);
-  CAMLlocal1(v_result);
+  CAMLlocal2(v_result, v_handle);
 
   wchar_t *cmdline = NULL, *cwd = NULL, *env_block = NULL;
   HANDLE src[3];
@@ -492,6 +508,9 @@ CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
 
   caml_unix_check_path(v_cmdline, "execve");
   if (Is_some(v_cwd)) caml_unix_check_path(Field(v_cwd, 0), "execve");
+  v_handle = caml_win32_alloc_handle(INVALID_HANDLE_VALUE);
+  v_result = caml_alloc_tuple(2);
+  Store_field(v_result, 1, v_handle);
   cmdline = caml_stat_strdup_to_utf16(String_val(v_cmdline));
   /* CreateProcessW's limit includes the terminating UTF-16 NUL. */
   if (wcslen(cmdline) >= 32767) {
@@ -521,7 +540,11 @@ CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
   if (!GetConsoleWindow()) create_flags |= CREATE_NO_WINDOW;
 
   InitializeProcThreadAttributeList(NULL, 1, 0, &attr_size);
-  si.lpAttributeList = caml_stat_alloc(attr_size);
+  si.lpAttributeList = caml_stat_alloc_noexc(attr_size);
+  if (si.lpAttributeList == NULL) {
+    err = ERROR_NOT_ENOUGH_MEMORY;
+    goto cleanup;
+  }
   if (!InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &attr_size)) {
     err = GetLastError();
     caml_stat_free(si.lpAttributeList);
@@ -534,7 +557,7 @@ CAMLprim value caml_eio_windows_spawn(value v_cwd, value v_env,
     goto cleanup;
   }
 
-  caml_enter_blocking_section();
+  caml_enter_blocking_section_no_pending();
   ok = CreateProcessW(NULL, cmdline, NULL, NULL, TRUE, create_flags, env_block, cwd,
                       &si.StartupInfo, &pi);
   if (!ok) err = GetLastError();
@@ -558,9 +581,8 @@ cleanup:
   }
 
   CloseHandle(pi.hThread);
-  v_result = caml_alloc_tuple(2);
+  Handle_val(v_handle) = pi.hProcess;
   Store_field(v_result, 0, Val_long(pi.dwProcessId));
-  Store_field(v_result, 1, caml_win32_alloc_handle(pi.hProcess));
   CAMLreturn(v_result);
 }
 
@@ -596,4 +618,367 @@ CAMLprim value caml_eio_windows_process_terminate(value v_handle, value v_code)
   CAMLparam2(v_handle, v_code);
   /* Signalling an already-exited process is a no-op rather than an error. */
   CAMLreturn(Val_bool(TerminateProcess(Handle_val(v_handle), (UINT)Long_val(v_code))));
+}
+
+/* A write larger than the pipe quota can expose a prefix and then report only
+   ERROR_BROKEN_PIPE if the reader closes. Submit at most one buffer at a time. */
+CAMLprim value caml_eio_windows_pipe_write_size(value fd, value len)
+{
+  CAMLparam2(fd, len);
+  HANDLE h = Handle_val(fd);
+  if (Descr_kind_val(fd) == KIND_SOCKET || GetFileType(h) != FILE_TYPE_PIPE) CAMLreturn(len);
+  DWORD flags, out_size, in_size, quota = 0;
+  caml_enter_blocking_section();
+  if (GetNamedPipeInfo(h, &flags, &out_size, &in_size, NULL))
+    quota = (flags & PIPE_SERVER_END) ? out_size : in_size;
+  caml_leave_blocking_section();
+  if (!quota) quota = 1;
+  CAMLreturn((uintnat)Long_val(len) > quota ? Val_long(quota) : len);
+}
+
+CAMLprim value caml_eio_windows_read_sync_pipe(value fd, value ba, value off, value len)
+{
+  CAMLparam4(fd, ba, off, len);
+  HANDLE h = Handle_val(fd);
+  void *buf = (char *)Caml_ba_data_val(ba) + Long_val(off);
+  uintnat size = Long_val(len);
+  DWORD n = 0;
+  caml_enter_blocking_section();
+  DWORD err = ReadFile(h, buf, size > MAXDWORD ? MAXDWORD : (DWORD)size, &n, NULL)
+    ? ERROR_SUCCESS : GetLastError();
+  caml_leave_blocking_section();
+  if (err == ERROR_BROKEN_PIPE || err == ERROR_HANDLE_EOF) CAMLreturn(Val_int(-1));
+  if (err != ERROR_SUCCESS && err != ERROR_MORE_DATA) {
+    caml_win32_maperr(err);
+    uerror("read", Nothing);
+  }
+  CAMLreturn(Val_long(n));
+}
+
+CAMLprim value caml_eio_windows_io_thread_id(value unit)
+{
+  return caml_copy_int32(GetCurrentThreadId());
+}
+
+CAMLprim value caml_eio_windows_cancel_sync_io(value id)
+{
+  HANDLE thread = OpenThread(THREAD_TERMINATE, FALSE, Int32_val(id));
+  if (thread != NULL) {
+    DWORD err = CancelSynchronousIo(thread) ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(thread);
+    if (err == ERROR_SUCCESS) return Val_true;
+    if (err == ERROR_NOT_FOUND) return Val_false;
+    caml_win32_maperr(err);
+  } else {
+    caml_win32_maperr(GetLastError());
+  }
+  uerror("CancelSynchronousIo", Nothing);
+}
+
+/* Constructor order of File_io.kind. */
+enum fd_kind { FD_POLLABLE, FD_SOCKET, FD_PIPE, FD_FILE, FD_APPEND_FILE, FD_SYNC, FD_SYNC_PIPE };
+
+CAMLprim value caml_eio_windows_is_socket(value fd)
+{
+  return Val_bool(Descr_kind_val(fd) == KIND_SOCKET);
+}
+
+CAMLprim value caml_eio_windows_is_pipe(value fd)
+{
+  return Val_bool(Descr_kind_val(fd) != KIND_SOCKET && GetFileType(Handle_val(fd)) == FILE_TYPE_PIPE);
+}
+
+#ifndef FILE_PIPE_CONNECTED_STATE
+#define FILE_PIPE_CONNECTED_STATE 3
+#endif
+
+/* A synchronous query can wait behind foreign I/O before Windows can cancel
+   it. Keep a single native observation per file object, independent of the
+   lifetime of the OCaml domains waiting for it. */
+struct pipe_probe {
+  struct pipe_probe *next;
+  HANDLE file;
+  BOOL write, started, ready;
+  DWORD error;
+  LONG refs, done;
+};
+
+struct pipe_wait {
+  struct pipe_probe *probe;
+  BOOL retry;
+};
+
+static SRWLOCK pipe_probes_lock = SRWLOCK_INIT;
+static struct pipe_probe *pipe_probes;
+static BOOL (WINAPI *same_pipe_object)(HANDLE, HANDLE);
+
+static void drop_pipe_probe(struct pipe_probe *p)
+{
+  if (InterlockedDecrement(&p->refs) == 0) free(p);
+}
+
+/* Inherited sockets are tagged as handles by the runtime and report FILE_TYPE_PIPE. */
+static BOOL is_socket_handle(HANDLE h)
+{
+  int type, size = sizeof(type);
+  return getsockopt((SOCKET)h, SOL_SOCKET, SO_TYPE, (char *)&type, &size) == 0;
+}
+
+/* FSCTL_PIPE_PEEK returns the four fixed fields of FILE_PIPE_PEEK_BUFFER
+   even when the payload does not fit. PeekNamedPipe omits the message count. */
+#ifndef FSCTL_PIPE_PEEK
+#define FSCTL_PIPE_PEEK CTL_CODE(FILE_DEVICE_NAMED_PIPE, 3, METHOD_BUFFERED, FILE_READ_DATA)
+#endif
+
+static void peek_pipe(struct pipe_probe *p)
+{
+  struct { ULONG state, bytes, messages, first_message_length; } info = {0};
+  HANDLE event = CreateEventW(NULL, TRUE, FALSE, NULL);
+  if (!event) {
+    p->error = GetLastError();
+    return;
+  }
+  /* A borrowed overlapped handle may already have a completion port. */
+  IO_STATUS_BLOCK io;
+  HANDLE tagged = (HANDLE)((ULONG_PTR)event | 1);
+  NTSTATUS status = NtFsControlFile(p->file, tagged, NULL, NULL, &io, FSCTL_PIPE_PEEK,
+                                    NULL, 0, &info, sizeof(info));
+  if (status == STATUS_PENDING) {
+    WaitForSingleObject(event, INFINITE);
+    status = io.Status;
+  }
+  CloseHandle(event);
+  if (NT_SUCCESS(status) || status == STATUS_BUFFER_OVERFLOW)
+    p->ready = info.bytes != 0 || info.messages != 0 || info.state != FILE_PIPE_CONNECTED_STATE;
+  else p->error = RtlNtStatusToDosError(status);
+}
+
+static BOOL pipe_closed(DWORD error)
+{
+  return error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA || error == ERROR_PIPE_NOT_CONNECTED;
+}
+
+static VOID CALLBACK observe_pipe(PTP_CALLBACK_INSTANCE instance, void *arg)
+{
+  struct pipe_probe *p = arg;
+  CallbackMayRunLong(instance);
+  AcquireSRWLockExclusive(&pipe_probes_lock);
+  p->started = TRUE;
+  ReleaseSRWLockExclusive(&pipe_probes_lock);
+  if (InterlockedCompareExchange(&p->refs, 0, 0) > 1) {
+    if (p->write) {
+      IO_STATUS_BLOCK io;
+      FILE_PIPE_LOCAL_INFORMATION info;
+      NTSTATUS s = NtQueryInformationFile(p->file, &io, &info, sizeof(info), FilePipeLocalInformation);
+      if (!NT_SUCCESS(s)) p->error = RtlNtStatusToDosError(s);
+      else p->ready = info.NamedPipeState != FILE_PIPE_CONNECTED_STATE || info.WriteQuotaAvailable;
+    } else {
+      peek_pipe(p);
+    }
+    /* Winsock can serialize handle classification behind an unrelated pipe
+       operation. Only consult it after the pipe query rejects the handle. */
+    if (p->error && !pipe_closed(p->error) && is_socket_handle(p->file)) {
+      WSAPOLLFD pollfd = {.fd = (SOCKET)p->file, .events = p->write ? POLLWRNORM : POLLRDNORM};
+      int n = WSAPoll(&pollfd, 1, 0);
+      p->error = n == SOCKET_ERROR ? WSAGetLastError() : ERROR_SUCCESS;
+      p->ready = n > 0;
+    } else if (p->write && !p->error && !p->ready) {
+      p->error = ERROR_NOT_SUPPORTED;  /* A pending peer read can also exhaust the quota. */
+    }
+  }
+  AcquireSRWLockExclusive(&pipe_probes_lock);
+  struct pipe_probe **pos = &pipe_probes;
+  while (*pos != p) pos = &(*pos)->next;
+  *pos = p->next;
+  ReleaseSRWLockExclusive(&pipe_probes_lock);
+  CloseHandle(p->file);
+  InterlockedExchange(&p->done, 1);
+  drop_pipe_probe(p);
+}
+
+static void finalize_pipe_wait(value v)
+{
+  struct pipe_wait *w = Data_custom_val(v);
+  if (w->probe) {
+    drop_pipe_probe(w->probe);
+    w->probe = NULL;
+  }
+}
+
+static struct custom_operations pipe_wait_ops = {
+  .identifier = "eio.windows.pipe_wait",
+  .finalize = finalize_pipe_wait
+};
+
+CAMLprim value caml_eio_windows_release_pipe_probe(value v)
+{
+  finalize_pipe_wait(v);
+  return Val_unit;
+}
+
+CAMLprim value caml_eio_windows_start_pipe_probe(value fd, value write)
+{
+  CAMLparam2(fd, write);
+  CAMLlocal1(v);
+  v = caml_alloc_custom(&pipe_wait_ops, sizeof(struct pipe_wait), 0, 1);
+  struct pipe_wait *w = Data_custom_val(v);
+  w->probe = NULL;
+  HANDLE file = Handle_val(fd);
+  AcquireSRWLockExclusive(&pipe_probes_lock);
+  if (!same_pipe_object) {
+    same_pipe_object = (BOOL (WINAPI *)(HANDLE, HANDLE))GetProcAddress(
+        GetModuleHandleW(L"kernelbase.dll"), "CompareObjectHandles");
+    if (!same_pipe_object) {
+      ReleaseSRWLockExclusive(&pipe_probes_lock);
+      caml_failwith("CompareObjectHandles is unavailable");
+    }
+  }
+  for (struct pipe_probe *p = pipe_probes; p != NULL; p = p->next) {
+    if (same_pipe_object(file, p->file)) {
+      InterlockedIncrement(&p->refs);
+      w->probe = p;
+      w->retry = p->started || p->write != Bool_val(write);
+      ReleaseSRWLockExclusive(&pipe_probes_lock);
+      CAMLreturn(v);
+    }
+  }
+  struct pipe_probe *p = calloc(1, sizeof(*p));
+  if (!p) {
+    ReleaseSRWLockExclusive(&pipe_probes_lock);
+    caml_raise_out_of_memory();
+  }
+  p->write = Bool_val(write);
+  p->refs = 2;
+  if (DuplicateHandle(GetCurrentProcess(), file, GetCurrentProcess(), &p->file, 0, FALSE, DUPLICATE_SAME_ACCESS)
+      && TrySubmitThreadpoolCallback(observe_pipe, p, NULL)) {
+    p->next = pipe_probes;
+    pipe_probes = p;
+    w->probe = p;
+    w->retry = FALSE;
+    ReleaseSRWLockExclusive(&pipe_probes_lock);
+    CAMLreturn(v);
+  }
+  DWORD error = GetLastError();
+  ReleaseSRWLockExclusive(&pipe_probes_lock);
+  if (p->file) CloseHandle(p->file);
+  free(p);
+  caml_win32_maperr(error);
+  uerror("await_pipe", Nothing);
+}
+
+CAMLprim value caml_eio_windows_pipe_probe_result(value v)
+{
+  struct pipe_wait *w = Data_custom_val(v);
+  struct pipe_probe *p = w->probe;
+  if (!InterlockedCompareExchange(&p->done, 0, 0)) return Val_int(-1);
+  /* Waiters arriving after sampling began must make a fresh observation. */
+  if (w->retry) return Val_int(0);
+  if (pipe_closed(p->error))
+    return Val_true;
+  if (p->error != ERROR_SUCCESS) {
+    const char *op = p->write ? "await_writable" : "await_readable";
+    if (p->error == ERROR_NOT_SUPPORTED) caml_unix_error(-WSAEOPNOTSUPP, op, Nothing);
+    caml_win32_maperr(p->error);
+    uerror(op, Nothing);
+  }
+  return Val_bool(p->ready);
+}
+
+static int is_overlapped(HANDLE h)
+{
+  IO_STATUS_BLOCK io;
+  struct { ULONG Mode; } info;
+  NTSTATUS status = NtQueryInformationFile(h, &io, &info, sizeof(info), FileModeInformation);
+  return NT_SUCCESS(status) && !(info.Mode & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT));
+}
+
+CAMLprim value caml_eio_windows_pipe_kind(value v_fd)
+{
+  CAMLparam1(v_fd);
+  HANDLE h = Handle_val(v_fd);
+  caml_enter_blocking_section();
+  int kind = is_socket_handle(h) ? FD_SOCKET : is_overlapped(h) ? FD_PIPE : FD_SYNC_PIPE;
+  caml_leave_blocking_section();
+  CAMLreturn(Val_int(kind));
+}
+
+CAMLprim value caml_eio_windows_fd_kind(value v_fd)
+{
+  if (Descr_kind_val(v_fd) == KIND_SOCKET)
+    return Val_int(FD_SOCKET);
+  HANDLE h = Handle_val(v_fd);
+  DWORD type = GetFileType(h);
+  if (type == FILE_TYPE_CHAR) {
+    DWORD mode;
+    return Val_int(GetConsoleMode(h, &mode) ? FD_POLLABLE : FD_SYNC);
+  }
+  if (type == FILE_TYPE_PIPE)
+    return Val_int(FD_PIPE);
+  if (type != FILE_TYPE_DISK || !is_overlapped(h))
+    return Val_int(FD_SYNC);
+  IO_STATUS_BLOCK io;
+  struct { ACCESS_MASK AccessFlags; } access;
+  NTSTATUS status = NtQueryInformationFile(h, &io, &access, sizeof(access), FileAccessInformation);
+  if (NT_SUCCESS(status) && (access.AccessFlags & FILE_APPEND_DATA) && !(access.AccessFlags & FILE_WRITE_DATA))
+    return Val_int(FD_APPEND_FILE);
+  return Val_int(FD_FILE);
+}
+
+CAMLprim value caml_eio_windows_seek(value v_fd, value v_offset, value v_whence)
+{
+  CAMLparam3(v_fd, v_offset, v_whence);
+  LARGE_INTEGER offset, result;
+  offset.QuadPart = Int64_val(v_offset);
+  if (!SetFilePointerEx(Handle_val(v_fd), offset, &result, Int_val(v_whence))) {
+    caml_win32_maperr(GetLastError());
+    uerror("lseek", Nothing);
+  }
+  CAMLreturn(caml_copy_int64(result.QuadPart));
+}
+
+/* Constructor order of File_io.reopen_mode. */
+enum reopen_mode { REOPEN_READ, REOPEN_WRITE, REOPEN_APPEND };
+
+CAMLprim value caml_eio_windows_reopen(value v_fd, value v_mode)
+{
+  CAMLparam2(v_fd, v_mode);
+  CAMLlocal1(result);
+  IO_STATUS_BLOCK io;
+  struct { ACCESS_MASK AccessFlags; } access;
+  struct { ULONG Mode; } mode;
+  HANDLE original = Handle_val(v_fd);
+  NTSTATUS status = NtQueryInformationFile(original, &io, &access, sizeof(access), FileAccessInformation);
+  if (!NT_SUCCESS(status)) {
+    caml_win32_maperr(RtlNtStatusToDosError(status));
+    uerror("FileAccessInformation", Nothing);
+  }
+  /* Reopening must not grant authority absent from the original handle. */
+  enum reopen_mode request = Int_val(v_mode);
+  DWORD rights = request == REOPEN_READ ? FILE_READ_DATA : FILE_APPEND_DATA;
+  if (request == REOPEN_WRITE && (access.AccessFlags & FILE_WRITE_DATA)) rights = FILE_WRITE_DATA;
+  if (!(access.AccessFlags & rights))
+    caml_unix_error(EBADF, "ReOpenFile", Nothing);
+  status = NtQueryInformationFile(original, &io, &mode, sizeof(mode), FileModeInformation);
+  if (!NT_SUCCESS(status)) {
+    caml_win32_maperr(RtlNtStatusToDosError(status));
+    uerror("FileModeInformation", Nothing);
+  }
+  DWORD flags = FILE_FLAG_OPEN_REPARSE_POINT;
+  if (request != REOPEN_APPEND) flags |= FILE_FLAG_OVERLAPPED;
+  if (mode.Mode & FILE_WRITE_THROUGH) flags |= FILE_FLAG_WRITE_THROUGH;
+  if (mode.Mode & FILE_NO_INTERMEDIATE_BUFFERING) flags |= FILE_FLAG_NO_BUFFERING;
+  if (mode.Mode & FILE_SEQUENTIAL_ONLY) flags |= FILE_FLAG_SEQUENTIAL_SCAN;
+  result = caml_win32_alloc_handle(INVALID_HANDLE_VALUE);
+  caml_enter_blocking_section();
+  HANDLE h = ReOpenFile(original, rights,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, flags);
+  DWORD err = GetLastError();
+  caml_leave_blocking_section();
+  if (h == INVALID_HANDLE_VALUE) {
+    if (err == ERROR_SHARING_VIOLATION) CAMLreturn(v_fd);
+    caml_win32_maperr(err);
+    uerror("ReOpenFile", Nothing);
+  }
+  Handle_val(result) = h;
+  CAMLreturn(result);
 }

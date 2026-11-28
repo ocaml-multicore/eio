@@ -37,12 +37,8 @@ module Listening_socket = struct
 
   let accept t ~sw =
     let client, client_addr = Err.run (Low_level.accept ~sw) t.fd in
-    let client_addr = match client_addr with
-      | Unix.ADDR_UNIX path         -> `Unix path
-      | Unix.ADDR_INET (host, port) -> `Tcp (Eio_unix.Net.Ipaddr.of_unix host, port)
-    in
     let flow = (Flow.stream client :> _ Eio.Net.stream_socket) in
-    flow, client_addr
+    flow, Eio_unix.Net.sockaddr_of_unix_stream client_addr
 
   let listening_addr { fd; _ } =
     Eio_unix.Fd.use_exn "listening_addr" fd
@@ -76,21 +72,25 @@ module Datagram_socket = struct
   let send t ?dst buf =
     Option.iter check_address dst;
     let dst = Option.map Eio_unix.Net.sockaddr_to_unix dst in
-    let sent = Err.run (Low_level.send_msg t.fd ?dst) (Bytes.unsafe_of_string (Cstruct.copyv buf)) in
-    assert (sent = Cstruct.lenv buf)
+    let buf = Cstruct.concat buf in
+    let sent = Err.run (Datagram.send t.fd ?dst) buf in
+    assert (sent = Cstruct.length buf)
 
   let recv t buf =
-    let b = Bytes.create (Cstruct.length buf) in
-    let recv, addr = Err.run (Low_level.recv_msg t.fd) b in
-    Cstruct.blit_from_bytes b 0 buf 0 recv;
+    let recv, addr = Err.run (Datagram.recv t.fd) buf in
     Eio_unix.Net.sockaddr_of_unix_datagram addr, recv
 
   let shutdown t cmd =
     try
-      Low_level.shutdown t.fd @@ match cmd with
-      | `Receive -> Unix.SHUTDOWN_RECEIVE
-      | `Send -> Unix.SHUTDOWN_SEND
-      | `All -> Unix.SHUTDOWN_ALL
+      Fd.use_exn "shutdown" t.fd @@ fun raw ->
+      match cmd with
+      | `Send -> Completion.shutdown raw Unix.SHUTDOWN_SEND
+      | `Receive | `All ->
+        match Unix.getpeername raw with
+        | _ -> Completion.shutdown raw (if cmd = `All then Unix.SHUTDOWN_ALL else Unix.SHUTDOWN_RECEIVE)
+        | exception Unix.Unix_error (ENOTCONN, _, _) ->
+          (* An unconnected datagram socket can still receive from any peer. *)
+          if cmd = `All then Completion.shutdown raw Unix.SHUTDOWN_SEND
     with
     | Unix.Unix_error (Unix.ENOTCONN, _, _) -> ()
     | Unix.Unix_error (code, name, arg) -> raise (Err.v code name arg)

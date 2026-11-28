@@ -160,8 +160,8 @@ val spawn :
 
     The child process will be sent {! Sys.sigkill} when the switch is released.
 
-    If the flows [stdin], [stdout] and [stderr] are not backed by file descriptors then
-    this also creates pipes and spawns fibers to copy the data as necessary.
+    If a flow cannot be used directly as a child standard stream, this also creates a pipe
+    and spawns a fiber to copy the data. On Windows this includes sockets and overlapped handles.
     If you need more control over file descriptors, see {!Eio_unix.Process}.
 
     @param cwd The current working directory of the process (default: same as parent process).

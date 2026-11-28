@@ -53,3 +53,42 @@ CAMLprim value caml_test_set_junction(value v_path, value v_target)
   }
   CAMLreturn(Val_unit);
 }
+
+CAMLprim value caml_test_reopen_for_delete(value v_fd)
+{
+  CAMLparam1(v_fd);
+  CAMLlocal1(fd);
+  fd = caml_win32_alloc_handle(INVALID_HANDLE_VALUE);
+  HANDLE h = ReOpenFile(Handle_val(v_fd), DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0);
+  if (h == INVALID_HANDLE_VALUE) {
+    caml_win32_maperr(GetLastError());
+    uerror("ReOpenFile", Nothing);
+  }
+  Handle_val(fd) = h;
+  CAMLreturn(fd);
+}
+
+CAMLprim value caml_eio_test_handle_count(value unit)
+{
+  DWORD count;
+  if (!GetProcessHandleCount(GetCurrentProcess(), &count)) {
+    caml_win32_maperr(GetLastError());
+    uerror("GetProcessHandleCount", Nothing);
+  }
+  return Val_long(count);
+}
+
+CAMLprim value caml_eio_test_open_exclusive(value unit)
+{
+  CAMLparam1(unit);
+  CAMLlocal1(fd);
+  fd = caml_win32_alloc_handle(INVALID_HANDLE_VALUE);
+  HANDLE h = CreateFileW(L"iocp-exclusive-sharing", GENERIC_READ | GENERIC_WRITE, 0,
+                         NULL, CREATE_NEW, FILE_FLAG_DELETE_ON_CLOSE, NULL);
+  if (h == INVALID_HANDLE_VALUE) {
+    caml_win32_maperr(GetLastError());
+    uerror("CreateFileW", Nothing);
+  }
+  Handle_val(fd) = h;
+  CAMLreturn(fd);
+}

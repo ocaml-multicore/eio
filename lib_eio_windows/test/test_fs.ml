@@ -215,6 +215,39 @@ let test_read_open_out ~append env () =
   Eio.Flow.copy_string "x" file;
   Alcotest.(check string) "write position" (if append then "abx" else "ax") (Path.load path)
 
+let test_append_cursors _env () =
+  with_stdlib_temp_file "eio-append" @@ fun path ->
+  Switch.run @@ fun sw ->
+  let open_append () =
+    let fd = Iocp.openfile path [O_RDWR; O_APPEND; O_CLOEXEC] 0 in
+    Eio_unix.File.import_rw ~sw ~close_unix:true fd
+  in
+  let a = open_append () and b = open_append () in
+  Fiber.both (fun () -> Eio.Flow.copy_string "a" a) (fun () -> Eio.Flow.copy_string "b" b);
+  let contents = read_file path in
+  Alcotest.(check int) "appended bytes" 2 (String.length contents);
+  List.iter (fun (fd, byte) ->
+      let pos = Eio.File.seek fd Int63.zero `Cur in
+      Alcotest.(check int) "cursor after own write" (1 + String.index contents byte) (Int63.to_int pos)
+    ) [a, 'a'; b, 'b']
+
+let test_unbuffered_pwrite _env () =
+  let module L = Eio_windows.Low_level in
+  with_stdlib_temp_file "eio-unbuffered" @@ fun path ->
+  Switch.run @@ fun sw ->
+  let fd = L.openat ~sw path L.Flags.Open.(generic_read + generic_write + synchronise)
+      L.Flags.Disposition.open_ L.Flags.Create.(non_directory + no_intermediate_buffering + write_through) in
+  (* A mapped page provides a sector-aligned buffer. *)
+  let length = 65536 in
+  let exe = Unix.openfile Sys.executable_name [O_RDONLY; O_CLOEXEC] 0 in
+  let data = Fun.protect ~finally:(fun () -> Unix.close exe) (fun () ->
+      Unix.map_file exe Bigarray.char Bigarray.c_layout false [|length|]
+      |> Bigarray.array1_of_genarray |> Cstruct.of_bigarray) in
+  Alcotest.(check int) "aligned write" length (L.pwritev fd ~file_offset:Int63.zero [|data|]);
+  match L.pwritev fd ~file_offset:(Int63.of_int 1) [|Cstruct.of_string "x"|] with
+  | _ -> Alcotest.fail "unaligned write to an unbuffered file succeeded"
+  | exception Unix.Unix_error (EINVAL, _, _) -> ()
+
 let test_mkdir env () =
   let cwd = Eio.Stdenv.cwd env in
   try_mkdir (cwd / "subdir");
@@ -363,17 +396,14 @@ let test_remove_dir env () =
   in
   ()
 
-let test_positioned_io_unavailable env () =
+let test_positioned_io env () =
   with_stdlib_temp_file "eio-positioned" @@ fun path ->
   Path.with_open_out ~create:`Never (Eio.Stdenv.fs env / path) @@ fun file ->
-  let bufs = [Cstruct.create 1] and file_offset = Int63.zero in
-  let check op f =
-    match f () with
-    | () -> Alcotest.failf "%s succeeded" op
-    | exception Eio.Io (Eio.Exn.Not_available _, _) -> ()
-  in
-  check "pread" (fun () -> ignore (Eio.File.pread file ~file_offset bufs));
-  check "pwrite" (fun () -> Eio.File.pwrite_all file ~file_offset bufs)
+  let file_offset = Int63.one in
+  Eio.File.pwrite_all file ~file_offset [Cstruct.of_string "x"];
+  let buf = Cstruct.create 1 in
+  Eio.File.pread_exact file ~file_offset [buf];
+  Alcotest.(check string) "read at offset 1" "x" (Cstruct.to_string buf)
 
 (* Absolute Win32 paths via the unsandboxed [fs] (#931) *)
 let test_fs_absolute_read env () =
@@ -411,6 +441,29 @@ let test_fs_absolute_mkdir_rmdir env () =
   Path.rmdir (fs / path);
   Alcotest.(check bool) "dir gone" false (Sys.file_exists path)
 
+let check_one_open_job path =
+  let jobs = ref 0 in
+  Effect.Deep.try_with (fun () -> Path.with_open_in path ignore) () {
+    effc = fun (type a) (eff : a Effect.t) -> match eff with
+      | Eio_unix.Private.Thread_pool.Run_in_systhread _ ->
+        Some (fun (k : (a, unit) Effect.Deep.continuation) ->
+            incr jobs;
+            Effect.Deep.continue k (Effect.perform eff))
+      | _ -> None
+  };
+  Alcotest.(check int) "worker jobs per sandboxed open" 1 !jobs
+
+let test_sandbox_open_worker env () =
+  let name = Filename.temp_file ~temp_dir:"." "sandbox-open-" "" in
+  let link = name ^ ".link" in
+  with_cleanup [link; name] @@ fun () ->
+  let cwd = Eio.Stdenv.cwd env in
+  check_one_open_job (cwd / name);
+  if Unix.has_symlink () then (
+    Unix.symlink (Filename.basename name) link;
+    check_one_open_job (cwd / link)
+  )
+
 let test_fs_relative_read env () =
   let fs = Eio.Stdenv.fs env in
   let name = "fs-rel-test-file" in
@@ -426,11 +479,9 @@ let test_dos_device env () =
   with_cleanup [literal] @@ fun () ->
   write_file literal "literal";
   let null = fs / Filename.null in
-  Path.with_open_in null (fun flow ->
-      let fd = Option.get (Eio_unix.Resource.fd_opt flow) in
-      Eio_unix.Fd.use_exn "read" fd @@ fun fd ->
-      Alcotest.(check int) "Filename.null reads as EOF" 0 (Unix.read fd (Bytes.create 1) 0 1)
-    );
+  List.iter (fun name ->
+      Alcotest.(check string) "null device reads as EOF" "" (Path.load (fs / name))
+    ) [Filename.null; Filename.concat (Sys.getcwd ()) Filename.null; {|\\.\NUL|}];
   Path.with_open_out ~create:`Never null (fun out ->
       Eio.Process.run ~stdout:out (Eio.Stdenv.process_mgr env) ["cmd.exe"; "/d"; "/c"; "echo discarded"]
     );
@@ -513,11 +564,16 @@ let test_stat_directory env () =
   check_kind ~follow:true (cwd / "stat-dir") `Directory;
   check_kind ~follow:false (cwd / "stat-dir") `Directory
 
+external reopen_for_delete : Unix.file_descr -> Unix.file_descr = "caml_test_reopen_for_delete"
+
 let test_stat_regular_file env () =
   let cwd = Eio.Stdenv.cwd env in
   let fs = Eio.Stdenv.fs env in
   with_cleanup ["stat-file"] @@ fun () ->
   Path.save ~create:(`Exclusive 0o600) (cwd / "stat-file") "data";
+  let fd = Unix.openfile "stat-file" [O_RDONLY; O_SHARE_DELETE] 0 in
+  let h = Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> reopen_for_delete fd) in
+  Fun.protect ~finally:(fun () -> Unix.close h) @@ fun () ->
   let abs = Filename.concat (Sys.getcwd ()) "stat-file" in
   check_kind ~follow:true (cwd / "stat-file") `Regular_file;
   check_kind ~follow:false (cwd / "stat-file") `Regular_file;
@@ -557,14 +613,35 @@ let test_rename env () =
   try_mkdir (cwd / "rn-dir");
   Path.rename (cwd / "rn-c") (cwd / "rn-dir" / "moved");
   Alcotest.(check string) "moved into a directory" "a" (read_file "rn-dir\\moved");
-  Path.rename (cwd / "rn-dir") (cwd / "rn-dir2");
-  Alcotest.(check bool) "directory renamed" true (Sys.is_directory "rn-dir2");
+  Path.with_subtree (cwd / "rn-dir") (fun dir ->
+      Path.rename (cwd / "rn-dir") (cwd / "rn-dir2");
+      Path.mkdir ~perm:0o700 (cwd / "rn-dir");
+      write_file "rn-dir\\moved" "replacement";
+      Alcotest.(check string) "renamed subtree" "a" (Path.load (dir / "moved"))
+    );
   let abs = Filename.concat (Sys.getcwd ()) in
   Path.rename (fs / abs "rn-dir2\\moved") (fs / abs "rn-a");
   Alcotest.(check string) "renamed through fs" "a" (read_file "rn-a");
   match Path.rename (cwd / "rn-a") (cwd / "..\\rn-escaped") with
   | () -> Alcotest.fail "Expected permission denied"
   | exception Eio.Io (Eio.Fs.E (Permission_denied _), _) -> ()
+
+let test_rename_unlink_open env () =
+  let cwd = Eio.Stdenv.cwd env in
+  let a = cwd / "open-a" and b = cwd / "open-b" in
+  with_cleanup ["open-a"; "open-b"] @@ fun () ->
+  let create path = Path.save ~create:(`Exclusive 0o600) path in
+  create a "a";
+  create b "b";
+  Path.with_open_out ~create:`Never a @@ fun src ->
+  Path.with_open_in b @@ fun replaced ->
+  Path.rename a b;
+  Alcotest.(check string) "renamed file" "a" (Path.load b);
+  Path.unlink b;
+  create b "c";
+  Eio.Flow.copy_string "x" src;
+  Alcotest.(check string) "replaced file" "b" (Eio.Flow.read_all replaced);
+  Alcotest.(check string) "reused name" "c" (Path.load b)
 
 let test_rename_over_dir env () =
   let cwd = Eio.Stdenv.cwd env in
@@ -923,7 +1000,6 @@ let test_unlink_handle env () =
    | exception Eio.Io _ -> ());
   Alcotest.(check bool) "ordinary directory kept" true (Sys.is_directory "uh-link")
 
-(* Unlike rename, installing reparse data is allowed while a directory is open. *)
 let with_retargeted_subtree env fn =
   let cwd = Eio.Stdenv.cwd env in
   with_cleanup ["rp-inside\\direct"; "rp-outside\\direct"; "rp-inside\\created"; "rp-outside\\created"; "rp-outside\\secret";
@@ -1169,64 +1245,89 @@ let test_trailing_link ~junction env () =
         ) [Path.unlink; Path.rmdir; Path.rmtree]
     ) ["/"; "\\"; "//"; "\\\\"; "/."; "\\."; "/\\"]
 
-let tests env = [
-  "create-write-read", `Quick, test_create_and_read env;
-  "positioned I/O unavailable", `Quick, test_positioned_io_unavailable env;
-  "absolute-join", `Quick, test_absolute_join env;
-  "split-join", `Quick, test_split_join env;
-  "native", `Quick, test_native env;
-  "cwd-abs-path", `Quick, test_cwd_no_access_abs env;
-  "create-exclusive", `Quick, test_exclusive env;
-  "create-if_missing", `Quick, test_if_missing env;
-  "create-trunc", `Quick, test_trunc env;
-  "create-empty", `Quick, test_empty env;
-  "append", `Quick, test_append env;
-  "read-open-out", `Quick, test_read_open_out ~append:false env;
-  "read-open-out-append", `Quick, test_read_open_out ~append:true env;
-  "mkdir", `Quick, test_mkdir env;
-  "symlinks", `Quick, test_symlink env;
-  "unlink", `Quick, test_unlink env;
-  "failing-unlink", `Quick, try_failing_unlink env;
-  "rmdir", `Quick, test_remove_dir env;
-  "mkdirs", `Quick, test_mkdirs env;
-  "fs-absolute-read", `Quick, test_fs_absolute_read env;
-  "fs-absolute-write", `Quick, test_fs_absolute_write env;
-  "fs-absolute-unlink", `Quick, test_fs_absolute_unlink env;
-  "fs-absolute-mkdir-rmdir", `Quick, test_fs_absolute_mkdir_rmdir env;
-  "dos-device", `Quick, test_dos_device env;
-  "fs-relative-read", `Quick, test_fs_relative_read env;
-  "fs-nt-prefixed-read", `Quick, test_fs_nt_prefixed_read env;
-  "fs-symlink-follow-read", `Quick, test_fs_symlink_follow_read env;
-  "sandbox-write-through-symlink-leaf", `Quick, test_sandbox_write_through_symlink_leaf env;
-  "subtree-write-through-symlink-leaf", `Quick, test_subtree_write_through_symlink_leaf env;
-  "sandbox-symlink-escape-write", `Quick, test_sandbox_symlink_escape_write env;
-  "fs-missing-read-no-create", `Quick, test_fs_missing_read_no_create env;
-  "fs-missing-stat-no-create", `Quick, test_fs_missing_stat_no_create env;
-  "stat-directory", `Quick, test_stat_directory env;
-  "stat-regular-file", `Quick, test_stat_regular_file env;
-  "stat-symlink", `Quick, test_stat_symlink env;
-  "rename", `Quick, test_rename env;
-  "rename-over-directory", `Quick, test_rename_over_dir env;
-  "open-no-follow", `Quick, test_open_no_follow env;
-  "eio-symlink", `Quick, test_eio_symlink env;
-  "symlink-encoding", `Quick, test_symlink_encoding env;
-  "unlink-symlink", `Quick, test_unlink_symlink env;
-  "subtree-symlinks", `Quick, test_subtree_symlinks env;
-  "no-follow-truncate", `Quick, test_no_follow_truncate env;
-  "junction", `Quick, test_junction env;
-  "trailing-symlink", `Quick, test_trailing_link ~junction:false env;
-  "trailing-junction", `Quick, test_trailing_link ~junction:true env;
-  "exclusive-symlink", `Quick, test_exclusive_symlink env;
-  "absolute-directory-symlink", `Quick, test_absolute_directory_symlink env;
-  "symlink-parent", `Quick, test_symlink_parent env;
-  "literal-link-targets", `Quick, test_literal_link_targets env;
-  "literal-entries", `Quick, test_literal_entries env;
-  "invalid-link-targets", `Quick, test_invalid_link_targets env;
-  "literal-symlink-parent", `Quick, test_literal_symlink_parent env;
-  "unlink-delete-access", `Quick, test_unlink_delete_access env;
-  "cwd-reparse", `Quick, test_cwd_reparse env;
-  "unlink-handle", `Quick, test_unlink_handle env;
-  "subtree-reparse-read", `Quick, test_subtree_reparse_read env;
-  "subtree-reparse-symlink", `Quick, test_subtree_reparse_symlink env;
-  "readdir-handle", `Quick, test_readdir_handle env;
+let test_nonseekable _env () =
+  let check_pair (r, w) =
+    Switch.run @@ fun sw ->
+    let wrap = Eio_unix.Fd.of_unix ~sw ~close_unix:true in
+    let r = wrap r and w = wrap w in
+    let file_offset = Optint.Int63.zero and bufs = [|Cstruct.create 1|] in
+    let check fn =
+      match fn () with
+      | _ -> Alcotest.fail "file operation succeeded on a stream"
+      | exception Unix.Unix_error (ESPIPE, _, _) -> ()
+    in
+    let module L = Eio_windows.Low_level in
+    check (fun () -> L.lseek r file_offset `Cur);
+    check (fun () -> L.preadv ~file_offset r bufs);
+    check (fun () -> L.pwritev ~file_offset w bufs)
+  in
+  check_pair (Unix.pipe ~cloexec:true ());
+  check_pair (Iocp.pipe ());
+  check_pair (Unix.socketpair ~cloexec:true PF_UNIX SOCK_STREAM 0)
+
+let tests () = [
+  "nonseekable streams", `Quick, test_nonseekable;
+  "create-write-read", `Quick, test_create_and_read;
+  "positioned I/O", `Quick, test_positioned_io;
+  "absolute-join", `Quick, test_absolute_join;
+  "split-join", `Quick, test_split_join;
+  "native", `Quick, test_native;
+  "cwd-abs-path", `Quick, test_cwd_no_access_abs;
+  "create-exclusive", `Quick, test_exclusive;
+  "create-if_missing", `Quick, test_if_missing;
+  "create-trunc", `Quick, test_trunc;
+  "create-empty", `Quick, test_empty;
+  "append", `Quick, test_append;
+  "read-open-out", `Quick, test_read_open_out ~append:false;
+  "read-open-out-append", `Quick, test_read_open_out ~append:true;
+  "append-cursors", `Quick, test_append_cursors;
+  "unbuffered-pwrite", `Quick, test_unbuffered_pwrite;
+  "mkdir", `Quick, test_mkdir;
+  "symlinks", `Quick, test_symlink;
+  "unlink", `Quick, test_unlink;
+  "failing-unlink", `Quick, try_failing_unlink;
+  "rmdir", `Quick, test_remove_dir;
+  "mkdirs", `Quick, test_mkdirs;
+  "fs-absolute-read", `Quick, test_fs_absolute_read;
+  "fs-absolute-write", `Quick, test_fs_absolute_write;
+  "fs-absolute-unlink", `Quick, test_fs_absolute_unlink;
+  "fs-absolute-mkdir-rmdir", `Quick, test_fs_absolute_mkdir_rmdir;
+  "dos-device", `Quick, test_dos_device;
+  "fs-relative-read", `Quick, test_fs_relative_read;
+  "fs-nt-prefixed-read", `Quick, test_fs_nt_prefixed_read;
+  "fs-symlink-follow-read", `Quick, test_fs_symlink_follow_read;
+  "sandbox-write-through-symlink-leaf", `Quick, test_sandbox_write_through_symlink_leaf;
+  "subtree-write-through-symlink-leaf", `Quick, test_subtree_write_through_symlink_leaf;
+  "sandbox-symlink-escape-write", `Quick, test_sandbox_symlink_escape_write;
+  "fs-missing-read-no-create", `Quick, test_fs_missing_read_no_create;
+  "fs-missing-stat-no-create", `Quick, test_fs_missing_stat_no_create;
+  "stat-directory", `Quick, test_stat_directory;
+  "stat-regular-file", `Quick, test_stat_regular_file;
+  "stat-symlink", `Quick, test_stat_symlink;
+  "rename", `Quick, test_rename;
+  "rename-unlink-open", `Quick, test_rename_unlink_open;
+  "rename-over-directory", `Quick, test_rename_over_dir;
+  "open-no-follow", `Quick, test_open_no_follow;
+  "eio-symlink", `Quick, test_eio_symlink;
+  "symlink-encoding", `Quick, test_symlink_encoding;
+  "unlink-symlink", `Quick, test_unlink_symlink;
+  "subtree-symlinks", `Quick, test_subtree_symlinks;
+  "no-follow-truncate", `Quick, test_no_follow_truncate;
+  "junction", `Quick, test_junction;
+  "trailing-symlink", `Quick, test_trailing_link ~junction:false;
+  "trailing-junction", `Quick, test_trailing_link ~junction:true;
+  "exclusive-symlink", `Quick, test_exclusive_symlink;
+  "absolute-directory-symlink", `Quick, test_absolute_directory_symlink;
+  "symlink-parent", `Quick, test_symlink_parent;
+  "literal-link-targets", `Quick, test_literal_link_targets;
+  "literal-entries", `Quick, test_literal_entries;
+  "invalid-link-targets", `Quick, test_invalid_link_targets;
+  "literal-symlink-parent", `Quick, test_literal_symlink_parent;
+  "unlink-delete-access", `Quick, test_unlink_delete_access;
+  "cwd-reparse", `Quick, test_cwd_reparse;
+  "unlink-handle", `Quick, test_unlink_handle;
+  "subtree-reparse-read", `Quick, test_subtree_reparse_read;
+  "subtree-reparse-symlink", `Quick, test_subtree_reparse_symlink;
+  "sandbox open uses one worker", `Quick, test_sandbox_open_worker;
+  "readdir-handle", `Quick, test_readdir_handle;
 ]
