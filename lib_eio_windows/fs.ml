@@ -125,6 +125,7 @@ end = struct
       let fd = open_path t ~sw ~follow:Follow path Flags.Open.synchronise Flags.Disposition.open_ Flags.Create.empty in
       Err.run realpath_fd fd
     )
+    else if path = "" then t.dir_path
     else path
 
   let with_parent_dir t path fn =
