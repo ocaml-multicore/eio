@@ -9,7 +9,7 @@ homepage: "https://github.com/ocaml-multicore/eio"
 doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
-  "dune" {>= "3.9"}
+  "dune" {>= "3.24"}
   "alcotest" {>= "1.7.0" & with-test}
   "eio" {= version}
   "mdx" {>= "2.4.1" & with-test}
@@ -17,7 +17,7 @@ depends: [
   "logs" {>= "0.7.0" & with-test}
   "fmt" {>= "0.8.9"}
   "cmdliner" {>= "1.1.0" & with-test}
-  "uring" {>= "2.15.1"}
+  "uring" {>= "2.15.2"}
   "odoc" {with-doc}
 ]
 build: [
@@ -34,6 +34,7 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
+x-maintenance-intent: ["(latest)"]
 available: [os = "linux"]
 x-extra-doc-deps: [
   "eio_main" {= version}

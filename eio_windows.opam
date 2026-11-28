@@ -9,7 +9,7 @@ homepage: "https://github.com/ocaml-multicore/eio"
 doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
-  "dune" {>= "3.9"}
+  "dune" {>= "3.24"}
   "eio" {= version}
   "fmt" {>= "0.8.9"}
   "kcas" {>= "0.3.0" & with-test}
@@ -30,6 +30,7 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
+x-maintenance-intent: ["(latest)"]
 available: [os = "win32"]
 x-extra-doc-deps: [
   "eio_main" {= version}
