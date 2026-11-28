@@ -67,11 +67,14 @@ let test_env env () =
   Alcotest.(check string) "env var" "bar" line
 
 let test_cwd env () =
+  let cd = ["cmd"; "/c"; "cd"] in
+  Alcotest.(check string) "env#fs as child cwd"
+    (run_out env cd) (run_out env ~cwd:(Eio.Stdenv.fs env) cd);
   let cwd = Eio.Stdenv.cwd env in
   let subdir = Eio.Path.(cwd / "proc-cwd-test") in
   Eio.Path.mkdir subdir ~perm:0o700;
   Fun.protect ~finally:(fun () -> Eio.Path.rmdir subdir) @@ fun () ->
-  let line = run_out env ~cwd:subdir ["cmd"; "/c"; "cd"] in
+  let line = run_out env ~cwd:subdir cd in
   Alcotest.(check string) "child cwd" "proc-cwd-test" (Filename.basename line)
 
 let test_missing_cwd env () =
