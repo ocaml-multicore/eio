@@ -185,7 +185,7 @@ let test_stop_on_cancel env () =
 
 let test_cancel_during_spawn env () =
   Switch.run @@ fun sw ->
-  let cwd = Eio.Path.(Eio.Stdenv.fs env / ".") in
+  let cwd = Eio.Stdenv.fs env in
   let spawn target =
     Process.spawn ~sw:target ~cwd (process env) ["nonexistent-executable-eio-test"]
   in
