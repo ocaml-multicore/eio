@@ -9,7 +9,7 @@ homepage: "https://github.com/ocaml-multicore/eio"
 doc: "https://ocaml-multicore.github.io/eio/"
 bug-reports: "https://github.com/ocaml-multicore/eio/issues"
 depends: [
-  "dune" {>= "3.9"}
+  "dune" {>= "3.24"}
   "ocaml" {>= "5.4.0"}
   "bigstringaf" {>= "0.9.0"}
   "cstruct" {>= "6.0.1"}
@@ -43,6 +43,7 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/ocaml-multicore/eio.git"
+x-maintenance-intent: ["(latest)"]
 x-extra-doc-deps: [
   "eio_main" {= version}
   "bigstring"
