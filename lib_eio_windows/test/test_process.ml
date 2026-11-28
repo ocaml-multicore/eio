@@ -183,6 +183,23 @@ let test_stop_on_cancel env () =
    with Exit -> ());
   Alcotest.check status "killed" (`Signaled Sys.sigkill) (Process.await (Option.get !child))
 
+let test_cancel_during_spawn env () =
+  Switch.run @@ fun sw ->
+  let cwd = Eio.Stdenv.fs env in
+  let spawn target =
+    Process.spawn ~sw:target ~cwd (process env) ["nonexistent-executable-eio-test"]
+  in
+  (* Resolving cwd suspends the spawning fiber before CreateProcess. *)
+  let pending = Switch.run (fun target -> Fiber.fork_promise ~sw (fun () -> spawn target)) in
+  Alcotest.check_raises "finished switch" (Invalid_argument "Switch finished!")
+    (fun () -> ignore (Promise.await_exn pending));
+  let context, set_context = Promise.create () in
+  let pending = Fiber.fork_promise ~sw (fun () ->
+      Eio.Cancel.sub (fun cc -> Promise.resolve set_context cc; spawn sw)) in
+  Eio.Cancel.cancel (Promise.await context) Exit;
+  Alcotest.check_raises "cancelled caller" (Eio.Cancel.Cancelled Exit)
+    (fun () -> ignore (Promise.await_exn pending))
+
 let test_spawn_failure env () =
   Switch.run @@ fun sw ->
   match Process.spawn ~sw (process env) ["nonexistent-executable-eio-test"] with
@@ -220,6 +237,7 @@ let tests env = [
   "signal-after-exit", `Quick, test_signal_after_exit env;
   "stop-on-switch-release", `Quick, test_stop_on_switch_release env;
   "stop-on-cancel", `Quick, test_stop_on_cancel env;
+  "cancel-during-spawn", `Quick, test_cancel_during_spawn env;
   "spawn-failure", `Quick, test_spawn_failure env;
   "argument-list-too-long", `Quick, test_argument_list_too_long env;
   "stress", `Slow, test_stress env;
